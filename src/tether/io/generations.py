@@ -47,8 +47,7 @@ __all__ = [
 #: this many pixels of a molecule of the previous generation of the same movie, the two
 #: being each other's closest such partner (one-to-one). It then keeps that molecule's
 #: ``molecule_key``, and its labels, category and analysis window are carried (ADR-0136;
-#: registered in PRD §11.2). Five quanta of the key (0.1 px, ADR-0016) and a sixteenth
-#: of the 8 px detection minimum separation, so two distinct molecules never compete.
+#: registered in PRD §11.2). Five quanta of the key (0.1 px, ADR-0016).
 GENERATION_MATCH_PX = 0.5
 
 #: The group under ``/generations`` that holds every generation no longer active.
@@ -56,6 +55,9 @@ ARCHIVE = "archive"
 
 _GROUP = "generations"
 _TABLE = "table"
+_LABEL_REVIEWS = "label_reviews"
+# A carried label has no eligible human event on this extraction yet.
+PENDING_LABEL_REVIEW = -1
 _TRACE_LAYERS = tuple(
     f"{channel}_{quantity}"
     for channel in ("donor", "acceptor")
@@ -312,13 +314,78 @@ def active_generation(project_path: str | Path, movie_id: str) -> Generation:
 
 
 def carried_molecule_keys(project_path: str | Path) -> set[str]:
-    """Return the ``molecule_key`` of every molecule whose labels were carried.
+    """Return the keys of active carry-overs waiting for human label confirmation.
 
-    Only the active generations count: a molecule keeps the mark "carried" until a new
-    generation of its movie is written without carrying it. A person confirming a
-    carried label is the reconciliation of #923.
+    The generation record preserves the original carry-overs even after confirmation.
     """
-    return {key for g in read_generations(project_path) if g.active for key in g.carried_keys}
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        pending = pending_label_ids_in(f)
+        if not pending:
+            return set()
+        molecules = f["molecules"][_TABLE]
+        return {
+            _text(key)
+            for mid, key in zip(molecules["molecule_id"], molecules["molecule_key"], strict=True)
+            if _text(mid) in pending
+        }
+
+
+def label_reviews_in(f: Any) -> dict[str, int]:
+    """Map carried molecule IDs to their last human event index or the pending mark.
+
+    The current generation records the original carry-overs by key. Explicit label
+    reviews bind to the fresh per-generation molecule ID and index into the project's
+    append-only label log. A movie-less subset records its inherited state directly.
+    """
+    latest = {_text(row["movie_id"]): row for row in _stored_rows(f)}
+    carried = {
+        key for row in latest.values() for key in json.loads(_text(row["carried_keys"]) or "[]")
+    }
+    states: dict[str, int] = {}
+    if carried:
+        molecules = f["molecules"][_TABLE]
+        states = {
+            _text(mid): PENDING_LABEL_REVIEW
+            for mid, key in zip(molecules["molecule_id"], molecules["molecule_key"], strict=True)
+            if _text(key) in carried
+        }
+    reviews = f.get(f"{_GROUP}/{_LABEL_REVIEWS}")
+    if reviews is not None:
+        states.update((_text(row["molecule_id"]), int(row["label_event"])) for row in reviews[:])
+    return states
+
+
+def pending_label_ids_in(f: Any) -> frozenset[str]:
+    """Read the IDs held out of supervised learning from an open project."""
+    return frozenset(
+        mid for mid, event in label_reviews_in(f).items() if event == PENDING_LABEL_REVIEW
+    )
+
+
+def pending_label_ids(project_path: str | Path) -> frozenset[str]:
+    """Read the IDs held out of supervised learning by a pending carry-over review."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        return pending_label_ids_in(f)
+
+
+def append_label_reviews(f: Any, events: Mapping[str, int]) -> None:
+    """Append reviews of carried labels without editing generation or label history."""
+    if not events:
+        return
+    import h5py  # noqa: PLC0415
+
+    dtype = np.dtype([("molecule_id", h5py.string_dtype("utf-8")), ("label_event", "<i8")])
+    group = f[_GROUP]
+    table = group.get(_LABEL_REVIEWS)
+    if table is None:
+        table = group.create_dataset(_LABEL_REVIEWS, shape=(0,), maxshape=(None,), dtype=dtype)
+    start = table.shape[0]
+    table.resize((start + len(events),))
+    table[start:] = np.array(list(events.items()), dtype=dtype)
 
 
 def _flags(group: Any, rows: slice, n_rows: int) -> np.ndarray:
@@ -421,9 +488,9 @@ def match_previous(
 ) -> np.ndarray:
     """For each new molecule, the previous molecule that "did not move", or ``-1``.
 
-    A pair is within ``match_px`` (Euclidean, inclusive, on the donor position). Pairs
-    are taken closest first, and each molecule is in at most one pair, so the result is
-    one-to-one; ties go to the lower previous, then the lower new, index. Deterministic.
+    A pair is within ``match_px`` (Euclidean, inclusive, on the donor position), and each
+    is the other's closest partner. Ties go to the lower partner index in the other
+    generation.
     """
     previous_xy = np.asarray(previous_xy, dtype=np.float64).reshape(-1, 2)
     new_xy = np.asarray(new_xy, dtype=np.float64).reshape(-1, 2)
@@ -445,12 +512,14 @@ def match_previous(
                     d = float(np.hypot(*(previous_xy[i] - new_xy[j])))
                     if d <= match_px:
                         pairs.append((d, i, j))
-    used: set[int] = set()
+    closest_new: dict[int, int] = {}
+    closest_previous: dict[int, int] = {}
     for _d, i, j in sorted(pairs):
-        if i in used or out[j] != -1:
-            continue
-        used.add(i)
-        out[j] = i
+        closest_new.setdefault(i, j)
+        closest_previous.setdefault(j, i)
+    for j, i in closest_previous.items():
+        if closest_new[i] == j:
+            out[j] = i
     return out
 
 

@@ -84,15 +84,16 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
 4. **"Did not move"** is a number: a new molecule within **0.5 px** (`GENERATION_MATCH_PX`, PRD
    §11.2) of a molecule of the previous generation, by `donor_xy` mapped back to the raw camera
    frame through each generation's own donor crop, rotation and flip (each `donor_xy` is in its
-   own donor sub-image, so a changed geometry would otherwise compare different places), the two
-   being each other's closest such partner, pairs taken closest first and one-to-one. 0.5 px is five quanta of the key
-   (0.1 px, ADR-0016) and a sixteenth of the 8 px detection minimum separation, so two distinct
-   molecules never compete for one partner. The value used is stored per generation (`match_px`),
+   own donor sub-image, so a geometry change can shift its origin). Measure Euclidean distance
+   inclusively and require each position to be the other's closest partner. Equal-distance
+   candidates resolve to the lower partner index in the other generation. The default is five
+   quanta of the key (0.1 px, ADR-0016). The value used is stored per generation (`match_px`),
    and `reextract_movie(match_px=…)` takes another.
 5. **Carried.** A molecule that did not move keeps the previous `molecule_key` (so the `/labels` log
    and every key-joined record still resolve to it), and its `curation_label`, `category` and
-   `analysis_window` (clipped to its frames) are copied; its key is listed in `carried_keys`, which
-   is the mark "carried" (`carried_molecule_keys`). The `condition_id` of the movie is kept when
+   `analysis_window` (clipped to its frames) are copied. The immutable `carried_keys` list records
+   that transfer. `carried_molecule_keys` reads the carry-overs still waiting for confirmation.
+   The `condition_id` of the movie is kept when
    every previous molecule had one: the condition is a property of the movie, not an input of the
    extraction, and a re-keyed condition is not lost. A molecule that moved, or is new, has a fresh
    key and no labels. When its position-derived key is one an earlier generation of the movie held
@@ -106,12 +107,14 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    through edges 5 to 10 by `mark_stale_in`, the store-path form of `set_stale_marks`, written into
    the staged copy so the marks are published with the generation. Edge 7's guard (the intensities
    of an α or γ contributor change) always holds: every trace of the movie is integrated again.
-7. **The ranker (§7.5) and a carried label.** A carried label is the same `/labels` row it was,
-   with its `source` and `weight`, so the ranker trains on it as before and orders the new
-   generation's molecules by features recomputed from the new traces. The label belongs to the
-   physical molecule, which the match says is the same one. The mark only tells a person that the
-   label was given on another generation's traces; confirming or changing it is the reconciliation
-   page of #923, and a change there is an ordinary new label row.
+7. **The ranker (§7.5) and a carried label.** A carried label waits for human confirmation
+   before it can train the ranker, count toward provisional-label decay, or serve as evaluation
+   ground truth. The ranker can still score the molecule on current features. An explicit human
+   accept or reject on the current extraction appends the ordinary `/labels/table` event and
+   links that event to the current `molecule_id` in `/generations/label_reviews`. This leaves the
+   prior label provenance and generation record intact. A clear restores the pending mark.
+   Non-human and imported events do not confirm a carried label. Each new extraction gets new
+   molecule IDs and requires its own review. The reconciliation page is #923.
 8. **The version.** `SCHEMA_VERSION` is 2. `_missing_skeleton` asks for `/generations/table` only
    of a file stamped 2 or newer (`_RICH_TABLES_SINCE`), so a file stamped 1 is a complete project
    and reads as generation 1 of each movie, with `recorded=False` and its inputs read from the movie
@@ -142,8 +145,8 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
 - Bad / trade-off: every archived generation keeps a full copy of its traces and patches, so the
   file grows with each re-extraction. Deleting an old generation is a later decision of the
   maintainer (#921, out of scope).
-- Trade-off: the subset export copies the active generation only, and its movies read as generation
-  1 there.
+- Trade-off: a movie-less subset gets the selected active rows and their carried-label review state.
+  It retains the label events for those rows and translates their review indexes into its own log.
 - Follow-up: the reconciliation page (#923); the GUI publish (#352), the background extraction
   (#354) and the extraction queue (#645) call `reextract_movie` for a movie the project holds.
 - Tests: `tests/test_trace_generations.py`, the backup-and-migrate test of oracle (f) among them; `scripts/dump_schema.py --check` with the regenerated
@@ -156,5 +159,5 @@ edges and its guard), [ADR-0126](0126-jobs-and-stale-marks-are-stored-in-the-pro
 inputs and marks), [ADR-0117](0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)
 (the append and its write-once rule), [ADR-0112](0112-every-publishing-writer-holds-its-destination-lock.md)
 (the staged publish), [ADR-0016](0016-extraction-trace-store-layout.md) (the positional join, the
-key and its quantum), [ADR-0005](0005-m0-schema-freeze.md) (the freeze). No scientific claim is
-made: the match distance is chosen from Tether's own key quantum and detection separation.
+key and its quantum), [ADR-0005](0005-m0-schema-freeze.md) (the freeze). The maintainer confirmed
+the default distance, mutual closest pairing and the training gate on 2026-11-20.

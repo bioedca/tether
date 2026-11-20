@@ -563,6 +563,13 @@ row-aligned arrays and the new generation's are appended **at the end**, so the 
 other movies move up but are not changed. An archive is written once and never changed or
 removed by an extraction.
 
+`/generations/label_reviews` is an optional append-only dataset. Each row stores the
+current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
+row index of a human accept or reject in `/labels/table`. A value of `-1` marks a
+carried label that is pending review after a clear or in an exported subset. The
+last review row for a molecule applies. A carry-over in `carried_keys` starts pending
+and stays out of supervised training until confirmed on the current extraction.
+
 ## `/traces` — the integrated intensity arrays
 
 Empty in a fresh store. **Up to six** datasets, named

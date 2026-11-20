@@ -621,24 +621,38 @@ def _copy_idealization(
     return written, skipped
 
 
-def _copy_labels(src: object, dst: object, selected_keys: set[str]) -> int:
-    """Copy the ``/labels`` provenance rows whose molecule is in the subset.
+def _copy_labels(src: object, dst: object, selected_keys: set[str], selected_ids: set[str]) -> int:
+    """Copy selected label events and their active generation review state.
 
     ``molecule_key`` travels so a labeled subset row always resolves to its canonical
     molecule on merge-back (§5.1/§7.10). Returns the number of label rows copied.
     """
+    from tether.io.generations import (  # noqa: PLC0415
+        PENDING_LABEL_REVIEW,
+        append_label_reviews,
+        label_reviews_in,
+    )
     from tether.io.schema import TABLE  # noqa: PLC0415
 
     labels = src["labels"][TABLE][()]
-    if labels.shape[0] == 0:
-        return 0
     mask = np.array([_to_str(k) in selected_keys for k in labels["molecule_key"]], dtype=bool)
     kept = labels[mask]
-    if kept.shape[0] == 0:
-        return 0
-    table = dst["labels"][TABLE]
-    table.resize((kept.shape[0],))
-    table[:] = kept
+    if kept.size:
+        table = dst["labels"][TABLE]
+        table.resize((kept.shape[0],))
+        table[:] = kept
+
+    reviews = label_reviews_in(src)
+    if reviews:
+        event_indices = {old: new for new, old in enumerate(np.flatnonzero(mask))}
+        append_label_reviews(
+            dst,
+            {
+                mid: event_indices.get(event, PENDING_LABEL_REVIEW)
+                for mid, event in reviews.items()
+                if mid in selected_ids
+            },
+        )
     return int(kept.shape[0])
 
 
@@ -837,7 +851,7 @@ def export_subset_tether(
                 # input trace layers present; labels join on molecule_key (the cross-file
                 # merge-back key, §5.1/§7.10) — deliberately different keys.
                 models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
-                n_labels = _copy_labels(src, dst, selected_keys)
+                n_labels = _copy_labels(src, dst, selected_keys, selected_ids)
                 _copy_verbatim_groups(src, dst)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.

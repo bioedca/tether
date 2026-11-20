@@ -230,6 +230,109 @@ def test_the_spots_that_did_not_move_keep_their_key_and_carry_their_labels(
     assert np.isnan(new.molecules["gamma"]).all()
 
 
+def test_carried_labels_train_only_after_a_human_reviews_the_current_extraction(
+    tmp_path: Path,
+) -> None:
+    from tether.project.condition_model import condition_training_set
+    from tether.project.export import export_subset_tether
+    from tether.project.features import compute_features
+    from tether.project.gbranking import weighted_training_set
+    from tether.project.ranking import ranking_dataset
+
+    project, movie_a, _ = _project_a_b(tmp_path)
+    movie_a_id, movie_b_id = _movie_ids(project)
+    a = read_generation(project, movie_a_id).molecules
+    b = read_generation(project, movie_b_id).molecules[0]
+    accept_key, reject_key, seed_key = [_text(key) for key in a["molecule_key"]]
+    other_key, other_id = _text(b["molecule_key"]), _text(b["molecule_id"])
+    condition = _text(b["condition_id"])
+    timestamp = "2026-01-01T00:00:00+00:00"
+    labels.accept(project, accept_key, labeler="original", timestamp=timestamp)
+    labels.reject(project, reject_key, labeler="original")
+    for key in (seed_key, other_key):
+        labels.set_curation_label(
+            project, key, labels.CurationLabel.ACCEPT, source=labels.LABEL_SOURCE_DEEPLASI
+        )
+    original = labels.read_labels(project)
+
+    _reextract(project, movie_a)
+    # A pending reject's missing features do not block the fit or affect seed decay.
+    compute_features(project, include_rejected=False)
+    training = weighted_training_set(project, w0=0.8)
+    assert training.molecule_ids == [other_id]
+    assert training.sample_weight.tolist() == [0.8]
+    assert condition_training_set([project], condition, w0=0.8).n_human == 0
+    assert ranking_dataset(project).is_good == {}
+    _assert_rows_equal(labels.read_labels(project), original)
+
+    # Reapplying the same label is an explicit review of this generation, even when
+    # the curator supplies the same timestamp. Old labels still live in the log.
+    labels.accept(project, accept_key, labeler="reviewer", timestamp=timestamp)
+    current = read_generation(project, movie_a_id)
+    accepted_id = _text(current.molecules["molecule_id"][0])
+    assert (
+        accept_key in current.generation.carried_keys
+        and accept_key not in carried_molecule_keys(project)
+    )
+    assert ranking_dataset(project).is_good == {accepted_id: True}
+    training = condition_training_set([project], condition, w0=0.8)
+    assert set(training.molecule_ids) == {other_id, accepted_id}
+    assert training.n_human == 1
+    assert dict(zip(training.molecule_ids, training.sample_weight, strict=True)) == {
+        other_id: 0.4,
+        accepted_id: 1.0,
+    }
+    _assert_rows_equal(labels.read_labels(project)[: len(original)], original)
+
+    subset = tmp_path / "confirmed-subset.tether"
+    export_subset_tether(project, subset, molecule_keys=[accept_key], include_raw=True)
+    compute_features(subset)
+    assert weighted_training_set(subset).molecule_ids == [accepted_id]
+    with h5py.File(subset, "r") as f:
+        review = f["generations/label_reviews"][0]
+        assert int(review["label_event"]) == 1
+        assert _text(f["labels/table"][1]["labeler"]) == "reviewer"
+
+    _reextract(project, movie_a)
+    compute_features(project)
+    assert weighted_training_set(project).molecule_ids == [other_id]
+
+
+def test_subset_preserves_the_confirmation_gate_and_merge_does_not_bypass_it(
+    tmp_path: Path,
+) -> None:
+    from tether.project.export import export_subset_tether
+    from tether.project.features import compute_features
+    from tether.project.gbranking import weighted_training_set
+    from tether.project.merge import merge_labels
+
+    project, movie_a, _ = _project_a_b(tmp_path)
+    movie_a_id, _ = _movie_ids(project)
+    key = _text(read_generation(project, movie_a_id).molecules["molecule_key"][0])
+    labels.accept(project, key, labeler="original")
+    old_subset = tmp_path / "old-subset.tether"
+    export_subset_tether(project, old_subset, molecule_keys=[key], include_raw=True)
+
+    _reextract(project, movie_a)
+    labels.accept(old_subset, key, labeler="contributor")
+    report = merge_labels(project, old_subset, recompute_weights=False)
+    assert report.appended == 1
+    compute_features(project)
+    assert weighted_training_set(project).n_train == 0
+    historical = labels.read_labels(project)
+
+    subset = tmp_path / "current-subset.tether"
+    export_subset_tether(project, subset, molecule_keys=[key], include_raw=True)
+    compute_features(subset)
+    assert weighted_training_set(subset).n_train == 0
+    labels.reject(subset, key, labeler="current reviewer")
+    assert weighted_training_set(subset).y.tolist() == [False]
+    _assert_rows_equal(labels.read_labels(subset)[: len(historical)], historical)
+    labels.unreject(subset, key)
+    assert carried_molecule_keys(subset) == {key}
+    assert weighted_training_set(subset).n_train == 0
+
+
 def test_a_spot_that_moved_gets_a_new_key_and_no_labels(tmp_path: Path) -> None:
     project, movie_a, _ = _project_a_b(tmp_path)
     movie_a_id, _ = _movie_ids(project)
@@ -342,7 +445,7 @@ def test_the_append_still_refuses_a_movie_the_project_holds(tmp_path: Path) -> N
         add_movie_to_project(project, movie_a, options=_options(), publish_guard=guard)
 
 
-def test_match_previous_is_one_to_one_closest_first() -> None:
+def test_match_previous_is_one_to_one() -> None:
     previous = np.array([[10.0, 10.0], [20.0, 20.0], [40.0, 40.0]])
     new = np.array([[10.3, 10.0], [10.1, 10.0], [20.0, 20.5], [41.0, 40.0]])
     assert match_previous(previous, new).tolist() == [-1, 0, 1, -1]
@@ -350,6 +453,18 @@ def test_match_previous_is_one_to_one_closest_first() -> None:
     assert match_previous(np.empty((0, 2)), new).tolist() == [-1] * 4
     with pytest.raises(ValueError, match="match_px"):
         match_previous(previous, new, match_px=-1.0)
+
+
+def test_match_previous_does_not_assign_a_second_choice() -> None:
+    previous = np.array([[0.0, 0.0], [0.6, 0.0]])
+    new = np.array([[0.1, 0.0], [0.27, 0.0]])
+    assert match_previous(previous, new).tolist() == [0, -1]
+
+
+def test_match_previous_breaks_equal_distances_by_partner_index() -> None:
+    previous = np.array([[0.0, 0.0], [1.0, 0.0]])
+    new = np.array([[0.5, 0.0], [0.0, 0.5]])
+    assert match_previous(previous, new).tolist() == [0, -1]
 
 
 @pytest.mark.parametrize(

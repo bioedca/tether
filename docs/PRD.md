@@ -773,7 +773,7 @@ re-queue; live unseen-tail re-ranking is a deferred opt-in.
 **Reject semantics.** A reject (single or opt-in threshold-reject) is a **reversible tag**, never a deletion: the
 molecule is excluded from default histograms/idealization through a **toggleable filter**, kept in a visible
 "rejected" bin, one-click un-rejectable, with **undo + confirmation** on bulk threshold-reject, and the reject
-**carries across files** as a sticky exclusion (and as an ML training label). This honors "never silently drop."
+**carries across files** as a sticky exclusion. When eligible, it is also an ML training label.
 
 The model **shall** be **per-condition, persistent, and incrementally retrained**: a standalone, portable artifact
 (not trapped in one experiment file) following the loop in UC3 (load → curate one video → warm-start-retrain →
@@ -794,6 +794,11 @@ human-vs-human disagreement on the same molecule surfaces through a §7.4-style 
 informative next traces (surfaced as the non-reordering badge above). A later deep phase (1-D CNN/LSTM on raw
 traces, DeepFRET/Deep-LASI-style [Thomsen2020]) **shall** reuse the same label store on the GPU (RTX 4060 floor,
 §8).
+
+A label carried from an earlier extraction (§7.1) becomes eligible for training and
+evaluation after a human accepts or rejects the current extraction. While review is
+pending, its weight is zero and it does not count toward provisional-label decay.
+The label history and the molecule's place in the ranked candidates are preserved.
 
 ### 7.6 FR-ANNOTATE — Annotation & conditions
 
@@ -1635,7 +1640,7 @@ this section.
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
 | Integration | Sum (top-hat): I = TOT − bg·N_psf | `deeplasi/functions/traces/extractTracesC.m:20-33` |
 | Molecule-key quantization | 0.1 px (`donor_xy` quantized before the cross-file content hash `molecule_key`) | Tether (§5.1/§7.10; below the 8 px detection min-separation so no collision; ADR-0016) |
-| Trace-generation match distance (`GENERATION_MATCH_PX`) | 0.5 px — a molecule of a new trace generation "did not move" when its `donor_xy`, mapped back to the raw camera frame through each generation's donor crop, rotation and flip, is within this distance of a molecule of the movie's previous generation, the two being each other's closest such partner (one-to-one, closest first); it then keeps that `molecule_key` and its label, category and analysis window are carried. Recorded per generation as `/generations.match_px`; `reextract_movie(match_px=…)` | Tether (#921, ADR-0136); five key quanta and 1/16 of the 8 px detection min-separation |
+| Trace-generation match distance (`GENERATION_MATCH_PX`) | 0.5 px — compare `donor_xy` in the raw camera frame with an inclusive Euclidean radius. Both positions must be each other's closest partner. Equal distances resolve to the lower partner index. A match keeps its `molecule_key` and carries the label, category and analysis window. Recorded per generation as `/generations.match_px` and configurable in `reextract_movie(match_px=…)`. | Tether (#921, ADR-0136); five key quanta |
 | Registration prealign | phase-correlation, 4-DOF similarity (translation, S5a; rotation+scale via Fourier-Mellin log-polar, S5b, ADR-0012/ADR-0013); sub-pixel `upsample_factor` = 10; band-pass `low_sigma` = 1 / `high_sigma` = 20 px (S5b; low cut 3 → 1 px, ADR-0089) | `deeplasi/functions/mapping/createMapPhaseCorr.m:6-16`; [Crocker1996] (bandpass alt.); `upsample_factor` / `low_sigma` / `high_sigma` = `skimage.registration.phase_cross_correlation` + `skimage.filters.difference_of_gaussians` (ADR-0013, ADR-0089) |
 | NN pairing tolerance | 2 px (fit on original, un-prealigned coords); 4 px legacy | `deeplasi/functions/mapping/findPairs.m:15-24`, `createMap.m:53` |
 | Polynomial map degree | 2 (retry 3; similarity fallback if < ~6 points); 4 legacy | `deeplasi/functions/mapping/createMapPhaseCorr.m:20-47`, `createMap.m:57-58` |

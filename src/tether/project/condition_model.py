@@ -231,7 +231,10 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
     )
     from tether.project.labels import read_labels  # noqa: PLC0415
     from tether.project.ranking import ranking_dataset  # noqa: PLC0415
-    from tether.project.weighting import human_counts_by_condition  # noqa: PLC0415
+    from tether.project.weighting import (  # noqa: PLC0415
+        human_counts_by_condition,
+        training_curation_codes,
+    )
 
     try:
         data = ranking_dataset(path)
@@ -244,17 +247,21 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
         _to_str(key): _to_str(cond)
         for key, cond in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
     }
-    _require_featured_human_labels(path, molecules, data.molecule_keys, condition_id)
-    n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
-    n_human = human_counts_by_condition(molecules["condition_id"], molecules["curation_label"]).get(
-        condition_id, 0
+    pending = data.pending_label_ids
+    _require_featured_human_labels(
+        path, molecules, data.molecule_keys, condition_id, pending=pending
     )
+    n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
+    eligible = training_curation_codes(
+        molecules["molecule_id"], molecules["curation_label"], pending
+    )
+    n_human = human_counts_by_condition(molecules["condition_id"], eligible).get(condition_id, 0)
 
     idx: list[int] = []
     labels: list[bool] = []
     human: list[bool] = []
     for i, key in enumerate(data.molecule_keys):
-        if condition_by_key.get(key) != condition_id:
+        if condition_by_key.get(key) != condition_id or data.molecule_ids[i] in pending:
             continue
         code = int(data.curation_label[i])
         if code != _UNCURATED:
