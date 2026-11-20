@@ -69,9 +69,9 @@ milestone's acceptance criteria and issues on GitHub.
   missing metadata, the source registry, the import page, and `tether import`.
 
 [M18 - Validation & multi-OS release acceptance](https://github.com/bioedca/tether/milestone/20)
-**cuts the `v1.0.0` tag** after M12 through M17 and the pre-tag work in M20 are complete.
-It binds one evidence artifact for each validation oracle to the release commit and
-records installer passes on three clean machines, one each for Windows, macOS, and Linux.
+**cuts the `v1.0.0` tag** once M12 through M17 and M20's pre-tag work are complete.
+M18 binds one evidence artifact per validation oracle to the release commit. It records
+installer passes on three clean machines, one each for Windows, macOS, and Linux.
 The milestones above set no other order among themselves.
 
 Two open milestones do not block the tag.
