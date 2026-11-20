@@ -553,7 +553,7 @@ class Keymap:
             raise KeymapError(
                 f"the file is not valid JSON at line {exc.lineno}, column {exc.colno}"
             ) from None
-        except ValueError as exc:  # e.g. a number too long to convert
+        except (ValueError, RecursionError) as exc:  # a number too long or JSON nested too deeply
             raise KeymapError(f"the file is not valid JSON: {exc}") from None
         km = cls.from_dict(data)
         if defaults is not None:

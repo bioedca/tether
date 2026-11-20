@@ -58,14 +58,10 @@ def chord_label(key: int, modifiers: int = 0) -> str:
     return QtGui.QKeySequence(_as_int(key) | _as_int(modifiers)).toString(native)
 
 
-def editable_commands(defaults: Keymap) -> list[Command]:
-    """Return the commands the editor lists: every default command but the reserved no-op.
-
-    Ordered like the cheat-sheet, the category slots by number.
-    """
-    commands = {
-        cmd for cmd in defaults.bindings.values() if cmd.action is not CurationAction.RESERVED
-    }
+def editable_commands(defaults: Keymap, *saved: Keymap) -> list[Command]:
+    """List default and saved commands in cheat-sheet order, except the reserved no-op."""
+    commands = {cmd for keymap in (defaults, *saved) for cmd in keymap.bindings.values()}
+    commands.discard(Command(CurationAction.RESERVED))
     return sorted(
         commands,
         key=lambda cmd: (_ACTION_ORDER.get(cmd.action, len(_ACTION_ORDER)), cmd.arg or 0),
@@ -95,7 +91,7 @@ class KeymapEditor:
 
         self._working = Keymap(dict(keymap.bindings))
         self._defaults = Keymap.default()
-        self._commands = editable_commands(self._defaults)
+        self._commands = editable_commands(self._defaults, self._working)
         self._taken = dict(taken or {})
         self._unavailable = frozenset(unavailable)
         self._on_save = on_save
@@ -320,9 +316,13 @@ class KeymapEditor:
         if command is None:
             return False
         self._clear_pending()
+        wanted = self._defaults.chords_for(command)
+        if not wanted:
+            self._message.setText(f"“{action_description(command)}” has no default key.")
+            return False
         blocker = self._working.restore_default(command, self._defaults)
         if blocker is not None:
-            keys = ", ".join(chord_label(*c) for c in sorted(self._defaults.chords_for(command)))
+            keys = ", ".join(chord_label(*c) for c in sorted(wanted))
             self._message.setText(
                 f"The default key {keys} is now used by “{action_description(blocker)}”. "
                 "Give that action another key first, or restore all defaults."

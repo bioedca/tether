@@ -205,6 +205,24 @@ def test_a_binding_changed_in_the_editor_acts_at_once_and_after_a_restart(
 
 @pytest.mark.gui
 @_needs_qt
+def test_a_loaded_command_without_a_default_can_be_rebound(launch, tmp_path) -> None:
+    key, _ = _qt()
+    path = tmp_path / "keymap.json"
+    command = Command(A.UNREJECT)
+    Keymap({(_KEY_A, 0): command}).save(path)
+    shell = launch(path)
+    editor = shell.show_keymap_editor()
+    editor.select(command)
+    assert editor.restore_selected() is False
+    assert "has no default key" in editor.message
+    assert editor.propose(key.Key_B) is None
+    assert editor.assign()
+    editor.save()
+    assert Keymap.load(path).command_for(key.Key_B) == command
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_two_commands_cannot_share_one_key(launch) -> None:
     key, _ = _qt()
     shell = launch()
@@ -356,6 +374,7 @@ def test_a_rebound_bare_key_still_types_in_the_category_field(launch) -> None:
     "content",
     [
         "{not json",
+        pytest.param("[" * 10000 + "]" * 10000, id="nested-json"),
         json.dumps({"bindings": [_row(0x43, "accept")]}),
         json.dumps({"bindings": [_row(0x20, "accept"), _row(0x20, "next")]}),
     ],
