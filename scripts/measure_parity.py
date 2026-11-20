@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -187,6 +188,17 @@ def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
         return _validated_build(probed)
     except Exception as exc:
         return _unrecorded_build(_sanitized_probe_error(exc, sidecar_python))
+
+
+def _replace_nonfinite(value: object) -> object:
+    """Keep JSON evidence with null slots for non-finite measurements."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _replace_nonfinite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_nonfinite(item) for item in value]
+    return value
 
 
 def main() -> int:
@@ -353,9 +365,18 @@ def main() -> int:
             "pooled_worst": {"transition_matrix_abs_delta": term.worst},
             "spread_by_fixture": transition_by_fixture,
         }
+        if ceiling is None:
+            out["transition_matrix"]["freeze_status"] = "not_frozen"
+
+    # A rejected population fit can also have non-finite four-bound metrics.
+    # Prepare all of its evidence for strict JSON without changing the freeze inputs.
+    strict = bool(transition_by_fixture)
+    artifact = _replace_nonfinite(out) if strict else out
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    out_path.write_text(
+        json.dumps(artifact, indent=2, allow_nan=not strict) + "\n", encoding="utf-8"
+    )
     print(f"\nFROZEN tolerance -> {out_path}")
     print(json.dumps(tolerance, indent=2))
     return 0
