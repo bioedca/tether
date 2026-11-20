@@ -179,7 +179,7 @@ class MovieSource(Protocol):
     def read_frames(self, start: int, stop: int) -> np.ndarray:
         """Return frames ``start`` to ``stop - 1``; ``0 <= start <= stop <= n_frames``.
 
-        Raise [`IndexError`][] when the range is outside that bound.
+        Raise `IndexError` when the range is outside that bound.
         """
         ...
 
