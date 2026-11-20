@@ -47,8 +47,8 @@ The stable v1.0.0 scope is:
 
 ## Next planned work
 
-The open milestones before stable `v1.0.0` are these. Each one links to its GitHub
-milestone, which holds its acceptance criteria and its issues.
+The work planned before stable `v1.0.0` spans these milestones. Each link leads to the
+milestone's acceptance criteria and issues on GitHub.
 
 - [M12 - Project data model & write safety](https://github.com/bioedca/tether/milestone/14)
   gives one notion of file identity, a destination lock, and the multi-movie append. The
@@ -69,10 +69,10 @@ milestone, which holds its acceptance criteria and its issues.
   missing metadata, the source registry, the import page, and `tether import`.
 
 [M18 - Validation & multi-OS release acceptance](https://github.com/bioedca/tether/milestone/20)
-comes after all of these and **cuts the `v1.0.0` tag**. It binds one evidence artifact for
-each validation oracle to the release commit. It also records installer passes on three
-clean machines, one each for Windows, macOS, and Linux. The milestones above set no other
-order among themselves.
+**cuts the `v1.0.0` tag** after M12 through M17 and the pre-tag work in M20 are complete.
+It binds one evidence artifact for each validation oracle to the release commit and
+records installer passes on three clean machines, one each for Windows, macOS, and Linux.
+The milestones above set no other order among themselves.
 
 Two open milestones do not block the tag.
 [M19 - Regression and benchmark suite](https://github.com/bioedca/tether/milestone/21)
