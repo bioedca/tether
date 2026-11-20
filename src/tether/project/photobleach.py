@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Populate per-molecule photobleach frames + auto analysis window (PRD §7.2).
 
-Runs the native single-step detector (:mod:`tether.fret.photobleach`) over a
+Runs the native single-step detector ([`tether.fret.photobleach`][]) over a
 project's stored intensity traces and writes, into the **already-frozen**
 ``/molecules`` fields (schema-guard stays green — no structural change):
 
@@ -13,7 +13,10 @@ project's stored intensity traces and writes, into the **already-frozen**
   (Appendix B step 6 / §11.2), written **only where the window still equals the
   extraction default** (``analysis_window == frame_range``). A window a curator
   has already narrowed (``!= frame_range``) is a manual override and is left
-  untouched — manual bounds win over the auto default.
+  untouched — manual bounds win over the auto default. A changed window of a row
+  ``/features/table`` holds deletes that table first
+  (``tether.project.features.invalidate_features``), since its features were sliced
+  to the old window.
 
 Detection runs on the **background-subtracted** (``corrected``) traces by
 default: tMAVEN's model detects a decay to ``N(0)``, which only holds once the
@@ -23,8 +26,8 @@ consumes via ``analysis_window`` (histograms, cross-correlation, idealization),
 so no read path changes.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
-:func:`tether.project.labels.set_curation_label` (this is a low-level ``r+``
-writer; the :class:`~tether.project.core.Project` facade / batch runner holds the
+[`tether.project.labels.set_curation_label`][] (this is a low-level ``r+``
+writer; the [`Project`][tether.project.core.Project] facade / batch runner holds the
 lock).
 """
 
@@ -54,7 +57,7 @@ _TRACES = "traces"
 
 @dataclass(frozen=True)
 class PhotobleachSummary:
-    """Outcome of a :func:`compute_photobleach` pass.
+    """Outcome of a [`compute_photobleach`][] pass.
 
     Attributes
     ----------
@@ -77,6 +80,10 @@ class PhotobleachSummary:
     intensity_quantity: str
 
 
+def _to_str(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
 def compute_photobleach(
     project_path: str | Path,
     *,
@@ -86,6 +93,7 @@ def compute_photobleach(
     beta: float = PB_PRIOR_BETA,
     mu: float = PB_PRIOR_MU,
     write_guard: Callable[[], None] | None = None,
+    movie_id: str | None = None,
 ) -> PhotobleachSummary:
     """Detect per-channel photobleaching and store frames + the auto window.
 
@@ -102,6 +110,10 @@ def compute_photobleach(
     write_guard
         Optional caller-owned lock/lease check invoked before opening the canonical
         project and again after detection immediately before persisting results.
+    movie_id
+        Restrict detection to the molecules of this ``/movies`` row; every other
+        row keeps its stored ``bleach_frames`` and ``analysis_window`` and is not
+        counted. ``None`` (default) examines every molecule (#347, ADR-0117).
 
     Returns
     -------
@@ -117,6 +129,11 @@ def compute_photobleach(
     """
     import h5py  # noqa: PLC0415
 
+    from tether.project.features import (  # noqa: PLC0415
+        WINDOW_WRITE_GUARD,
+        invalidate_features,
+    )
+
     if intensity_quantity not in INTENSITY_QUANTITY_LAYERS:
         raise ValueError(
             f"intensity_quantity must be one of {sorted(INTENSITY_QUANTITY_LAYERS)}, "
@@ -129,23 +146,33 @@ def compute_photobleach(
     n_donor = 0
     n_acceptor = 0
     n_windows = 0
+    changed_ids: set[str] = set()
 
     if write_guard is not None:
         write_guard()
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
             if layer not in traces_grp:
                 raise KeyError(f"project has no /traces/{layer}; run extraction first")
-        donor_all = traces_grp[donor_layer][:]
-        acceptor_all = traces_grp[acceptor_layer][:]
+        # A whole-project pass reads each layer once. A pass scoped to one movie reads
+        # only that movie's rows from the open datasets, so an append's memory use grows
+        # with the appended acquisition and not with the project (#347).
+        donor_all = traces_grp[donor_layer]
+        acceptor_all = traces_grp[acceptor_layer]
+        if movie_id is None:
+            donor_all = donor_all[:]
+            acceptor_all = acceptor_all[:]
 
         table = f[_MOLECULES][TABLE][:]  # a full copy; only two columns are mutated
         frame_range = table["frame_range"]
         analysis_window = table["analysis_window"]
         bleach_frames = table["bleach_frames"]
 
+        movie_ids = table["movie_id"]
         for i in range(table.shape[0]):
+            if movie_id is not None and _decode(movie_ids[i]) != movie_id:
+                continue  # another movie's molecule: outside this pass (#347)
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
                 continue  # no valid native frames — leave the -1 sentinel
@@ -175,10 +202,15 @@ def compute_photobleach(
             )
             if still_default and sum_pb > start:
                 analysis_window[i] = (start, sum_pb)
-                n_windows += int(sum_pb < end)
+                if sum_pb < end:  # == end rewrites the same window: nothing changed
+                    n_windows += 1
+                    changed_ids.add(_to_str(table["molecule_id"][i]))
 
         if write_guard is not None:
             write_guard()
+        # Drop a feature cache sliced to the old windows before the new ones land, so a
+        # crash between the two costs a recompute, never features from stale frames.
+        invalidate_features(f, changed_ids)
         f[_MOLECULES][TABLE][:] = table
 
     return PhotobleachSummary(
@@ -188,3 +220,7 @@ def compute_photobleach(
         n_windows_autoset=n_windows,
         intensity_quantity=intensity_quantity,
     )
+
+
+def _decode(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)

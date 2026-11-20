@@ -635,6 +635,11 @@ def _registry() -> list[_Entry]:
         # Batch over-gate policy (the row names no constant, only its module).
         (("tether.project.batch",), module_constant("tether.project.batch", "POLICY_WARN")),
         # Photobleaching priors.
+        # Bead-map minimum spots per channel half (#915).
+        (
+            ("DEFAULT_MIN_BEAD_SPOTS",),
+            module_constant("tether.imaging.beadmap", "DEFAULT_MIN_BEAD_SPOTS"),
+        ),
         (("PB_PRIOR_A",), module_constant("tether.fret.photobleach", "PB_PRIOR_A")),
         (("PB_PRIOR_B",), module_constant("tether.fret.photobleach", "PB_PRIOR_B")),
         (("PB_PRIOR_BETA",), module_constant("tether.fret.photobleach", "PB_PRIOR_BETA")),
@@ -681,6 +686,10 @@ def _registry() -> list[_Entry]:
         (
             ("DEFAULT_GAMMA_HALF_WINDOW",),
             module_constant("tether.fret.gamma", "DEFAULT_GAMMA_HALF_WINDOW"),
+        ),
+        (
+            ("DEFAULT_MIN_CLEAN_STEP_FRACTION",),
+            module_constant("tether.fret.gamma", "DEFAULT_MIN_CLEAN_STEP_FRACTION"),
         ),
         # Idealization.
         (("MODEL_TYPE_DEFAULT",), module_constant("tether.project.idealize", "MODEL_TYPE_DEFAULT")),
@@ -879,6 +888,15 @@ def _registry() -> list[_Entry]:
             ("DEFAULT_TDP_SIGNAL_RANGE",),
             module_constant("tether.analysis.tdp", "DEFAULT_TDP_SIGNAL_RANGE"),
         ),
+        (("DEFAULT_TDP_SMOOTH",), module_constant("tether.analysis.tdp", "DEFAULT_TDP_SMOOTH")),
+        (
+            ("DEFAULT_TDP_INTERP_RES",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_INTERP_RES"),
+        ),
+        (
+            ("DEFAULT_TDP_NORMALIZE",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_NORMALIZE"),
+        ),
         (("DEFAULT_DWELL_NBINS",), module_constant("tether.analysis.dwell", "DEFAULT_DWELL_NBINS")),
         (
             ("DEFAULT_TPROB_NBINS",),
@@ -1002,6 +1020,38 @@ def _registry() -> list[_Entry]:
         (
             ("alpha", "in_grid_only"),
             function_default("tether.analysis.cloud", "alpha_shape", "alpha"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_GRID_POINTS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_GRID_POINTS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_RANGE",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_RANGE"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_BANDWIDTH",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_BANDWIDTH"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_HDR_COVERAGES",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_HDR_COVERAGES"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_N_CENTROIDS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_N_CENTROIDS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_SEED",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_SEED"),
         ),
         (
             ("DEFAULT_ANTICORR_WINDOW",),
@@ -1231,7 +1281,7 @@ def test_documented_default_matches_the_code(claim: Claim) -> None:
         )
 
 
-# The ten ExtractOptions fields that `tether extract` exposes as flags. The page says
+# The eleven ExtractOptions fields that `tether extract` exposes as flags. The page says
 # that for these "the command line is the **only** surface".
 _EXTRACT_FLAG_FIELDS = {
     "--donor-side": "donor_side",
@@ -1244,13 +1294,14 @@ _EXTRACT_FLAG_FIELDS = {
     "--pair-tol": "pair_tol",
     "--rms-gate": "rms_gate",
     "--coloc-distance": "coloc_distance",
+    "--colocalization": "colocalization",
 }
 
 
 def test_each_extract_flag_default_is_the_dataclass_default() -> None:
     """The default a CLI run applies is the ``ExtractOptions`` default this page prints.
 
-    The registry above reads these ten defaults from the dataclass, but on the only
+    The registry above reads these eleven defaults from the dataclass, but on the only
     surface that sets them the dataclass default is never used: ``tether.cli`` repeats
     each one as an argparse literal, and ``_run_extract`` always passes the argparse
     value into ``ExtractOptions(...)``. A changed literal therefore changed every CLI
@@ -1398,6 +1449,7 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
 #: ``tether.fret.photobleach``) -- so it is written here, and verified by the resolvers.
 _CONSTANT_BACKED_SURFACES = [
     ("tether.analysis.histogram", "model_gaussian_overlay", "n_points", "DEFAULT_OVERLAY_POINTS"),
+    ("tether.imaging.beadmap", "bead_map", "min_bead_spots", "DEFAULT_MIN_BEAD_SPOTS"),
     (
         "tether.analysis.histogram",
         "population_model_gaussian_overlay",
@@ -1431,6 +1483,54 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.analysis.cloud", "k_rmse_elbow", "restarts", "DEFAULT_ELBOW_RESTARTS"),
     ("tether.analysis.cloud", "k_rmse_elbow", "seed", "DEFAULT_ELBOW_SEED"),
     ("tether.analysis.cloud", "raw_fret_cloud", "time_dt", "DEFAULT_CLOUD_TIME_DT"),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "grid_points",
+        "DEFAULT_SUCCESSIVE_GRID_POINTS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "value_range",
+        "DEFAULT_SUCCESSIVE_RANGE",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "bandwidth",
+        "DEFAULT_SUCCESSIVE_BANDWIDTH",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "hdr_coverages",
+        "DEFAULT_SUCCESSIVE_HDR_COVERAGES",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "n_centroids",
+        "DEFAULT_SUCCESSIVE_N_CENTROIDS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "kmeans_restarts",
+        "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "kmeans_max_iter",
+        "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "seed",
+        "DEFAULT_SUCCESSIVE_SEED",
+    ),
     ("tether.analysis.dwell", "DwellTimeAnalysis.histogram", "nbins", "DEFAULT_DWELL_NBINS"),
     ("tether.analysis.dwell", "population_dwell_times", "ci_level", "DEFAULT_DWELL_CI_LEVEL"),
     ("tether.analysis.dwell", "population_dwell_times", "dt", "DEFAULT_DWELL_DT"),
@@ -1482,6 +1582,12 @@ _CONSTANT_BACKED_SURFACES = [
     (
         "tether.project.gamma",
         "compute_gamma",
+        "min_clean_step_fraction",
+        "DEFAULT_MIN_CLEAN_STEP_FRACTION",
+    ),
+    (
+        "tether.project.gamma",
+        "compute_gamma",
         "min_qualifying_traces",
         "DEFAULT_MIN_QUALIFYING_TRACES",
     ),
@@ -1509,6 +1615,12 @@ _CONSTANT_BACKED_SURFACES = [
     (
         "tether.project.prequential",
         "ranker_prequential_uplift",
+        "ship_bar_pts",
+        "DEFAULT_SHIP_BAR_PTS",
+    ),
+    (
+        "tether.project.prequential",
+        "ranker_leave_one_video_out_uplift",
         "ship_bar_pts",
         "DEFAULT_SHIP_BAR_PTS",
     ),
@@ -1556,6 +1668,15 @@ tether.analysis.cloud
     raw_fret_cloud signal_bins DEFAULT_CLOUD_SIGNAL_BINS
     raw_fret_cloud signal_range DEFAULT_CLOUD_SIGNAL_RANGE
     raw_fret_cloud time_bins DEFAULT_CLOUD_TIME_BINS
+tether.analysis.successive
+    population_successive_frame_cloud bandwidth DEFAULT_SUCCESSIVE_BANDWIDTH
+    population_successive_frame_cloud grid_points DEFAULT_SUCCESSIVE_GRID_POINTS
+    population_successive_frame_cloud hdr_coverages DEFAULT_SUCCESSIVE_HDR_COVERAGES
+    population_successive_frame_cloud kmeans_max_iter DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER
+    population_successive_frame_cloud kmeans_restarts DEFAULT_SUCCESSIVE_KMEANS_RESTARTS
+    population_successive_frame_cloud n_centroids DEFAULT_SUCCESSIVE_N_CENTROIDS
+    population_successive_frame_cloud seed DEFAULT_SUCCESSIVE_SEED
+    population_successive_frame_cloud value_range DEFAULT_SUCCESSIVE_RANGE
 tether.analysis.dwell
     fit_survival ci_level DEFAULT_DWELL_CI_LEVEL
 tether.analysis.histogram
@@ -1597,6 +1718,9 @@ tether.analysis.tdp
     population_transition_density nskip DEFAULT_TDP_NSKIP
     population_transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     population_transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
+    smooth_transition_density interp_res DEFAULT_TDP_INTERP_RES
+    smooth_transition_density normalize DEFAULT_TDP_NORMALIZE
+    smooth_transition_density smooth DEFAULT_TDP_SMOOTH
     transition_density nskip DEFAULT_TDP_NSKIP
     transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
@@ -1614,6 +1738,7 @@ tether.fret.gamma
     estimate_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     estimate_gamma min_qualifying_traces DEFAULT_MIN_QUALIFYING_TRACES
     estimate_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+    few_clean_steps min_fraction DEFAULT_MIN_CLEAN_STEP_FRACTION
     trace_gamma ceiling GAMMA_CEILING
     trace_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     trace_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
@@ -1671,6 +1796,7 @@ tether.ml.deep.model
 tether.ml.drift
     condition_drift alpha DEFAULT_DRIFT_ALPHA
 tether.ml.prequential
+    leave_one_video_out_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
     prequential_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
 tether.project.core
     Project.idealize timeout DEFAULT_SIDECAR_TIMEOUT

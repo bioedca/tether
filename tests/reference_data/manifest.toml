@@ -2487,3 +2487,128 @@ tier = "git"
 extract_of = ["mashfret-group-iib-intron-archive"]
 extract_script = "scripts/make_mashfret_fixture.py"
 citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+[[dataset]]
+id = "mashfret-ed135e-30mm-path-a"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "tests/fixtures/mashfret_ed135e_30mm_path_a.mat"
+size = 204676
+sha256 = "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79"
+tier = "git"
+extract_of = ["mashfret-group-iib-intron-archive"]
+extract_script = "scripts/make_mashfret_fixture.py"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+# --- Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105) -----
+# Values computed by FRET_cloud_contours_centroids.m (FRET_cloud scripts, Eduardo Campos Chavez,
+# 2025, unpublished; pinned by SHA-256 in scripts/reference/matlab/pins.toml, not vendored) from
+# the GPL-3.0-only traces above, so GPL-3.0-only. provenance.json is the harness record.
+
+[[dataset]]
+id = "fret-cloud-centroids-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv"
+size = 162
+sha256 = "1fecb09c8fa5ad4c85f23a5a71738fc9b7b99810315741201fbae3847af3b58b"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-density-h5"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5"
+size = 324992
+sha256 = "c20de959914d6048de0fb353cc5ad2d9cef416dfeee58c00acbab6d339a82086"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-files-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv"
+size = 1051
+sha256 = "46146dcd4cc8fe1f5b1c2254621abe58b48cef453d364607c9d9281003ee63cd"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-pairs-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv"
+size = 151259
+sha256 = "1841fc6e2696c916a32ed6cf376a194dc91557e51373d8a8970962a66889e8a0"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-provenance-json"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json"
+size = 8093
+sha256 = "a0ffb4a449bd04c8cddec37e17b3f6e8f9a6421ae166de13b56cd9bc5720891e"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-thresholds-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv"
+size = 352
+sha256 = "b5574055afb1a7dd2d65769bd1cebf41ac3b718e12c4ba2dbdb98500fec9dbfc"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-toolbox-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv"
+size = 74
+sha256 = "1d3fdcfd927cd384fadfe9cc3cbf90f4de0c71ed50cdd7cf8ae12aeffa385a50"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+# --- Weninger laboratory, trinucleotide-repeat hairpins: Zenodo 10.5281/zenodo.7853531 (a copy of
+# Dryad doi:10.5061/dryad.ht76hdrkc), CC0-1.0 (#798). The archive is too large for the download
+# tier, so it is a workstation record at its path below the data folder; no workstation check
+# reads it yet. One .traces movie of it, read by HTTP range requests, is committed verbatim. ----
+
+[[dataset]]
+id = "weninger-hairpin-traces"
+source = "doi:10.5281/zenodo.7853531"
+record_url = "https://zenodo.org/records/7853531"
+license = "CC0-1.0"
+file = "zenodo-7853531/10072022_All_hairpin_traces.zip"
+size = 891884203
+sha256 = "f42a3b23f4912fa7e25fdf8904f6d4fba264d47bbec2ea23d2ed7f6f37189044"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
+
+[[dataset]]
+id = "weninger-hairpin-cascade110"
+source = "doi:10.5281/zenodo.7853531"
+record_url = "https://zenodo.org/records/7853531"
+license = "CC0-1.0"
+file = "tests/fixtures/weninger_hairpin/cascade110.traces"
+size = 47094
+sha256 = "504226b25a5ff895a361b4739c2f55f4163ae00dfc0219f9b868a4be84d11513"
+tier = "git"
+extract_of = ["weninger-hairpin-traces"]
+extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
+citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Light and dark window themes from one set of colour tokens (#675, PRD §7.3).
 
-This is the only module under :mod:`tether.gui` that holds colour values. Every
+This is the only module under [`tether.gui`][] that holds colour values. Every
 other GUI module asks it for a colour by **name**, so the light and the dark theme
 differ only in the tokens read here, and ``tests/test_gui_theme.py`` proves that no
 other module carries a fixed colour.
@@ -12,24 +12,27 @@ Two sources feed it:
 * the brand tokens in ``assets/brand/tokens.json`` (#671) — the window, text, border,
   selection and plot tokens of each theme, and the ``accept``/``reject``/``caution``/
   ``info`` state tokens;
-* the **data colours** below (:data:`TRACE_PALETTES`), which are not brand colours and
-  so are not in ``tokens.json``. ``classic`` keeps today's green/red/blue convention;
-  ``safe`` is the colour-blind-safe set that #636 will make the default.
+* the **data colours** below ([`TRACE_PALETTES`][]), which are not brand colours and
+  so are not in ``tokens.json``. ``safe`` is the colour-blind-safe set and the default
+  (#636); ``classic`` keeps the older green/red/blue convention as a preference.
 
 How the theme reaches the window:
 
-* :func:`install` gives the ``QApplication`` the Fusion style, a ``QPalette`` and one
+* [`install`][] gives the ``QApplication`` the Fusion style, a ``QPalette`` and one
   short style sheet, loads Red Hat Display for headings, and follows the operating
   system's light/dark scheme (``QStyleHints.colorSchemeChanged``) while the mode is
   ``"system"``.
-* :func:`set_mode` is what **View → Theme** calls (``system``/``light``/``dark``). The
+* [`set_mode`][] is what **View → Theme** calls (``system``/``light``/``dark``). The
   choice lasts for the session until the settings store (#330) can keep it.
+* [`set_trace_palette`][] is what **View → Trace colors** calls (``safe``/``classic``).
+  The shell stores that choice in the settings store and applies it at the next start
+  (#636, ADR-0123); this module itself reads and writes no file.
 * Plots and the napari viewer are not drawn from the ``QPalette``, so each dock
-  :func:`subscribe`\\ s and re-colours itself; :func:`style_graphics` does the
+  [`subscribe`][]\\ s and re-colours itself; [`style_graphics`][] does the
   pyqtgraph part.
 
 Qt is imported lazily inside the functions that need it, so importing this module
-costs no Qt, matching the rest of :mod:`tether.gui`.
+costs no Qt, matching the rest of [`tether.gui`][].
 """
 
 from __future__ import annotations
@@ -70,10 +73,12 @@ __all__ = [
     "relative_luminance",
     "rgba",
     "set_mode",
+    "set_trace_palette",
     "style_graphics",
     "subscribe",
     "system_theme_name",
     "theme",
+    "trace_palette",
     "unsubscribe",
 ]
 
@@ -96,14 +101,15 @@ def _palette_row(*values: str) -> Mapping[str, str]:
     return MappingProxyType(dict(zip(TRACE_TOKENS, values, strict=True)))
 
 
-#: ``{palette: {theme: {token: "#rrggbb"}}}``, tokens in :data:`TRACE_TOKENS` order.
+#: ``{palette: {theme: {token: "#rrggbb"}}}``, tokens in `TRACE_TOKENS` order.
 TRACE_PALETTES: Mapping[str, Mapping[str, Mapping[str, str]]] = MappingProxyType(
     {
         # The colours Tether drew before #675 (PRD §7.3, Appendix C D1): donor green
         # (0, 170, 0), acceptor red (220, 45, 45), FRET blue (40, 90, 220), total
         # grey (140, 140, 140). Only the idealized line changes: the old near-black
         # (20, 20, 20) was invisible on a dark plot (#617), so it is ink on light and
-        # chalk on dark. Not colour-blind safe (green against red); #636 owns that.
+        # chalk on dark. Not colour-blind safe (green against red), so since #636 it is
+        # the preference and not the default.
         "classic": {
             "light": _palette_row("#00aa00", "#dc2d2d", "#285adc", "#8c8c8c", "#121417"),
             "dark": _palette_row("#00aa00", "#dc2d2d", "#285adc", "#8c8c8c", "#f2f4f5"),
@@ -121,8 +127,8 @@ TRACE_PALETTES: Mapping[str, Mapping[str, Mapping[str, str]]] = MappingProxyType
         },
     }
 )
-#: The palette the window draws until #636 makes ``safe`` the default.
-DEFAULT_TRACE_PALETTE = "classic"
+#: The palette a new installation draws (#636): the colour-blind-safe set.
+DEFAULT_TRACE_PALETTE = "safe"
 
 
 @cache
@@ -150,12 +156,12 @@ class Theme:
         return self.states[token]
 
     def trace(self, token: str, palette: str | None = None) -> str:
-        """The data colour of ``token`` (:data:`TRACE_TOKENS`) in the active palette."""
+        """The data colour of ``token`` ([`TRACE_TOKENS`][]) in the active palette."""
         return self.traces[palette or self.trace_palette][token]
 
 
 def theme(name: str, *, trace_palette: str = DEFAULT_TRACE_PALETTE) -> Theme:
-    """Build the :class:`Theme` called ``name`` (``"light"`` or ``"dark"``)."""
+    """Build the [`Theme`][] called ``name`` (``"light"`` or ``"dark"``)."""
     if name not in THEME_NAMES:
         raise ValueError(f"theme must be one of {THEME_NAMES}, got {name!r}")
     if trace_palette not in TRACE_PALETTES:
@@ -198,7 +204,13 @@ def contrast_ratio(first: str, second: str) -> float:
 
 # --- session state ----------------------------------------------------------------
 
-_state: dict[str, Any] = {"mode": "system", "app": None, "applied": None}
+_state: dict[str, Any] = {
+    "mode": "system",
+    "trace_palette": DEFAULT_TRACE_PALETTE,
+    "app": None,
+    # The (theme name, trace palette) last applied and announced to subscribers.
+    "applied": None,
+}
 _subscribers: list[Callable[[], Callable[[Theme], None] | None]] = []
 #: Where the heading font files are read from (a test points it at an empty folder).
 _FONT_DIR = resources.files("tether.gui") / "assets" / "brand" / "fonts"
@@ -209,6 +221,11 @@ _fonts: dict[str, Any] = {}
 def mode() -> str:
     """The selected mode: ``"system"``, ``"light"`` or ``"dark"``."""
     return str(_state["mode"])
+
+
+def trace_palette() -> str:
+    """The selected trace palette: ``"safe"`` (the default) or ``"classic"``."""
+    return str(_state["trace_palette"])
 
 
 def system_theme_name() -> str:
@@ -227,16 +244,19 @@ def system_theme_name() -> str:
 
 
 def current() -> Theme:
-    """The active :class:`Theme`, resolved from :func:`mode`."""
+    """The active [`Theme`][], resolved from [`mode`][]."""
     selected = mode()
-    return theme(system_theme_name() if selected == "system" else selected)
+    return theme(
+        system_theme_name() if selected == "system" else selected,
+        trace_palette=trace_palette(),
+    )
 
 
 def subscribe(callback: Callable[[Theme], None]) -> None:
     """Call ``callback(theme)`` after each change of the active theme.
 
     A bound method is held by weak reference, so subscribing does not keep a dock
-    alive; still :func:`unsubscribe` in ``close()``. A plain function is held strongly.
+    alive; still [`unsubscribe`][] in ``close()``. A plain function is held strongly.
     """
 
     def strong() -> Callable[[Theme], None]:
@@ -273,12 +293,25 @@ def set_mode(selected: str) -> Theme:
     return _refresh()
 
 
+def set_trace_palette(name: str) -> Theme:
+    """Select the trace palette ``"safe"`` or ``"classic"`` and re-colour every open plot.
+
+    Only the data colours change: subscribers are called with the new [`Theme`][], and
+    the window palette stays as it is. Storing the choice is the caller's part.
+    """
+    if name not in TRACE_PALETTES:
+        raise ValueError(f"trace palette must be one of {tuple(TRACE_PALETTES)}, got {name!r}")
+    _state["trace_palette"] = name
+    return _refresh()
+
+
 def _refresh() -> Theme:
     active = current()
-    if active.name != _state["applied"]:
-        if _state["app"] is not None:
+    key = (active.name, active.trace_palette)
+    if key != _state["applied"]:
+        if _state["app"] is not None and (_state["applied"] or (None,))[0] != active.name:
             _apply(active)
-        _state["applied"] = active.name
+        _state["applied"] = key
         _notify(active)
     return active
 
@@ -287,7 +320,7 @@ def install(app: Any | None = None) -> Theme:
     """Give the ``QApplication`` the active theme; safe to call more than once.
 
     Sets the Fusion style (so the three operating systems draw one window), the
-    palette and style sheet of :func:`current`, loads the heading font, and connects
+    palette and style sheet of [`current`][], loads the heading font, and connects
     ``QStyleHints.colorSchemeChanged`` so the ``"system"`` mode follows the OS.
     """
     from pyqtgraph.Qt import QtWidgets
@@ -302,7 +335,7 @@ def install(app: Any | None = None) -> Theme:
         load_fonts()
         app.styleHints().colorSchemeChanged.connect(_on_system_scheme_changed)
         _apply(active)
-        _state["applied"] = active.name
+        _state["applied"] = (active.name, active.trace_palette)
         _notify(active)
     return active
 
@@ -481,10 +514,10 @@ _ICON_DIR = resources.files("tether.gui") / "assets" / "brand" / "icons"
 
 
 def icon(name: str, active: Theme | None = None) -> QtGui.QIcon:
-    """The interface icon ``name`` (:data:`ICON_NAMES`) for ``active`` (default: current).
+    """The interface icon ``name`` ([`ICON_NAMES`][]) for ``active`` (default: current).
 
     The icon does not follow a later change of theme by itself: a widget that shows
-    one :func:`subscribe`\\ s and sets it again, as the shell's menus do. An icon is
+    one [`subscribe`][]\\ s and sets it again, as the shell's menus do. An icon is
     never the only sign of a function; every menu item keeps its text.
     """
     from pyqtgraph.Qt import QtGui
@@ -540,11 +573,11 @@ def brand_pixmap(
     *,
     device_pixel_ratio: float = 1.0,
 ) -> QtGui.QPixmap:
-    """The brand drawing ``name`` (:data:`BRAND_ART`) of ``active``, ``width`` px wide (#689).
+    """The brand drawing ``name`` ([`BRAND_ART`][]) of ``active``, ``width`` px wide (#689).
 
     The height follows the drawing's view box. The pixmap is drawn at
     ``device_pixel_ratio`` times the size and carries that ratio, so it stays sharp on
-    a high-density screen. Like :func:`icon`, it does not follow a later change of
+    a high-density screen. Like [`icon`][], it does not follow a later change of
     theme by itself. An unreadable drawing gives a null pixmap, never an exception.
     """
     from pyqtgraph.Qt import QtCore, QtGui, QtSvg

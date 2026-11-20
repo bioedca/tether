@@ -3,20 +3,20 @@
 """Structured condition metadata + referential validation (PRD §5.1, §7.6; FR-ANNOTATE).
 
 Extraction writes every molecule a *provisional* ``condition_id`` parsed from its
-filename (:mod:`tether.io.filename`) but leaves the ``/conditions`` table empty:
+filename ([`tether.io.filename`][]) but leaves the ``/conditions`` table empty:
 the structured condition rows that ``condition_id`` *references* are materialized
 here, at the M4 annotation step. This module is the headless writer/validator
 behind that step — including the **transactional re-key + human-confirmed merge**
-(:func:`rekey_condition`, :func:`preview_rekey`) that corrects a mis-parsed
+([`rekey_condition`][], [`preview_rekey`][]) that corrects a mis-parsed
 ``condition_id``; the GUI confirm/correct + merge *dialogs* are the next M4 PR, a
-thin layer over this core. Like the rest of :mod:`tether.project`, it is Qt-free
+thin layer over this core. Like the rest of [`tether.project`][], it is Qt-free
 and scriptable (§7.11).
 
 Condition identity (PRD §5.1)
 -----------------------------
 A condition is identified by the chemistry/optics **key** —
 ``(construct/variant, dye, ligand + concentration, buffer, temperature, laser
-power)`` — carried by :class:`~tether.io.filename.ConditionKey`. ``date``,
+power)`` — carried by [`ConditionKey`][tether.io.filename.ConditionKey]. ``date``,
 ``replicate`` and the source file deliberately **vary within** a condition, so they
 are *not* identity and are left empty on the aggregated ``/conditions`` row (a
 representative value may be filled later; the per-file values are molecule/file
@@ -28,16 +28,16 @@ Referential validation (PRD §5.1)
 Validation is **referential**: a molecule's ``condition_id`` is valid only when it
 resolves to a ``/conditions`` row *built from that key* — the row exists **and** its
 stored key fields canonically hash back to its own ``condition_id``
-(:meth:`~tether.io.filename.ConditionKey.condition_id`). :func:`validate_conditions`
+([`condition_id`][tether.io.filename.ConditionKey.condition_id]). [`validate_conditions`][]
 reports the two ways that fails: a molecule referencing a **missing** condition
 (*dangling*), and a ``/conditions`` row whose fields no longer hash to its id
 (*inconsistent* — the signal that a human edit needs the transactional re-key of
-:func:`rekey_condition`).
+[`rekey_condition`][]).
 
 **Keep-separate by default (PRD §5.1).** Because the id is a content hash of the
 *exact* key, two movies that parse to slightly different strings ("near-miss")
 yield *different* ids and stay separate conditions — never silently merged. An
-explicit, human-confirmed merge (:func:`rekey_condition` with ``confirm=True``)
+explicit, human-confirmed merge ([`rekey_condition`][] with ``confirm=True``)
 is required to collapse them; nothing here fuzzy-matches.
 
 All writes are additive **data** into the M0-frozen ``/conditions/table`` (same
@@ -47,6 +47,7 @@ dtype; rows resized/assigned) — no group/dataset/dtype/field change — so the
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -57,12 +58,16 @@ from tether.io.filename import ConditionKey, parse_filename
 from tether.io.schema import CONDITIONS_DTYPE, TABLE
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     import numpy as np
 
 __all__ = [
+    "UNCATEGORIZED_CLASS",
     "CategoryDifference",
     "CategoryList",
     "CategoryListComparison",
+    "ClassLookup",
     "ConditionSyncSummary",
     "ConditionValidationReport",
     "ConfirmationRequired",
@@ -74,6 +79,8 @@ __all__ = [
     "copy_category_list",
     "preview_rekey",
     "read_category_list",
+    "read_class_lookup",
+    "read_class_lookups",
     "read_condition_audit",
     "read_condition_keys",
     "read_conditions",
@@ -98,6 +105,19 @@ _SETTINGS = "settings"
 #: ``/conditions`` group for exactly this (PRD §5.1).
 _CATEGORIES_GROUP = "categories"
 
+#: The attribute on ``/conditions/categories/<condition_id>`` that persists the
+#: condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; #367,
+#: ADR-0125): a JSON object ``{"<class>": "<category name>"}`` over the classes
+#: ``>= 1``. It is written by the one list writer, `_write_category_names`, in the
+#: same file session as the names, so the two cannot drift through Tether's own
+#: writes; [`read_class_lookup`][] refuses a pair that disagrees.
+_CLASS_LOOKUP_ATTR = "tmaven_class_lookup"
+
+#: tMAVEN class ``0`` is pinned to Tether's *uncategorized* null state, the stored
+#: ``/molecules.category`` value ``""`` (PRD §7.3, §7.4): a returning class ``0``
+#: always resolves to ``""``. Named categories are classes ``>= 1``.
+UNCATEGORIZED_CLASS = 0
+
 #: The append-only re-key/merge audit log, a lazily-created dataset under the
 #: frozen ``/settings`` container (additive data — ``schema-guard`` stays green,
 #: mirrors the ``/settings/batch`` provenance idiom). Each row records one
@@ -112,7 +132,7 @@ _MERGE_EVENT = "merge"  # two conditions collapse into one (requires confirmatio
 
 @dataclass(frozen=True)
 class ConditionSyncSummary:
-    """Outcome of a :func:`sync_conditions` pass."""
+    """Outcome of a [`sync_conditions`][] pass."""
 
     #: Number of ``/molecules`` rows scanned.
     n_molecules: int
@@ -122,8 +142,8 @@ class ConditionSyncSummary:
     created_ids: tuple[str, ...]
     #: Distinct referenced ids that could **not** be materialized — a stored
     #: ``condition_id`` with no existing row and no filename that parses back to
-    #: it (a drifted/hand-assigned id). :func:`validate_conditions` flags the
-    #: molecules as *dangling*; :func:`rekey_condition` resolves them.
+    #: it (a drifted/hand-assigned id). `validate_conditions` flags the
+    #: molecules as *dangling*; `rekey_condition` resolves them.
     n_unresolved: int
 
 
@@ -152,7 +172,7 @@ class ConditionValidationReport:
 class RekeyPreview:
     """What a re-key of ``from_condition_id`` → ``to_key`` *would* do (read-only, PRD §5.1).
 
-    Surfaces exactly what :func:`rekey_condition` would change so the GUI (next M4
+    Surfaces exactly what [`rekey_condition`][] would change so the GUI (next M4
     PR) can show the user *before* they confirm, and never touches the file.
     """
 
@@ -163,7 +183,7 @@ class RekeyPreview:
     #: The ``molecule_key`` set that would be re-keyed (currently on ``from_condition_id``).
     molecule_keys: tuple[str, ...]
     #: ``True`` iff the destination id already has (disjoint) members — the re-key
-    #: would **merge** two conditions into one, so :func:`rekey_condition` requires
+    #: would **merge** two conditions into one, so `rekey_condition` requires
     #: ``confirm=True`` (§5.1 "never silent on ~100-video conditions").
     is_merge: bool
     #: The destination's current members (the molecules already on ``to_condition_id``);
@@ -178,7 +198,7 @@ class RekeyPreview:
 
 @dataclass(frozen=True)
 class RekeyResult:
-    """Outcome of a committed :func:`rekey_condition`."""
+    """Outcome of a committed [`rekey_condition`][]."""
 
     #: The (wrong) ``condition_id`` that was re-keyed away from.
     from_condition_id: str
@@ -188,7 +208,7 @@ class RekeyResult:
     n_molecules: int
     #: ``True`` iff the destination already had members (a merge, not a plain correction).
     is_merge: bool
-    #: The logged event kind (``"merge"`` if :attr:`is_merge` else ``"rekey"``).
+    #: The logged event kind (``"merge"`` if `is_merge` else ``"rekey"``).
     event: str
     #: 0-based row position of this event in ``/settings/condition_audit``.
     audit_index: int
@@ -197,7 +217,7 @@ class RekeyResult:
 class ConfirmationRequired(RuntimeError):
     """A re-key would **merge** two conditions and ``confirm=True`` was not passed (§5.1).
 
-    Raised by :func:`rekey_condition` when the destination condition already has
+    Raised by [`rekey_condition`][] when the destination condition already has
     members, so the re-key would collapse two conditions into one — the human-in-the
     -loop guard that keeps a ~100-video condition merge from happening silently.
     """
@@ -222,9 +242,9 @@ def _opt_float(value: object) -> float | None:
     """Read a stored ``<f8`` key field back to ``float | None`` (``NaN`` → ``None``).
 
     The canonical key hashes an *absent* numeric as JSON ``null`` (the
-    :class:`ConditionKey` field is ``None``); the frozen ``/conditions`` dtype has
+    [`ConditionKey`][] field is ``None``); the frozen ``/conditions`` dtype has
     no nullable float, so absence is persisted as ``NaN`` and mapped back here — so
-    a row reconstructs to the *same* :class:`ConditionKey`, and the same id, it was
+    a row reconstructs to the *same* [`ConditionKey`][], and the same id, it was
     written from.
     """
     v = float(value)
@@ -232,7 +252,7 @@ def _opt_float(value: object) -> float | None:
 
 
 def _row_to_key(row: np.ndarray) -> ConditionKey:
-    """Reconstruct the identity :class:`ConditionKey` from a ``/conditions`` row."""
+    """Reconstruct the identity [`ConditionKey`][] from a ``/conditions`` row."""
     return ConditionKey(
         construct_variant=_to_str(row["construct_variant"]),
         dye=_to_str(row["dye"]),
@@ -254,9 +274,9 @@ def _new_row_from_key(
     leakage_alpha: float = float("nan"),
     leakage_alpha_source: str = "",
 ) -> np.ndarray:
-    """Build a fresh ``/conditions`` row (shape ``(1,)``) from a :class:`ConditionKey`.
+    """Build a fresh ``/conditions`` row (shape ``(1,)``) from a [`ConditionKey`][].
 
-    The identity fields come from ``key`` (so :meth:`ConditionKey.condition_id`
+    The identity fields come from ``key`` (so [`ConditionKey.condition_id`][]
     self-consistency holds by construction); ``date``/``replicate``/``tags`` and the
     per-condition leakage provenance are additive within-condition provenance.
     """
@@ -335,7 +355,7 @@ def _utc_now_iso() -> str:
 def _validate_timestamp(timestamp: str) -> None:
     """Require an offset-aware ISO-8601 instant before it enters the append-only log.
 
-    Mirrors :func:`tether.project.labels.set_curation_label`'s guard: a bad value
+    Mirrors [`tether.project.labels.set_curation_label`][]'s guard: a bad value
     would be permanently persisted into the audit provenance and is hard to repair.
     """
     try:
@@ -344,6 +364,37 @@ def _validate_timestamp(timestamp: str) -> None:
         raise ValueError(f"timestamp must be an ISO-8601 string, got {timestamp!r}") from exc
     if parsed.tzinfo is None:
         raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
+
+
+def _refuse_nul_audit_text(**fields: object) -> None:
+    """Refuse audit text with an embedded NUL before any write (#1145).
+
+    HDF5 variable-length strings cannot hold a NUL character, so h5py refuses the row
+    only *after* the audit dataset has grown; checking first keeps the log and the
+    edit together. Raises [`ValueError`][] naming the first offending field.
+    """
+    for name, value in fields.items():
+        if isinstance(value, str) and "\x00" in value:
+            raise ValueError(
+                f"{name} {value!r} contains a NUL character, which an HDF5 "
+                "variable-length string cannot store"
+            )
+
+
+def _append_rows(ds: object, rows: np.ndarray) -> int:
+    """Append ``rows`` to the resizable 1-D ``ds``; return the first new index.
+
+    Grows the dataset, assigns, and shrinks it back to its previous length when the
+    assignment fails, so a refused row never leaves a zero-filled row behind (#1145).
+    """
+    n0 = int(ds.shape[0])  # type: ignore[attr-defined]
+    ds.resize((n0 + len(rows),))  # type: ignore[attr-defined]
+    try:
+        ds[n0:] = rows  # type: ignore[index]
+    except BaseException:
+        ds.resize((n0,))  # type: ignore[attr-defined]
+        raise
+    return n0
 
 
 def _audit_dtype() -> np.dtype:
@@ -403,10 +454,7 @@ def _append_condition_audit(
     row["timestamp"] = timestamp
     row["reason"] = reason
     row["app_version"] = _app_version()
-    n0 = ds.shape[0]
-    ds.resize((n0 + 1,))
-    ds[n0:] = row
-    return n0
+    return _append_rows(ds, row)
 
 
 # --- writers ------------------------------------------------------------------
@@ -432,7 +480,7 @@ def register_condition(
     aggregation invariant). Returns a copy of the resulting row.
 
     This is the low-level single-condition writer (one file open + one id-column
-    scan); to materialize *many* conditions, call :func:`sync_conditions`, which
+    scan); to materialize *many* conditions, call [`sync_conditions`][], which
     batches the scan — do not loop this per condition over a large table.
     """
     import h5py  # noqa: PLC0415
@@ -483,7 +531,7 @@ def sync_conditions(path: str | Path) -> ConditionSyncSummary:
     PR) are never re-created or clobbered — a referenced id already present is
     skipped. A referenced id with neither an existing row nor a faithful filename
     witness (a drifted/hand-assigned id) is counted as ``n_unresolved`` and left for
-    :func:`validate_conditions` to flag as dangling.
+    [`validate_conditions`][] to flag as dangling.
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
@@ -537,14 +585,14 @@ def read_conditions(path: str | Path) -> np.ndarray:
 
 
 def read_condition_keys(path: str | Path) -> dict[str, ConditionKey]:
-    """Map each materialized ``condition_id`` → its identity :class:`ConditionKey` (PRD §5.1).
+    """Map each materialized ``condition_id`` → its identity [`ConditionKey`][] (PRD §5.1).
 
     Reconstructs the key every ``/conditions`` row was built from (inverse of the row
-    builder, ``NaN`` numeric cells mapping back to ``None`` via :func:`_opt_float`), so
+    builder, ``NaN`` numeric cells mapping back to ``None`` via `_opt_float`), so
     a caller can filter conditions by **key fields** — e.g. "every condition with
     ligand tRNA" — without re-parsing filenames (the cross-movie query,
-    :mod:`tether.analysis.query`). A row whose fields no longer hash to its own id (an
-    *inconsistent* row, :func:`validate_conditions`) is still included under its stored
+    [`tether.analysis.query`][]). A row whose fields no longer hash to its own id (an
+    *inconsistent* row, [`validate_conditions`][]) is still included under its stored
     id — the reconstructed key reflects what the fields currently say. Append order is
     preserved. Read-only.
     """
@@ -624,7 +672,7 @@ def preview_rekey(path: str | Path, from_condition_id: str, to_key: ConditionKey
     """Read-only: describe re-keying every molecule on ``from_condition_id`` → ``to_key``.
 
     The GUI (next M4 PR) calls this first to show the user exactly what
-    :func:`rekey_condition` would change — the affected ``molecule_key`` set, whether
+    [`rekey_condition`][] would change — the affected ``molecule_key`` set, whether
     it **merges** into an already-populated destination, and the destination's current
     members — *before* they confirm. Never mutates the file.
     """
@@ -666,9 +714,9 @@ def rekey_condition(
 ) -> RekeyResult:
     """Transactionally re-key every molecule on ``from_condition_id`` → ``to_key`` (PRD §5.1).
 
-    The corrective counterpart to :func:`validate_conditions`: when a molecule's
+    The corrective counterpart to [`validate_conditions`][]: when a molecule's
     provisional ``condition_id`` is wrong (a mis-parse → *dangling*/*inconsistent*), a
-    human supplies the corrected :class:`~tether.io.filename.ConditionKey` and this
+    human supplies the corrected [`ConditionKey`][tether.io.filename.ConditionKey] and this
 
     1. materializes the destination ``/conditions`` row from ``to_key`` (idempotent), so
        the re-keyed molecules resolve and never dangle;
@@ -677,15 +725,15 @@ def rekey_condition(
        update with post-crash *detectability*, not a durability transaction: rewriting the
        whole ``/molecules`` table in one ``H5Dwrite`` moves the affected rows together (not
        one at a time), so a re-key is never applied to only *some* of them, and any partial
-       state a crash could leave is still detectable/repairable via :func:`validate_conditions`; and
+       state a crash could leave is still detectable/repairable via [`validate_conditions`][]; and
     3. appends one provenance-stamped row to the append-only ``/settings/condition_audit``
        log (event · from/to id · count · labeler · timestamp · reason · app version).
 
     **Human-confirmed merge (§5.1, "never silent on ~100-video conditions").** When the
     destination id already has members, the re-key would *collapse two conditions into
-    one*; it then raises :class:`ConfirmationRequired` unless ``confirm=True``. A plain
+    one*; it then raises [`ConfirmationRequired`][] unless ``confirm=True``. A plain
     correction into an empty destination (nothing collapses) needs no confirmation. Use
-    :func:`preview_rekey` to inspect the effect (and ``is_merge``) beforehand.
+    [`preview_rekey`][] to inspect the effect (and ``is_merge``) beforehand.
 
     Parameters
     ----------
@@ -694,13 +742,15 @@ def rekey_condition(
     from_condition_id:
         The (wrong) ``condition_id`` currently stored on the molecules to move.
     to_key:
-        The corrected condition key; its :meth:`~tether.io.filename.ConditionKey.condition_id`
+        The corrected condition key; its
+        [`condition_id`][tether.io.filename.ConditionKey.condition_id]
         is the destination id and its fields build the destination ``/conditions`` row
         (so that row is self-consistent by construction).
     confirm:
         Must be ``True`` to proceed when the operation is a merge (see above).
     labeler:
-        Who performed the re-key; defaults to :func:`~tether.project.labels.default_labeler`.
+        Who performed the re-key; defaults to
+        [`default_labeler`][tether.project.labels.default_labeler].
     reason:
         Free-text audit note (e.g. ``"filename mis-parse: Tbox→T-box"``).
     timestamp:
@@ -715,7 +765,8 @@ def rekey_condition(
     ------
     ValueError
         If ``from_condition_id`` is empty, ``to_key`` hashes back to it (a no-op
-        re-key), or ``timestamp`` is not an offset-aware ISO-8601 string.
+        re-key), ``timestamp`` is not an offset-aware ISO-8601 string, or ``labeler``,
+        ``reason`` or ``timestamp`` contains a NUL character. Nothing is written.
     KeyError
         If no ``/molecules`` row carries ``from_condition_id`` (never a silent no-op).
     ConfirmationRequired
@@ -734,6 +785,8 @@ def rekey_condition(
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # reject a bad stamp before it enters the audit log
+    # fromisoformat takes any one character as the date/time separator, NUL included
+    _refuse_nul_audit_text(labeler=labeler, reason=reason, timestamp=timestamp)
     path = Path(path)
 
     with h5py.File(path, "r+") as f:
@@ -788,7 +841,7 @@ def read_condition_audit(path: str | Path) -> np.ndarray:
     """Read the append-only ``/settings/condition_audit`` re-key/merge log (a copy).
 
     Returns a length-0 array of the audit dtype when no re-key has run yet (the
-    dataset is created lazily on the first :func:`rekey_condition`).
+    dataset is created lazily on the first [`rekey_condition`][]).
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
@@ -810,15 +863,15 @@ class CategoryList:
     The fully user-editable per-trace category list — **no presets** — scoped to
     one ``condition_id`` and shared by every molecule in that condition, across all
     its movies/days/files (a condition spans ≥ 2 files, §5.1). The **integer code**
-    of a category is its 0-based position in :attr:`categories` (the "int ↔ category
-    lookup", exposed as :attr:`lookup` / :meth:`code_of`).
+    of a category is its 0-based position in [`categories`][] (the "int ↔ category
+    lookup", exposed as [`lookup`][] / [`code_of`][]).
 
     Molecules store their chosen category by **name** in the frozen
     ``/molecules.category`` string field, so this list is the editable *vocabulary*:
     reordering, renaming, or removing an entry re-numbers the codes but never
     silently rewrites an existing molecule's stored category (that is a separate,
     explicit labeling step — mirroring the keep-separate/never-silent ethos of the
-    condition re-key, :func:`rekey_condition`).
+    condition re-key, [`rekey_condition`][]).
     """
 
     #: The condition this vocabulary belongs to.
@@ -848,18 +901,167 @@ class CategoryList:
     def code_of(self, category: str) -> int:
         """The integer code (0-based position) of ``category``.
 
-        Raises :class:`KeyError` if ``category`` is not in the list.
+        Raises `KeyError` if ``category`` is not in the list.
         """
         try:
             return self.categories.index(category)
         except ValueError:
             raise KeyError(category) from None
 
+    @property
+    def class_lookup(self) -> ClassLookup:
+        """The tMAVEN class ↔ category lookup this list defines (class = code + 1)."""
+        return ClassLookup.from_categories(self.condition_id, self.categories)
+
+
+@dataclass(frozen=True)
+class ClassLookup:
+    """A condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; ADR-0125).
+
+    tMAVEN stores a per-trace integer ``class``; Tether stores the free-text
+    ``/molecules.category`` name. This is the one translation between them, read by
+    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]). The curation
+    hotkeys ([`tether.gui.curation`][]) keep their own class names, which follow the
+    same rule; tests pin that agreement rather than the shell reading this lookup:
+
+    * class ``0`` ↔ ``""``, the *uncategorized* null state (always, on every
+      condition, even one with no category list);
+    * class ``k >= 1`` ↔ the ``k``-th entry of the condition's
+      [`CategoryList`][] — the entry the ``k`` hotkey assigns (PRD §7.3), i.e. its
+      0-based [`code`][CategoryList.code_of] plus one.
+
+    Anything else is **unmapped**: [`category_of`][] answers ``None`` and a caller
+    reports it rather than guessing a name.
+    """
+
+    #: The condition this lookup belongs to.
+    condition_id: str
+    #: The named classes, ``{class: category name}`` over classes ``>= 1``.
+    classes: Mapping[int, str]
+
+    @classmethod
+    def from_categories(cls, condition_id: str, categories: Iterable[str]) -> ClassLookup:
+        """The lookup an ordered category list defines (class ``k`` ↔ entry ``k``)."""
+        return cls(
+            condition_id=condition_id,
+            classes={k: str(name) for k, name in enumerate(categories, start=1)},
+        )
+
+    def category_of(self, integer_class: int) -> str | None:
+        """The category name of ``integer_class`` (``""`` for class 0), else ``None``."""
+        if type(integer_class) is bool:  # bool is an int subclass; never a class
+            return None
+        cls = int(integer_class)
+        if cls == UNCATEGORIZED_CLASS:
+            return ""
+        return self.classes.get(cls)
+
+    def class_of(self, category: str) -> int | None:
+        """The integer class of ``category`` (``0`` for ``""``), else ``None``."""
+        if category == "":
+            return UNCATEGORIZED_CLASS
+        for cls, name in self.classes.items():
+            if name == category:
+                return cls
+        return None
+
+
+def _encode_class_lookup(names: tuple[str, ...]) -> str:
+    """The persisted JSON form of the lookup ``names`` defines (see `_CLASS_LOOKUP_ATTR`)."""
+    lookup = ClassLookup.from_categories("", names)
+    return json.dumps(
+        {str(k): v for k, v in lookup.classes.items()},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _decode_class_lookup(raw: object, condition_id: str) -> dict[int, str]:
+    """Parse + validate a persisted lookup attribute (``ValueError`` when malformed)."""
+    try:
+        payload = json.loads(_to_str(raw))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"condition {condition_id!r} has a malformed {_CLASS_LOOKUP_ATTR} attribute: {exc}"
+        ) from None
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} must be a JSON object, "
+            f"got {type(payload).__name__}"
+        )
+    classes: dict[int, str] = {}
+    for key, name in payload.items():
+        if not (isinstance(key, str) and key.isdigit() and int(key) >= 1):
+            raise ValueError(
+                f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} has class {key!r}; "
+                "classes must be integers >= 1 (class 0 is pinned to uncategorized)"
+            )
+        if not isinstance(name, str) or not name:
+            raise ValueError(
+                f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} maps class {key} to "
+                f"{name!r}; a named class needs a non-empty category name"
+            )
+        classes[int(key)] = name
+    return classes
+
+
+def _read_class_lookup(f: object, condition_id: str) -> ClassLookup:
+    """Read one condition's persisted lookup from an open file (lenient about the id).
+
+    A condition with no list (or an id that cannot name a list) has only class 0. A
+    list written before #367 carries no attribute; its lookup is the one the list
+    order defines, which is exactly what `_write_category_names` would persist. A
+    persisted lookup that disagrees with the list it sits on is refused
+    ([`ValueError`][]) rather than either one being trusted over the other.
+    """
+    empty = ClassLookup(condition_id=condition_id, classes={})
+    if not condition_id or "/" in condition_id:
+        return empty
+    conditions = f[_CONDITIONS]  # type: ignore[index]
+    if _CATEGORIES_GROUP not in conditions or condition_id not in conditions[_CATEGORIES_GROUP]:
+        return empty
+    ds = conditions[_CATEGORIES_GROUP][condition_id]
+    names = tuple(_to_str(v) for v in ds[:])
+    derived = ClassLookup.from_categories(condition_id, names)
+    if _CLASS_LOOKUP_ATTR not in ds.attrs:
+        return derived
+    stored = _decode_class_lookup(ds.attrs[_CLASS_LOOKUP_ATTR], condition_id)
+    if stored != dict(derived.classes):
+        raise ValueError(
+            f"condition {condition_id!r}: the persisted {_CLASS_LOOKUP_ATTR} {stored} "
+            f"disagrees with its category list {list(names)}; rewrite the list with "
+            "set_category_list to restore one lookup"
+        )
+    return ClassLookup(condition_id=condition_id, classes=stored)
+
+
+def read_class_lookup(path: str | Path, condition_id: str) -> ClassLookup:
+    """Read a condition's persisted tMAVEN class ↔ category lookup (PRD §7.4). Read-only.
+
+    The single source the tMAVEN hand-off and its return leg read
+    ([`ClassLookup`][]). Lenient about the id, like [`read_category_list`][]: a
+    condition with no list yet answers a lookup holding only class 0. Raises
+    `ValueError` when the persisted lookup is malformed or disagrees with the
+    category list beside it.
+    """
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        return _read_class_lookup(f, condition_id)
+
+
+def read_class_lookups(path: str | Path, condition_ids: Iterable[str]) -> dict[str, ClassLookup]:
+    """[`read_class_lookup`][] for several conditions in one file open."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        return {cid: _read_class_lookup(f, cid) for cid in dict.fromkeys(condition_ids)}
+
 
 def _require_safe_condition_id(condition_id: str) -> str:
     """Guard a ``condition_id`` used as an HDF5 link name (non-empty, no ``/``).
 
-    Real ids are ``cond-<hex>`` (:meth:`~tether.io.filename.ConditionKey.condition_id`),
+    Real ids are ``cond-<hex>`` ([`condition_id`][tether.io.filename.ConditionKey.condition_id]),
     but the public functions take an arbitrary string, so refuse an empty id or one
     containing ``/`` (which HDF5 would treat as a group path) before it names a
     dataset.
@@ -874,8 +1076,8 @@ def _require_safe_condition_id(condition_id: str) -> str:
 def _validate_name(name: object, *, label: str = "category name") -> str:
     """Type-check + whitespace-strip + non-empty-check a single category name.
 
-    The one place the name-entry rules live, shared by :func:`_normalize_categories`
-    (per list element), :func:`add_category`, and :func:`rename_category` so they
+    The one place the name-entry rules live, shared by `_normalize_categories`
+    (per list element), [`add_category`][], and [`rename_category`][] so they
     stay in sync if the rules ever change (e.g. a max-length or character-set rule).
     """
     if not isinstance(name, str):
@@ -912,7 +1114,7 @@ def _assert_condition_exists(f: object, condition_id: str) -> None:
 
     Enforces that a category list is *scoped to a real condition* — writers refuse
     to attach a vocabulary to an unregistered id (materialize it first via
-    :func:`register_condition` / :func:`sync_conditions`).
+    [`register_condition`][] / [`sync_conditions`][]).
     """
     table = f[_CONDITIONS][TABLE]  # type: ignore[index]
     if _find_condition_index(table, condition_id) is None:
@@ -936,6 +1138,8 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
     Lazily creates the ``/conditions/categories`` sub-group and the per-condition
     resizable vlen-string dataset on first use (additive data). An emptied list
     resizes the dataset to 0 rows (kept, not deleted, to avoid HDF5 free-space churn).
+    Also (re)writes the ``tmaven_class_lookup`` attribute the names define, so the
+    persisted lookup always travels with the list (ADR-0125).
     """
     import h5py  # noqa: PLC0415
 
@@ -957,12 +1161,16 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
         )
     if names:
         ds[:] = list(names)
+    # The tMAVEN class lookup is persisted beside the names it is derived from, in
+    # this same write, so every list edit (set / add / rename / remove / copy)
+    # carries its lookup with it (PRD §5.1, ADR-0125).
+    ds.attrs[_CLASS_LOOKUP_ATTR] = _encode_class_lookup(names)
 
 
 def read_category_list(path: str | Path, condition_id: str) -> CategoryList:
     """Read a condition's editable per-trace category list (PRD §5.1). Read-only.
 
-    Returns an empty :class:`CategoryList` when the condition has no vocabulary yet
+    Returns an empty [`CategoryList`][] when the condition has no vocabulary yet
     (the "no presets" default) or the id is not present. Lenient about the id's
     existence — unlike the writers, a read never fails on an unregistered condition.
     """
@@ -980,8 +1188,8 @@ def set_category_list(path: str | Path, condition_id: str, categories: object) -
     The general editor — set, reorder (pass a permutation), or clear (pass ``[]``) a
     condition's vocabulary in one write. Names are stripped and must be non-empty and
     unique; order defines the integer codes. Requires ``condition_id`` to be a
-    materialized ``/conditions`` row (:class:`KeyError` otherwise). Returns the
-    resulting :class:`CategoryList`.
+    materialized ``/conditions`` row (`KeyError` otherwise). Returns the
+    resulting [`CategoryList`][].
     """
     import h5py  # noqa: PLC0415
 
@@ -997,8 +1205,8 @@ def add_category(path: str | Path, condition_id: str, name: str) -> CategoryList
     """Append one category to a condition's list; return the updated list (PRD §5.1).
 
     The new category's integer code is the (previous) list length. Rejects a name
-    that (after stripping) is empty or already present (:class:`ValueError`), and an
-    unregistered ``condition_id`` (:class:`KeyError`).
+    that (after stripping) is empty or already present (`ValueError`), and an
+    unregistered ``condition_id`` (`KeyError`).
     """
     import h5py  # noqa: PLC0415
 
@@ -1021,7 +1229,7 @@ def rename_category(path: str | Path, condition_id: str, old: str, new: str) -> 
     unchanged) but does **not** rewrite the ``/molecules.category`` values that
     reference ``old`` — re-labeling molecules is a separate explicit step (never
     silent, §5.1). Rejects an absent ``old`` or an already-present ``new``
-    (:class:`KeyError` / :class:`ValueError`), and an unregistered condition.
+    (`KeyError` / `ValueError`), and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
 
@@ -1044,7 +1252,7 @@ def remove_category(path: str | Path, condition_id: str, name: str) -> CategoryL
 
     A list-level edit only: later categories shift down one code, and molecules that
     referenced ``name`` keep their stored ``/molecules.category`` string (they are
-    not silently re-labeled, §5.1). Rejects an absent ``name`` (:class:`KeyError`)
+    not silently re-labeled, §5.1). Rejects an absent ``name`` (`KeyError`)
     and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
@@ -1096,7 +1304,7 @@ class CategoryDifference:
 
 @dataclass(frozen=True)
 class CategoryListComparison:
-    """The result of :func:`compare_category_lists` for one condition in two projects."""
+    """The result of [`compare_category_lists`][] for one condition in two projects."""
 
     #: The condition both lists belong to.
     condition_id: str
@@ -1116,8 +1324,8 @@ class CategoryListComparison:
 def _read_held_category_names(path: str | Path, condition_id: str, role: str) -> tuple[str, ...]:
     """Read a condition's list from a project that must hold the condition.
 
-    Unlike the lenient :func:`read_category_list`, a cross-project read refuses a
-    project with no ``/conditions`` row for ``condition_id`` (:class:`KeyError`
+    Unlike the lenient [`read_category_list`][], a cross-project read refuses a
+    project with no ``/conditions`` row for ``condition_id`` (`KeyError`
     naming the file, ADR-0068): an empty list read from a project that does not
     hold the condition would otherwise copy as a clear or compare as "every
     category missing".
@@ -1145,7 +1353,7 @@ def copy_category_list(
     The destination's previous list is replaced; an empty source list empties it.
 
     Both projects must hold ``condition_id`` as a ``/conditions`` row: a copy from
-    or into a project that does not is refused with a :class:`KeyError` that names
+    or into a project that does not is refused with a `KeyError` that names
     the file. Like the other list edits, molecules' stored ``/molecules.category``
     names in the destination are not rewritten. Returns the destination's list.
     """
@@ -1170,8 +1378,8 @@ def compare_category_lists(
 
     Reports each category whose name or integer code differs: a name only one
     project holds, or a name both hold at different codes. Two equal lists report
-    nothing (:attr:`CategoryListComparison.equal`). Both projects must hold
-    ``condition_id`` (:class:`KeyError` naming the file otherwise).
+    nothing ([`CategoryListComparison.equal`][]). Both projects must hold
+    ``condition_id`` (`KeyError` naming the file otherwise).
     """
     _require_safe_condition_id(condition_id)
     a = CategoryList(condition_id, _read_held_category_names(path_a, condition_id, "first"))

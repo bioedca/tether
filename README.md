@@ -45,7 +45,7 @@ brings it to the application.
 
 - **Open and browse.** **File → Open project…** opens a `.tether` project. A **pyqtgraph**
   trace dock shows each molecule's donor, acceptor and total intensity over its apparent FRET
-  efficiency, with marginal histograms. The movie list holds one fixed entry.
+  efficiency, with marginal histograms.
 - **Curation.** Keyboard-driven accept, reject and un-reject. Each decision is written to the
   project with who made it and when.
 - **Neighbor view.** The selected molecule's cached image patch and the distance to its
@@ -55,12 +55,16 @@ brings it to the application.
   The status bar calls it vbFRET, but it runs the consensus VB-HMM
   ([#554](https://github.com/bioedca/tether/issues/554)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip: save molecules as a file that
-  tMAVEN's own window opens, then import its result back through a per-trace reconcile prompt.
+  tMAVEN's own application window opens, then import its result back through a per-trace reconcile prompt.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
 - **Population histogram.** The apparent-FRET histogram of the project, with rejected
   molecules left out.
+- **Movie panel.** A **napari** movie panel in the application window shows the project's
+  movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
+  missing or changed movie file is listed but not shown. A movie with no recorded geometry has
+  no spots.
 
 ### From the command line today
 
@@ -102,8 +106,6 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
 
 ### Not in Tether yet
 
-- **Movie panel.** A **napari** movie panel in the application window, with a movie switcher
-  filled from the project ([#356](https://github.com/bioedca/tether/issues/356), M16).
 - **Trace ⇄ movie round trip.** Click a trace → jump to its spot, click a spot → open its
   trace, across many movies ([#357](https://github.com/bioedca/tether/issues/357), M16). The
   project already stores the spot each trace came from.
@@ -151,16 +153,21 @@ Idealization needs the separate tMAVEN sidecar environment, which
 
 The installer does **not** edit your `PATH`. It writes both launchers into
 `<install-root>/bin/` (`<install-root>\bin\` on Windows), and on Windows and Linux it
-also adds a **Tether** entry to the Start Menu or applications menu.
+also adds a **Tether** entry to the Start Menu or applications menu. From the next release
+the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
+([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
+From the next release the Windows Start Menu also has **Tether Command Prompt**, a console in
+which `tether` works with no `PATH` change
+([#666](https://github.com/bioedca/tether/issues/666)).
 
-Open the desktop application from that menu entry, or run the window launcher:
+Open the desktop application from that menu entry, or run the application-window launcher:
 
 ```bash
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat
 ```
 
-To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (on
-Linux and macOS it also holds the installer's own `python`, `pip` and `conda`, which
+To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (in rc3,
+on Linux and macOS, it also holds the installer's own `python`, `pip` and `conda`, which
 should not shadow yours), check the install, and extract a dual-channel TIFF movie into a
 new project. [Install Tether](docs/install.md) shows how
 to make the `PATH` change permanent.
@@ -178,7 +185,7 @@ every other flag, and `tether batch`.
 
 ## Documentation
 
-- **User manual:** https://bioedca.github.io/tether/ — use the version selector to
+- **User manual:** <https://bioedca.github.io/tether/> — use the version selector to
   match your installed release.
 - **First run:** [Your first analysis](https://bioedca.github.io/tether/latest/tutorial/) —
   a guided tutorial on a sample movie, from extraction to an exported table.

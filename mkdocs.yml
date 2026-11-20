@@ -16,8 +16,9 @@ copyright: Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
 
 theme:
   name: material
-  # One partial is overridden: the footer, which links the AI-use statement from every
-  # page (#649). See overrides/partials/copyright.html.
+  # Two templates are overridden: the footer partial, which links the AI-use statement from
+  # every page (#649, overrides/partials/copyright.html), and main.html, which adds the
+  # citation metadata to the HTML head (#599). Neither loads anything from another host.
   custom_dir: overrides
   # Do NOT load Google Fonts. Body text uses the visitor's system fonts. Headings use
   # Red Hat Display from font files that this site serves itself (docs/assets/fonts/,
@@ -50,11 +51,40 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+# Reads CITATION.cff at build time and gives overrides/main.html the schema.org JSON-LD and
+# the citation_* meta tags, so the page head and the citation file have one source (#599).
+# scripts/mkdocs_hooks.py points every `blob/main` and `tree/main` source link at the release
+# tag when docs.yml builds a release (TETHER_DOCS_SOURCE_TAG, #600); a local build, the
+# docs-build gate and the `dev` deployment keep the links on main. Keep ONE `hooks:` key: YAML
+# keeps only the last of two, and the build would silently drop the first list's hooks.
+hooks:
+  - scripts/docs_citation_hook.py
+  - scripts/mkdocs_hooks.py
+
 # The brand palette, links and beam-row rule (a kit file from #671), then the site's own
 # layer: the heading font and two adjustments to the monochrome palette.
 extra_css:
   - assets/brand/brand.css
   - stylesheets/site.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            allow_inspection: false
+            docstring_style: numpy
+            scoped_crossrefs: true
+            show_if_no_docstring: true
+            filters: public
+            show_root_heading: true
+            show_root_full_path: true
+            show_source: false
+            heading_level: 2
+            members_order: source
 
 nav:
   # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
@@ -76,12 +106,14 @@ nav:
           - Idealize traces into FRET states: how-to/idealize.md
           - Draw a histogram, TDP and dwell plots: how-to/analyze.md
           - Export results: how-to/export-results.md
+          - Share and deposit a dataset: how-to/share-a-dataset.md
       - Import:
           - Legacy Deep-LASI import: io/legacy-import.md
       - Idealization:
           - Standalone-tMAVEN hand-off: idealize/standalone-tmaven-handoff.md
       - Analysis:
           - Seven-plot parity gallery: analysis/parity-gallery.md
+          - Rate constants with error bounds: analysis/rate-bounds.md
       - Validation &amp; benchmarks: validation.md
       - Machine learning:
           - Deep trace classifier (GPU add-on): ml/deep-classifier.md
@@ -89,9 +121,20 @@ nav:
           - Command line: cli.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
-          - Project store (.tether HDF5 schema): reference/tether-format.md
-          - Window themes and trace colors: reference/gui-theme.md
+          - Project file format (.tether HDF5 schema): reference/tether-format.md
+          - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
+      - API reference:
+          - Overview: api/index.md
+          - tether.io: api/io.md
+          - tether.imaging: api/imaging.md
+          - tether.fret: api/fret.md
+          - tether.idealize: api/idealize.md
+          - tether.ml: api/ml.md
+          - tether.analysis: api/analysis.md
+          - tether.project: api/project.md
+          - tether.services: api/services.md
+          - tether.gui: api/gui.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
       - Citing: citing.md
@@ -108,15 +151,19 @@ nav:
       - Running the private-data checks: maintainers/workstation-runner.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
+      - Writing docstrings: maintainers/docstring-style.md
+      - AI-use policy for documentation: maintainers/ai-use-policy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
 # out of the rendered site. The MADR log under adr/ IS wired in: the index page
 # (adr/README.md) is in the nav, and the individual records build and get their
 # links validated, but are kept out of the nav tree via `not_in_nav` — so
 # `mkdocs build --strict` stays green without ~50 nav leaves and without silencing
-# genuine link warnings.
+# genuine link warnings. The workflow design under design/ (#891) is the PRD's companion: its
+# README, DOT sources and SVG drawings are read on GitHub beside the PRD, not on the site.
 exclude_docs: |
   PRD.md
+  design/
 
 not_in_nav: |
   adr/0*.md

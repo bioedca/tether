@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -32,7 +33,15 @@ def _load(name: str):
 
 
 harness = _load("harness")
-DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"))}
+DRIVERS = {
+    m.TOOL: m
+    for m in (
+        _load("smfret_analysis2"),
+        _load("mash_fret"),
+        _load("deep_lasi"),
+        _load("fret_cloud"),
+    )
+}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -136,9 +145,11 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "cloud.m").write_text("function cloud\nend\n", encoding="utf-8")
-    pins = {"lab": {"kind": "files", "files": {"cloud.m": harness.sha256(scripts / "cloud.m")}}}
+    digest = harness.sha256(scripts / "cloud.m")
+    pins = {"lab": {"kind": "files", "citation": "A, 2025", "files": {"cloud.m": digest}}}
     assert harness.verify_clone("lab", scripts, pins) == {
         "name": "lab",
+        "citation": "A, 2025",
         "files": pins["lab"]["files"],
     }
     (scripts / "cloud.m").write_text("function cloud\ndisp(1)\nend\n", encoding="utf-8")
@@ -220,6 +231,19 @@ def test_freeze_records_saved_files_and_manual_steps(tmp_path) -> None:
     assert record["outputs"] == {"total_XC.csv": harness.sha256(saved)}
 
 
+def test_freeze_dates_each_saved_file_by_its_own_date(tmp_path) -> None:
+    saved = tmp_path / "export.mat"
+    saved.write_bytes(b"MATLAB")
+    when = 1_700_000_000  # 2023-11-14T22:13:20Z
+    os.utime(saved, (when, when))
+    harness.freeze(
+        "deep-lasi", saved=[saved], out=tmp_path / "f", tool_version="1", matlab_release="2023b"
+    )
+    record = harness.verify(tmp_path / "f")
+    assert record["saved"] == {"export.mat": "2023-11-14T22:13:20+00:00"}
+    assert record["date"] != record["saved"]["export.mat"]
+
+
 def _frozen(tmp_path: Path, clone) -> Path:
     out = tmp_path / "out"
     pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
@@ -275,9 +299,16 @@ def test_every_committed_output_matches_its_record(record: Path) -> None:
 def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
     pins = harness.load_pins()
     for tool in DRIVERS:
+        if pins[tool]["kind"] == "files":
+            # A tool with no public commit (#710): each script by its SHA-256, and a citation.
+            assert pins[tool]["files"], tool
+            for name, digest in pins[tool]["files"].items():
+                assert re.fullmatch(r"[0-9a-f]{64}", digest), (tool, name)
+            assert pins[tool]["citation"], tool
+            continue
         assert pins[tool]["kind"] == "git"
         assert re.fullmatch(r"[0-9a-f]{40}", pins[tool]["commit"]), tool
-        assert pins[tool]["url"].startswith("https://github.com/")
+        assert pins[tool]["url"].startswith(("https://github.com/", "https://gitlab.com/"))
 
 
 def test_the_standin_is_a_python_script(monkeypatch) -> None:
@@ -389,6 +420,25 @@ def test_an_input_changed_during_the_run_is_refused(tmp_path, clone, traces) -> 
             tasks,
             clone=clone[0],
             inputs={"traces": one},
+            out=tmp_path / "o",
+            matlab=STANDIN,
+            pins=pins,
+        )
+    assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
+def test_a_run_that_writes_into_the_clone_is_refused(tmp_path, clone) -> None:
+    # Deep-LASI's window saved settings.mat into its clone on the first workstation run (#715);
+    # the next run would have started from that file and not from the pin.
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"touch_clone": "s.mat"}}}
+    with pytest.raises(harness.HarnessError, match="the run changed the clone"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={},
             out=tmp_path / "o",
             matlab=STANDIN,
             pins=pins,

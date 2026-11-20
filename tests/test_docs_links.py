@@ -30,8 +30,8 @@ walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes fr
 stdlib only (``re``, ``html.parser``, ``pathlib``), like ``tests/test_adr_index.py``:
 ``python-markdown`` is not in the base conda-lock, so it cannot be imported on the 3-OS
 ``test`` matrix. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
-``tables``, ``fenced_code``). What this module promises is narrower than "the renderer's
-verdict on any page". It promises this:
+``tables``, ``fenced_code``), and a test below fails if it names any. What this module
+promises is narrower than "the renderer's verdict on any page". It promises this:
 
 * the forms listed below are modelled, most of them with Python-Markdown's own regular
   expressions and procedures, copied and named. Each is pinned here by a test whose page
@@ -44,7 +44,7 @@ verdict on any page". It promises this:
   extending the model with a test checked against a real render — never by guessing;
 * any other form is not guaranteed. The checker may misread it either way.
 
-Known gaps are tracked in #515. A form not listed here is out of scope until it is listed.
+Known gaps are tracked in #1013. A form not listed here is out of scope until it is listed.
 
 The modelled forms:
 
@@ -74,7 +74,10 @@ The modelled forms:
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
-  an image gives none, and an undefined reference stays as written.
+  an image gives none, and an undefined reference stays as written. The de-duplication
+  starts empty. ``toc`` seeds it only from ids that are already elements when it runs,
+  and with mkdocs' default extensions no element has one: raw HTML, ``<a id>`` included,
+  is stashed before ``toc`` runs (#515).
 
 These forms are refused, because how the renderer reads them depends on context that the
 model does not track:
@@ -97,8 +100,10 @@ real indented code block is reported. None exists in ``docs/`` today.
 
 from __future__ import annotations
 
+import ast
 import bisect
 import html
+import importlib.util
 import re
 import sys
 import unicodedata
@@ -110,9 +115,20 @@ from pathlib import Path
 import pytest
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
+_MKDOCS_YML = DOCS.parent / "mkdocs.yml"
 
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
+
+# Files the site serves that are not under docs/: ``scripts/mkdocs_hooks.py`` adds each one to the
+# build from its repository path (#612). A link to one resolves when that source file exists.
+_hooks_spec = importlib.util.spec_from_file_location(
+    "mkdocs_hooks_links", DOCS.parent / "scripts" / "mkdocs_hooks.py"
+)
+assert _hooks_spec is not None and _hooks_spec.loader is not None
+_hooks = importlib.util.module_from_spec(_hooks_spec)
+_hooks_spec.loader.exec_module(_hooks)
+_GENERATED = {(DOCS / site).resolve(): source for site, source in _hooks.PUBLISHED_FILES.items()}
 
 _UNSUPPORTED = "unsupported Markdown form, the checker cannot vouch for it"
 
@@ -1002,7 +1018,48 @@ def _anchors(path: Path) -> frozenset[str]:
             ids.add(attrs["id"])
         if name == "a" and attrs.get("name"):
             ids.add(attrs["name"])
+    ids |= _api_anchors(path)
     return frozenset(ids)
+
+
+#: A mkdocstrings block (#179): ``::: tether.analysis.histogram`` at column zero.
+_API_BLOCK_RE = re.compile(r"^::: (tether(?:\.\w+)*)[ \t]*$", re.MULTILINE)
+#: A block the generator does not run: an HTML comment, or a fenced block at the root.
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.DOTALL | re.MULTILINE)
+_SRC = DOCS.parent / "src"
+
+
+def _api_anchors(path: Path) -> set[str]:
+    """The anchors a generated API page serves for its modules and their ``__all__`` names.
+
+    mkdocstrings writes one heading for each rendered object, with the object's dotted path as
+    its ``id``. This reads the module's ``__all__`` with ``ast``, as the generator does, and
+    gives the module path and ``<module>.<name>`` for each listed name that the module itself
+    defines. Members of a class and re-exported names are not modelled, so a link to one of
+    them fails here; ``mkdocs build --strict`` checks the rendered anchors in full.
+    """
+    anchors: set[str] = set()
+    text = _FENCE_RE.sub("", _COMMENT_RE.sub("", path.read_text(encoding="utf-8")))
+    for dotted in _API_BLOCK_RE.findall(text):
+        base = _SRC.joinpath(*dotted.split("."))
+        source = base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+        if not source.is_file():
+            continue
+        anchors.add(dotted)
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+            ):
+                names = ast.literal_eval(node.value)
+                anchors.update(f"{dotted}.{n}" for n in names if n in defined)
+    return anchors
 
 
 def _target_problem(source: Path, target: str) -> str | None:
@@ -1023,6 +1080,8 @@ def _target_problem(source: Path, target: str) -> str | None:
             return "target is outside docs/, so it is not part of the published site"
         if resolved in _EXCLUDED:
             return "target is excluded from the site by mkdocs.yml exclude_docs"
+        if resolved in _GENERATED:
+            return None if _GENERATED[resolved].is_file() else "the hook's source file is missing"
         if not resolved.exists():
             return "no such file"
         if resolved.is_dir():
@@ -1226,6 +1285,27 @@ def test_a_directory_link_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert len(out) == 2, out
     assert "'withreadme/'" in out[0] and "link withreadme/README.md" in out[0]
     assert "'bare/'" in out[1] and "no index page" in out[1]
+
+
+def test_an_api_page_serves_the_anchors_of_its_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` block serves its module and the ``__all__`` names the module defines (#179)."""
+    api = "# API\n\n::: tether.fret.gamma\n    options:\n      heading_level: 2\n"
+    good = "# A\n\n[g](api.md#tether.fret.gamma) and [f](api.md#tether.fret.gamma.estimate_gamma)\n"
+    bad = "# B\n\n[x](api.md#tether.fret.gamma.not_a_name) and [y](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "good.md": good, "bad.md": bad})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/bad.md:3", "docs/bad.md:3"], out
+
+
+def test_a_fenced_or_commented_api_block_serves_no_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` line in a fence or an HTML comment is not run, so it makes no heading."""
+    api = "# API\n\n```\n::: tether.fret.gamma\n```\n\n<!--\n::: tether.fret.leakage\n-->\n"
+    page = "# A\n\n[g](api.md#tether.fret.gamma) and [l](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "page.md": page})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/page.md:3", "docs/page.md:3"], out
 
 
 def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1448,3 +1528,59 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
         "docs/a.md:3: link to 'missing.md': no such file",
         "docs/a.md:3: link to 'gone.md': no such file",
     ], out
+
+
+# --- heading-id de-duplication is not seeded (#515) -------------------------------------
+# Python-Markdown's ``toc`` seeds its ``used_ids`` from the ids of elements already in the
+# tree. Raw HTML is stashed before ``toc`` runs, so an ``<a id>`` never seeds it. Only an
+# extension such as ``attr_list`` (``{#foo}``) or ``md_in_html`` could, and ``mkdocs.yml``
+# enables neither.
+
+
+def test_raw_html_ids_do_not_seed_heading_deduplication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``<a id="foo">`` plus two ``## Foo`` gives ``foo`` and ``foo_1``, as the site does.
+
+    Checked with a real ``mkdocs build`` of this repository's ``mkdocs.yml`` (mkdocs 1.6.1,
+    mkdocs-material 9.8.1, Python-Markdown 3.11.3): the page rendered ``<h2 id="foo">``,
+    ``<h2 id="foo_1">``, ``<h2 id="bar">`` and ``<h2 id="baz-baz">``. Seeded ids would have
+    made the headings ``foo_1``, ``foo_2`` and ``bar_1``. With ``attr_list`` off, ``{#baz}``
+    is heading text.
+    """
+    body = (
+        "# A\n\n"
+        '<a id="foo"></a>\n\n'
+        "## Foo\n\n## Foo\n\n"
+        'Inline <span id="bar">x</span>.\n\n'
+        "## Bar\n\n"
+        "## Baz {#baz}\n\n"
+        "[ok](#foo) [ok](#foo_1) [ok](#bar) [ok](#baz-baz)\n"
+        "[bad](#foo_2)\n[bad](#bar_1)\n[bad](#baz)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert [o.split(":", 2)[1] for o in out] == ["16", "17", "18"], out
+    assert "'#foo_2'" in out[0] and "'#bar_1'" in out[1] and "'#baz'" in out[2]
+
+
+def test_mkdocs_yml_names_no_markdown_extension() -> None:
+    """The model above assumes mkdocs' default extensions; adding one must re-check it.
+
+    The literal word ``markdown_extensions`` fails anywhere in the file, comments included,
+    so the plain, quoted, explicit ``? key`` and flow-mapping spellings of the key all
+    fail, wherever a ``#`` sits on the line. A key spelled with an escape sequence, such
+    as ``"markdown_\\x65xtensions"``, is not caught: the module stays stdlib only, so the
+    file is not parsed as YAML. A stray use of the word in a value or comment fails too,
+    which errs loud.
+    """
+    named = [
+        line
+        for line in _MKDOCS_YML.read_text(encoding="utf-8").splitlines()
+        if "markdown_extensions" in line
+    ]
+    assert not named, (
+        "mkdocs.yml now sets markdown_extensions. An extension such as attr_list or "
+        "md_in_html puts ids in the tree before toc runs, so they seed the heading "
+        "de-duplication that _anchors() models as empty (#515). Check _anchors() against "
+        "a real mkdocs build before enabling one."
+    )

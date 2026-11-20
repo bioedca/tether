@@ -86,6 +86,8 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
         "Key_BracketRight",
         "Key_R",
         "Key_P",
+        "Key_Return",
+        "Key_G",
     ],
 )
 def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
@@ -161,6 +163,13 @@ def test_overflow_picker_lists_and_assigns_beyond_nine(shell) -> None:
         "11: cat 11",
         "12: cat 12",
     ]
+    # ... and that pairing is the persisted tMAVEN class lookup's, class for class (ADR-0125).
+    from tether.project.conditions import ClassLookup
+
+    lookup = ClassLookup.from_categories("", categories)
+    assert [shown.item(i).text() for i in range(shown.count())] == [
+        f"{cls}: {lookup.category_of(cls)}" for cls in picker.overflow_classes
+    ]
     picker.choose(12)
     assert picker.selected_class() == 12
     from tether.gui.curation import Command, CurationAction
@@ -193,6 +202,36 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
     assert "Space" not in dict(shown)
 
 
+def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None:
+    # #345: the ready line no longer offers "Enter jump", and the shipped cheat sheet
+    # agrees: every deferred command is marked unavailable, the working ones are not.
+    from tether.gui.shell import DEFERRED_ACTIONS
+
+    assert "jump" not in shell.status_message.lower()
+    shown = _cheatsheet_cells(shell.cheatsheet)
+    assert shown == shell.keymap.cheatsheet(unavailable=DEFERRED_ACTIONS)
+    rows = dict(shown)
+    assert rows.get("Space") == "Accept trace"
+    assert rows.get("I") == "One-click idealize"
+    assert rows.get("G") == "Toggle grid (unavailable)"
+    assert rows.get("1") == "Assign category 1 (unavailable)"
+    assert "Jump to movie spot (unavailable)" in rows.values()
+    assert "Jump to movie spot" not in rows.values()
+
+
+def test_every_deferred_action_reports_unavailable(shell) -> None:
+    # The set the cheat sheet marks is the set the handlers route to _unavailable,
+    # so the two cannot drift apart (#357 / #364 / #359 shrink both together).
+    from tether.gui.curation import Command, CurationAction
+    from tether.gui.shell import DEFERRED_ACTIONS
+
+    shell.set_molecules(_traces(1))
+    for action in sorted(DEFERRED_ACTIONS):
+        arg = 1 if action is CurationAction.ASSIGN_CATEGORY else None
+        shell.controller.dispatch(Command(action, arg))
+        assert "unavailable" in shell.status_message, action
+
+
 def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> None:
     from tether.gui import shell as shell_mod
     from tether.gui.curation import Command, CurationAction
@@ -202,7 +241,15 @@ def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> N
     monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: 11)
     shell.show_overflow_picker()
     assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
-    assert "Category 11" in shell.status_message
+    # class 11 names the eleventh category, as the persisted class lookup does (ADR-0125)
+    assert "Category 11 (category 11)" in shell.status_message
+
+
+def test_category_hotkey_class_outside_the_lookup_is_named_unknown(shell) -> None:
+    from tether.gui.curation import Command, CurationAction
+
+    shell.controller.dispatch(Command(CurationAction.ASSIGN_CATEGORY, 13))  # 12 categories
+    assert "Category 13 (?)" in shell.status_message
 
 
 def test_show_overflow_picker_cancel_dispatches_nothing(shell, monkeypatch) -> None:

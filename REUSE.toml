@@ -12,6 +12,21 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
+# The three files the docs site serves for a data deposit (#612): the project schema, the
+# molecule-table column dictionary and the provenance JSON Schema. The maintainer licensed them
+# CC0-1.0 on 2026-11-10 so that anyone can copy them into a deposit with no conditions; the code
+# and the documentation pages keep their licenses. docs/reference/exports.md states it, and
+# tests/test_docs_published_data.py checks this entry.
+[[annotations]]
+path = [
+    "schema/schema_frozen.json",
+    "docs/reference/molecule-table-columns.csv",
+    "docs/reference/tether-provenance-schema.json",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
+SPDX-License-Identifier = "CC0-1.0"
+
 # kinSoftChallenge simulated datasets — third-party reference data, CC-BY-4.0
 # (Götz & Schmid, Zenodo 10.5281/zenodo.5701310), aggregated as gated-tier test
 # fixtures. `override` beats the blanket GPL entry above for these specific data
@@ -86,6 +101,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105): values
+# computed from the GPL-3.0-only traces above, so GPL-3.0-only. The script itself is not here.
+[[annotations]]
+path = ["tests/fixtures/reference/fret-cloud-scripts/sa2-traces/*"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2) (the traces)",
+  "2026 The Tether Authors <bioedca@u.northwestern.edu> (the reference run)",
+]
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x
 # (#755, ADR-0083): unchanged copies of members of the publisher's archive
 # 41467_2024_50885_MOESM4_ESM.zip, under CC BY-NC-ND 4.0 as published, NOT GPL-3.0. Non-commercial
@@ -106,15 +132,24 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# Group IIB intron smFRET data (#711, ADR-0087): an extract of one MASH-FRET project file of
+# Group IIB intron smFRET data (#711 ADR-0087, #712 ADR-0101): two extracts of one MASH-FRET project file of
 # Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel, Zenodo
 # doi:10.5281/zenodo.24104528, CC-BY-4.0 (scripts/make_mashfret_fixture.py says what it keeps).
 # See NOTICE and tests/fixtures/PROVENANCE.md.
 [[annotations]]
-path = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+path = ["tests/fixtures/mashfret_ed135e_30mm_extract.mat", "tests/fixtures/mashfret_ed135e_30mm_path_a.mat"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Susann Zelger-Paulus, Mélodie C.A.S. Hadzic, Lennart Lindner, Richard Börner, Fabio Steffen, Besim Fazliji, Silke Johannsen and Roland Sigel"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# Weninger laboratory trinucleotide-repeat hairpin data (#798): a verbatim copy of one .traces
+# movie of the archive of Zenodo 10.5281/zenodo.7853531 (Dryad doi:10.5061/dryad.ht76hdrkc,
+# CC0-1.0). Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/weninger_hairpin/*"]
+precedence = "override"
+SPDX-FileCopyrightText = "2023 Pengning Xu, Jiahui Zhang, Feng Pan, Chelsea Mahn, Christopher Roland, Celeste Sagui, Keith Weninger (Zenodo 10.5281/zenodo.7853531)"
+SPDX-License-Identifier = "CC0-1.0"
 
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark

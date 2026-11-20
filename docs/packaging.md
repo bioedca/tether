@@ -1,3 +1,7 @@
+---
+description: "What a Tether installer and the offline bundle contain, and how to check that a download is genuine."
+---
+
 # Packaging &amp; installers
 
 **Who this page is for.** Anyone who wants to know what a Tether installer contains, or who
@@ -18,8 +22,7 @@ required at install time.
 - The **Tether application environment** (installed under `envs/tether`) — the PySide6 shell,
   the pyqtgraph trace docks and the compute/IO stack — pinned to Tether's committed lock so
   every install is byte-for-byte reproducible. It also holds [napari](https://napari.org) for
-  the movie panel, which reaches the application with the
-  [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+  the application's movie panel.
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), which runs
   every idealization fit: the application's one-trace fit on the **I** key, the
   whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch), and the
@@ -27,8 +30,22 @@ required at install time.
   own interpreter (PyQt5 on `numpy<2`) so it never collides with the application's GUI stack.
 - A minimal **conda bootstrap** in the install root, which the installer uses to lay down the
   two pinned environments above — it holds no Tether code and never modifies your shell.
+- Two **launchers**, `tether` and `tether-gui` (`tether.bat` and `tether-gui.bat` on Windows),
+  in a `launchers` folder in the install root. That folder holds nothing else, so it is the one
+  folder you add to your `PATH`
+  ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)).
+  Installers up to and including 1.0.0-rc3 put the launchers in the install root's `bin`
+  folder instead. On Linux and macOS that folder also holds the bootstrap's own `python`, `pip`
+  and `conda`
+  ([ADR-0094](adr/0094-the-launchers-get-a-folder-of-their-own.md)).
 - Tether's **GPL-3.0 license** text, shown during installation and shipped beside the
   installer. The bundled sidecar also carries tMAVEN's own GPL-3.0 license.
+- A copy of the **GitHub CLI** (`gh`, MIT license) in the `verifier/gh` folder of the install
+  root. It is there for the in-app updater, which uses it to verify a downloaded installer
+  before it runs it ([ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)). The
+  folder also holds the `gh` license and the license notices of the software `gh` contains.
+  Tether does not put this folder on your `PATH`, so it does not replace a `gh` that you
+  installed yourself. Its version and checksums are pinned in `packaging/gh-verifier.toml`.
 
 The optional deep-learning GPU add-on is **not** part of the installer; it is a
 separate, documented install for users with a supported NVIDIA GPU.

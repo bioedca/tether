@@ -1,3 +1,7 @@
+---
+description: "Tether is a free desktop suite for single-molecule FRET analysis. Start here to find the install guide, the tutorial and the citation."
+---
+
 <div class="tether-hero">
   <img class="on-light" src="assets/brand/lockup-light.svg" alt="The Tether logo" width="420" height="120">
   <img class="on-dark" src="assets/brand/lockup-dark.svg" alt="The Tether logo" width="420" height="120">
@@ -8,8 +12,8 @@
 **Tether** is a cross-platform single-molecule FRET (smFRET) desktop suite built for the
 Mondragón Lab at Northwestern University. It pairs a PySide6 application shell and
 [pyqtgraph](https://www.pyqtgraph.org) trace docks with a single self-describing HDF5
-(`.tether`) project store. Extraction, the corrections and idealization stamp their Tether
-version and most of their parameters into that store (not every setting, and not direct
+(`.tether`) project file. Extraction, the corrections and idealization stamp their Tether
+version and most of their parameters into that project file (not every setting, and not direct
 excitation, which Tether does not correct), and the publication exports carry the same stamp
 beside them; [Reproducibility and reporting](reproducibility.md) lists what is recorded, what
 is not, and how to read it back.
@@ -19,9 +23,11 @@ traces, fits one trace at a time and draws a population histogram. Extraction ru
 [command line](cli.md), where `tether batch` also applies the corrections and fits every
 molecule. From Python you can run the corrections and whole-project fits with your own
 settings, and make the other plots and the exports, as each [how-to guide](#using-tether)
-shows. The installer also includes
-[napari](https://napari.org) for the movie panel, which reaches the application with the
-[trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+shows.
+
+The application also shows the movies of a project in a
+[napari](https://napari.org) movie panel, with their donor and acceptor spots. A missing or
+changed movie file is listed but not shown. A movie with no recorded geometry has no spots.
 
 **New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
 acquisition geometry and file formats Tether reads, what it deliberately does not do, and
@@ -55,10 +61,10 @@ paper.
   [idealize them](how-to/idealize.md),
   [draw a histogram, TDP and dwell plots](how-to/analyze.md) and
   [export the results](how-to/export-results.md).
-- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
+- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analyzing an existing
   Deep-LASI acquisition without re-extracting the movie.
 - [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing
-  in tMAVEN's own window and bringing the result back.
+  in tMAVEN's own application window and bringing the result back.
 - [Seven-plot parity gallery](analysis/parity-gallery.md) — for the seven analysis
   plots and how each corresponds to its tMAVEN counterpart.
 - [Validation & benchmarks](validation.md) — for deciding whether a Tether analysis is
@@ -69,7 +75,7 @@ paper.
   writes.
 - [Analysis parameters](reference/parameters.md) — for every default Tether applies and
   whether it is recorded in your project.
-- [Project store](reference/tether-format.md) — for reading a `.tether` file directly.
+- [Project file](reference/tether-format.md) — for reading a `.tether` file directly.
 - [Reproducibility and reporting](reproducibility.md) — for the version and settings a
   project records, reading them back, and writing them into a Methods section.
 - [Glossary](glossary.md) — for the terms used across these pages.
@@ -91,7 +97,7 @@ paper.
 - [Standalone-tMAVEN cross-OS record](maintainers/standalone-tmaven-cross-os-record.md) —
   for maintainers recording the manual tMAVEN GUI check on each operating system.
 
-## Modules (PRD §4.2)
+## Modules
 
 Each package below owns one responsibility. The table lists them by package; for the order a
 movie actually passes through them, and what each leaves in the project file, see
@@ -99,7 +105,7 @@ movie actually passes through them, and what each leaves in the project file, se
 
 | Module | Responsibility |
 | --- | --- |
-| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project store, the filename parser, and [exporters](reference/exports.md). |
+| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project file, the filename parser, and [exporters](reference/exports.md). |
 | [`tether.imaging`](cli.md#tether-extract) | Native movie-to-trace extraction and registration. |
 | [`tether.fret`](adr/0026-photobleach-detection-and-window-default.md) | Photobleaching detection, correction factors, and corrected FRET. |
 | [`tether.idealize`](idealize/standalone-tmaven-handoff.md) | The tMAVEN sidecar driver and dwell/rate analysis. |
@@ -107,6 +113,13 @@ movie actually passes through them, and what each leaves in the project file, se
 | [`tether.analysis`](analysis/parity-gallery.md) | Histograms, transition-density plots, and population statistics. |
 | [`tether.gui`](adr/0055-gui-session-writer-ownership.md) | The PySide6 shell and dockable analysis surfaces. |
 | [`tether.project`](adr/0030-headless-batch-runner-isolation-and-checkpoint.md) | The experiment/session model and the headless core. |
+
+## Cite Tether
+
+If you publish results that you made with Tether, cite its concept DOI,
+[10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397). That DOI always resolves to
+the newest archived release. [Citing Tether](citing.md) gives the full citation, tells you how to
+cite the exact version you ran, and lists the published methods to cite with it.
 
 ## Support Tether
 

@@ -1,3 +1,7 @@
+---
+description: "For the maintainer: run the checks that need private laboratory data on the reference workstation, and read their results."
+---
+
 # Running the private-data checks
 
 **Who this page is for.** The maintainer, who has access to the reference workstation and to the
@@ -30,6 +34,8 @@ The pytest log in `logs/` can name private files, so only your account must read
   When one of these folders already has group or other permission bits, the runner removes them
   before it runs and prints a `note:` line. It does not refuse the run. A `--results` folder
   outside the state folder holds only sealed results, so the runner does not change it.
+  The runner does not follow a symbolic link at the path of the log file or the check record.
+  It stops with an `error:` line and does not write to the file that the link points at.
 - **Windows.** The runner does not change permissions. A folder that you make in your user
   profile (`%USERPROFILE%`) inherits the ACL of the profile folder. By default, that ACL gives
   full control to `SYSTEM`, to `Administrators` and to your account, and nothing to `Users` or
@@ -70,8 +76,8 @@ folder, and give it the neutral id that its check uses:
 
 | Neutral id | Manifest path below the data folder | Check (#716) |
 | --- | --- | --- |
-| `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-colour Deep-LASI set: import and molecule count |
-| `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-colour Deep-LASI set: import, FRET states and dwell times |
+| `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-color Deep-LASI set: import and molecule count |
+| `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-color Deep-LASI set: import, FRET states and dwell times |
 
 ```json
 {
@@ -264,6 +270,87 @@ The first command writes nothing and lists what moved. The second command writes
 and prints the old/new table. Put the table and a `Cause:` line in the pull request, as for the
 other golden files. The script prints neutral ids and numbers only.
 
+## Agreement with Deep-LASI on more acquisitions
+
+The weekly run also compares Tether with the Deep-LASI results of more acquisitions than video
+010 (`tests/test_deeplasi_agreement.py`, ADR-0115). It has three checks:
+
+- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`. Tether extracts the
+  movie with the map file and the detection settings of the saved Deep-LASI state. The
+  oracle (a) scorer compares the result with the Deep-LASI export. Each id passes or fails
+  alone, at the oracle (a) limits. The numbers are `matched_fraction`, `position_rms_px`,
+  `donor_pearson_median`, `acceptor_pearson_median`, `precision` and the counts.
+- **Corrected FRET**, for the ids above and `lab-01`, `lab-13`, `dlexp-01` and `dlexp-02`.
+  Tether's correction chain runs on the traces of each export. Its corrected FRET is compared
+  with Deep-LASI's, on the export's own factors. The numbers are recorded, and there is no agreement limit.
+  The check fails only when the two formulas do not agree with the same factors.
+- **The scripted rerun of video 010**: the output of `scripts/reference/matlab/deep_lasi.py`
+  must agree with its provenance record and repeat the old export of `lab-01`.
+
+A failure on one acquisition is a finding. Open or update its issue as for the other checks.
+Do not change a limit or remove the id (ADR-0115).
+
+The ids need these roles in the mapping file:
+
+| Role | File |
+|---|---|
+| `movie`, `tmap` | as for the golden numbers |
+| `deeplasi_state` | the saved Deep-LASI state (`.tdat`) of the acquisition (the spots-and-traces ids) |
+| `window` | the `.mat` export in a folder that `harness.py freeze` made from it (every id above) |
+| `rerun` | `lab-01` only: the `.mat` export in the output folder of the scripted rerun |
+
+Each role names a file, and the self-check reads each one. Two rules keep these roles from
+changing other checks:
+
+- Do not name a folder by its neutral id. The runner treats each folder name in the mapping file
+  as private. It then withholds each result, because the results contain the neutral ids. Give
+  each `window` folder a number instead, for example `deeplasi-window/01`.
+- The saved state has the role `deeplasi_state`, not `tdat`. The speed check gives a `tdat`
+  role to its extraction. Thus a `tdat` role on a `speed` id changes what that check measures.
+
+## The leakage-α band on the donor-only sample
+
+The weekly run also checks the conjunctive leakage-α band of oracle (e)
+(`tests/test_leakage_alpha_band.py`, ADR-0133). Tether's donor-only α of the Cy3-only
+calibration acquisition must agree with the tail α of the FRET series it calibrates, `lab-03`
+to `lab-08` pooled: a relative difference of the two medians of at most 20 %, and both medians
+within 0.05–0.2. The numbers are `alpha_donor_only`, `alpha_tail_series`,
+`relative_difference` and the counts under `donly-01`, and `tail_alpha` for each series id. A
+failure is a finding for its issue. Do not change a limit, and do not change the series to make
+the check pass.
+
+The check needs one more id in the mapping file:
+
+| Neutral id | Role | File |
+|---|---|---|
+| `donly-01` | `donor_only` | the saved Deep-LASI state (`.tdat`) of the Cy3-only calibration acquisition |
+
+The series ids use their `deeplasi_state` role. The check refuses a file whose SHA-256 is not
+the one in `tests/_leakage_band.py` or `tests/_deeplasi_agreement.py`.
+
+`tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
+with the id and the role when a file is not the pinned one.
+
+Make a `window` folder one time for each export. Give the MATLAB release that saved the export
+and the Deep-LASI version of the window:
+
+```sh
+python scripts/reference/matlab/deep_lasi.py freeze <export.mat> --out <data folder>/deeplasi-window/<number> --tool-version <version> --matlab-release 2023b --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat>
+```
+
+The record says that no scripted run made the file, and gives the date of the export file.
+Give only the inputs that exist for the id.
+
+Make the `rerun` folder with the scripted run, from a clean clone of Deep-LASI at the pinned
+commit:
+
+```sh
+python scripts/reference/matlab/deep_lasi.py run --clone <Deep-LASI clone> --task extract --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat> --out <data folder>/deeplasi-runs/01 --matlab <matlab>
+```
+
+The scripted run cannot make Deep-LASI's correction factors. They come from a step in its
+window after the state is saved. The factors of every check come from the `window` exports.
+
 ## Add a check
 
 1. Mark the test `@pytest.mark.workstation`, and give it no other tier marker (`large`,
@@ -292,7 +379,7 @@ The required CI matrix runs the same dry run in `tests/test_workstation_runner.p
 ## The speed history
 
 A scheduled run also measures speed and memory on the workstation (#723). The CI comparison of
-#722 finds a large regression in one pull request; the history finds a slow drift over many
+\#722 finds a large regression in one pull request; the history finds a slow drift over many
 changes, on the computer that is the reference for speed (maintainer decision Q28).
 
 **What a run measures.**
@@ -348,7 +435,9 @@ memory below 1 MiB only records. The runner adds two checks to the result file:
   or group did not run.
 
 A check that fails opens or updates its issue through the steps above (#698). A history that
-cannot be read gives both checks the outcome `error`; the runner does not change that file.
+cannot be read gives both checks the outcome `error`; the runner does not change that file. A valid
+last record can have no newline, for example after a hand edit. The runner then adds the newline
+first.
 
 **See the history.** Run these with the Tether environment:
 
@@ -358,7 +447,8 @@ python <state>/clone/scripts/workstation/plot_perf_history.py <state>/perf-histo
 ```
 
 The first prints the newest record's projection and its slowdowns. The second draws the stage
-times, the stage peaks and the projection for each record of `main`.
+times, the stage peaks and the projection for each record of `main`. Each line has a gap, not a
+zero, where a record lacks that value on any acquisition.
 
 **Show that the rule works.** The runner runs only commits of `main`. To show a slowdown, make a
 throw-away branch in a scratch clone of the repository, not in the runner's clone, and make one

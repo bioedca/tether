@@ -1,3 +1,7 @@
+---
+description: "How to read the monthly mutation report, and how to add a mutant to the list of known equivalent mutants."
+---
+
 # Reading the mutation report
 
 **Who this page is for.** The maintainer and contributors who read the monthly mutation report
@@ -52,6 +56,14 @@ their `__init__.py` first. When a package only passes a name on, as `tether.anal
 DEFAULT_STATE_NUMBER_LOW` imports `tether.analysis.state_number` too. When the package takes the
 name from one of two modules (`if` and `else`, or `try` and `except`), both count. An import in a
 helper module that the test file imports does not count.
+
+A wildcard, `from tether.a import *`, imports the module of each public name of `tether.a`. When
+`tether.a` sets `__all__` as a list or tuple of strings, the public names are the names in it.
+Otherwise they are the names that `tether.a` binds and that do not start with `_`. A wildcard in
+a source module, such as `from .c import *` in `tether/a/__init__.py`, passes on the public names
+of `tether.a.c` in the same way. A module alias passes on the module itself. So when
+`tether/a/__init__.py` has `import tether.a.c as backend`, `from tether.a import backend` imports
+`tether.a.c` (#1007).
 
 ## How to read the report
 
@@ -133,6 +145,6 @@ repository. The measurements are from 2026-11-12, on `main` at `46fb76b`, with 4
 mutmut is faster for each mutant, because it forks one process and does not import again. It
 could not use the whole test tier, and it needed a hand-made list of test files. cosmic-ray has
 no way to run only the covering tests. The in-repository runner uses the per-test contexts that
-#725 asks for, adds no package, and runs the whole target set in about an hour with four workers.
+\#725 asks for, adds no package, and runs the whole target set in about an hour with four workers.
 No function in the targets is Numba-compiled today (the one Numba function is in
 `_sidecar_runner.py`, which is excluded).
