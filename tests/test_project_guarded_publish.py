@@ -362,6 +362,81 @@ def test_guarded_write_refuses_a_canonical_file_replaced_meanwhile(tmp_path: Pat
     assert list(tmp_path.glob(".p.tether.*.test.tmp")) == []
 
 
+def _stamp_project(path: Path, version: int) -> None:
+    with h5py.File(path, "a") as project:
+        project.attrs["schema_version"] = version
+
+
+def test_failed_migration_backup_does_not_publish_a_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.project import _guarded_publish
+
+    canonical = tmp_path / "p.tether"
+    _stamp_project(canonical, 1)
+    original = canonical.read_bytes()
+    real_copy = _guarded_publish.copy2
+
+    def fail_backup(source: Path, target: Path) -> None:
+        if "backup" in target.name:
+            target.write_bytes(b"partial copy")
+            raise OSError("backup interrupted")
+        real_copy(source, target)
+
+    monkeypatch.setattr(_guarded_publish, "copy2", fail_backup)
+    with (
+        pytest.raises(OSError, match="backup interrupted"),
+        _guarded_publish.guarded_project_write(
+            canonical, write_guard=lambda: None, label="test"
+        ) as stage,
+    ):
+        _stamp_project(stage, 2)
+
+    assert canonical.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [canonical]
+
+
+@pytest.mark.parametrize("interruption", ["ownership", "canonical"])
+def test_refuses_migration_if_the_source_changes_during_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    from tether.project import _guarded_publish
+
+    canonical = tmp_path / "p.tether"
+    _stamp_project(canonical, 1)
+    original = canonical.read_bytes()
+    real_copy = _guarded_publish.copy2
+    ownership_lost = False
+    replacement = tmp_path / "replacement.tmp"
+    replacement_bytes = b"another writer's project"
+    if interruption == "canonical":
+        replacement.write_bytes(replacement_bytes)
+
+    def interrupt_backup(source: Path, target: Path) -> None:
+        nonlocal ownership_lost
+        real_copy(source, target)
+        if "backup" in target.name:
+            if interruption == "ownership":
+                ownership_lost = True
+            else:
+                replacement.replace(canonical)
+
+    def guard() -> None:
+        if ownership_lost:
+            raise lock.LockError("lock ownership changed before publish")
+
+    monkeypatch.setattr(_guarded_publish, "copy2", interrupt_backup)
+    with (
+        pytest.raises(lock.LockError, match="ownership changed|replaced by another writer"),
+        _guarded_publish.guarded_project_write(canonical, write_guard=guard, label="test") as stage,
+    ):
+        _stamp_project(stage, 2)
+
+    expected = original if interruption == "ownership" else replacement_bytes
+    assert canonical.read_bytes() == expected
+    assert list(tmp_path.iterdir()) == [canonical]
+
+
 # --- #258: one staged sibling spans the whole correct stage -------------------
 
 

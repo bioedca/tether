@@ -139,26 +139,43 @@ def migration_backup_path(project_path: str | Path, version: int) -> Path:
     path = Path(project_path)
     candidate = path.with_name(f"{path.stem}.v{version}-backup{path.suffix}")
     n = 2
-    while candidate.exists():
+    while os.path.lexists(candidate):
         candidate = path.with_name(f"{path.stem}.v{version}-backup-{n}{path.suffix}")
         n += 1
     return candidate
 
 
-def _back_up_before_migration(canonical: Path, staged: Path) -> Path | None:
+def _back_up_before_migration(
+    canonical: Path, staged: Path, *, check_publish: Callable[[], None]
+) -> None:
     """Copy ``canonical`` beside itself when the staged copy raised its ``schema_version``.
 
-    The first schema-version step (ADR-0136) migrates a file in place: the publish that
-    raises a project's stamp first keeps the file as it was (PRD §5.4, "back up the
-    file, then migrate it"). Returns the backup's path, or ``None`` when the stamp did
-    not rise. A failed copy raises, so the migration is not published without it.
+    A same-directory temporary copy keeps a failed copy out of the backup name.
+    Check the source after that copy, publish the backup without replacing an
+    earlier one, and check once more before the canonical file is replaced.
     """
     before, after = _stamped_version(canonical), _stamped_version(staged)
     if before is None or after is None or after <= before:
-        return None
-    backup = migration_backup_path(canonical, before)
-    copy2(canonical, backup)
-    return backup
+        return
+
+    fd, raw_backup = mkstemp(
+        prefix=f".{canonical.name}.", suffix=".backup.tmp", dir=canonical.parent
+    )
+    os.close(fd)
+    backup_stage = Path(raw_backup)
+    try:
+        copy2(canonical, backup_stage)
+        while True:
+            backup = migration_backup_path(canonical, before)
+            check_publish()
+            try:
+                publish_staged_project(backup_stage, backup, publish_guard=None)
+            except (FileExistsError, PublishGuardRequiredError):
+                continue
+            break
+    finally:
+        backup_stage.unlink(missing_ok=True)
+    check_publish()
 
 
 def _is_placeholder(path: str | Path, placeholder: tuple[int, int] | None) -> bool:
@@ -232,12 +249,16 @@ def guarded_project_write(
             yield guarded_stage
         finally:
             _ACTIVE_STAGES.reset(token)
-        write_guard()
-        if source_identity is not None and file_identity(canonical_path) != source_identity:
-            raise LockError(
-                f"{canonical_path.name} was replaced by another writer during the {label} write"
-            )
-        _back_up_before_migration(canonical_path, guarded_stage)
+
+        def check_publish() -> None:
+            write_guard()
+            if source_identity is not None and file_identity(canonical_path) != source_identity:
+                raise LockError(
+                    f"{canonical_path.name} was replaced by another writer during the {label} write"
+                )
+
+        check_publish()
+        _back_up_before_migration(canonical_path, guarded_stage, check_publish=check_publish)
         with replacement_identity(guarded_stage, canonical_path):
             os.replace(guarded_stage, canonical_path)
         guarded_stage = None

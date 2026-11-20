@@ -123,9 +123,12 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    backup-and-migrate path PRD §5.4 asks of it. A staged publish whose copy carries a higher
    `schema_version` than the file it replaces first copies that file, as it was, to
    `<stem>.v<old>-backup<suffix>` beside it (`experiment.v1-backup.tether`; `-2`, `-3`, … when the
-   name is taken, so a backup is never overwritten), and only then replaces it. A failed copy
-   publishes nothing. Every writer that can migrate a file (the append and a new generation) runs
-   in that publish (`guarded_project_write`, ADR-0112). The test joins oracle (f).
+   name is taken, so a backup is never overwritten), and only then replaces it. It copies to a
+   temporary sibling, rechecks the source file and writer lock, and publishes the completed backup.
+   A failed copy or source check at this point publishes neither file. A completed backup remains
+   available if the subsequent project publish fails. Every writer that can migrate a file (the
+   append and a new generation) runs in that publish (`guarded_project_write`, ADR-0112).
+   The tests join oracle (f).
 
 ### Consequences
 
