@@ -97,9 +97,8 @@ model does not track:
 Some forms are read *short* on purpose. A heading or definition that the model cannot
 place is not counted, for example one in a list item's indented continuation or a
 definition inside a blockquote. Leaving one out can only make a link to it fail. For the
-same reason an indented block the model cannot place as code, for example one inside a
-blockquote or one after a fence, is read as prose, because reading list text as code
-would hide a broken link. A ``[a][b]`` in such a block is reported.
+same reason ambiguous indentation is read as prose, including inside a blockquote or
+immediately after a fence without a blank line.
 """
 
 from __future__ import annotations
@@ -237,11 +236,6 @@ _SCHEME_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
 _CODE = "\x00"
 _ESC = "\x01"
 _ESC_SHIFT = 0xE000
-
-
-def _blank(match: re.Match[str]) -> str:
-    """Replace a match with spaces, keeping its newlines so line numbers survive."""
-    return re.sub(r"[^\n]", " ", match.group(0))
 
 
 def _blank_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
@@ -480,23 +474,16 @@ def _mark_code(lines: list[_Line], units: list[_Unit]) -> None:
                 unit.soft.add(k)
 
 
-def _code_blocks(lines: list[_Line], units: list[_Unit], source: list[str]) -> set[int]:
-    """The lines that are certainly an indented code block, read as code and not as prose.
+def _code_blocks(
+    lines: list[_Line], units: list[_Unit], source: list[str], masked: str, fence_ends: set[int]
+) -> set[int]:
+    """Find root code blocks whose preceding sibling cannot be a list.
 
-    ``CodeBlockProcessor`` takes a block that opens four spaces in, unless
-    ``ListIndentProcessor`` takes it first, which it does when the block before it at the
-    same level is a list. So an indented block is code when the model can see that the
-    block before it is not a list. It decides that only where it is sure, at the root and
-    across real blank lines, and walks back over indented blocks, which are code or list
-    text as the block before them is. The block it stops at rules out a list when it opens
-    no list item anywhere and holds no definition, which the renderer removes, leaving the
-    block before it as the last one. The top of the page rules one out too. Anywhere else,
-    after a blank line that held a fence, a comment or raw HTML, or inside a blockquote,
-    the lines stay prose, which can only report something, never hide it.
-
-    ``source`` is the normalised page, so a line blanked here but not there is a fence,
-    comment or raw HTML block the model cannot place as a block of its own.
+    ``ListIndentProcessor`` wins over ``CodeBlockProcessor`` after a list. Follow real
+    blank lines over runs of indentation to find what preceded them. A fence adds a
+    block of its own; reference definitions can disappear without adding one.
     """
+    masked_lines = masked.split("\n")
 
     def plain(k: int) -> bool:  # an unaltered line at the root
         return lines[k].depth == 0 and lines[k].body == source[k]
@@ -506,23 +493,30 @@ def _code_blocks(lines: list[_Line], units: list[_Unit], source: list[str]) -> s
         if k >= 0 and source[k]:
             return False  # no blank line: a lazy line, or a block the model split itself
         while True:
-            while k >= 0 and not lines[k].body.strip():
-                if source[k]:
-                    return False
+            while k >= 0 and not source[k]:
                 k -= 1
-            if k < 0:
+            if k < 0 or k in fence_ends:
                 return True
             start = k
-            while start > 0 and lines[start - 1].body.strip():
+            while start > 0 and source[start - 1]:
                 start -= 1
-            block = range(start, k + 1)
-            if not all(plain(j) for j in block):
+            block = source[start : k + 1]
+            if block != masked_lines[start : k + 1]:
                 return False
-            if not lines[start].body.startswith(" " * _TAB):
-                return not any(_LIST_ITEM_RE.match(lines[j].body) for j in block) and not (
-                    _DEF_ANY_RE.search("\n".join(lines[j].body for j in block))
+            if not block[0].startswith(" " * _TAB):
+                if _LIST_START_RE.match(block[0]) or _DEF_ANY_RE.search("\n".join(block)):
+                    return False
+                # A later item marker is lazy text unless a heading or rule can split it off.
+                return not (
+                    any(_LIST_START_RE.match(row) for row in block[1:])
+                    and any(
+                        _HASH_HEADER_RE.fullmatch(row)
+                        or _HR_RE.fullmatch(row)
+                        or _SETEXT_UNDERLINE_RE.fullmatch(row)
+                        for row in block
+                    )
                 )
-            if not all(lines[j].body.startswith(" " * _TAB) for j in block):
+            if not all(row.startswith(" " * _TAB) for row in block):
                 return False
             k = start - 1
 
@@ -866,7 +860,13 @@ def _doc(path: Path) -> _Doc:
         line = bisect.bisect_right(starts, offset)
         problems.append(f"{_rel(path)}:{line}: {_UNSUPPORTED}: {what}")
 
-    fenced = _FENCED_BLOCK_RE.sub(_blank, text)
+    fence_ends: set[int] = set()
+
+    def blank_fence(match: re.Match[str]) -> str:
+        fence_ends.add(bisect.bisect_right(starts, match.end()) - 1)
+        return re.sub(r"[^\n]", " ", match.group())
+
+    fenced = _FENCED_BLOCK_RE.sub(blank_fence, text)
     comments = _comments(fenced)
     raw = _raw_html_blocks(_blank_spans(fenced, comments))
     blocks = _blank_spans(
@@ -881,7 +881,7 @@ def _doc(path: Path) -> _Doc:
     lines = _lines(md)
     tables = _table_lines(lines)
     units = _units(lines, tables, problem)
-    code = _code_blocks(lines, units, lines_)
+    code = _code_blocks(lines, units, lines_, md, fence_ends)
     defs = _definitions(lines, units, tables, code, problem)
     _mark_code(lines, units)
     definitions = frozenset(d.key for d in defs)
@@ -1553,64 +1553,37 @@ def test_a_form_outside_the_model_fails_loudly(
     assert out[0].startswith(f"docs/a.md:{line}: {_UNSUPPORTED}: {what}"), out
 
 
-# Each page below was rendered with Python-Markdown 3.11.3 and mkdocs' default extensions
-# (`toc`, `tables`, `fenced_code`); the comment on each row is the part of the render the
-# row turns on.
+# These fixtures were rendered with Python-Markdown 3.11.3 (`toc`, `tables`, `fenced_code`).
 @pytest.mark.parametrize(
     "body",
     [
-        # <p>Text.</p> <pre><code>x[a][b] = 1
-        "Text.\n\n    x[a][b] = 1\n",
-        # <hr /> <pre><code>x[a][b]
-        "***\n\n    x[a][b]\n",
-        # <h1 id="title">Title</h1> <pre><code>x[a][b]
-        "Title\n=====\n\n    x[a][b]\n",
-        # <table>…</table> <pre><code>x[a][b]
-        "a | b\n--|--\n1 | 2\n\n    x[a][b]\n",
-        # <p>Para</p> <pre><code>a\n\nb[a][b]: the second block joins the first
-        "Para\n\n    a\n\n    b[a][b]\n",
+        pytest.param("    x[a][b]\n", id="start-of-page"),
+        pytest.param("Text.\n\n    x[a][b] = 1\n", id="after-paragraph"),
+        pytest.param("***\n\n    x[a][b]\n", id="after-rule"),
+        pytest.param("Title\n=====\n\n    x[a][b]\n", id="after-setext"),
+        pytest.param("a | b\n--|--\n1 | 2\n\n    x[a][b]\n", id="after-table"),
+        pytest.param("Para\n\n    a\n\n    b[a][b]\n", id="after-code"),
+        # The list is a child of the quote, so the code is still at the root.
+        pytest.param("> - item\n\n    x[a][b]\n", id="after-quote"),
+        pytest.param("Text\n* item\n\n    x[a][b]\n", id="after-lazy-item-marker"),
+        # The fence separates the list from the indented code.
+        pytest.param("- item\n```\nc\n```\n\n    x[a][b]\n", id="after-fence-and-blank"),
     ],
-    ids=["after-paragraph", "after-rule", "after-setext", "after-table", "after-code"],
 )
 def test_an_indented_code_block_after_a_blank_line_is_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
 ) -> None:
-    """Four spaces in after a blank line, at the root and not after a list, is code (#1013)."""
-    assert _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body}) == []
+    """The renderer emits ``<pre><code>`` for each indented root block (#1013)."""
+    assert _check(tmp_path, monkeypatch, {"a.md": body}) == []
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        # <blockquote>…</blockquote> <pre><code>x[a][b]: the block before is no list,
-        # but the model reads blockquotes only as deep as it needs to
-        "> q\n\n    x[a][b]\n",
-        # <p>Text\n* item</p> <pre><code>x[a][b]: a list item line in the block before
-        # is not a list here, but after a heading it would be
-        "Text\n* item\n\n    x[a][b]\n",
-        # <p>Text</p> <pre><code>c</code></pre> <pre><code>x[a][b]: a fence, not a
-        # blank line, sits before the block
-        "Text\n\n```\nc\n```\n    x[a][b]\n",
-    ],
-    ids=["after-quote", "after-item-line", "after-fence"],
-)
-def test_an_indented_code_block_the_model_cannot_place_is_prose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
-) -> None:
-    """Where the model is not sure the block before is no list, the code is read short.
-
-    These are code to the renderer, so the report is a false red. It is the safe error:
-    reading list text as code would hide a broken link instead.
-    """
-    out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
-    assert len(out) == 1 and "reference-style link [a][b] has no [b]:" in out[0], out
-
-
-def test_an_indented_code_block_may_open_the_page(
+def test_indentation_after_a_fence_without_a_blank_is_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``    x[a][b]`` alone renders ``<pre><code>x[a][b]``: no block before it, no list."""
-    assert _check(tmp_path, monkeypatch, {"a.md": "    x[a][b]\n"}) == []
+    """The model requires a source blank line, although the fence adds one in the renderer."""
+    body = "# A\n\n```\nc\n```\n    x[a][b]\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and "reference-style link [a][b] has no [b]:" in out[0], out
 
 
 def test_an_indented_code_block_holds_no_anchors_or_definitions(
@@ -1655,9 +1628,19 @@ def test_text_after_an_indented_code_block_is_read(
         ("- item\n\n[k]: #a\n\n    x[t][nokey]\n", 7),
         # the same, with a label that runs over two lines, which the renderer allows
         ("- item\n\n[k\n]: #a\n\n    x[t][nokey]\n", 8),
+        # A quote without a separating blank stays inside the root list.
+        ("- item\n>\n> q\n\n    x[t][nokey]\n", 7),
+        # Definitions and setext headings can split a block before an item line.
+        ("Text\n[k]: #a\n- item\n\n    x[t][nokey]\n", 7),
+        ("Text\n=====\n- item\n\n    x[t][nokey]\n", 7),
     ],
     ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"]
-    + ["after-two-line-definition"],
+    + [
+        "after-two-line-definition",
+        "quote-inside-list",
+        "definition-before-item",
+        "setext-before-item",
+    ],
 )
 def test_an_indented_list_continuation_is_still_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int
