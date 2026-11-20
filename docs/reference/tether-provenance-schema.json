@@ -181,7 +181,24 @@
               "trace_layers"
             ],
             "additionalProperties": false,
+            "dependentRequired": {
+              "curator_alias": [
+                "names_aliased",
+                "n_aliased_names"
+              ],
+              "names_aliased": [
+                "curator_alias"
+              ],
+              "n_aliased_names": [
+                "curator_alias"
+              ]
+            },
             "properties": {
+              "curator_alias": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The prefix used for aliases when curator names were replaced."
+              },
               "idealization_models": {
                 "type": "array",
                 "items": {
@@ -208,6 +225,11 @@
                   }
                 ]
               },
+              "n_aliased_names": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The number of distinct user names replaced."
+              },
               "n_idealization_models": {
                 "type": "integer",
                 "minimum": 0
@@ -223,6 +245,10 @@
               "n_trace_layers": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "names_aliased": {
+                "const": true,
+                "description": "Present when curator aliasing was requested."
               },
               "skipped_idealization_models": {
                 "type": "array",
