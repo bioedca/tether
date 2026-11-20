@@ -12,7 +12,7 @@ project so its retrain sees them (PRD §7.5/§7.10):
 * **append-only** — the contributor's human ``/labels`` rows are *appended* to the owner's
   ``/labels/table`` (never rewriting or deleting an existing row), carrying their original
   ``labeler`` / ``timestamp`` / ``source_file`` provenance so who-labeled-what survives the merge,
-  and the ``/labels/reject_log`` reason of each appended reject or restore follows its row (#1051);
+  and each uniquely matched ``/labels/reject_log`` reason follows its label row (#1051);
 * **joined on** ``molecule_key`` — the stable cross-file content identity (movie ``sha256`` +
   quantized ``donor_xy``, §5.1/§7.10) is the only join key; a split-file row whose ``molecule_key``
   is absent from the owner's ``/molecules`` cannot be attributed and is **surfaced** (never silently
@@ -291,11 +291,11 @@ def merge_labels(
     weights are superseded (§5.1). Re-pulling the same split file is **idempotent**: rows already
     present (same provenance) are skipped, and adoption/agreement are unchanged on a second run.
 
-    The reason of each pulled reject or restore follows it: a split-file ``/labels/reject_log``
-    row that joins a pulled ``/labels`` row on ``molecule_key`` + ``labeler`` + ``timestamp``
-    (ADR-0104) is appended to the owner's log under the owner's ``condition_id`` unless the owner
-    already holds it (#1051), so [`tether.project.labels.reject_record_of`][] reads the same
-    reason in the owner as in the split file. A split file without the log merges as before.
+    Merge-back appends a split-file ``/labels/reject_log`` row when its ``molecule_key``,
+    ``labeler`` and ``timestamp`` identify exactly one matched human label of the corresponding
+    decision (ADR-0104). The new row takes the owner's ``condition_id``. Existing rows and
+    ambiguous joins are skipped (#1051). The append-only owner log retains earlier rows even
+    when a later pull makes their join ambiguous (#1291).
 
     Only ``source == "human"`` rows are pulled; the provisional seed sources are the owner's own
     priors (ADR-0038) and are counted, not merged. A source row whose ``molecule_key`` is not in the
