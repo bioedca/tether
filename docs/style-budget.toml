@@ -106,7 +106,7 @@ retired = 3
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 6.8
+long_share = 4.0
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -211,7 +211,7 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 21.4
+long_share = 21.5
 semicolons = 28
 long_paragraphs = 0
 retired = 0
