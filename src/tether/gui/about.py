@@ -70,7 +70,7 @@ REPOSITORY_URL: Final = "https://github.com/bioedca/tether"
 #: The Zenodo concept DOI (``doi`` in ``CITATION.cff``): it resolves to the newest release.
 CONCEPT_DOI: Final = "10.5281/zenodo.23306397"
 #: The citation, as ``docs/citing.md`` gives it.
-CITATION: Final = f"Campos-Chávez E, Mondragon A. Tether. Zenodo. https://doi.org/{CONCEPT_DOI}"
+CITATION: Final = f"Campos-Chávez E, Mondragón A. Tether. Zenodo. https://doi.org/{CONCEPT_DOI}"
 #: The two licences: the program's, and the brand files' (``REUSE.toml``).
 LICENSE_LINE: Final = "GPL-3.0-or-later (the program); CC BY 4.0 (the brand files)"
 #: The tile's size in the About box, in logical pixels.
