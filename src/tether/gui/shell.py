@@ -486,11 +486,14 @@ def _load_keymap(path: Path | None) -> tuple[Keymap, str | None]:
     defaults and one message; the file is never rewritten here, only by a Save (#635).
     """
     defaults = Keymap.default()
-    if path is None or not path.exists():
+    if path is None:
         return defaults, None
     try:
+        path.stat()
         return Keymap.load(path, defaults=defaults), None
-    except KeymapError as exc:
+    except (FileNotFoundError, NotADirectoryError):
+        return defaults, None
+    except (OSError, KeymapError) as exc:
         logging.getLogger("tether.gui").warning("keymap file %s not used: %s", path, exc)
         return defaults, (
             f"Keyboard shortcuts: {path} could not be used: {exc}. The default keys are in "

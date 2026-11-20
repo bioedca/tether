@@ -379,6 +379,34 @@ def test_an_invalid_keymap_file_starts_with_the_defaults_and_one_message(
 
 @pytest.mark.gui
 @_needs_qt
+def test_an_inaccessible_keymap_path_starts_with_the_defaults(
+    launch, tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "keymap.json"
+    key, _ = _qt()
+    saved = Keymap.default()
+    saved.rebind(Command(A.ACCEPT), key.Key_A)
+    saved.save(path)
+    before = path.read_bytes()
+    path_type = type(path)
+    original_stat = path_type.stat
+
+    def stat(candidate, *args, **kwargs):
+        if candidate == path:
+            raise PermissionError("keymap directory cannot be accessed")
+        return original_stat(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "stat", stat)
+    shell = launch(path)
+    assert shell.keymap.bindings == Keymap.default().bindings
+    assert shell.status_message == shell.keymap_error
+    assert str(path) in shell.status_message
+    assert "keymap directory cannot be accessed" in shell.status_message
+    assert path.read_bytes() == before
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_no_keymap_file_starts_with_the_defaults_silently(launch, tmp_path) -> None:
     shell = launch(tmp_path / "absent.json")
     assert shell.keymap_error is None
