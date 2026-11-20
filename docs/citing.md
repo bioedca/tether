@@ -13,7 +13,7 @@ upstream papers behind the methods that part implements, which you should cite a
 Tether is archived on Zenodo. Its **concept DOI** always resolves to the newest archived
 version:
 
-> Campos-Chávez E, Mondragon A. *Tether*. Zenodo.
+> Campos-Chávez E, Mondragón A. *Tether*. Zenodo.
 > [https://doi.org/10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397)
 
 The same metadata is in

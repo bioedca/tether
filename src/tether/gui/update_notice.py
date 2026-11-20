@@ -29,8 +29,8 @@ thread still waiting when the application quits does not keep it alive.
 
 **One notice per run.** A newer release produces exactly one bar; dismissing it hides it for
 the rest of the session. It is not remembered: the store holds only the consent answer
-(ADR-0095), so the next start asks GitHub again and shows the bar again while the installed
-copy is still older.
+and the trace colours (ADR-0095, ADR-0123), so the next start asks GitHub again and shows
+the bar again while the installed copy is still older.
 
 **What the link opens.** Always [`tether.gui.update_check.RELEASES_PAGE`][], never a URL from
 GitHub's answer; the only text of the answer the bar shows is the version, re-spelled from
