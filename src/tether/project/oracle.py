@@ -104,7 +104,7 @@ def match_coordinates(
     ground_truth_xy, extracted_xy:
         ``(n, 2)`` arrays of ``[x, y]`` pixel coordinates.
     tol_px:
-        Maximum match distance in pixels (default [`MATCH_TOL_PX`][]).
+        Maximum match distance in pixels (default `MATCH_TOL_PX`).
 
     Returns
     -------

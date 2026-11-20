@@ -620,6 +620,24 @@ note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) a
 `provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
 GPL-3.0 program and carry the repository's licence.
 
+`fret-cloud-scripts/sa2-traces` (#710, ADR-0105) is the output of
+`FRET_cloud_contours_centroids.m` of the FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos
+Chavez, 2025, unpublished), run unchanged once by the `cloud` task of
+`scripts/reference/matlab/fret_cloud.py` on MATLAB R2023b on the maintainer's workstation
+(2026-11-15), on the 76 smfret-analysis2 trace files above (column 4 replaced by
+`acceptor / (acceptor + donor)` in temporary copies). The script is pinned by its SHA-256 and is not
+in the repository. The directory holds `files.csv`, `pairs.csv`, `density.h5`, `thresholds.csv`,
+`centroids.csv`, `toolbox.csv` and `provenance.json`. The values derive from the GPL-3.0-only
+smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`, `NOTICE`, manifest ids
+`fret-cloud-*`):
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv`.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the
@@ -938,3 +956,24 @@ those of the survey of #721; the whole archive downloaded once to compute its SH
 its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the member above out of
 the archive; manifest ids `weninger-hairpin-traces` (the archive) and
 `weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.
+
+## Update-verifier attestation answer and `gh` report (#333)
+
+Two JSON files the update verifier's tests (`tests/test_update_verify.py`) replay byte for byte, so
+that the stand-in `gh` and the stand-in API answer exactly as the real ones did. Both describe
+Tether's own published `v1.0.0-rc1` Linux installer, `Tether-1.0.0-rc1-Linux-x86_64.sh`
+(802,018,820 B, SHA-256 `de6ae6ebbab9549d91ba5ff22e370117a80702d2abdc909be275ba74405ddb9c`, the
+digest GitHub lists for the release asset). Neither contains a secret or a private path: they are
+the public attestation of a public release.
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/update_verify/attestations-v1.0.0-rc1-linux-64.json` | the unauthenticated answer of `GET https://api.github.com/repos/bioedca/tether/attestations/sha256:de6ae6eb…5ddb9c`, verbatim; its Rekor checkpoint carries the em-dash (U+2014) that a `cp1252` read corrupts | 11,714 B | `a8f52f2dd9bfec67aae5168fde76c234c8a98e9db9fb99301743baf484bcc9a6` |
+| `tests/fixtures/update_verify/gh-2.104.0-verify-v1.0.0-rc1-linux-64.json` | stdout of `gh attestation verify <installer> --bundle <bundle> --custom-trusted-root <root> --repo bioedca/tether --signer-workflow bioedca/tether/.github/workflows/release.yml --format json`, with `gh` 2.104.0 (the pinned `packaging/gh-verifier.toml` build, staged by `stage_gh.py`) and every proxy pointed at a closed port; exit 0 | 14,408 B | `b14b3db2849d9b856e3de2f87edc60e465613a2fb8f25ccfd3a0d11c8a97c6fd` |
+
+**Accessed:** 2026-11-19. The trusted root for the second file was `targets/trusted_root.json` of
+`sigstore/root-signing` at commit `8aaffe4419c50fdc0f65aa7f091dd2f20a6b163c` (the cloud container
+that recorded it cannot reach the Sigstore TUF hosts); the report does not contain the root.
+**License:** `GPL-3.0-or-later`, with the rest of the repository (REUSE blanket). Regenerate with
+the two commands in the table against a downloaded installer; the whitespace hooks skip
+`tests/fixtures/update_verify/` so the bytes stay as recorded.

@@ -264,7 +264,7 @@ def _assert_project_writable(project: ProjectRef, identity: LockIdentity | None)
 def _project_write(
     project: ProjectRef, identity: LockIdentity | None
 ) -> AbstractContextManager[None]:
-    """Hold off other writers of ``project`` while a short write runs ([`lock.writing`][]).
+    """Hold off other writers of ``project`` while a short write runs (`lock.writing`).
 
     The writer identity is resolved as in `_assert_project_writable`.
     """
@@ -299,7 +299,7 @@ def record_model_reference(
     keeps one reference per condition. This is a canonical write: it is refused with
     [`LockedError`][tether.project.lock.LockedError] while another writer holds the *project's*
     lock. The check and the write run under the project's lock guard
-    ([`tether.project.lock.writing`][]), so a writer that takes the lock meanwhile waits for
+    (`tether.project.lock.writing`), so a writer that takes the lock meanwhile waits for
     the write to end rather than finding the file changed under its lock.
 
     Parameters

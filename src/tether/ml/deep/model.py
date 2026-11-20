@@ -8,7 +8,7 @@ this module in the base env is safe and pulls **no** deep-learning framework —
 ``nn.Module`` + ``Dataset`` live in the sibling private module `tether.ml.deep._torch_model`,
 imported only from within these functions.
 
-Model (DeepFRET/Deep-LASI-style [Thomsen2020][Wanninger2023]): a 1-D CNN over the
+Model (DeepFRET/Deep-LASI-style [Thomsen2020], [Wanninger2023]): a 1-D CNN over the
 ``(donor, acceptor)`` intensity channels feeds a (bi)LSTM whose final valid-frame hidden state
 (padded frames excluded via packed sequences — never treated as data) is mapped to one
 accept/reject logit. Training uses a **per-sample-weighted** BCE so the M5 cold-start
@@ -234,7 +234,7 @@ def predict_proba(
     When a [`TrainedDeepClassifier`][] is passed, the ``dataset``'s preprocessing provenance
     (channel order, channel count, window length, normalization, intensity quantity) must match
     what the model was trained on — a mismatch keeps a compatible tensor shape but would yield
-    silently-invalid scores, so it raises [`ValueError`][]. Pass a bare ``nn.Module`` to bypass
+    silently-invalid scores, so it raises `ValueError`. Pass a bare ``nn.Module`` to bypass
     the check (the caller then owns the contract).
     """
     from tether.ml.deep import _torch_model  # lazy: torch only loads here

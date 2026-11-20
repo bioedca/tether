@@ -44,9 +44,15 @@ creates a folder.
 **One writer.** Every change goes through ``_update``: read the file, change one key, and
 replace the file atomically (a temporary file in the same folder, ``fsync``,
 ``os.replace``), as [`record_update_consent`][tether.gui.app_settings.record_update_consent]
-does. A key this version does not know is kept, so a newer version's keys survive a session
-of this one. A JSON object of another ``schema``, or a file too large to read, is never
-replaced: a write refuses with `OSError` and leaves it as it was.
+does. The read and the replace happen under an operating-system lock on an empty file beside
+it, ``preferences.json.lock`` (#1171), so two Tether windows that write at the same moment
+take turns and neither change is lost. The lock belongs to the open file handle, so the
+operating system drops it when an instance exits or crashes; the file it leaves behind blocks
+nothing. A write that cannot take the lock within a few seconds fails with `OSError`, like any
+other failed write. Reading takes no lock. A key this version does not know is kept, so a
+newer version's keys survive a session of this one. A JSON object of another ``schema``, or a
+file too large to read, is never replaced: a write refuses with `OSError` and leaves it as it
+was.
 
 **A project's identity** is its resolved absolute path, case-folded on Windows
 ([`project_identity`][]). The ``.tether`` format has no identifier of its own, and the
@@ -61,12 +67,15 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import errno
 import getpass
 import json
 import os
+import stat
 import tempfile
+import time
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -113,6 +122,11 @@ RESUME_LIMIT = 50
 CURATOR_NAME_MAX_LENGTH = 100
 """The longest curator name accepted, in characters."""
 
+# U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER: format characters (Cf) that
+# Persian, Hindi and other scripts use inside ordinary names (#1196).
+_NAME_JOINERS = frozenset("\u200c\u200d")
+_DROP_JOINERS = dict.fromkeys(map(ord, _NAME_JOINERS))
+
 _RECENT = "recent_projects"
 _RESUME = "resume"
 _LAYOUT = "layout"
@@ -121,6 +135,11 @@ _CURATOR = "curator_name"
 # The file holds up to RESUME_LIMIT paths plus Qt's layout bytes; anything far larger is
 # not a file this module wrote, and reads as empty rather than being parsed.
 _MAX_BYTES = 256 * 1024
+
+# How long a write waits for another instance's write to finish (#1171). A write holds the
+# lock for one small read and one small replace, so a wait this long means a stuck holder.
+_LOCK_TIMEOUT_S = 5.0
+_LOCK_RETRY_S = 0.02
 
 
 def preferences_path() -> Path:
@@ -146,19 +165,32 @@ def validate_curator_name(name: object) -> str:
     """Return ``name`` stripped, or raise `ValueError` if it cannot be a curator name.
 
     A curator name is written into every new label (``labeler``), so it must be non-empty
-    after stripping, at most [`CURATOR_NAME_MAX_LENGTH`][] characters, and free of control
-    characters and line breaks, U+2028 and U+2029 included (a NUL or a line break in a label
-    column is unreadable later).
+    after stripping, at most [`CURATOR_NAME_MAX_LENGTH`][] characters, and free of anything
+    that would make a label column unreadable or misleading later. Refused are every
+    character in Unicode category ``C`` — control characters (``Cc``, NUL and the line feed
+    included), format characters (``Cf``), surrogates (``Cs``), private-use (``Co``) and
+    unassigned (``Cn``) code points — and the line and paragraph separators U+2028 and U+2029
+    (categories ``Zl`` and ``Zp``).
+
+    The one exception is U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER: Persian,
+    Hindi and other scripts need them inside ordinary names, so they are accepted, though a
+    name made of nothing else is refused as empty. Every other format character stays
+    refused, the bidirectional controls U+202A to U+202E and U+2066 to U+2069 among them,
+    because they reorder the text shown around them and so can make a label read as a
+    different curator than the one stored.
     """
     if not isinstance(name, str):
         raise ValueError(f"a curator name must be text, not {type(name).__name__}")
     stripped = name.strip()
-    if not stripped:
+    if not stripped.translate(_DROP_JOINERS).strip():
         raise ValueError("a curator name must not be empty")
     if len(stripped) > CURATOR_NAME_MAX_LENGTH:
         raise ValueError(f"a curator name must be at most {CURATOR_NAME_MAX_LENGTH} characters")
     # U+2028 and U+2029 are line breaks too, in categories Zl and Zp rather than C.
-    if any(unicodedata.category(ch)[0] == "C" or ch in "\u2028\u2029" for ch in stripped):
+    if any(
+        ch not in _NAME_JOINERS and (unicodedata.category(ch)[0] == "C" or ch in "\u2028\u2029")
+        for ch in stripped
+    ):
         raise ValueError("a curator name must not contain control characters")
     return stripped
 
@@ -216,9 +248,75 @@ def _write(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def _lock_path(path: Path) -> Path:
+    """Return the file whose operating-system lock serializes writes to ``path``."""
+    return path.with_name(path.name + ".lock")
+
+
+def _try_lock(fd: int) -> bool:
+    """Take the exclusive lock on ``fd`` without waiting; ``False`` if another holder has it."""
+    try:
+        if os.name == "nt":
+            import msvcrt  # noqa: PLC0415 - Windows only
+
+            # One byte from the start; the region may lie past the end of the empty file.
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl  # noqa: PLC0415 - POSIX only
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if os.name == "nt" or exc.errno in {errno.EACCES, errno.EAGAIN}:
+            return False
+        raise
+    return True
+
+
+@contextlib.contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """Hold the cross-process lock that serializes writes to ``path`` (#1171).
+
+    The lock file must be a regular file. On macOS and Linux it is also opened without following
+    a symbolic link and never blocks on open; Windows has no such flags. It is never deleted, so
+    every instance locks the same file. The lock is released when the handle closes, which the
+    operating system also does for an instance that exits or crashes.
+    """
+    lock = _lock_path(path)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_RDWR
+    if os.name != "nt":
+        flags |= os.O_NOFOLLOW | os.O_NONBLOCK
+    fd = os.open(lock, flags, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "the preferences lock is not a regular file", str(lock))
+        deadline = time.monotonic() + _LOCK_TIMEOUT_S
+        while not _try_lock(fd):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"{path.name} is being written by another Tether window; it was left as it was"
+                )
+            time.sleep(_LOCK_RETRY_S)
+        yield
+    finally:
+        # Closing the handle releases the lock on every platform.
+        os.close(fd)
+
+
 def _update(preferences_file: Path | None, mutate: Callable[[dict[str, Any]], None]) -> Path:
-    """Apply ``mutate`` to the stored object and write it back atomically; return the file."""
+    """Apply ``mutate`` to the stored object and write it back atomically; return the file.
+
+    The read and the replace hold the lock of ``_locked``, so an update from another instance
+    is never overwritten by one that read the file before it was written.
+    """
     path = _resolve(preferences_file)
+    with _locked(path):
+        _update_locked(path, mutate)
+    return path
+
+
+def _update_locked(path: Path, mutate: Callable[[dict[str, Any]], None]) -> None:
     try:
         size = path.stat().st_size
     except OSError:
@@ -240,7 +338,6 @@ def _update(preferences_file: Path | None, mutate: Callable[[dict[str, Any]], No
         )
     mutate(data)
     _write(path, data)
-    return path
 
 
 # --- recent projects -----------------------------------------------------------------

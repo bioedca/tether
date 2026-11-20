@@ -25,7 +25,7 @@ cannot sink or inflate the verdict.
 
 This is the standard evaluation methodology for an incrementally-updated / online-learning
 predictor, where the honest question is predictive-sequential (each new instance is predicted
-before it is learned from) rather than a single in-sample fit [Vinagre2021][GonzalezHidalgo2019].
+before it is learned from) rather than a single in-sample fit [Vinagre2021], [GonzalezHidalgo2019].
 A per-condition ranker sees no concept drift *within* a condition (the experimental condition
 is fixed), so the prior is the **expanding window** of all previously-curated videos (the
 "Basic Window" prequential variant [GonzalezHidalgo2019]) — mirroring the warm-start model that
