@@ -25,6 +25,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.maps
 
+::: tether.services.movies
+
 ::: tether.services.notices
 
 ::: tether.services.profile
