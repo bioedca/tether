@@ -172,12 +172,16 @@ on each device. The CPU figures are process high-water marks from separate stage
 figures are peak allocated tensor bytes with synchronization at both ends of the timed stage.
 The speed history keeps the four cases under its existing benchmark report rule.
 
-The [Deep-LASI reference archive][deep-lasi-archive] holds 20,080 two-colour traces.
-Tether uses the [donor and acceptor channels under donor excitation][deep-lasi-channels]. The
-[publisher's frame labels][deep-lasi-labels] determine one label per molecule. Static and
-dynamic are accept. Aggregate, randomized, noisy and bleach-only are reject. Bleach labels
-on other traces do not change their category or remove frames. The reference has 8,678
-accepted and 11,402 rejected molecules, including 343 bleach-only molecules.
+The [Deep-LASI reference archive][deep-lasi-archive] holds 20,080 two-color traces.
+Tether uses the [donor and acceptor channels under donor excitation][deep-lasi-channels].
+The [publisher's frame labels][deep-lasi-labels] determine one label per molecule.
+
+Tether accepts static and dynamic traces. It rejects aggregate, randomized, noisy, and
+bleach-only traces. Tether reads every frame and uses the non-bleach labels to classify
+the other traces.
+
+The reference has 8,678 accepted and 11,402 rejected molecules, including 343 bleach-only
+molecules.
 
 [deep-lasi-archive]: https://zenodo.org/records/7561162
 [deep-lasi-channels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/generate_training_data_from_MATLAB.py#L79-84
