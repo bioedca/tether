@@ -19,7 +19,7 @@ spawn a Qt app, so it runs headless under ``QT_QPA_PLATFORM=offscreen``.
 
 The sidecar interpreter is located via the ``sidecar_python`` argument, then the
 ``TETHER_SIDECAR_PYTHON`` environment variable, then the installer's sibling
-``envs/sidecar`` derived from [`sys.prefix`][] (ADR-0049/0051 — a shortcut or
+``envs/sidecar`` derived from `sys.prefix` (ADR-0049/0051 — a shortcut or
 ``PATH``-shim launch never runs the conda ``activate.d`` hook that exports the
 variable). There is still no hard-coded path: the last step resolves relative to the
 running interpreter, so any env built from ``sidecar/conda-lock.yml`` (with tMAVEN
@@ -189,7 +189,9 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
 
     Tolerant of optional members: only ``mean`` (state levels) is required;
     ``var``/``tmatrix``/``norm_tmatrix``/``idealized``/``likelihood``/``ran`` are
-    read when present. ``elbo`` is the final ELBO (``likelihood[-1, 0]``).
+    read when present. An optional array member that is an HDF5 group rather than
+    a dataset (older tMAVEN builds store ``rates`` that way) reads as absent.
+    ``elbo`` is the final ELBO (``likelihood[-1, 0]``).
     """
     import h5py
 
@@ -205,7 +207,13 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
         nstates = int(g["nstates"][()]) if "nstates" in g else int(means.shape[0])
 
         def _arr(name: str) -> np.ndarray | None:
-            return np.asarray(g[name][()], dtype="float64") if name in g else None
+            # Only a dataset carries an array. Older tMAVEN builds store some members
+            # (e.g. ``rates`` under "Dwell Analysis") as an empty group, which reads
+            # as absent rather than raising on the ``[()]`` index (#1080).
+            member = g.get(name)
+            if not isinstance(member, h5py.Dataset):
+                return None
+            return np.asarray(member[()], dtype="float64")
 
         likelihood = _arr("likelihood")
         elbo = None
@@ -311,7 +319,7 @@ def bundled_sidecar_python() -> Path | None:
     ``PATH`` shim or a ``.desktop`` entry (ADR-0051) never sees it and idealization
     would fail on an otherwise correct install.
 
-    Deriving the sibling from [`sys.prefix`][] covers every launch path without
+    Deriving the sibling from `sys.prefix` covers every launch path without
     relying on the shell. Returns ``None`` when the sibling is absent — a development
     checkout — so the caller still reports the actionable "set the env var" error
     rather than a confusing missing-path one.
@@ -366,7 +374,7 @@ def _sidecar_env() -> dict[str, str]:
 def _check_seed(seed: object) -> int | None:
     """Return ``seed`` as a plain ``int``, or ``None``; refuse anything else.
 
-    Only integer types pass: [`numbers.Integral`][], which holds ``int`` and
+    Only integer types pass: `numbers.Integral`, which holds ``int`` and
     the NumPy integer types, never ``bool`` (nor ``numpy.bool_``, which is not
     registered as integral). A float such as ``3.0`` is refused although it
     equals an integer (issue #839), and so is a string such as ``"3"``. The
@@ -405,9 +413,16 @@ def run_vbfret(
     model_type:
         One of the keys in `tether.idealize._sidecar_runner._DISPATCH`
         (default ``"vbconhmm"`` — the consensus VB-HMM behind the reference
-        model fixture and the M0.5 parity target).
+        model fixture and the M0.5 parity target). The keys are
+        ``"vbconhmm"`` and ``"ebhmm"`` (the population HMMs),
+        ``"vbconhmm_modelselection"`` and ``"ebhmm_modelselection"`` (the same,
+        choosing the number of states), ``"vbgmm_vbhmm"`` (a VB-HMM seeded from
+        a vbGMM, choosing the number of states), ``"kmeans_vbhmm"`` (a VB-HMM
+        seeded from k-means) and ``"vbgmm"`` (tMAVEN's plain variational-Bayes
+        Gaussian mixture, no HMM: its model has type ``"vb GMM"``).
     nstates:
-        Number of states (for fixed-``nstates`` model types).
+        Number of states (for fixed-``nstates`` model types: ``"vbconhmm"``,
+        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``).
     nrestarts:
         Optional override of tMAVEN's restart count (lower = faster, for tests).
     timeout:
@@ -599,7 +614,7 @@ def check_smd_opens(
     checksum, and the analysis windows tMAVEN read back. Raises [`SidecarError`][]
     if the interpreter is unset/missing, the launch fails, the load times out, or
     tMAVEN could not open the file. ``_run`` is an injectable subprocess launcher
-    (test seam), defaulting to [`subprocess.run`][].
+    (test seam), defaulting to `subprocess.run`.
     """
     py = resolve_sidecar_python(sidecar_python)
     smd_path = Path(smd_path)

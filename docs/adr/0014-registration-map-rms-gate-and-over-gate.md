@@ -51,6 +51,7 @@ no GUI yet), and how do the native and imported paths converge?*
 ## Considered options
 
 **Where the RMS gate / over-gate verdict lives.**
+
 - **A. A `RegistrationMap` object that owns the verdict** (`low_confidence` is a
   derived property `rms_residual > gate_px`; `molecule_tags` derives from it).
   Chosen — the verdict travels with the calibration into persistence and into
@@ -59,6 +60,7 @@ no GUI yet), and how do the native and imported paths converge?*
   Rejected — scatters the §7.1 rule and loses it across persistence.
 
 **Headless over-gate action (§7.1 batch policy).**
+
 - **C. A `warn`/`fail` policy parameter, default `warn` = accept-with-flag + a
   structured `OverGateRegistrationWarning`.** Chosen — exactly the PRD's headless
   default (warn-and-flag, do not abort), with `fail` for the configurable
@@ -68,12 +70,14 @@ no GUI yet), and how do the native and imported paths converge?*
   dropped" and is unusable in batch.
 
 **Fewer than six control points (Stage 9 "similarity fallback").**
+
 - **E. Fit a 4-DOF similarity (Umeyama, reflection excluded) and store it as a
   degree-2 polynomial with zero quadratic terms.** Chosen — keeps one uniform
   persisted type; settled linear algebra (no Consensus gate).
 - **F. Refuse < 6 points.** Rejected — Stage 9 mandates the fallback.
 
 **Native vs imported convergence.**
+
 - **G. Both paths build the same `RegistrationMap`** (native via
   `fit_registration_map`; imported via `registration_map_from_tmap`, which folds
   the `.tmap`'s 0-based ±1 boundary into the polynomial's normalisation affines so

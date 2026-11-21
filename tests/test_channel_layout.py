@@ -369,8 +369,8 @@ def test_a_newer_record_version_is_refused(tmp_path) -> None:
     path = create_project(tmp_path / "p.tether")
     with h5py.File(path, "r+") as f:
         write_layout_record(f["movies"], "mov-1", ChannelLayout())
-        f[f"movies/{LAYOUTS_GROUP}/mov-1"].attrs["version"] = 2
-    with pytest.raises(ValueError, match="version 2"):
+        f[f"movies/{LAYOUTS_GROUP}/mov-1"].attrs["version"] = 3  # 2 is #910's recipes
+    with pytest.raises(ValueError, match="version 3"):
         read_layout_record(path, "mov-1")
 
 

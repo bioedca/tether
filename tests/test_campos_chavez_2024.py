@@ -11,7 +11,9 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
   and each published efficiency, histogram, survival curve, exponential fit, transition density
   count and smoothed transition density array is compared with Tether's. The limits in
   :data:`LIMITS` were measured on Linux, macOS and Windows (ADR-0097 has the numbers) and are
-  frozen; the smoothed-array limit (#1029) is measured on three systems by #1130.
+  frozen; the smoothed-array limit (#1029) is measured on three systems by #1130. The mean dwell
+  time of each fitted double exponential (#1129) is held to the ``.out`` file's ``tau``, and its
+  error to the published formula with each error paired with its own parameter.
 
 * Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
   fraction of the closed state that the archive's notebook printed, in all five columns. Three of
@@ -52,6 +54,7 @@ from _campos_chavez_2024 import (
     find_windows,
     intrafret_efficiencies,
     read_book,
+    read_double_out,
     read_double_params,
     read_fig5c,
     read_notebook_fractions,
@@ -73,6 +76,13 @@ LIMITS = {
     "model_rel": 2e-5,
     "params_rel": 5e-5,
     "errors_rel": 1e-2,
+    # The mean dwell time of the fitted double exponential (#1129): Tether's tau beside the tau of
+    # the published parameters, and the error of Tether's fit beside the published parameters'
+    # error with each error paired with its own parameter. ``tau_out_abs`` is half a unit of the
+    # second decimal, which is all the .out file keeps.
+    "tau_rel": 5e-5,
+    "tau_out_abs": 5e-3,
+    "tau_err_rel": 1e-2,
     # Fig. 5c and the notebook print each fraction and error with four decimals, so a value equal
     # to the unrounded one is within half a unit of the fourth decimal (ADR-0120).
     "fraction_abs": 5e-5,
@@ -153,6 +163,12 @@ def test_find_windows_finds_each_window_and_a_value_the_matrix_lost() -> None:
     values = np.concatenate([e[10:60, 3], e[0:300, 1], [lost], e[5:9, 0]])
     windows = find_windows(e, rounding_bound(donor, acceptor), values)
     assert windows == [(3, 10, 50), (1, 0, 300), (-1, -1, 1), (0, 5, 4)]
+
+
+def test_find_windows_finds_a_value_whose_candidate_is_exactly_at_the_upper_reach() -> None:
+    # The bound is inclusive, so 0.5 matches 0.375 within 0.125 and must be searched (#1125).
+    e = np.array([[0.5]])
+    assert find_windows(e, np.array([[0.125]]), np.array([0.375])) == [(0, 0, 1)]
 
 
 def test_dwells_from_survival_give_back_the_survival_curve() -> None:
@@ -342,6 +358,28 @@ def test_double_exponential_parameters_and_errors(panel: tuple) -> None:
     # sorted: Tether's error of each parameter is the published error of the other one.
     assert got["errors_swapped_max_rel"] <= LIMITS["errors_rel"], got
     assert got["errors_as_labelled_max_rel"] > 1.0, got
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("panel", sorted(DOUBLE_PARAMS))
+def test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau(panel: tuple) -> None:
+    name = DOUBLE_PARAMS[panel]
+    got = compare_survival(
+        _book()[panel[0]],
+        panel[1],
+        "double",
+        read_double_params(_archive(), name),
+        read_double_out(_archive(), name),
+    )
+    assert got["tau_rel"] <= LIMITS["tau_rel"], got
+    assert got["tau_out_abs"] <= LIMITS["tau_out_abs"], got
+    # The error this checks is the re-paired one: the published formula with each tMAVEN error
+    # paired with its own parameter, which is what Tether's fit gives. The published .out error
+    # pairs each error with the other parameter (#756 finding 1), so it is 15 to 45 times larger;
+    # it is reported in ``got`` and only held to being far from Tether's.
+    assert got["tau_err_repaired_rel"] <= LIMITS["tau_err_rel"], got
+    assert got["tau_err_published_ratio"] > 10.0, got
+    assert got["tau_err_as_labelled_out_abs"] <= LIMITS["tau_out_abs"], got
 
 
 @pytest.mark.reference_download

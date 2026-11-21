@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -538,6 +539,102 @@ def test_a_reconcile_never_stores_interrupted_over_a_run_that_started_after_it_l
     assert retried["job"].state is jobs.JobState.DONE
 
 
+# --- the no-live-owner rule (ADR-0126, decision 3) -----------------------------------------
+
+
+def _store_running(project: Project, job_id: str, owner: dict[str, object] | None) -> None:
+    """Write a stored *running* row whose owner is ``owner`` (``None``: an empty owner)."""
+    text = "" if owner is None else json.dumps(owner, sort_keys=True)
+    jobs._write_job(project.path, job_id, state="running", owner=text, started_utc="t0")
+
+
+def _dead_pid() -> int:
+    child = subprocess.run(
+        [sys.executable, "-c", "import os; print(os.getpid())"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return int(child.stdout)
+
+
+def _owner_case_empty(project: Project, job_id: str) -> None:
+    _store_running(project, job_id, None)
+
+
+def _owner_case_no_lock(project: Project, job_id: str) -> None:
+    _store_running(project, job_id, {"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    project.release_lock()  # the lock file is gone
+
+
+def _owner_case_this_pid_not_active(project: Project, job_id: str) -> None:
+    _store_running(project, job_id, {"nonce": project._held_lock.nonce, "pid": os.getpid()})
+
+
+def _owner_case_dead_process(project: Project, job_id: str) -> None:
+    me = project._acting_identity()
+    dead = Project(project.path, identity=LockIdentity(me.host, me.user, _dead_pid()))
+    held, _ousted = dead.steal_lock()  # the dead process's lock is left behind
+    _store_running(project, job_id, {"nonce": held.nonce, "pid": held.pid})
+
+
+def _owner_case_other_host_took_the_lock(project: Project, job_id: str) -> None:
+    _store_running(project, job_id, {"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    Project(project.path, identity=LockIdentity("other-host", "someone", 4242)).steal_lock()
+
+
+_RECLAIMABLE = {
+    "empty-owner": _owner_case_empty,
+    "no-lock-file": _owner_case_no_lock,
+    "this-pid-not-active": _owner_case_this_pid_not_active,
+    "dead-process": _owner_case_dead_process,
+    "other-host-took-the-lock": _owner_case_other_host_took_the_lock,
+}
+
+
+@pytest.mark.parametrize("case", list(_RECLAIMABLE), ids=list(_RECLAIMABLE))
+def test_a_running_row_with_no_live_owner_is_read_and_stored_interrupted(
+    project: Project, case: str
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    _RECLAIMABLE[case](project, job.job_id)
+
+    seen = jobs.read_job(project.path, job.job_id)  # a read, with whatever lock is there
+    assert (seen.stored_state, seen.state) == (jobs.JobState.RUNNING, jobs.JobState.INTERRUPTED)
+
+    project.acquire_lock(steal=True)  # the next writer
+    assert jobs.reconcile_jobs(project) == [job.job_id]
+    stored = jobs.read_job(project.path, job.job_id)
+    assert (stored.stored_state, stored.state) == (jobs.JobState.INTERRUPTED,) * 2
+
+
+def test_a_running_row_under_a_lock_of_another_host_is_left_running(project: Project) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    other = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    held, _ousted = other.steal_lock()
+    _store_running(project, job.job_id, {"nonce": held.nonce, "pid": held.pid})
+    # Its process cannot be seen from here, so the nonce alone judges it: it is live.
+    seen = jobs.read_job(project.path, job.job_id)
+    assert (seen.stored_state, seen.state) == (jobs.JobState.RUNNING,) * 2
+    other.release_lock()
+    project.acquire_lock()
+
+
+def test_a_live_job_in_this_process_stays_running(project: Project) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    during: list[object] = []
+
+    def work(part: str, _c: jobs.CancelToken) -> None:
+        if part == "b":
+            during.append(jobs.read_job(project.path, job.job_id).state)
+            during.append(jobs.reconcile_jobs(project))
+            during.append(jobs.read_job(project.path, job.job_id).stored_state)
+
+    done = jobs.run_job(project, job.job_id, work)
+    assert during == [jobs.JobState.RUNNING, [], jobs.JobState.RUNNING]
+    assert done.state is jobs.JobState.DONE
+
+
 # --- the stale marks (ADR-0103) -------------------------------------------------------------
 
 
@@ -589,6 +686,55 @@ def test_a_label_edit_marks_the_factor_version_but_no_fit(project: Project) -> N
     assert [(m.node, m.edge) for m in marks] == [("factor_version", 11), ("correction_version", 19)]
 
 
+def test_a_guard_is_judged_for_each_downstream_record(project: Project) -> None:
+    for f in ("f1", "f2"):
+        jobs.record_inputs(project, "factor_version", f, {("trace_generation", "t"): "v1"})
+        jobs.record_inputs(project, "correction_version", f"c{f}", {("factor_version", f): "1"})
+    asked: list[tuple[int, str, str]] = []
+
+    def holds(edge: int, node: str, instance: str) -> bool:
+        asked.append((edge, node, instance))
+        return instance == "f1"  # the changed intensities touch a contributor of f1 only
+
+    marks = jobs.set_stale_marks(project, "trace_generation", "t", "v2", guards_hold=holds)
+    assert [(m.node, m.instance, m.edge) for m in marks] == [
+        ("factor_version", "f1", 7),
+        ("correction_version", "cf1", 19),
+    ]
+    assert sorted(asked) == [(7, "factor_version", "f1"), (7, "factor_version", "f2")]
+    # A record already marked is not judged again; the other one is judged again.
+    asked.clear()
+    again = jobs.set_stale_marks(project, "trace_generation", "t", "v3", guards_hold=holds)
+    assert (again, asked) == ([], [(7, "factor_version", "f2")])
+    # The edge-number form still works and answers for every record of the edge.
+    every = jobs.set_stale_marks(project, "trace_generation", "t", "v3", guards_hold={7})
+    assert [(m.node, m.instance) for m in every] == [
+        ("factor_version", "f2"),
+        ("correction_version", "cf2"),
+    ]
+
+
+@pytest.mark.parametrize("release", [False, True], ids=["stolen", "stolen-and-released"])
+def test_a_lock_that_moves_while_the_guards_are_asked_stores_no_mark(
+    project: Project, release: bool
+) -> None:
+    jobs.record_inputs(project, "factor_version", "f1", {("trace_generation", "t"): "v1"})
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+
+    def holds(_edge: int, _node: str, _instance: str) -> bool:
+        thief.steal_lock()
+        if release:
+            thief.release_lock()
+        return True
+
+    with pytest.raises(LockedError):
+        jobs.set_stale_marks(project, "trace_generation", "t", "v2", guards_hold=holds)
+    assert jobs.read_stale_marks(project.path) == []
+    if not release:
+        thief.release_lock()
+    project.acquire_lock()
+
+
 def test_recorded_inputs_need_an_edge_and_are_recorded_once(project: Project) -> None:
     with pytest.raises(ValueError, match="no edge"):
         jobs.record_inputs(project, "fit", "f", {("map", "m"): "x"})
@@ -601,10 +747,34 @@ def test_recorded_inputs_need_an_edge_and_are_recorded_once(project: Project) ->
 # --- the reference page ---------------------------------------------------------------------
 
 
+_JOBS_SECTION = "### Jobs, recorded inputs and stale marks"
+
+
+def _jobs_section(page: str) -> str:
+    """The section of the reference page on jobs, up to the next heading of any level."""
+    start = page.index(_JOBS_SECTION) + len(_JOBS_SECTION)
+    end = re.search(r"^#{1,6} ", page[start:], flags=re.MULTILINE)
+    return page[start : start + end.start()] if end else page[start:]
+
+
+def _undocumented(page: str) -> set[str]:
+    """The job states and tables that the jobs section of ``page`` does not document."""
+    section = _jobs_section(page)
+    rows = set(re.findall(r"^\| `([a-z]+)` \|", section, flags=re.MULTILINE))
+    missing = {s.value for s in jobs.JobState} - rows
+    tables = ("`/settings/jobs`", "`/settings/recorded_inputs`", "`/settings/stale_marks`")
+    return missing | {t for t in tables if t not in section}
+
+
 def test_the_reference_page_documents_every_job_state_and_table() -> None:
     page = FORMAT_PAGE.read_text(encoding="utf-8")
-    section = page.split("`/settings/jobs`", 1)[1]
-    for state in jobs.JobState:
-        assert f"`{state.value}`" in section, state
-    for table in ("`/settings/recorded_inputs`", "`/settings/stale_marks`"):
-        assert table in page
+    assert _undocumented(page) == set()
+    # The state table is what is read: a removed row fails even though the state's word is
+    # still on the page (here, in the row of another state and in the prose).
+    row = next(line for line in page.splitlines() if line.startswith("| `cancelled` |"))
+    assert _undocumented(page.replace(row + "\n", "", 1)) == {"cancelled"}
+    # And only the jobs section is read: the fresh-store row above it does not count.
+    assert "`/settings/jobs`" in page[: page.index(_JOBS_SECTION)]
+    assert _undocumented(page.replace(_JOBS_SECTION, "### Elsewhere", 1) + _JOBS_SECTION) == {
+        s.value for s in jobs.JobState
+    } | {"`/settings/jobs`", "`/settings/recorded_inputs`", "`/settings/stale_marks`"}

@@ -33,7 +33,7 @@ app unaffected)**" (§9 M8), with the stack noted only as "→ PyTorch (deep, GP
 ## Considered options
 
 - **A. A third isolated `deep/` conda stack** (mirroring the tMAVEN sidecar): `deep/environment.yml`
-  + `deep/conda-lock.yml` pinning `pytorch` (CPU build for CI, CUDA build documented for the
+  \+ `deep/conda-lock.yml` pinning `pytorch` (CPU build for CI, CUDA build documented for the
   RTX-4060 GPU floor), consumed via a **lazy/guarded** import in a new `tether.ml.deep` subpackage
   so the base app never imports torch; deep tests carry a `@pytest.mark.deep` marker run on a
   **non-required** CI leg (the roadmap PR-2 GPU `workflow_dispatch`).

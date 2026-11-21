@@ -28,12 +28,21 @@ arguments and sends the file as a file-open event, or sends the event to the Tet
 already running; [`create_shell`][] gives each such event to
 [`load_project`][tether.gui.shell.TetherShell.load_project], the path of
 ``&File -> &Open project...``. An event that arrives before the shell exists waits for it,
-and an event that arrives while a dialog is open waits until the dialog has closed.
+and an event that arrives while a dialog is open waits until the dialog has closed. The event
+filter that catches it is installed on macOS only (#1202): it sees every event of every object
+in the process, and on Windows and Linux, where no file-open event comes, it would only cost
+time.
+
+Once the shell exists, [`create_shell`][] installs the opt-in update notice
+([`tether.gui.update_notice`][], #248). It asks its first-run question, or starts one
+check on a background thread when the user allowed it, after the event loop starts; it
+makes no network request without that stored consent.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -76,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def install_file_open_handler(app: Any) -> Any:
+def install_file_open_handler(app: Any, *, filter_events: bool | None = None) -> Any:
     """Catch the file-open events of *app*; return the object that holds them.
 
     macOS sends a file-open event (``QEvent.FileOpen``) when the user opens a ``.tether``
@@ -92,7 +101,14 @@ def install_file_open_handler(app: Any) -> Any:
     runs: macOS delivers the event inside that loop, and the code that opened the dialog
     continues on the open project after the dialog returns (the tMAVEN reconciliation
     dialog, for one, applies the changes it showed). Then the path waits, and the object
-    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
+    looks again every `FILE_OPEN_RETRY_MS` milliseconds until the loop has ended.
+
+    The filter is installed on *app* only on macOS (#1202). An event filter on the
+    application sees every event of every object in the process, and only macOS sends a
+    file-open event; Windows and Linux give the project as the command-line argument. Off
+    macOS the object is still returned, and ``attach`` still works, but it never receives a
+    path. ``filter_events=None`` decides by the platform; ``True`` or ``False`` decides it
+    explicitly, which is how the headless tests send a file-open event on Linux.
     """
     from PySide6 import QtCore, QtWidgets
 
@@ -138,12 +154,18 @@ def install_file_open_handler(app: Any) -> Any:
             return True
 
     handler = _FileOpenHandler()
-    app.installEventFilter(handler)
+    if filter_events is None:
+        filter_events = sys.platform == "darwin"
+    if filter_events:
+        app.installEventFilter(handler)
     return handler
 
 
 def create_shell(
-    argv: Sequence[str] | None = None, *, splash: bool | None = None
+    argv: Sequence[str] | None = None,
+    *,
+    splash: bool | None = None,
+    file_open_events: bool | None = None,
 ) -> tuple[Any, TetherShell]:
     """Build the ``QApplication`` and shell **without** entering the event loop.
 
@@ -167,15 +189,21 @@ def create_shell(
     shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
-    ``False`` decides it explicitly.
+    ``False`` decides it explicitly. Before the shell is built, the trace colors stored
+    by **View → Trace colors** ([`tether.gui.app_settings`][]) are applied, so the
+    choice survives a restart (#636).
 
     A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
     ``QApplication`` exists. It opens its project after the shell is built, and after the
     project on the command line, so the project the user opened last is the one shown.
+    ``file_open_events`` is passed to that function as ``filter_events``: ``None``, the
+    default, catches the events on macOS only.
 
     The shell remembers the session in the per-user preferences file
     ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
-    the molecule selected at close, the layout and the curator name.
+    the molecule selected at close, the layout and the curator name. Last, the update
+    notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
+    is queued for the event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -192,18 +220,30 @@ def create_shell(
     app.setOrganizationName(_ORGANIZATION)
     app.setApplicationVersion(__version__)
     apply_application_identity(app)
-    file_open = install_file_open_handler(app)
+    file_open = install_file_open_handler(app, filter_events=file_open_events)
 
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui import app_settings, theme
+        from tether.gui.curation import default_keymap_path
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        # The application remembers the session on this computer (#628, ADR-0122).
-        shell = TetherShell(preferences_file=preferences_path())
+        # The stored View -> Trace colors choice (#636, ADR-0123); unset is the default.
+        theme.set_trace_palette(app_settings.stored_trace_colors() or theme.DEFAULT_TRACE_PALETTE)
+
+        # The application remembers the session on this computer (#628, ADR-0122), and
+        # starts with the keyboard shortcuts the user saved (#635).
+        shell = TetherShell(preferences_file=preferences_path(), keymap_file=default_keymap_path())
         if args.project is not None:
             shell.load_project(args.project)
+        # The opt-in update notice (#248): the first-run question, or one check on a
+        # background thread once the user allowed it. Queued for the event loop, so it
+        # never delays the window, and it makes no request without the stored consent.
+        from tether.gui.update_notice import install_update_notice
+
+        install_update_notice(shell.window, help_menu=shell.help_menu)
     except BaseException:
         app.removeEventFilter(file_open)
         if screen is not None:
@@ -211,6 +251,11 @@ def create_shell(
         raise
     file_open.setParent(shell.window)
     file_open.attach(shell.load_project)
+    # A startup project can replace the keymap warning before the window is visible.
+    keymap_error = shell.keymap_error
+    status = shell.status_message
+    if keymap_error is not None and status != keymap_error:
+        shell.window.statusBar().showMessage(f"{keymap_error} {status}")
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell

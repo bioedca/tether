@@ -253,10 +253,24 @@ frames back. Then it extracts both files with the map file of `lab-11`. It passe
 give the same molecules, the same number of frames and the same raw traces. It records the
 counts and the largest difference.
 
+All acquisitions of the series of `lab-12` share one map file. That map fits the direct TIFFs
+(`lab-11` and `lab-13`). The maintainer decided on 2026-11-14 that the direct orientation is
+correct (#887). Two vendor-route TIFFs of that series are turned against the map: `lab-10` and
+`lab-12`. They are turned 90° clockwise, as the export-route check measured on `lab-12`.
+
+The check and the update script therefore turn the frames of these two ids back. They do it before they
+extract them with the map. The list of these ids is `TURNED_AGAINST_MAP` in
+`tests/_lab_golden.py`. The turned copy goes into the temporary folder of the run. It is deleted
+after the extraction.
+
+The third vendor-route TIFF of the series is `lab-09`. It is already in the orientation of the
+map and is not turned. A check on the workstation (2026-11-15) turned each movie 0 to 3 quarter
+turns. It correlated each mean image with the mean images of `lab-11` and `lab-13`. Only one
+turn agrees for each id. It is one quarter turn for `lab-10` and `lab-12`, and no turn for
+`lab-09`.
+
 The numbers in a golden file are what Tether computed when the file was written. They are not
-reference values. #887 tracks the three vendor-route acquisitions of the series of `lab-12`,
-which share a map file with the direct-route `lab-13` and are probably registered with a map
-turned against their frames.
+reference values.
 
 To write or update the golden files, run this on the workstation, in the environment of the
 state folder, from a clone of the commit to freeze:
@@ -307,6 +321,26 @@ changing other checks:
   each `window` folder a number instead, for example `deeplasi-window/01`.
 - The saved state has the role `deeplasi_state`, not `tdat`. The speed check gives a `tdat`
   role to its extraction. Thus a `tdat` role on a `speed` id changes what that check measures.
+
+## The leakage-α band on the donor-only sample
+
+The weekly run also checks the conjunctive leakage-α band of oracle (e)
+(`tests/test_leakage_alpha_band.py`, ADR-0133). Tether's donor-only α of the Cy3-only
+calibration acquisition must agree with the tail α of the FRET series it calibrates, `lab-03`
+to `lab-08` pooled: a relative difference of the two medians of at most 20 %, and both medians
+within 0.05–0.2. The numbers are `alpha_donor_only`, `alpha_tail_series`,
+`relative_difference` and the counts under `donly-01`, and `tail_alpha` for each series id. A
+failure is a finding for its issue. Do not change a limit, and do not change the series to make
+the check pass.
+
+The check needs one more id in the mapping file:
+
+| Neutral id | Role | File |
+|---|---|---|
+| `donly-01` | `donor_only` | the saved Deep-LASI state (`.tdat`) of the Cy3-only calibration acquisition |
+
+The series ids use their `deeplasi_state` role. The check refuses a file whose SHA-256 is not
+the one in `tests/_leakage_band.py` or `tests/_deeplasi_agreement.py`.
 
 `tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
 with the id and the role when a file is not the pinned one.
@@ -359,7 +393,7 @@ The required CI matrix runs the same dry run in `tests/test_workstation_runner.p
 ## The speed history
 
 A scheduled run also measures speed and memory on the workstation (#723). The CI comparison of
-#722 finds a large regression in one pull request; the history finds a slow drift over many
+\#722 finds a large regression in one pull request; the history finds a slow drift over many
 changes, on the computer that is the reference for speed (maintainer decision Q28).
 
 **What a run measures.**
@@ -415,7 +449,9 @@ memory below 1 MiB only records. The runner adds two checks to the result file:
   or group did not run.
 
 A check that fails opens or updates its issue through the steps above (#698). A history that
-cannot be read gives both checks the outcome `error`; the runner does not change that file.
+cannot be read gives both checks the outcome `error`; the runner does not change that file. A valid
+last record can have no newline, for example after a hand edit. The runner then adds the newline
+first.
 
 **See the history.** Run these with the Tether environment:
 
@@ -425,7 +461,8 @@ python <state>/clone/scripts/workstation/plot_perf_history.py <state>/perf-histo
 ```
 
 The first prints the newest record's projection and its slowdowns. The second draws the stage
-times, the stage peaks and the projection for each record of `main`.
+times, the stage peaks and the projection for each record of `main`. Each line has a gap, not a
+zero, where a record lacks that value on any acquisition.
 
 **Show that the rule works.** The runner runs only commits of `main`. To show a slowdown, make a
 throw-away branch in a scratch clone of the repository, not in the runner's clone, and make one
