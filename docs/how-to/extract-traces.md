@@ -179,6 +179,83 @@ starting `detection: mode`, naming what was applied. Then check three things:
     **donor** trace (green) should step **up**. If it steps down instead, close the project
     in `tether-gui` and extract again with the other `--donor-side` and `--overwrite`.
 
+## Add another movie to a project
+
+A project can hold several movies of one experiment
+([`.tether` project](../glossary.md#tether-project)). `tether extract` writes a project of one
+movie. To add a second movie, give it to `tether batch --into`. That also corrects and
+idealizes the whole project again ([Many movies at once](#many-movies-at-once)):
+
+```bash
+tether batch movie_2.tif --into movie.tether
+```
+
+To add the movie without correcting and idealizing again, run a short Python script instead.
+
+The project's correction and idealization stay as they were after an append. They no longer
+cover every movie, so the next `tether batch --into` run over the project does them again.
+
+Close the project in the desktop application first. The script needs the project's writer lock.
+
+Save this as `add_movie.py` beside the project, with your project and movie names:
+
+```python
+from tether.project.extract import add_movie_to_project
+from tether.project.lock import publish_lock
+
+with publish_lock("movie.tether") as guard:
+    summary = add_movie_to_project("movie.tether", "movie_2.tif", publish_guard=guard)
+print(f"Added {summary.n_molecules} molecule(s) as {summary.movie_id}")
+```
+
+Run it with the Python that came with Tether, as in [Analyze](analyze.md#before-you-start). It
+prints one line:
+
+```text
+Added 388 molecule(s) as mov-6f1d0c2e-93a4-4b7e-8d55-2c0e9b7a41f3
+```
+
+Then check the project:
+
+```bash
+tether info movie.tether
+```
+
+It lists each movie and its molecules:
+
+```text
+  movies: 2
+    movie.tif: 1800 frames, 0.1 s/frame, 412 molecules
+      curation: 0 accepted, 0 rejected, 412 undecided
+    movie_2.tif: 1800 frames, 0.1 s/frame, 388 molecules
+      curation: 0 accepted, 0 rejected, 388 undecided
+```
+
+The printed `movie_id` identifies the movie inside the project. Each molecule carries the
+`movie_id` of its movie, and so does each row of the
+[molecule table](export-results.md#export-the-molecule-table). Two movies can share a file name,
+so pick a movie by its `movie_id`.
+
+The script extracts the movie with the same steps as `tether extract`, with the donor on the
+left and native registration. To change that, pass these arguments to `add_movie_to_project`:
+
+- `options=ExtractOptions(donor_side="right")`, with `ExtractOptions` imported from
+  `tether.project.extract`, for a donor on the right.
+- `tmap="beads.tmap"` for an imported channel map.
+- `tdat="run.tdat"` to match a Deep-LASI detection.
+
+Each molecule of the new movie gets the provisional condition parsed from that movie's filename,
+so a project of two movies can hold two [conditions](../glossary.md#condition).
+
+The script stops with an error, and leaves the project unchanged, in these cases:
+
+- The movie is already in the project. The error ends `a movie is appended once`.
+- The new movie's window, radii or background window differ from those of the first movie.
+- The project has no raw traces, for example an analysis-only import or a subset exported
+  without them.
+- Another Tether application window or process has the project open. The error says
+  `is locked`.
+
 ## Many movies at once
 
 `tether batch` extracts a whole folder of movies, either into one project each or all into
@@ -217,16 +294,10 @@ project is corrected and idealized again, over every movie in it. `--dry-run` sh
 movies are new to the project. [Command line](../cli.md#every-movie-into-one-project-into)
 gives the details.
 
-From Python, `tether.project.extract.add_movie_to_project` adds one. It extracts the movie with the same
-steps as `tether extract`. Then it appends the movie to the project. Hold the project's writer
-lock with `tether.project.lock.publish_lock`, and give its check as `publish_guard`. The new
-movie must use the same window, radii and background window as the first movie. A movie that
-is already in the project is refused.
+To add one movie from Python, with extraction only, see
+[Add another movie to a project](#add-another-movie-to-a-project).
 
-A project without raw traces cannot take a movie. An analysis-only import is one example. A
-subset exported without its raw traces is another.
-
-It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
+`tether batch` has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`
 replaces only the detector settings, never the donor side, and a shared `--tmap` sets the
 channel layout from the map. So use `tether batch` when your donor is on the left, or when

@@ -295,7 +295,16 @@ def expand_movie_arguments(
 
 
 def _parent_names(movie: Path) -> tuple[str, ...]:
+    """Return the folder names above ``movie``, outermost first.
+
+    They are those of its absolute path, read as text. Where that text names another file
+    than the movie, the real location's folders are used instead: [`os.path.abspath`][]
+    removes ``..`` as text, so after a link ``link/../m.tif`` would read as the folder
+    that holds the link, while the file is in the link target's parent.
+    """
     absolute = Path(os.path.abspath(movie))
+    if _identity(absolute) != _identity(movie):
+        absolute = Path(os.path.realpath(movie))
     return absolute.parent.relative_to(absolute.anchor).parts
 
 
@@ -308,7 +317,9 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
     ``day1/movie_010.tif`` and ``day2/movie_010.tif`` become ``day1__movie_010`` and
     ``day2__movie_010``, and a movie whose stem collides with no other keeps its own.
     The folder names are those of the movie's absolute path, so the result does not
-    depend on the folder the command was run from.
+    depend on the folder the command was run from. Where that path, read as text, names
+    another file (a link followed by ``..``), the folders of the movie's real location
+    are used.
 
     Parameters
     ----------
@@ -406,6 +417,12 @@ def movie_in_project(project: Path, movie: Path) -> str | None:
     OSError
         If the project or the movie cannot be read.
     """
+    match = _find_movie_in_project(project, movie)
+    return None if match is None else match[0]
+
+
+def _find_movie_in_project(project: Path, movie: Path) -> tuple[str, str] | None:
+    """Return the matching movie ID and content hash from the same project read."""
     if not os.path.lexists(project):
         return None
     import h5py  # noqa: PLC0415
@@ -423,7 +440,7 @@ def movie_in_project(project: Path, movie: Path) -> str | None:
     sha256 = _hash_movie(movie)[0]
     for row in candidates:
         if _text(row["sha256"]).lower() == sha256:
-            return _text(row["movie_id"])
+            return _text(row["movie_id"]), sha256
     return None
 
 
@@ -450,6 +467,54 @@ def describe_append(project: Path, movie: Path, *, first: bool) -> str:
     if existing is not None:
         return f"already in the project as movie {existing!r}: will be skipped"
     return "will be appended"
+
+
+def describe_appends(project: Path, movies: Sequence[Path]) -> list[str]:
+    """Say what an ``--into`` run will do with each of ``movies``, in order (#1243).
+
+    As [`describe_append`][] for each movie, and a movie with the same content as an
+    earlier one the run adds is skipped, as the run skips it: the earlier one is in the
+    project by then. Movies are hashed only when an earlier added movie has their size.
+    """
+    from tether.project.extract import _hash_movie  # noqa: PLC0415
+
+    added: list[tuple[Path, int]] = []
+    hashes: dict[Path, str | None] = {}
+
+    def content(movie: Path) -> str | None:
+        if movie not in hashes:
+            try:
+                hashes[movie] = _hash_movie(movie)[0]
+            except OSError:
+                hashes[movie] = None
+        return hashes[movie]
+
+    actions: list[str] = []
+    for index, movie in enumerate(movies):
+        action = describe_append(project, movie, first=index == 0)
+        if action == "will be appended" or action.startswith("new project"):
+            twin: Path | None = None
+            try:
+                size = movie.stat().st_size
+            except OSError:
+                size = -1
+            else:
+                twin = next(
+                    (
+                        earlier
+                        for earlier, earlier_size in added
+                        if earlier_size == size
+                        and (earlier_hash := content(earlier)) is not None
+                        and earlier_hash == content(movie)
+                    ),
+                    None,
+                )
+            if twin is not None:
+                action = f"same content as {twin.name}: will be skipped"
+            else:
+                added.append((movie, size))
+        actions.append(action)
+    return actions
 
 
 def describe_project_stages(project: Path, *, idealize: bool, appending: bool) -> str:

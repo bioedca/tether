@@ -226,9 +226,16 @@ additive rule in practice: your reader should expect unknown root attributes.
 ## `/movies` — one row per source movie
 
 Group holding `/movies/table`, a resizable 1-D compound dataset (`MOVIES_DTYPE`,
-20 fields). Rows are appended by `write_extraction`; re-appending an existing
-`movie_id` is refused. `file_size` + `mtime` + `offline_flag` are the
-**metadata-only fast signature**: a relocation/staleness check that reads zero bytes
+20 fields). `write_extraction` appends one row per movie. `extract_movie` writes the first row
+of a new project, and `add_movie_to_project` (`src/tether/project/extract.py`) appends each
+later movie. A Deep-LASI acquisition goes in through `reconstruct_project` and
+`add_reconstruction_to_project` (`src/tether/project/reconstruct.py`).
+
+Re-appending an existing `movie_id` is refused. `add_movie_to_project` also refuses a movie
+whose `sha256` is already in a row, and `write_extraction` refuses any molecule whose
+`molecule_key` is already in `/molecules`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
+`file_size` + `mtime` + `offline_flag` are the **metadata-only fast signature**: a relocation/staleness check that reads zero bytes
 of the movie and therefore never hydrates a cloud placeholder.
 
 | Field | Type | Shape | Meaning / units |
@@ -507,6 +514,13 @@ read `/molecules.curation_label` and not the reason. Provisional-source rejects 
 no row. `reject_record_of` returns the `reject` row that joins the molecule's
 latest human `/labels` event when that event is a reject, or `None` (also for a store
 written before this log existed).
+
+The rows travel with their `/labels` rows. A subset export copies the rows of the exported
+molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
+appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
+the owner already holds them. A second pull of the same file appends nothing. A join that names
+two pulled rejects (or two restores) copies no reason, since it cannot say which one the reason
+belongs to.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|

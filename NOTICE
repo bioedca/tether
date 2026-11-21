@@ -377,6 +377,21 @@ Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
   ADR-0101). These files are licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
   REUSE.toml annotation), NOT GPL-3.0; attribution to the authors travels with them.
 
+MASH-FRET test project  (GPL-3.0-only)  — the test project
+  MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash of the MASH-FRET
+  repository, https://github.com/RNA-FRETools/MASH-FRET (by Mélodie C.A.S. Hadzic
+  and the MASH-FRET authors), pinned at commit
+  b577928ecf2bd9040dda6f66ad0035567785e5e1 (2021-11-24). MASH-FRET "1.3.2 (prev.
+  commit: 3471fdf3)" wrote it with a non-zero leakage coefficient. Tether bundles
+  an extract of it, tests/fixtures/mashfret_2chan2exc_leakage_extract.mat
+  (scripts/make_mashfret_leakage_fixture.py keeps 10 of its 30 molecules, their
+  background- and cross-talk-corrected intensities and the fields that give them
+  their meaning; it changes no value), used only as a MASH-FRET reference for
+  Tether's leakage correction (#870). The repository gives the GPL version 3 text
+  and no "or later" statement, so the file is GPL-3.0-only (see
+  LICENSES/GPL-3.0-only.txt and the REUSE.toml annotation). No MASH-FRET source
+  is vendored.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------

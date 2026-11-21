@@ -36,6 +36,14 @@ The curation keys act only in a section whose ``keymap_scope`` is
 [`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
 event filter lets them through to the native widgets, and the cheat-sheet lists no key.
 
+The keymap is the user's (#635): the shell starts with the keymap saved at
+``keymap_file`` (``tether-gui`` passes
+[`default_keymap_path`][tether.gui.curation.default_keymap_path]), falling back to the
+defaults with one status message when that file cannot be used, and
+**Curation → Edit keyboard shortcuts…** opens the
+[`KeymapEditor`][tether.gui.keymap_editor.KeymapEditor], whose Save puts the new keys in
+effect at once and writes the file.
+
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
 log folder, and the About box of [`tether.gui.about`][]), opening a dropped
@@ -65,6 +73,7 @@ from tether.gui.curation import (
     CurationEventFilter,
     CurationHandlers,
     Keymap,
+    KeymapError,
 )
 from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
 from tether.gui.task_service import TaskService
@@ -79,6 +88,7 @@ if TYPE_CHECKING:
 
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
@@ -498,6 +508,28 @@ class CheatSheetOverlay:
         self._dialog.show()
 
 
+def _load_keymap(path: Path | None) -> tuple[Keymap, str | None]:
+    """The keymap saved at ``path`` and ``None``, or the defaults and why the file failed.
+
+    No path or no file gives the defaults silently. A file that cannot be used gives the
+    defaults and one message; the file is never rewritten here, only by a Save (#635).
+    """
+    defaults = Keymap.default()
+    if path is None:
+        return defaults, None
+    try:
+        path.stat()
+        return Keymap.load(path, defaults=defaults), None
+    except (FileNotFoundError, NotADirectoryError):
+        return defaults, None
+    except (OSError, KeymapError) as exc:
+        logging.getLogger("tether.gui").warning("keymap file %s not used: %s", path, exc)
+        return defaults, (
+            f"Keyboard shortcuts: {path} could not be used: {exc}. The default keys are in "
+            "effect, and the file was left as it is."
+        )
+
+
 def _read_lock_recovery(path: str | PathLike[str]) -> Any | None:
     """[`lock_recovery`][tether.project.lock.lock_recovery], or ``None`` if unreadable."""
     from tether.project.lock import lock_recovery
@@ -564,7 +596,9 @@ class TetherShell:
     the Curation, Hand-off and Conditions menus act only there (#342). After a stored
     accept or reject the next listed molecule is selected, so one key both decides
     and moves on; ``advance_after_curation=False`` keeps the selection in place
-    instead. Use as a context manager or call [`close`][].
+    instead. ``keymap_file`` is where the curation keymap is loaded from at start and
+    saved to by the shortcut editor (#635); ``None`` starts with the defaults and saves
+    nothing. Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -578,6 +612,7 @@ class TetherShell:
         conditions: Project | None = None,
         advance_after_curation: bool = True,
         preferences_file: Path | None = None,
+        keymap_file: Path | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -858,7 +893,12 @@ class TetherShell:
         self._unreject_button.clicked.connect(
             lambda: self._controller.dispatch(Command(CurationAction.UNREJECT))
         )
-        self._keymap = Keymap.default()
+        # The saved keymap (#635): tether-gui passes default_keymap_path(); a bare or test
+        # shell passes nothing and starts with the defaults. A file that cannot be used
+        # gives the defaults and one message, and stays as it is on disk.
+        self._keymap_file = keymap_file
+        self._keymap, self._keymap_error = _load_keymap(keymap_file)
+        self._keymap_editor: Any | None = None
         self._event_filter = CurationEventFilter(
             self._controller,
             self._keymap,
@@ -1068,7 +1108,9 @@ class TetherShell:
         # The stored layout, last: every dock built at startup exists by now (#628).
         self._restore_layout()
 
-        self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
+        # The one message of an unusable keymap file (#635), else the ready line, which
+        # names the current accept and reject keys rather than the defaults.
+        self._window.statusBar().showMessage(self._keymap_error or self._ready_message())
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -1365,6 +1407,8 @@ class TetherShell:
         """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
         self._act_shortcuts = menu.addAction("Keyboard &shortcuts…")
         self._act_shortcuts.triggered.connect(self.show_cheatsheet)
+        self._act_edit_shortcuts = menu.addAction("&Edit keyboard shortcuts…")
+        self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
 
@@ -1550,6 +1594,16 @@ class TetherShell:
     def keymap(self) -> Keymap:
         """The live [`Keymap`][tether.gui.curation.Keymap] resolving key chords to commands."""
         return self._keymap
+
+    @property
+    def keymap_file(self) -> Path | None:
+        """The file the keymap is loaded from and saved to, or ``None`` (#635)."""
+        return self._keymap_file
+
+    @property
+    def keymap_error(self) -> str | None:
+        """Why the keymap file could not be used at start, or ``None`` (#635)."""
+        return self._keymap_error
 
     @property
     def event_filter(self) -> CurationEventFilter:
@@ -2893,6 +2947,87 @@ class TetherShell:
         """Show the shipped keyboard cheat-sheet (refreshed from the live keymap)."""
         self._cheatsheet.show()
         return self._cheatsheet
+
+    def show_keymap_editor(self) -> KeymapEditor:
+        """Open the keyboard-shortcut editor over the live keymap (#635).
+
+        **Save** puts the edited keymap in effect at once and writes the keymap file.
+        """
+        from tether.gui.keymap_editor import KeymapEditor
+
+        if self._keymap_editor is not None:
+            self._keymap_editor.dialog.close()
+            self._keymap_editor.dialog.deleteLater()
+        self._keymap_editor = KeymapEditor(
+            self._keymap,
+            parent=self._window,
+            on_save=self.apply_keymap,
+            taken=self._menu_chords(),
+            unavailable=DEFERRED_ACTIONS,
+            file_path=self._keymap_file,
+        )
+        self._keymap_editor.show()
+        return self._keymap_editor
+
+    def apply_keymap(self, keymap: Keymap) -> bool:
+        """Put ``keymap``'s bindings in effect now and save them; ``True`` if saved.
+
+        The live keymap object is updated in place, so the event filter and the
+        cheat-sheet read the new keys at once. A failed write keeps the new keys for this
+        session and says so in the status bar; it never raises.
+        """
+        self._keymap.bindings = dict(keymap.bindings)
+        self._cheatsheet.refresh()
+        if self._keymap_file is None:
+            self._status("Keyboard shortcuts changed for this session (no keymap file to save to)")
+            return False
+        try:
+            self._keymap.save(self._keymap_file)
+        except OSError as exc:
+            self._status(f"Keyboard shortcuts changed for this session, but not saved: {exc}")
+            return False
+        self._status(f"Keyboard shortcuts saved to {self._keymap_file}")
+        return True
+
+    def _menu_chords(self) -> dict[tuple[int, int], str]:
+        """Every single-key shortcut the window's menus own, with the command's name.
+
+        That is each menu command's shortcut and each menu-bar title's mnemonic (Alt+F for
+        File on Windows and Linux; macOS has none), since Qt hands both to the menu before
+        the curation filter sees the key.
+        """
+        from pyqtgraph.Qt import QtGui
+
+        from tether.gui.curation import _as_int
+
+        chords: dict[tuple[int, int], str] = {}
+
+        def add(sequence: Any, name: str) -> None:
+            if sequence.count() != 1:
+                return
+            combined = sequence[0]
+            chord = (_as_int(combined.key()), _as_int(combined.keyboardModifiers()))
+            chords.setdefault(chord, name)
+
+        for action in self._window.findChildren(QtGui.QAction):
+            name = action.text().replace("&", "").rstrip("…") or "a menu command"
+            for sequence in action.shortcuts():
+                add(sequence, name)
+        for action in self._window.menuBar().actions():
+            title = action.text().replace("&", "")
+            add(QtGui.QKeySequence.mnemonic(action.text()), f"{title} menu")
+        return chords
+
+    def _ready_message(self) -> str:
+        """The start-up status line, naming the current accept and reject keys (#635)."""
+        from tether.gui.keymap_editor import chord_label
+
+        parts = []
+        for action, verb in ((CurationAction.ACCEPT, "accept"), (CurationAction.REJECT, "reject")):
+            chords = sorted(self._keymap.chords_for(Command(action)), key=lambda c: (c[1], c[0]))
+            if chords:
+                parts.append(f"{chord_label(*chords[0])} {verb}")
+        return "Ready — " + " · ".join(parts) if parts else "Ready"
 
     def show_overflow_picker(self) -> OverflowCategoryPicker:
         """Open the overflow category picker; on accept, dispatch the assignment."""
