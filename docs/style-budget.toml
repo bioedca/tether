@@ -146,6 +146,13 @@ semicolons = 0
 long_paragraphs = 0
 retired = 0
 
+[pages."docs/how-to/run-a-recipe.md"]
+kind = "procedure"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/io/legacy-import.md"]
 kind = "procedure"
 long_share = 54.5
