@@ -295,7 +295,16 @@ def expand_movie_arguments(
 
 
 def _parent_names(movie: Path) -> tuple[str, ...]:
+    """Return the folder names above ``movie``, outermost first.
+
+    They are those of its absolute path, read as text. Where that text names another file
+    than the movie, the real location's folders are used instead: [`os.path.abspath`][]
+    removes ``..`` as text, so after a link ``link/../m.tif`` would read as the folder
+    that holds the link, while the file is in the link target's parent.
+    """
     absolute = Path(os.path.abspath(movie))
+    if _identity(absolute) != _identity(movie):
+        absolute = Path(os.path.realpath(movie))
     return absolute.parent.relative_to(absolute.anchor).parts
 
 
@@ -308,7 +317,9 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
     ``day1/movie_010.tif`` and ``day2/movie_010.tif`` become ``day1__movie_010`` and
     ``day2__movie_010``, and a movie whose stem collides with no other keeps its own.
     The folder names are those of the movie's absolute path, so the result does not
-    depend on the folder the command was run from.
+    depend on the folder the command was run from. Where that path, read as text, names
+    another file (a link followed by ``..``), the folders of the movie's real location
+    are used.
 
     Parameters
     ----------

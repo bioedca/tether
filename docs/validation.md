@@ -1257,16 +1257,16 @@ Three results follow.
 
 **The two sub-populations.** Each of their windows lies inside the window of the same molecule in
 the whole ΔNCCA fit, but the two do not split that fit: 26 molecules are in both and 26 in
-neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM. The sidecar
-has no key for it, so the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
-state on these traces. The weekly job prints its result and does not gate it.
+neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM, the sidecar
+key `vbgmm`. The sidecar key `vbgmm_vbhmm` selects one state on these traces. The weekly job
+prints its result and does not gate it.
 
 **Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
 donor traces (a correlation of 0.99 or more with a column of the sample's matrix, which does not
 see the background subtraction or one missing frame), and each stored model and model summary is
-compared with the published values and with the fresh fit of seed 757. Older tMAVEN models, which
-`read_model` cannot open yet (#1080), are read by the test's own reader. The result file holds
-numbers under neutral ids only.
+compared with the published values and with the fresh fit of seed 757. Every model is read with
+`read_model`, which also opens older tMAVEN models that store `rates` as an empty group. The
+result file holds numbers under neutral ids only.
 
 The first run (2026-11-15, 24 files: 17 trace files, 4 models, 3 summaries) found the traces of
 each of the five samples. Three trace files of one further sample match no matrix of the Source

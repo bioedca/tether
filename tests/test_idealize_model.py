@@ -194,6 +194,44 @@ def test_read_model_empty_priors_group_is_none(tmp_path):
     assert read_model(mp).priors is None
 
 
+def test_read_model_rates_group_is_absent(tmp_path):
+    # Regression for #1080: older tMAVEN builds (rate type "Dwell Analysis") store
+    # ``model/rates`` as an empty HDF5 *group*; it reads as absent, not a TypeError.
+    mp = tmp_path / "rates_group.hdf5"
+    _write_model(mp, mean=np.array([0.1, 0.5]), tmatrix=np.eye(2))
+    with h5py.File(mp, "a") as f:
+        f["model"].create_group("rates")
+    model = read_model(mp)
+    assert model.rates is None
+    np.testing.assert_array_equal(model.tmatrix, np.eye(2))
+
+
+_ARR_MEMBERS = {
+    # read_model member name -> StateModel attribute
+    "var": "variances",
+    "tmatrix": "tmatrix",
+    "norm_tmatrix": "norm_tmatrix",
+    "likelihood": "likelihood",
+    "idealized": "idealized",
+    "rates": "rates",
+    "pi": "pi",
+    "frac": "frac",
+}
+
+
+@pytest.mark.parametrize(("member", "attr"), sorted(_ARR_MEMBERS.items()))
+def test_read_model_group_member_is_absent(tmp_path, member, attr):
+    # Each optional array member is read only when it is a dataset (#1080).
+    mp = tmp_path / f"{member}_group.hdf5"
+    _write_model(mp, mean=np.array([0.2, 0.8]))
+    with h5py.File(mp, "a") as f:
+        f["model"].create_group(member)
+    model = read_model(mp)
+    assert getattr(model, attr) is None
+    if member == "likelihood":
+        assert model.elbo is None
+
+
 def test_read_model_requires_mean(tmp_path):
     mp = tmp_path / "nomean.hdf5"
     _write_model(mp, nstates=2)
@@ -343,6 +381,12 @@ def test_ebhmm_in_sidecar_dispatch():
     # ebFRET is dispatchable and maps to tMAVEN's run_ebhmm + its nstates pref key.
     assert _sidecar_runner._DISPATCH["ebhmm"] == ("run_ebhmm", "modeler.ebhmm.nstates")
     assert _sidecar_runner._DISPATCH["vbconhmm"][0] == "run_vbconhmm"
+
+
+def test_vbgmm_in_sidecar_dispatch():
+    # tMAVEN's plain vbGMM with a fixed number of states (#1076), not the model-selecting
+    # ``vbgmm_vbhmm``: the requested number of states reaches tMAVEN through its own pref.
+    assert _sidecar_runner._DISPATCH["vbgmm"] == ("run_vbgmm", "modeler.vbgmm.nstates")
 
 
 # --------------------------------------------------------------------------- #

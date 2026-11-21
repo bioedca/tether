@@ -14,9 +14,9 @@ id whose name starts with ``tbox-`` and whose role is ``smd``, ``model`` or ``su
   of states and of traces, and compared with the published values and with the frozen fresh fit
   of the limits file. The published Source Data is the authority: a stored model that does not
   agree is reported, not failed (C1: C; the two wild-type models are reported, as is every model).
-  A model that Tether's reader cannot open (older tMAVEN, #1080) is read with the test's own
-  reader, and ``tether_reader`` records which one read it.
-* Every id is tried; a file that no reader opens is recorded as ``readable`` 0 and fails the test
+  Every model is read with ``tether.idealize.driver.read_model``, which also opens the older
+  tMAVEN models that store ``rates`` as an empty group (#1080).
+* Every id is tried; a file that cannot be read is recorded as ``readable`` 0 and fails the test
   after the others are recorded.
 
 The result file gets numbers only, under the neutral ids. No file name, path or trace leaves.
@@ -112,20 +112,15 @@ def test_each_stored_model_is_compared_with_the_published_fit(private_data) -> N
     for neutral_id in _ids(private_data, "model"):
         path = private_data.path(neutral_id, "model")
         try:
-            model, tether_reader = read_model(path), 1
-        except Exception as exc:  # older tMAVEN models, #1080
+            model = read_model(path)
+        except Exception as exc:
             print(neutral_id, type(exc).__name__)
-            try:
-                model, tether_reader = cc.read_stored_model(path), 0
-            except Exception as exc2:
-                print(neutral_id, type(exc2).__name__)
-                unreadable.append(neutral_id)
-                private_data.record(neutral_id, readable=0)
-                continue
+            unreadable.append(neutral_id)
+            private_data.record(neutral_id, readable=0)
+            continue
         key = cc.fit_of(int(model.nstates), int(model.ran.size))
         numbers = {
             "readable": 1,
-            "tether_reader": tether_reader,
             "nstates": int(model.nstates),
             "traces": int(model.ran.size),
         }
