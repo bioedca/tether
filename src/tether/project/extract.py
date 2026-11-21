@@ -301,6 +301,10 @@ class ExtractionSummary:
     #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
     #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
     rms_gate: float | None = None
+    #: The channel layout the extraction was given (``options.channel_layout``, #908);
+    #: ``None`` when the split came from ``donor_side`` or an imported ``.tmap``. The
+    #: donor-side check's remedy names it rather than ``--donor-side`` (#1157).
+    channel_layout: ChannelLayout | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -887,6 +891,7 @@ def _summary(
         colocalization=extracted.molecules.policy,
         rule_counts=dict(extracted.molecules.rule_counts),
         rms_gate=float(reg_map.gate_px),
+        channel_layout=extracted.options.channel_layout,
     )
 
 
