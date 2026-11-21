@@ -133,7 +133,7 @@ the dwell inversion and the column reader.
 | Mean dwell time `tau` of a double exponential and its error (the six `.out` files) | Tether has no function for it: #1028 |
 | TDP smoothing, spline and normalization (`checkTDP.py` after `histogram2d`) | Tether's TDP keeps the raw counts and the GUI has no smoothing: #1029 |
 | Two-Gaussian fit and closed-state fraction (Fig. 5c) | Tether has no histogram Gaussian fit: #1030 |
-| Fig. 5b, 5 uM WT tRNA column | no trace matrix in the archive |
+| Fig. 5b, 5 uM WT tRNA column | no trace matrix in the archive; a workstation test on unpublished files (amendment below) |
 | Transition-synchronized histograms (Supp. Figs. S3-S6) | they need the Viterbi paths, which the archive does not hold (#757) |
 | Representative traces of Supp. Figs. S5a and S6a | same check as Figs. 2b-4e; reading the 30 MB second workbook adds time and no new case |
 | BLI and SEC data (Supp. Figs. S1, S2) | not smFRET; Tether has no function for them |
@@ -147,3 +147,25 @@ the dwell inversion and the column reader.
   merge or a release.
 - The tMAVEN error pairing is reported to the maintainer, who is the paper's author. Tether does
   not change; a correction of the published errors is a decision outside this repository.
+
+## Amendments
+
+### 2026-11-16 — The 5 uM WT tRNA column of Fig. 5b in the unpublished per-run files (#1128)
+
+The archive still has no trace data for this column, and the archive stays the reference: the
+column keeps no weekly test. A read-only check of the authors' per-run trace files of the three
+5 uM WT tRNA movies, which are not in the archive, found:
+
+- Molecules 1 to 138 of the column are the three runs joined in order (66, 8 and 64 molecules).
+  Each block of 400 values is `A / (D + A)` of the first 400 frames of its molecule, the file read
+  with `skiprows=1` as the notebook reads it, to 1e-6.
+- Molecules 139 to 163 (25) agree with no molecule of those files at any start frame (to 1e-4).
+  No file has 163 molecules.
+
+`tests/test_campos_chavez_5um_runs.py` (tier `workstation`, ADR-0071) repeats the check where the
+workstation runner names the files under neutral ids. It fails if blocks 1 to 138 are not the
+joined runs, and it records the number of blocks that match nothing. Further files can be named for
+the search only (role `wt5_other`, never joined): a file that holds some of the 25 changes that
+number and does not fail the test. Nothing from the per-run files, and no
+path, is committed (ADR-0083). A corrected file in the archive is the authors' action, outside
+Tether.

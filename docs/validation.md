@@ -1174,7 +1174,11 @@ so each test finds the windows in the trace matrix when it runs.
    but not their errors: in the three panels that can be checked, each published error belongs to
    the other parameter. Tether's errors are paired correctly.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
-   Fig. 5b has no trace data.
+   Fig. 5b has no trace data in the archive. The authors' per-run trace files, which are not
+   published, hold 138 of the column's 163 molecules: molecules 1 to 138 are the three 5 uM WT
+   tRNA runs joined in order (66, 8 and 64 molecules), first 400 frames each, to 1e-6. The other
+   25 agree with no molecule of those files at any start frame (to 1e-4), and no file has 163
+   molecules (#1128).
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
@@ -1191,7 +1195,8 @@ fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #103
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
 `test_double_exponential_parameters_and_errors` and
-`test_transition_density_counts_equal_checktdp`.
+`test_transition_density_counts_equal_checktdp`. Workstation (ADR-0071), on the per-run files:
+`tests/test_campos_chavez_5um_runs.py`, which records the number of molecules that match nothing.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
