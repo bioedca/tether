@@ -167,6 +167,11 @@ The runner records `deep/cuda` as failed when PyTorch sees no CUDA device and as
 cannot run the probe. This option also works with `--dry-run`. The base and sidecar environments
 do not run the probe, and the committed `deep/conda-lock.yml` selects CPU-only PyTorch.
 
+A complete `deep/performance` result carries times and memory peaks for training and prediction
+on each device. The CPU figures are process high-water marks from separate stages. The CUDA
+figures are peak allocated tensor bytes with synchronization at both ends of the timed stage.
+The speed history keeps the four cases under its existing benchmark report rule.
+
 ## Read a result
 
 Each run writes `<state>/results/<UTC time>-<commit>.json`. To see the newest one:
