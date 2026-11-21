@@ -383,6 +383,12 @@ def test_ebhmm_in_sidecar_dispatch():
     assert _sidecar_runner._DISPATCH["vbconhmm"][0] == "run_vbconhmm"
 
 
+def test_vbgmm_in_sidecar_dispatch():
+    # tMAVEN's plain vbGMM with a fixed number of states (#1076), not the model-selecting
+    # ``vbgmm_vbhmm``: the requested number of states reaches tMAVEN through its own pref.
+    assert _sidecar_runner._DISPATCH["vbgmm"] == ("run_vbgmm", "modeler.vbgmm.nstates")
+
+
 # --------------------------------------------------------------------------- #
 # _parse_status
 # --------------------------------------------------------------------------- #

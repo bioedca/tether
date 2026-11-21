@@ -79,9 +79,9 @@ def test_each_model_key_is_one_the_child_can_run() -> None:
     import _campos_chavez_hmm_child as child
     from tether.idealize import _sidecar_runner
 
-    keys = set(_sidecar_runner._DISPATCH) | set(child.EXTRA_KEYS)
+    # The child adds no key of its own: each fit runs a key of the runner (#1076).
     for fit in FITS.values():
-        assert fit["model_key"] in keys
+        assert fit["model_key"] in _sidecar_runner._DISPATCH
         assert fit["model_key"] in child.OLD_ROUTINES
 
 
