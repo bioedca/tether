@@ -469,10 +469,12 @@ tether batch data --recursive --into experiment.tether
 - **Correct and idealize run once, over the whole project,** after the last append. The
   dataset α and γ then come from every movie's molecules. A run that appends a movie runs
   both again, over every movie in the project. The idealization model is then fitted
-  again in place of the stored one. A run that appends nothing skips them. The exception
-  is an earlier `--into` run that left them unfinished, for example with idealization
-  deferred. A project that no `--into` run has written keeps its correction and model
-  when it gains no movie.
+  again in place of the stored one. A run that appends nothing skips them. The exceptions
+  are an earlier `--into` run that left them unfinished, for example with idealization
+  deferred, and a movie appended since from Python with
+  `tether.project.extract.add_movie_to_project`. Every append marks both stages
+  unfinished when it adds the movie. A project that has gained no movie keeps its correction and
+  model.
 - **The summary still has one line for each movie.** A movie's name is the one
   [the output name rule](#output-names-when-two-movies-have-the-same-file-name) would give
   its own project. So movies with one file name stay apart. Each movie in the project shows
@@ -488,7 +490,7 @@ tether batch data --recursive --into experiment.tether
 whether the movie is new to it. A `Project:` line for correct and idealize comes last:
 
 ```text
-Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project holds a movie of its size)
+Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project or an earlier movie of the run has its size)
   data/day1/movie_010.tif -> experiment.tether  [already in the project as movie 'a3f1c2d4e5b6': will be skipped]
   data/day1/movie_011.tif -> experiment.tether  [will be appended]
   data/day2/movie_010.tif -> experiment.tether  [will be appended]
@@ -496,7 +498,8 @@ Project: correct and idealize will run over every movie in the project after the
 ```
 
 A project that does not exist yet shows `new project: will be created with this movie` on
-the first movie's line.
+the first movie's line. A file that holds the same movie as an earlier one of the run shows
+`same content as <name>: will be skipped`, since the run skips it once the earlier one is in.
 
 ### Check a batch before it runs (`--dry-run`)
 
