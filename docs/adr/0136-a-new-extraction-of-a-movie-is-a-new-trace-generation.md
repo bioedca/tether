@@ -96,12 +96,13 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    The `condition_id` of the movie is kept when
    every previous molecule had one: the condition is a property of the movie, not an input of the
    extraction, and a re-keyed condition is not lost. A molecule that moved, or is new, has a fresh
-   key and no labels. When its position-derived key is one an earlier generation of the movie held
-   (a changed donor geometry can put another molecule at the same sub-image position), the key
-   also names its generation (`|g<n>` appended to the payload), so a key never names two
-   molecules. Corrections, bleach frames and the ML class start again from their
-   not-computed sentinels (ADR-0016), and a `/features/table` holding a previous molecule is dropped,
-   as the window setters drop it.
+   key and no labels. For an unmatched later site, hash the movie hash and raw camera coordinates
+   at the existing 0.1 px quantum, with `|camera` appended to the payload. Independent copies can
+   join a newly found camera site across crops and generation numbers. If an earlier generation
+   already held the camera key, append `|g<n>` to give the return a fresh key. A later row uses a
+   first-generation key only when the recorded match carried it. Corrections, bleach frames and
+   the ML class start again from their not-computed sentinels (ADR-0016). A `/features/table`
+   holding a previous molecule is dropped, as the window setters drop it.
 6. **Stale marks.** The `trace_generation` instance of a movie is its `movie_id`, and its identity is
    the active `generation_id`. A record that recorded it (ADR-0126 `record_inputs`) is marked stale
    through edges 5 to 10 by `mark_stale_in`, the store-path form of `set_stale_marks`, written into

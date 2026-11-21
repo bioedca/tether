@@ -17,7 +17,9 @@ Locks the first writer of extraction *data* into a ``.tether``:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+from shutil import copyfile
 
 import pytest
 
@@ -41,11 +43,13 @@ from tether.imaging.extract import (  # noqa: E402
     read_patches,
     read_traces,
     write_extraction,
+    write_generation,
 )
 from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import build_manifest, create_project, diff_manifest, introspect  # noqa: E402
+from tether.project import labels  # noqa: E402
 
 _BG = 80.0
 _AMP = 300.0
@@ -169,6 +173,47 @@ def test_molecule_key_rejects_non_finite() -> None:
         molecule_key("m", [np.nan, 1.0])
     with pytest.raises(ValueError, match=r"\[x, y\] pair"):
         molecule_key("m", [1.0, 2.0, 3.0])
+
+
+@pytest.mark.parametrize("original_x", [15.0, 30.0])
+def test_later_generation_keys_distinguish_camera_sites_and_returns(
+    tmp_path: Path, original_x: float
+) -> None:
+    movie = replace(_movie("movie", sha="1" * 64), width=128)
+
+    def write_site(path: Path, x: float, crop_x: int, *, initial: bool = False) -> bytes:
+        geometry = ChannelGeometry(crop=(1, 1 + crop_x, 64, 64 + crop_x))
+        molecules = _molecules(np.array([[x, 30.0]]))
+        channel = _channel(molecules.donor_xy)
+        if initial:
+            create_project(path)
+        writer = write_extraction if initial else write_generation
+        writer(
+            path,
+            movie=replace(movie, donor_geometry=geometry),
+            molecules=molecules,
+            traces=extract_molecules(channel, channel, molecules),
+            parsed=_PARSED,
+        )
+        return bytes(read_molecules(path)["molecule_key"][0])
+
+    left, right = tmp_path / "left.tether", tmp_path / "right.tether"
+    write_site(left, original_x, 0, initial=True)
+    copyfile(left, right)
+    camera_50 = write_site(left, 30.0, 20)
+    assert write_site(right, 30.0, 40) != camera_50
+    assert write_site(right, 10.0, 40) == camera_50  # same site, other crop and ordinal
+
+    initial = tmp_path / "independent.tether"
+    initial_key = write_site(initial, 30.0, 20, initial=True)
+    assert initial_key != camera_50
+    assert write_site(initial, 10.0, 40) == initial_key  # recorded carry from generation 1
+
+    labels.accept(left, camera_50.decode(), labeler="synthetic curator")
+    write_site(left, 35.0, 20)
+    returned = write_site(left, 30.0, 20)
+    assert returned != camera_50
+    assert labels.curation_label_of(left, returned.decode()) == labels.CurationLabel.UNCURATED
 
 
 # --- extract_molecules -------------------------------------------------------

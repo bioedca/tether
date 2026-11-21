@@ -323,7 +323,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `molecule_id` | `str:utf-8` | scalar | Stable per-row identity, `mol-<uuid4 hex>`. **Unique**, so this is the correct join key for per-row data. |
-| `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. Two derivations exist (see below); the extraction one is **not** guaranteed unique. |
+| `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. See the derivations below. |
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, the donor position mapped through the registration map, in **movie pixels**. |
@@ -403,7 +403,7 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 
 **`molecule_key`.** It is the cross-file join key everything downstream depends on,
 and it is a pure content hash — no salt, no run state
-([ADR-0016](../adr/0016-extraction-trace-store-layout.md)). The **extraction**
+([ADR-0016](../adr/0016-extraction-trace-store-layout.md)). The **first extraction**
 derivation, from `molecule_key()` in `src/tether/imaging/extract.py`, is:
 
 ```python
@@ -412,21 +412,22 @@ payload = f"{movie_sha256}|{int(q[0])}|{int(q[1])}"
 key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 ```
 
-The 0.1 px quantum absorbs float-representation jitter so the same molecule
-re-extracted, or carried into a split/subset file, hashes identically. Because two
-molecules can in principle quantize to the same coordinate, this key is a *content*
-key, not a row identity: join per-row data on `molecule_id`.
+The 0.1 px quantum absorbs float-representation jitter. A split or subset keeps the
+stored key. Two molecules can in principle quantize to the same coordinate. Join per-row
+data on `molecule_id`.
 
 An **analysis-only import** has no movie and no coordinates — `molecule_key()` would
 in fact raise on its `NaN` `donor_xy` — so it uses a second derivation,
 [`_analysis_only_molecule_key`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) (`src/tether/project/analysis_import.py`), hashing the
 source identity, the molecule's row index and the raw donor/acceptor trace bytes.
-That variant *is* unique by construction. A new trace generation adds two more cases
-([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A
-molecule that did not move keeps its earlier key. A new molecule whose key an earlier
-generation held takes the same recipe with `|g<n>` appended to the payload. The upshot
-for a downstream reader: **read the stored key, do not recompute it** — the recipe
-above will not reproduce every key.
+That variant *is* unique by construction.
+
+A later extraction keeps the keys of carried
+molecules ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+An unmatched site uses quantized raw camera coordinates and appends `|camera` to the hash
+payload. It can join a newly found site in another copy across crops and generation numbers.
+If the project's history already holds the camera key, the new payload also ends in `|g<n>`.
+First-to-later joins use an earlier key carried by the recorded match. Read the stored key.
 
 ## `/conditions` — the structured experimental conditions
 

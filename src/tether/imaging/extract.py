@@ -196,16 +196,12 @@ def molecule_key(movie_sha256: str, donor_xy: np.ndarray) -> str:
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _generation_key(movie_sha256: str, donor_xy: np.ndarray, generation: int) -> str:
-    """Return a molecule key that also names its trace generation (ADR-0136).
-
-    For a new molecule whose [`molecule_key`][] an earlier generation of the movie held
-    for another molecule (a changed donor geometry can put another molecule at the same
-    sub-image position): the same recipe with ``|g<generation>`` appended to the payload.
-    """
-    xy = np.asarray(donor_xy, dtype=np.float64).ravel()
+def _generation_key(movie_sha256: str, camera_xy: np.ndarray, generation: int | None = None) -> str:
+    """Hash a later-generation site's raw camera coordinates (ADR-0136)."""
+    xy = np.asarray(camera_xy, dtype=np.float64).ravel()
     q = round_half_away(xy / MOLECULE_KEY_QUANTUM_PX).astype(np.int64)
-    payload = f"{movie_sha256}|{int(q[0])}|{int(q[1])}|g{int(generation)}"
+    qualifier = "camera" if generation is None else f"camera|g{generation}"
+    payload = f"{movie_sha256}|{int(q[0])}|{int(q[1])}|{qualifier}"
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -842,21 +838,16 @@ def _carry_from_previous(
     return carried, matched
 
 
-def _retire_held_keys(
+def _key_unmatched_molecules(
     f: Any,
     movie: MovieMetadata,
     rows: np.ndarray,
     matched: np.ndarray,
     previous: np.ndarray,
     generation: int,
+    new_movie: Any,
 ) -> None:
-    """Give a generation-qualified key to each unmatched row whose key an earlier generation held.
-
-    A carried key names the molecule it was given to; an unmatched molecule whose
-    position-derived key equals one that the previous generation or an archived one of
-    the movie held is another molecule (it did not match), so it takes
-    [`_generation_key`][] instead, and no key names two molecules (ADR-0136).
-    """
+    """Key new sites by camera position and give a returning site a fresh key."""
     from tether.io.generations import ARCHIVE  # noqa: PLC0415
 
     held = {_decode_key(k) for k in previous["molecule_key"]}
@@ -864,9 +855,13 @@ def _retire_held_keys(
     if archive is not None:
         for name in archive:
             held.update(_decode_key(k) for k in archive[name]["molecules"]["molecule_key"][()])
-    for j in np.flatnonzero(~matched):
-        if _decode_key(rows["molecule_key"][j]) in held:
-            rows["molecule_key"][j] = _generation_key(movie.sha256, rows["donor_xy"][j], generation)
+    unmatched = np.flatnonzero(~matched)
+    camera_xy = _frame_xy(rows["donor_xy"][unmatched], new_movie)
+    for index, xy in zip(unmatched, camera_xy, strict=True):
+        key = _generation_key(movie.sha256, xy)
+        rows["molecule_key"][index] = (
+            _generation_key(movie.sha256, xy, generation) if key in held else key
+        )
 
 
 def _refuse_repeated_keys(f: Any, project_path: Path, keep_out: slice, keys: np.ndarray) -> None:
@@ -913,8 +908,8 @@ def write_generation(
     generation's donor position mapped back through its own donor geometry), the two
     being each other's closest such partner, "did not move": it keeps that molecule's
     ``molecule_key`` and its curation label, category and analysis window, and its key
-    is recorded as carried. A molecule that did not match but whose position-derived key
-    an earlier generation of the movie held takes a key that also names its generation.
+    is recorded as carried. An unmatched molecule gets a camera-position key. If an
+    earlier generation already held that key, the new key also names its generation.
     Corrections, bleach frames and the ML class start again from their not-computed
     sentinels (ADR-0016). A feature cache with a row for a previous molecule is dropped.
 
@@ -982,7 +977,9 @@ def write_generation(
             previous_movie=stored_movie,
             new_movie=movie_row[0],
         )
-        _retire_held_keys(f, movie, rows, matched, previous_molecules, previous.generation + 1)
+        _key_unmatched_molecules(
+            f, movie, rows, matched, previous_molecules, previous.generation + 1, movie_row[0]
+        )
         _refuse_repeated_keys(f, project_path, old_rows, rows["molecule_key"])
         profile = _stamp_colocalization(settings, molecules)
         profile_json = json.dumps(profile, sort_keys=True) if profile else None
