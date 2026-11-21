@@ -189,9 +189,12 @@ no checks, so that `latest` shows them at once.
 **Privacy.** Before it writes a result, the runner searches it for every name of the mapping
 file, each of its folder names, its file name and its stem (names shorter than 5 characters are not
 searched). It searches each name also as pytest writes it into a test name, where a letter that is
-not ASCII becomes an escape (`é` becomes `\xe9`). If it finds one, it removes the checks and writes `withheld`. A folder name that is also
-part of a test name (for example `tests`) makes every result `withheld`: give that folder another
-name. The pytest log in `<state>/logs/` can name files: it stays on the workstation. Do not attach
+not ASCII becomes an escape (`é` becomes `\xe9`). If it finds one, it removes the checks and writes `withheld`. It does not
+search a neutral id, because the id is public. A scheduled run also skips each name that is
+already in a file of the commit it measures (#1198). An example is a file `widget.txt` when a
+test name has the word `widget`. That commit is on `main`, so the name is public. A dry run
+searches every name, because its checkout need not be public. There, a folder name that is
+also part of a test name (for example `tests`) makes the result `withheld`. The pytest log in `<state>/logs/` can name files: it stays on the workstation. Do not attach
 it to an issue.
 
 ## For an agent session: open or update the issues
