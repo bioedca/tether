@@ -362,8 +362,8 @@ def _layout_remedy(layout: ChannelLayout) -> str:
     if layout.donor_rect is not None and layout.acceptor_rect is not None:
         remedy = (
             "extract this movie again with donor_rect and acceptor_rect exchanged in the "
-            f"{layout.kind} channel layout (now donor_rect {list(layout.donor_rect)}, "
-            f"acceptor_rect {list(layout.acceptor_rect)})"
+            f"{layout.kind} channel layout (set donor_rect {list(layout.acceptor_rect)}, "
+            f"acceptor_rect {list(layout.donor_rect)})"
         )
     else:
         remedy = (
@@ -373,9 +373,9 @@ def _layout_remedy(layout: ChannelLayout) -> str:
     if layout.donor_recipe is None and layout.acceptor_recipe is None:
         return remedy
     return (
-        f"{remedy}, and with donor_recipe and acceptor_recipe exchanged as well (now "
-        f"donor_recipe {_recipe_text(layout.donor_recipe)}, acceptor_recipe "
-        f"{_recipe_text(layout.acceptor_recipe)})"
+        f"{remedy}, and with donor_recipe and acceptor_recipe exchanged as well (set "
+        f"donor_recipe {_recipe_text(layout.acceptor_recipe)}, acceptor_recipe "
+        f"{_recipe_text(layout.donor_recipe)})"
     )
 
 

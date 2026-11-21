@@ -209,7 +209,7 @@ def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() ->
         )
     )
     assert "donor_rect and acceptor_rect exchanged in the rectangles channel layout" in rects
-    assert "now donor_rect [1, 1, 64, 64], acceptor_rect [1, 65, 64, 128]" in rects
+    assert "set donor_rect [1, 65, 64, 128], acceptor_rect [1, 1, 64, 64]" in rects
     for message in (top, bottom, side, rects):
         assert message.startswith("25 of 25 bleach events are consistent with swapped")
         assert "--donor-side" not in message
@@ -222,7 +222,7 @@ def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() ->
     )
     assert "a top-bottom channel layout whose donor is bottom, not top" in turned
     assert "donor_recipe and acceptor_recipe exchanged as well" in turned
-    assert "now donor_recipe 'rotate 180', acceptor_recipe none" in turned
+    assert "set donor_recipe none, acceptor_recipe 'rotate 180'" in turned
     for message in (top, bottom, side, rects):
         assert "recipe" not in message
     assert "--donor-side" not in turned
@@ -511,7 +511,7 @@ def test_a_top_bottom_layout_gets_the_layout_remedy_in_the_extract_summary_and_b
     assert "--donor-side" not in report
     if recipe is not None:
         assert "donor_recipe and acceptor_recipe exchanged as well" in report
-        assert f"now donor_recipe '{recipe}', acceptor_recipe none" in report
+        assert f"set donor_recipe none, acceptor_recipe '{recipe}'" in report
 
 
 def _record(verdict: str, n_consistent: int, n_swapped: int) -> dict:
