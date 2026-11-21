@@ -417,6 +417,72 @@ def test_dry_run_refuses_what_the_run_refuses(tmp_path: Path, capsys) -> None:
     assert not (tmp_path / "out").exists()
 
 
+def test_a_profile_layout_beside_tmap_is_refused_before_the_output_folder_exists(
+    tmp_path: Path, capsys
+) -> None:
+    # Extraction refuses this pair for every movie (#1218), so the batch refuses it first.
+    from tether.services.profile import ExtractionProfile, write_profile  # noqa: PLC0415
+
+    movie = str(_touch(tmp_path / "m.tif"))
+    out = tmp_path / "out"
+    request = services.BatchRequest(
+        movies=(movie,), out_dir=str(out), tmap="m.tmap", channel_layout="top-bottom"
+    )
+    for command in (services.batch.plan, services.batch.run):
+        with pytest.raises(services.RequestRefused, match="channel_layout and --tmap"):
+            command(request)
+    assert not out.exists()
+
+    profile = tmp_path / "p.json"
+    write_profile(ExtractionProfile(channel_layout="top-bottom"), profile)
+    argv = ["batch", movie, "-d", str(out), "--profile", str(profile), "--tmap", "m.tmap"]
+    assert main([*argv, "--dry-run"]) == 2
+    assert "channel_layout and --tmap" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("extra", [{"tmap": "m.tmap"}, {"channel_layout": "top-bottom"}])
+def test_a_layout_alone_or_a_tmap_alone_is_planned(tmp_path: Path, extra: dict) -> None:
+    movie = str(_touch(tmp_path / "m.tif"))
+    request = services.BatchRequest(
+        movies=(movie,), out_dir=str(tmp_path / "out"), idealize=False, **extra
+    )
+    assert len(services.batch.plan(request).movies) == 1
+
+
+def test_dry_run_settings_name_the_extraction_options(tmp_path: Path) -> None:
+    movie = str(_touch(tmp_path / "m.tif"))
+
+    def settings(**extra: object) -> str:
+        request = services.BatchRequest(
+            movies=(movie,), out_dir=str(tmp_path / "out"), idealize=False, **extra
+        )
+        return services.batch.plan(request).settings
+
+    assert settings().endswith(
+        ", channel-layout=none, donor-side=left, detection-mode=wavelet, "
+        "detection-threshold=mode default"
+    )
+    assert "donor-side=right" in settings(donor_side="right")
+    assert settings(donor_side="right") != settings()
+    bandpass = settings(detection_mode="bandpass", detection_threshold=0.9)
+    assert "detection-mode=bandpass, detection-threshold=0.9" in bandpass
+    layout = settings(channel_layout="top-bottom")
+    assert "channel-layout=top-bottom, donor=top," in layout and "donor-side" not in layout
+    assert "donor=bottom," in settings(channel_layout="top-bottom", channel_layout_donor="bottom")
+    rects = settings(
+        channel_layout="rectangles",
+        channel_layout_donor_rect=(1, 1, 10, 20),
+        channel_layout_acceptor_rect=(11, 1, 20, 20),
+    )
+    assert "donor-rect=[1 1 10 20], acceptor-rect=[11 1 20 20]," in rects
+    tmap = settings(tmap="m.tmap", donor_side="right")
+    assert "channel-layout=from .tmap, detection-mode=" in tmap and "donor" not in tmap
+    assert settings(tdat="run.tdat").endswith(
+        "detection-mode=from .tdat, detection-threshold=from .tdat"
+    )
+
+
 def test_dry_run_says_whether_the_sidecar_was_found(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("TETHER_SIDECAR_PYTHON", raising=False)
     import tether.idealize.driver as driver  # noqa: PLC0415
