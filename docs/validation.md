@@ -517,6 +517,18 @@ that measure maps each fitted level onto a stored one, so it does not count the 
 The difference in state number is the open finding of this comparison; a frozen tolerance needs
 the maintainer's decision first.
 
+The comparison uses tMAVEN's default clip (`modeler.clip` on, range -1 to 2), as a tMAVEN user
+gets it ([#1001](https://github.com/bioedca/tether/issues/1001)). Before the fit, the clip
+replaces each frame outside that range, or NaN, with a random value from the range.
+vbFRET_nov12 replaced none.
+
+On these fixtures tMAVEN changes 1 PPR frame (frame 962 of
+`079_PATH_D041322_T1157.dat`) and no chaperone frame. Two chaperone frames have a
+donor-plus-acceptor total of zero. tMAVEN computes FRET there as 0, not NaN, so the clip keeps
+them and the fit reads FRET 0. The test prints its report, with these frames named, on every
+run that completes the comparison, a passing run included. A failing assertion stops the test
+before the report is printed.
+
 ### ebFRET against stored ebFRET sessions (report only)
 
 The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
