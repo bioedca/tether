@@ -13,7 +13,12 @@ commit that wrote the files, the convention mapping and the ALEX rule. What the 
   ``I_A,corr = I_A − α·I_D``. Every file of the record has coefficient 0, and its
   ``intensities_crossCorr`` equals its ``intensities_bgCorr``. So the leakage test shows that
   Tether reads the coefficient and gives MASH-FRET's corrected intensities at it; it cannot catch a
-  sign error, because ``−0·I_D`` and ``+0·I_D`` are equal. The pull request records that.
+  sign error, because ``−0·I_D`` and ``+0·I_D`` are equal. So a second reference (#870) is a test
+  project of the MASH-FRET repository that MASH-FRET wrote with a coefficient of 0.0775
+  (``scripts/make_mashfret_leakage_fixture.py``). Its direct-excitation coefficient is not 0, and
+  MASH-FRET applies that correction after the leakage one (``tests/_mashfret.py``): under the
+  acceptor's laser the acceptor holds the leakage correction only, and under the donor's laser
+  the test adds MASH-FRET's own direct-excitation term back before it compares.
 * **FRET.** The files hold no FRET value for each frame. ``FRET_DTA`` holds, for each frame, the
   value of its state, and with "recalculate" on (``prmTT{m}{4}{1}(3) = 1``) MASH-FRET sets each
   state value to the mean of its γ-corrected FRET over the frames of that state (``getDiscr.m``,
@@ -35,7 +40,13 @@ import zipfile
 import numpy as np
 import pytest
 
-from _mashfret import MashProject, UnsupportedProject, read_project
+from _mashfret import (
+    CrosstalkProject,
+    MashProject,
+    UnsupportedProject,
+    read_crosstalk_project,
+    read_project,
+)
 from reference_data.fetch import path_for
 from tether.fret.efficiency import corrected_fret
 from tether.fret.leakage import apply_leakage
@@ -51,6 +62,14 @@ STATE_REL_LIMIT = 1e-13
 
 EXTRACT = "mashfret-ed135e-30mm-extract"
 ARCHIVE = "mashfret-group-iib-intron-archive"
+
+#: The non-zero leakage reference (#870): the MASH-FRET commit before the one that wrote it, and
+#: its relative limit. Measured (see the pull request): exactly 0 under the acceptor's laser; under
+#: the donor's laser, where the direct-excitation term is added back, at most 1.1e-16 on the 10
+#: molecules of the extract and 1.7e-16 on all 30 of the source.
+LEAKAGE_NONZERO_EXTRACT = "mashfret-2chan2exc-leakage-extract"
+LEAKAGE_NONZERO_COMMIT = "3471fdf3"
+LEAKAGE_NONZERO_REL_LIMIT = 1e-15
 
 
 @pytest.fixture(scope="module")
@@ -177,6 +196,75 @@ def test_the_reader_refuses_a_later_project_layout(tmp_path) -> None:
     sio.savemat(path, {"MASH_version": "1.3.4", "TP": {"fix": 0}})
     with pytest.raises(UnsupportedProject, match="TP structure"):
         read_project(path)
+
+
+# --- The required matrix: the non-zero leakage reference (#870) -------------------------------
+
+
+@pytest.fixture(scope="module")
+def leaky() -> CrosstalkProject:
+    return read_crosstalk_project(path_for(LEAKAGE_NONZERO_EXTRACT))
+
+
+def nonzero_leakage_rel_error(project: CrosstalkProject, sign: float = 1.0) -> float:
+    """The worst relative difference of Tether's corrected acceptor from MASH-FRET's.
+
+    *sign* = -1 applies the leakage with the wrong sign, for the teeth test. Under the donor's
+    laser MASH-FRET has also subtracted ``δ·I_A,corr`` at the acceptor's laser (direct
+    excitation, which Tether does not correct), so its own term is added back first.
+    """
+    ((donor, acceptor),) = project.fret_pairs
+    alpha = float(project.leakage[donor, 0])
+    own = project.laser_of(acceptor)
+    worst = 0.0
+    for m in range(project.n_molecules):
+        own_corr = project.trace(project.crosstalk_corrected, m, acceptor, own)
+        for laser in range(project.excitations.size):
+            i_d = project.trace(project.background_corrected, m, donor, laser)
+            i_a = project.trace(project.background_corrected, m, acceptor, laser)
+            want = project.trace(project.crosstalk_corrected, m, acceptor, laser)
+            if laser != own:
+                n = laser if laser < own else laser - 1  # the n-th laser other than its own
+                want = want + project.direct_excitation[n, acceptor] * own_corr
+            got = apply_leakage(i_d, i_a, sign * alpha)
+            error = float(np.max(np.abs(got - want))) / float(np.max(np.abs(want)))
+            assert np.isfinite(error), f"molecule {m}, laser {laser}: non-finite leakage result"
+            worst = max(worst, error)
+            # The donor is not changed (Tether's bare-donor convention, ADR-0028).
+            want_d = project.trace(project.crosstalk_corrected, m, donor, laser)
+            assert np.array_equal(i_d, want_d)
+    return worst
+
+
+def test_the_reader_gives_the_meaning_of_the_nonzero_leakage_extract(
+    leaky: CrosstalkProject,
+) -> None:
+    assert leaky.commit == LEAKAGE_NONZERO_COMMIT
+    assert leaky.version.startswith("1.3.2")
+    assert leaky.n_molecules == 10
+    assert leaky.labels == ("don", "acc")
+    assert leaky.excitations.tolist() == leaky.chan_exc.tolist() == [353.0, 387.0]
+    assert leaky.fret_pairs.tolist() == [[0, 1]]
+    assert leaky.laser_of(0) == 0 and leaky.laser_of(1) == 1
+    assert leaky.leakage[0, 0] == 0.0775344654974015
+    assert leaky.leakage[1, 0] == 0.0  # Tether has no acceptor -> donor leakage
+    assert leaky.direct_excitation.tolist() == [[0.0, 0.0175978433518244]]
+    assert leaky.background_corrected.shape == (2000, 20, 2)
+    assert not np.isnan(leaky.crosstalk_corrected).any()
+
+
+def test_nonzero_leakage_gives_mashfret_crosstalk_corrected_intensities(
+    leaky: CrosstalkProject,
+) -> None:
+    worst = nonzero_leakage_rel_error(leaky)
+    assert worst <= LEAKAGE_NONZERO_REL_LIMIT, f"worst {worst:.3g}"
+
+
+def test_a_sign_error_in_leakage_does_not_give_mashfret_intensities(
+    leaky: CrosstalkProject,
+) -> None:
+    # I_A + α·I_D instead of I_A − α·I_D misses by 2α·I_D, at least 2 % of the acceptor here.
+    assert nonzero_leakage_rel_error(leaky, sign=-1.0) > 1e12 * LEAKAGE_NONZERO_REL_LIMIT
 
 
 # --- The weekly workstation run: the full archive ---------------------------------------------
