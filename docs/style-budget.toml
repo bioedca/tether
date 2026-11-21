@@ -197,7 +197,7 @@ retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 18.8
+long_share = 16.4
 semicolons = 22
 long_paragraphs = 1
 retired = 1

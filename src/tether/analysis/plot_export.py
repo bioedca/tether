@@ -50,10 +50,14 @@ stays Matplotlib-free.
 
 from __future__ import annotations
 
+import copy
+import functools
+import inspect
+import json
 import math
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -77,6 +81,7 @@ from tether.analysis.histogram import (
     PerConditionHistograms,
     TransitionSyncHistogram2D,
 )
+from tether.analysis.plot_data import PlottedData, data_tables, write_data_tables
 from tether.analysis.state_number import StateNumberCounts
 from tether.analysis.tdp import SmoothedTransitionDensity, TransitionDensityPlot
 from tether.analysis.transition_prob import TransitionProbHistogram
@@ -300,13 +305,51 @@ class PlotExportResult:
 
     ``paths`` maps each requested format (``"pdf"``/``"svg"``/``"png"``) to the file
     written; ``provenance_path`` is the single ``<stem>.provenance.json`` sidecar
-    describing all of them.
+    describing all of them. ``data_paths`` maps each data table written with
+    ``data_csv=True`` (``"data"``, ``"model"``, ``"fit"``, …) to its CSV file, and is
+    empty otherwise.
     """
 
     stem: Path
     paths: dict[str, Path]
     provenance_path: Path
     formats: tuple[str, ...]
+    data_paths: dict[str, Path] = field(default_factory=dict)
+
+
+#: Figure attribute every public ``render_*`` helper sets to the result it drew and the
+#: companions drawn beside it (a `tether.analysis.plot_data.PlottedData`), so that
+#: `export_figure` can write the numbers behind the figure from the same object (#661).
+_PLOTTED_ATTR = "_tether_plotted"
+
+#: The keyword arguments of a renderer that are drawn beside its data.
+_COMPANION_ARGS = ("overlay", "cloud", "time_dt")
+
+
+def _records_plotted(render: Callable[..., Figure]) -> Callable[..., Figure]:
+    """Make the ``render_*`` helper ``render`` record what it drew on its figure.
+
+    The record is the data argument as given (one result or its series) and the
+    companions the caller passed, so the data tables of `export_figure` are the values
+    plotted rather than a second computation of them. Both are deep copies taken when
+    the figure is drawn: a series list or result the caller changes afterwards does not
+    change the tables, which always match the figure.
+    """
+    signature = inspect.signature(render)
+    data_arg = next(iter(signature.parameters))
+
+    @functools.wraps(render)
+    def wrapper(*args: Any, **kwargs: Any) -> Figure:
+        figure = render(*args, **kwargs)
+        bound = signature.bind(*args, **kwargs).arguments
+        companions = {
+            k: copy.deepcopy(bound[k]) for k in _COMPANION_ARGS if k in bound and k != data_arg
+        }
+        data = copy.deepcopy(bound[data_arg])
+        setattr(figure, _PLOTTED_ATTR, PlottedData(render.__name__, data, companions))
+        return figure
+
+    return wrapper
 
 
 def _resolve_created(created_utc: str | None) -> tuple[str, datetime]:
@@ -449,6 +492,7 @@ def export_figure(
     dpi: int = DEFAULT_EXPORT_DPI,
     stamp: bool = True,
     created_utc: str | None = None,
+    data_csv: bool = False,
 ) -> PlotExportResult:
     """Write ``figure`` to a vector PDF, a vector SVG, and a raster PNG, all stamped.
 
@@ -487,11 +531,26 @@ def export_figure(
     created_utc
         Optional fixed ISO-8601 UTC timestamp (for reproducible exports); defaults
         to *now*.
+    data_csv
+        Also write the numbers behind the figure (#661): the main table to
+        ``<stem>.csv`` and each further table (a model curve, fit parameters, a density
+        surface) to ``<stem>.<name>.csv``, from the result the ``render_*`` helper drew.
+        Each file starts with ``#`` lines naming the Tether version, the plot kind, the
+        provenance file, the source, the selection and each column's unit, and the
+        provenance file lists the tables under ``"data_tables"``. The figure files are the
+        same with or without it. Default ``False``.
 
     Returns
     -------
     PlotExportResult
-        The stem, the ``{format: path}`` map, and the provenance sidecar path.
+        The stem, the ``{format: path}`` map, the provenance sidecar path, and the
+        ``{table: path}`` map of the data tables.
+
+    Raises
+    ------
+    ValueError
+        An unknown or empty ``formats``; a ``parameters`` entry that contradicts the
+        figure; or ``data_csv`` for a figure no ``render_*`` helper drew.
     """
     unknown = set(formats) - set(DEFAULT_PLOT_FORMATS)
     if unknown:
@@ -501,6 +560,12 @@ def export_figure(
         )
     if not formats:
         raise ValueError("at least one export format is required")
+    plotted = getattr(figure, _PLOTTED_ATTR, None)
+    if data_csv and not isinstance(plotted, PlottedData):
+        raise ValueError(
+            "data_csv needs a figure drawn by a render_* helper, which records the result "
+            "it drew; this figure carries no such record"
+        )
 
     display = _merged_display_parameters(figure, parameters)
     series = _merged_series(figure, parameters)
@@ -539,6 +604,19 @@ def export_figure(
             )
             paths[fmt] = out_path
 
+    data_paths: dict[str, Path] = {}
+    if data_csv:
+        data_paths = _write_figure_data(
+            stem,
+            plotted,  # type: ignore[arg-type]
+            version=version,
+            kind=kind,
+            created_iso=created_iso,
+            source=source,
+            parameters=parameters,
+            series=series,
+        )
+
     provenance = write_provenance_sidecar(
         stem,
         tether_export=tether_export,
@@ -550,6 +628,7 @@ def export_figure(
             "formats": [f for f in DEFAULT_PLOT_FORMATS if f in formats],
             "dpi": int(dpi),
             "outputs": {f: p.name for f, p in paths.items()},
+            **({"data_tables": {n: p.name for n, p in data_paths.items()}} if data_csv else {}),
         },
         created_utc=created_iso,
     )
@@ -558,7 +637,40 @@ def export_figure(
         paths=paths,
         provenance_path=provenance,
         formats=tuple(f for f in DEFAULT_PLOT_FORMATS if f in formats),
+        data_paths=data_paths,
     )
+
+
+def _write_figure_data(
+    stem: Path,
+    plotted: PlottedData,
+    *,
+    version: str,
+    kind: str,
+    created_iso: str,
+    source: str,
+    parameters: dict[str, object],
+    series: list[dict[str, object]] | None,
+) -> dict[str, Path]:
+    """Write the data tables of a figure, each headed so that a file found alone traces back.
+
+    The header names the provenance file the same call writes, so the CSV and the JSON
+    agree by construction.
+    """
+    header: list[tuple[str, object]] = [
+        ("tether_version", version),
+        ("plot", kind),
+        ("provenance", stem.name + ".provenance.json"),
+        ("created_utc", created_iso),
+        ("source", source),
+        ("selection", json.dumps(_finite(parameters.get("selection")))),
+    ]
+    for k, record in enumerate(series or []):
+        entry = {"label": record["label"]}
+        if "selection" in record:
+            entry["selection"] = record["selection"]
+        header.append((f"series {k + 1}", entry))
+    return write_data_tables(stem, data_tables(plotted), header=header)
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
@@ -892,6 +1004,7 @@ def _overlay_display(figure: Figure, n: int) -> list[dict[str, object]]:
     return [_overlay_style(k) for k in range(n)]
 
 
+@_records_plotted
 def render_histogram1d(
     hist: Histogram1D
     | HistogramBootstrapCI
@@ -1086,6 +1199,7 @@ def _one_histogram1d(
     return fig
 
 
+@_records_plotted
 def render_histogram2d(
     hist: Histogram2D | Sequence[tuple[str, Histogram2D]],
     *,
@@ -1225,6 +1339,7 @@ def _tdp_norm(counts: np.ndarray, color_scale: str, *, smoothed: bool = False) -
     return Normalize(vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
 
 
+@_records_plotted
 def render_transition_density(
     tdp: (
         TransitionDensityPlot
@@ -1426,6 +1541,7 @@ def _one_transition_density(
     return fig
 
 
+@_records_plotted
 def render_dwell_survival(
     analysis: DwellTimeAnalysis | Sequence[tuple[str, DwellTimeAnalysis]],
     *,
@@ -1610,6 +1726,7 @@ def _one_dwell_survival(
     return fig
 
 
+@_records_plotted
 def render_transition_prob(
     hist: TransitionProbHistogram | Sequence[tuple[str, TransitionProbHistogram]],
     *,
@@ -1733,6 +1850,7 @@ def _one_transition_prob(
     return fig
 
 
+@_records_plotted
 def render_state_number(
     counts: StateNumberCounts | Sequence[tuple[str, StateNumberCounts]],
     *,
@@ -1834,6 +1952,7 @@ def _one_state_number(
     return fig
 
 
+@_records_plotted
 def render_raw_fret_cloud(
     cloud: RawFretCloud | Sequence[tuple[str, RawFretCloud]],
     *,
@@ -2003,6 +2122,7 @@ def _one_raw_fret_cloud(
     return fig
 
 
+@_records_plotted
 def render_cross_correlation(
     xc: CrossCorrelation | Sequence[tuple[str, CrossCorrelation]],
     *,
@@ -2102,6 +2222,7 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
+@_records_plotted
 def render_per_condition_histograms(
     overlay: PerConditionHistograms | Sequence[tuple[str, PerConditionHistograms]],
     *,
@@ -2244,6 +2365,7 @@ def _sync_state_label(state: int) -> str:
     return "any" if int(state) < 0 else str(int(state))
 
 
+@_records_plotted
 def render_transition_sync_histogram2d(
     hist: TransitionSyncHistogram2D | Sequence[tuple[str, TransitionSyncHistogram2D]],
     *,
@@ -2374,6 +2496,7 @@ def _one_transition_sync_histogram2d(
     return fig
 
 
+@_records_plotted
 def render_alpha_shape(
     shape: AlphaShape | Sequence[tuple[str, AlphaShape]],
     *,
@@ -2601,6 +2724,7 @@ def _one_alpha_shape(
     return fig
 
 
+@_records_plotted
 def render_state_number_elbow(
     elbow: StateNumberElbow | Sequence[tuple[str, StateNumberElbow]],
     *,
@@ -2746,6 +2870,7 @@ def _one_state_number_elbow(
     return fig
 
 
+@_records_plotted
 def render_population_anticorrelation(
     population: PopulationAnticorrelation | Sequence[tuple[str, PopulationAnticorrelation]],
     *,

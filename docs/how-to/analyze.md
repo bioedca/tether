@@ -148,6 +148,10 @@ the molecules. The resampling is seeded, so the band is the same every time the 
 [`ci_level`](../reference/parameters.md#param-bootstrap-ci-level),
 [`seed`](../reference/parameters.md#param-bootstrap-seed)).
 [Plot export](../reference/exports.md#4-plot-export-pdf-svg-png) describes the files.
+To also save the numbers each figure shows, add `data_csv=True` to an `export_figure` call:
+`histogram.csv` then holds the bins, counts and confidence band, and a dwell plot adds
+`dwell-state-N.model.csv` and `dwell-state-N.fit.csv` for its fitted curve and rates.
+[The numbers behind a figure](../reference/exports.md#the-numbers-behind-a-figure) lists every column and its unit.
 
 ## 3. Check the result
 
