@@ -128,7 +128,7 @@ class BatchPlan:
             header = (
                 f"Batch plan (dry run): {len(self.movies)} movie(s) into the one project "
                 f"{self.into}; nothing was written (a movie is read only to hash it, when "
-                "the project holds a movie of its size)"
+                "the project or an earlier movie of the run has its size)"
             )
         lines = [header]
         lines.extend(f"  {m.movie} -> {m.output}  [{m.action}]" for m in self.movies)
@@ -329,11 +329,11 @@ def plan(request: BatchRequest) -> BatchPlan:
     Raises [`RequestRefused`][tether.services.base.RequestRefused] for the same requests
     that [`run`][] refuses. An existing output project is opened read-only to read its
     checkpoint; the output directory is not created. With ``into``, a movie is hashed to
-    find out whether it is already in the project, but only when the project holds a
-    movie of the same size.
+    find out whether it is already in the project, or the same as an earlier movie of the
+    run, but only when the project or that earlier movie has its size.
     """
     from tether.project.batch_inputs import (
-        describe_append,
+        describe_appends,
         describe_checkpoint,
         describe_project_stages,
     )
@@ -358,13 +358,10 @@ def plan(request: BatchRequest) -> BatchPlan:
             for job in jobs
         )
     else:
+        actions = describe_appends(into, [job.movie_path for job in jobs])
         movies = tuple(
-            PlannedMovie(
-                movie=job.movie_path,
-                output=into,
-                action=describe_append(into, job.movie_path, first=index == 0),
-            )
-            for index, job in enumerate(jobs)
+            PlannedMovie(movie=job.movie_path, output=into, action=action)
+            for job, action in zip(jobs, actions, strict=True)
         )
         appending = any(
             m.action == "will be appended" or m.action.startswith("new project") for m in movies

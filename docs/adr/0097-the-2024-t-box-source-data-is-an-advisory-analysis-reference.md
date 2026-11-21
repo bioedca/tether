@@ -89,6 +89,9 @@ What is compared, with which limit, and where does it run?
 | Fitted model and residual, relative to the model's first point | 5.9e-6 | 2e-5 |
 | Double-exponential parameters vs the parameter files, relative | 1.3e-5 | 5e-5 |
 | Their errors vs the parameter files (re-paired, below), relative | 3.2e-3 | 1e-2 |
+| Mean dwell time `tau` of the fit vs the parameter files' `tau`, relative (#1129) | 9.3e-6 | 5e-5 |
+| That `tau` vs the `.out` file, absolute (s) | 2.5e-3 | 5e-3 (half a unit of the second decimal) |
+| Its error vs the parameter files' error, re-paired, relative (#1129) | 1.8e-3 | 1e-2 |
 | TDP counts, bins that differ | 0 | 0 |
 
 Each value is the largest of the three operating systems (run 43610165074 of a temporary
@@ -130,7 +133,6 @@ the dwell inversion and the column reader.
 | --- | --- |
 | Population fits of the histograms (Figs. 2c, 3b, ...) | HMM fits, #757 |
 | Rates and their Dirichlet bounds (Supplementary Table 5) | #758 |
-| Mean dwell time `tau` of a double exponential and its error (the six `.out` files) | Tether has no function for it: #1028 |
 | TDP smoothing, spline and normalization (`checkTDP.py` after `histogram2d`) | Tether's TDP keeps the raw counts and the GUI has no smoothing: #1029 |
 | Two-Gaussian fit and closed-state fraction (Fig. 5c) | Tether has no histogram Gaussian fit: #1030 |
 | Fig. 5b, 5 uM WT tRNA column | no trace matrix in the archive |
@@ -147,3 +149,36 @@ the dwell inversion and the column reader.
   merge or a release.
 - The tMAVEN error pairing is reported to the maintainer, who is the paper's author. Tether does
   not change; a correction of the published errors is a decision outside this repository.
+
+## Amendment, 2026-11-17 — the mean dwell time of the double exponential (#1129)
+
+\#1028 added `mean_dwell_time` and `DwellFit.mean_dwell_time`, so the step "Mean dwell time `tau`
+of a double exponential and its error (the six `.out` files)" leaves the table of steps with no
+test. Two tests cover it:
+
+- **Required matrix.** `tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`
+  (from #1028): for each of the six committed `.txt` and `.out` pairs, `mean_dwell_time` of the
+  parameters, with the errors in the order the file gives them, prints the `.out`'s `tau` and its
+  error to the two decimals the file keeps. It checks the formula, not the pairing.
+- **Weekly (`reference_download`).**
+  `tests/test_campos_chavez_2024.py::test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau`:
+  for the three panels whose curve is in the workbook (Fig. 2e left, 3e, 7d), Tether fits the
+  published survival curve and takes `DwellFit.mean_dwell_time` of its own fit. Its `tau` must
+  equal the `tau` of the parameter file and the `.out` value within the limits in the table above.
+  The references come from the parameter file through the script's formula, written out in the test
+  helper, not from Tether's function, so an error in the function cannot cancel out.
+
+**Which error is checked.** The test checks Tether's error against the script's formula with each
+error paired with its own parameter: the re-pairing of the first item of "What the archive says
+that the paper does not". The published `.out` error uses tMAVEN's order, so it pairs each error
+with the other parameter: it is reported beside Tether's (3.08 s against 0.077 s, 1.37 s against 0.088 s, 2.33 s against 0.053 s), the
+test asserts that it is more than ten times Tether's, and that the script's formula with the
+errors as labelled gives it to the `.out`'s two decimals. Its `tau` does not depend on the errors
+and is unaffected.
+
+**Measured** on Linux, macOS and Windows (run 44164888842 of a temporary workflow on the branch,
+removed before review). The largest of the three is in the table above: `tau` 9.3e-6 relative
+(macOS), 2.5e-3 s from the `.out` (Linux), and the error 1.8e-3 relative (Linux); the three agree
+to the sixth digit. The error limit is the one of the parameter errors, whose published values
+keep three digits. A deliberate error makes the weekly test fail in all three panels: `tau` times
+1.0001, and the error times 1.02.

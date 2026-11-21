@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sys
 import tempfile
 import zipfile
@@ -150,6 +151,16 @@ def read_double_params(archive: Path, name: str) -> np.ndarray:
         return np.loadtxt(io.BytesIO(zf.read(f"{DOUBLE_DIR}/{name}.txt")))
 
 
+def read_double_out(archive: Path, name: str) -> tuple[float, float]:
+    """``(tau, error)`` that ``CalculateDoubleExponentialErrors.py`` printed for one parameter
+    file, in seconds and to the two decimals the ``.out`` file keeps (Supplementary Table 6)."""
+    with zipfile.ZipFile(archive) as zf:
+        text = zf.read(f"{DOUBLE_DIR}/{name}.out").decode()
+    tau = re.search(r"^tau value: (\S+)$", text, re.M)
+    err = re.search(r"^Uncertainty in tau: (\S+)$", text, re.M)
+    return float(tau.group(1)), float(err.group(1))
+
+
 def read_notebook_fractions(archive: Path) -> dict[int, tuple[float, float]]:
     """Fig. 5b column -> ``(fraction, error)`` as the archive's notebook printed them.
 
@@ -255,7 +266,9 @@ def find_windows(
     pos = 0
     while pos < values.size:
         v = values[pos]
-        lo, hi = np.searchsorted(ordered, [v - reach, v + reach])
+        # Both ends are inclusive, like the bound: a frame at exactly ``v + reach`` is searched.
+        lo = int(np.searchsorted(ordered, v - reach, side="left"))
+        hi = int(np.searchsorted(ordered, v + reach, side="right"))
         best = (-1, -1, 1)
         for k in order[lo:hi]:
             if not abs(flat[k] - v) <= flat_bound[k]:
@@ -455,8 +468,41 @@ def compare_closed_fraction(efficiencies: np.ndarray) -> dict:
     }
 
 
-def compare_survival(rows: list[tuple], col: int, model: str, params: np.ndarray | None) -> dict:
-    """Tether's survival curve and exponential fit beside one published survival panel."""
+def _double_tau_reference(params: np.ndarray, *, repaired: bool) -> tuple[float, float]:
+    """``tau`` and its error from one parameter file, by ``CalculateDoubleExponentialErrors.py``'s
+    formula ``tau = (A1/K1 + A2/K2) / (A1 + A2)`` with its four partial derivatives written out.
+
+    ``repaired`` pairs each error with its own parameter (tMAVEN's file has them swapped, #756);
+    without it the errors are used as the file labels them, which is what the script did.
+    """
+    a1, a1e, a2, a2e, k1, k1e, k2, k2e = params
+    if repaired:
+        a1e, a2e, k1e, k2e = a2e, a1e, k2e, k1e
+    s = a1 + a2
+    tau = (a1 / k1 + a2 / k2) / s
+    d_a1 = a2 * (1 / k1 - 1 / k2) / s**2
+    d_a2 = a1 * (1 / k2 - 1 / k1) / s**2
+    d_k1 = -a1 / (k1**2 * s)
+    d_k2 = -a2 / (k2**2 * s)
+    err = np.sqrt((d_a1 * a1e) ** 2 + (d_a2 * a2e) ** 2 + (d_k1 * k1e) ** 2 + (d_k2 * k2e) ** 2)
+    return float(tau), float(err)
+
+
+def compare_survival(
+    rows: list[tuple],
+    col: int,
+    model: str,
+    params: np.ndarray | None,
+    published: tuple[float, float] | None = None,
+) -> dict:
+    """Tether's survival curve and exponential fit beside one published survival panel.
+
+    With ``params`` (a double-exponential parameter file) the fitted parameters and errors are
+    compared too, and with ``published`` (the ``tau`` and error of its ``.out`` file, #1129)
+    Tether's mean dwell time of the fit and its error. The published error comes from tMAVEN's
+    errors in tMAVEN's order, so it is reported beside the error of the same formula with each
+    error paired with its own parameter, which is the one Tether's fit gives.
+    """
     t = column(rows, "Time (s)", col)
     surv = column(rows, "Survival probability", col + 1)
     curve = column(rows, "Model", col + 2)
@@ -485,6 +531,21 @@ def compare_survival(rows: list[tuple], col: int, model: str, params: np.ndarray
         out["errors_swapped_max_rel"] = float(np.max(np.abs(got_err - swapped) / swapped))
         labelled = np.array([a1e, a2e, k1e, k2e])
         out["errors_as_labelled_max_rel"] = float(np.max(np.abs(got_err - labelled) / labelled))
+    if params is not None and published is not None:
+        tau, err = fit.mean_dwell_time()
+        # The reference is the published parameters, not Tether's mean_dwell_time, so an error in
+        # that function cannot cancel out of the comparison.
+        tau_txt, err_repaired = _double_tau_reference(params, repaired=True)
+        out["tau_s"], out["tau_err_s"] = tau, err
+        out["tau_published_s"], out["tau_err_published_s"] = published
+        out["tau_err_repaired_s"] = err_repaired
+        out["tau_rel"] = abs(tau - tau_txt) / tau_txt
+        out["tau_out_abs"] = abs(tau - published[0])
+        out["tau_err_repaired_rel"] = abs(err - err_repaired) / err_repaired
+        out["tau_err_published_ratio"] = published[1] / err
+        # The published error is the same formula with the errors as the file labels them.
+        _, err_labelled = _double_tau_reference(params, repaired=False)
+        out["tau_err_as_labelled_out_abs"] = abs(err_labelled - published[1])
     return out
 
 
@@ -593,7 +654,10 @@ def measure(archive: Path) -> dict:
     for (sheet, col), model in SURVIVAL.items():
         name = DOUBLE_PARAMS.get((sheet, col))
         params = read_double_params(archive, name) if name else None
-        out["survival"][f"{sheet}:{col}"] = compare_survival(book[sheet], col, model, params)
+        published = read_double_out(archive, name) if name else None
+        out["survival"][f"{sheet}:{col}"] = compare_survival(
+            book[sheet], col, model, params, published
+        )
     for sheet in TDPS:
         out["tdp"][sheet] = compare_tdp(book[sheet])
         out["tdp_view"][sheet] = compare_tdp_view(book[sheet])
