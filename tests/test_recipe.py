@@ -584,6 +584,38 @@ def test_a_list_of_paths_is_read_and_written_relative_to_the_recipe_folder(tmp_p
     assert isinstance(step.request, BatchRequest)
 
 
+def test_a_batch_recipe_preserves_a_parent_component_after_a_link(tmp_path) -> None:
+    from tether.services import BatchRequest
+    from tether.services.batch import plan
+
+    target = tmp_path / "archive" / "sub"
+    target.mkdir(parents=True)
+    work = tmp_path / "work"
+    work.mkdir()
+    _make_movie(target.parent, name="m.tif")
+    _make_movie(work, name="m.tif")
+    try:
+        (work / "link").symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("this machine cannot make a symbolic link")
+
+    movies = ["work/link/../m.tif", "work/m.tif"]
+    direct = BatchRequest(
+        movies=tuple(str(tmp_path / movie) for movie in movies),
+        out_dir=str(tmp_path / "out"),
+        idealize=False,
+    )
+    text = _recipe(_step("batch", movies=movies, out_dir="out", idealize=False))
+    handwritten = _write(tmp_path, text)
+    saved = rc.write_recipe(tmp_path / "saved.json", [direct])
+    assert json.loads(saved.read_text(encoding="utf-8"))["steps"][0]["fields"]["movies"] == movies
+    expected = plan(direct)
+    for path in (handwritten, saved):
+        (step,) = rc.read_recipe(path).steps
+        assert isinstance(step.request, BatchRequest)
+        assert plan(step.request) == expected
+
+
 def test_a_path_on_another_drive_stays_a_full_path(tmp_path, monkeypatch) -> None:
     def other_drive(path: str, start: object = None) -> str:
         raise ValueError("path is on mount 'D:', start on mount 'C:'")

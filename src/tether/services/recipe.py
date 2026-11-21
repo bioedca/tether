@@ -281,7 +281,8 @@ def _registry():  # noqa: ANN202 - the registry module
 
 def _resolve(value: Any, folder: Path) -> Any:
     if isinstance(value, str) and value and not os.path.isabs(value):
-        return os.path.normpath(os.path.join(folder, value))
+        # The filesystem must interpret `..` after following any symbolic link.
+        return os.path.join(folder, value)
     if isinstance(value, tuple):
         return tuple(_resolve(v, folder) for v in value)
     return value
@@ -290,7 +291,13 @@ def _resolve(value: Any, folder: Path) -> Any:
 def _relative(value: Any, folder: Path) -> Any:
     if isinstance(value, str) and value and os.path.isabs(value):
         try:
-            return Path(os.path.relpath(value, folder)).as_posix()
+            parts = Path(value).parts
+            if ".." not in parts:
+                return Path(os.path.relpath(value, folder)).as_posix()
+            # relpath folds `..` lexically. Convert only the prefix before it.
+            parent = parts.index("..")
+            prefix = Path(os.path.relpath(Path(*parts[:parent]), folder))
+            return prefix.joinpath(*parts[parent:]).as_posix()
         except ValueError:  # another drive on Windows: keep the full path
             return value
     if isinstance(value, tuple):
