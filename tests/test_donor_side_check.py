@@ -188,6 +188,51 @@ def test_correct_labels_are_silent_and_swapped_labels_warn() -> None:
     assert "the map file setup.npz" in from_map and "--tmap" not in from_map
 
 
+def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() -> None:
+    """#1157: a layout names its own donor, so the remedy must not say --donor-side."""
+    from tether.imaging.layout import ChannelLayout
+    from tether.imaging.recipe import ChannelRecipe
+
+    donor, acceptor = _population(np.random.default_rng(7), 25)
+    flipped = check_donor_side(acceptor, donor)
+    assert flipped.swapped
+
+    top = flipped.describe(channel_layout=ChannelLayout(kind="top-bottom"))
+    assert "a top-bottom channel layout whose donor is bottom, not top" in top
+    bottom = flipped.describe(channel_layout=ChannelLayout(kind="top-bottom", donor="bottom"))
+    assert "a top-bottom channel layout whose donor is top, not bottom" in bottom
+    side = flipped.describe(channel_layout=ChannelLayout(kind="side-by-side", donor="right"))
+    assert "a side-by-side channel layout whose donor is left, not right" in side
+    rects = flipped.describe(
+        channel_layout=ChannelLayout(
+            kind="rectangles", donor_rect=(1, 1, 64, 64), acceptor_rect=(1, 65, 64, 128)
+        )
+    )
+    assert "donor_rect and acceptor_rect exchanged in the rectangles channel layout" in rects
+    assert "set donor_rect [1, 65, 64, 128], acceptor_rect [1, 1, 64, 64]" in rects
+    for message in (top, bottom, side, rects):
+        assert message.startswith("25 of 25 bleach events are consistent with swapped")
+        assert "--donor-side" not in message
+
+    # A recipe follows its channel's optics, so it is exchanged with the channel (#910).
+    turned = flipped.describe(
+        channel_layout=ChannelLayout(
+            kind="top-bottom", donor_recipe=ChannelRecipe.parse("rotate 180")
+        )
+    )
+    assert "a top-bottom channel layout whose donor is bottom, not top" in turned
+    assert "donor_recipe and acceptor_recipe exchanged as well" in turned
+    assert "set donor_recipe none, acceptor_recipe 'rotate 180'" in turned
+    for message in (top, bottom, side, rects):
+        assert "recipe" not in message
+    assert "--donor-side" not in turned
+
+    # A layout changes only the swapped remedy; the other verdicts read as before.
+    ok = check_donor_side(donor, acceptor)
+    layout = ChannelLayout(kind="top-bottom")
+    assert ok.describe(channel_layout=layout) == ok.describe()
+
+
 def test_too_few_events_reports_not_enough() -> None:
     donor, acceptor = _population(np.random.default_rng(8), SIDE_CHECK_MIN_EVENTS - 1, 5)
     for check in (check_donor_side(donor, acceptor), check_donor_side(acceptor, donor)):
@@ -416,13 +461,70 @@ def test_cli_warns_on_stderr_with_the_evidence_and_the_remedy(
 # --- the batch summary ------------------------------------------------------------------
 
 
+def _write_top_bottom_movie(path: Path, *, seed: int = 0) -> None:
+    """The bleaching movie with its halves stacked the wrong way round (#1157).
+
+    The donor half goes to the bottom and the acceptor half to the top, so a
+    ``top-bottom`` layout with the default donor (``top``) labels them swapped.
+    """
+    tifffile = pytest.importorskip("tifffile")
+    side_by_side = path.with_name("side_by_side.tif")
+    _write_bleaching_movie(side_by_side, seed=seed)
+    stack = tifffile.imread(side_by_side)
+    donor_half, acceptor_half = stack[:, :, :_HALF], stack[:, :, _HALF:]
+    stacked = np.ascontiguousarray(np.concatenate([acceptor_half, donor_half], axis=1), ">u2")
+    tifffile.imwrite(path, stacked, photometric="minisblack", byteorder=">")
+    side_by_side.unlink()
+
+
+@pytest.mark.parametrize("recipe", [None, "flip h, flip h"], ids=["plain", "with-recipe"])
+def test_a_top_bottom_layout_gets_the_layout_remedy_in_the_extract_summary_and_batch(
+    tmp_path, recipe: str | None
+) -> None:
+    """The issue's reproduction: a wrong-way-round top/bottom movie through ``run_batch``."""
+    pytest.importorskip("skimage")
+    from tether.imaging.layout import ChannelLayout
+    from tether.imaging.recipe import ChannelRecipe
+    from tether.project.batch import MovieJob, run_batch
+    from tether.project.extract import ExtractOptions, extract_movie
+
+    movie = tmp_path / "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_011.tif"
+    _write_top_bottom_movie(movie)
+    options = ExtractOptions(
+        channel_layout=ChannelLayout(
+            kind="top-bottom",
+            donor_recipe=ChannelRecipe.parse(recipe) if recipe is not None else None,
+        )
+    )
+
+    summary = extract_movie(movie, tmp_path / "direct.tether", options=options)
+    assert summary.channel_layout == options.channel_layout
+    assert summary.donor_side_check.swapped
+    note = summary.donor_side_check.describe(channel_layout=summary.channel_layout)
+    assert "a top-bottom channel layout whose donor is bottom, not top" in note
+
+    job = MovieJob(movie_path=movie, output_path=tmp_path / "batch.tether")
+    result = run_batch([job], idealize=False, extract_options=options, _correct=_ok_correct)
+    assert [r.job.label for r in result.donor_side_flagged] == [job.label]
+    report = result.format_report()
+    assert "a top-bottom channel layout whose donor is bottom, not top" in report
+    assert "--donor-side" not in report
+    if recipe is not None:
+        assert "donor_recipe and acceptor_recipe exchanged as well" in report
+        assert f"set donor_recipe none, acceptor_recipe '{recipe}'" in report
+
+
 def _record(verdict: str, n_consistent: int, n_swapped: int) -> dict:
     check = DonorSideCheck(verdict=verdict, n_consistent=n_consistent, n_swapped=n_swapped)
     return check.to_dict()
 
 
-def _side_stub(records: dict[str, dict]):
-    """A fake extract runner that writes a profile carrying a stored check record."""
+def _side_stub(records: dict[str, dict], layouts: dict[str, object] | None = None):
+    """A fake extract runner that writes a profile carrying a stored check record.
+
+    ``layouts`` maps a stem to the ``channel_layout`` value its profile stores, as
+    ``asdict(ExtractOptions)`` writes it (#908); a stem not in it stores none.
+    """
     from tether.io.schema import create_project
 
     def run(movie_path, output_path, *, options=None, tmap=None, tdat=None, **kwargs):
@@ -433,6 +535,8 @@ def _side_stub(records: dict[str, dict]):
             profile = {"registration_rms_px": 0.2, "rms_gate": 0.5, "donor_side": "left"}
             if stem in records:
                 profile["donor_side_check"] = records[stem]
+            if layouts and stem in layouts:
+                profile["channel_layout"] = layouts[stem]
             grp.attrs["profile_json"] = json.dumps(profile)
         return None
 
@@ -475,3 +579,47 @@ def test_batch_summary_lists_only_the_flagged_movies(tmp_path) -> None:
 
     resumed = run_batch(jobs, idealize=False, _extract=never, _correct=_ok_correct)
     assert [r.job.label for r in resumed.donor_side_flagged] == ["flipped"]
+
+
+def test_batch_report_names_each_layout_remedy_and_never_donor_side(tmp_path) -> None:
+    """#1157: the batch reads the stored layout and names its own remedy."""
+    from tether.project.batch import MovieJob, run_batch
+
+    swapped = _record("swapped", 0, 30)
+    records = dict.fromkeys(("stacked", "boxes", "broken", "broken-recipe"), swapped)
+    layouts = {
+        "stacked": {
+            "kind": "top-bottom",
+            "donor": "top",
+            "donor_rect": None,
+            "acceptor_rect": None,
+        },
+        "boxes": {
+            "kind": "rectangles",
+            "donor": None,
+            "donor_rect": [1, 1, 64, 64],
+            "acceptor_rect": [1, 65, 64, 128],
+        },
+        # A layout record that does not rebuild is unreadable, so the movie is silent
+        # rather than told to change a setting it may not have.
+        "broken": {"kind": "diagonal"},
+        "broken-recipe": {"kind": "top-bottom", "donor_recipe": {"steps": "rotate 180"}},
+    }
+    jobs = [
+        MovieJob(movie_path=tmp_path / f"{stem}.tif", output_path=tmp_path / f"{stem}.tether")
+        for stem in records
+    ]
+    summary = run_batch(
+        jobs, idealize=False, _extract=_side_stub(records, layouts), _correct=_ok_correct
+    )
+    assert [r.job.label for r in summary.donor_side_flagged] == ["stacked", "boxes"]
+    assert summary.results[0].donor_side["extracted_channel_layout"]["acceptor"] == "bottom"
+    report = summary.format_report()
+    assert "stacked: 30 of 30 bleach events" in report
+    assert "a top-bottom channel layout whose donor is bottom, not top" in report
+    assert "boxes: 30 of 30 bleach events" in report
+    assert "donor_rect and acceptor_rect exchanged in the rectangles channel layout" in report
+    assert "broken:" not in report
+    assert "broken-recipe:" not in report
+    assert "--donor-side" not in report
+    assert summary.n_failed == 0
