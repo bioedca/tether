@@ -479,11 +479,14 @@ def describe_appends(project: Path, movies: Sequence[Path]) -> list[str]:
     from tether.project.extract import _hash_movie  # noqa: PLC0415
 
     added: list[tuple[Path, int]] = []
-    hashes: dict[Path, str] = {}
+    hashes: dict[Path, str | None] = {}
 
-    def content(movie: Path) -> str:
+    def content(movie: Path) -> str | None:
         if movie not in hashes:
-            hashes[movie] = _hash_movie(movie)[0]
+            try:
+                hashes[movie] = _hash_movie(movie)[0]
+            except OSError:
+                hashes[movie] = None
         return hashes[movie]
 
     actions: list[str] = []
@@ -491,18 +494,21 @@ def describe_appends(project: Path, movies: Sequence[Path]) -> list[str]:
         action = describe_append(project, movie, first=index == 0)
         if action == "will be appended" or action.startswith("new project"):
             twin: Path | None = None
-            try:  # an unreadable movie is not a twin: the run reports it
+            try:
                 size = movie.stat().st_size
+            except OSError:
+                size = -1
+            else:
                 twin = next(
                     (
                         earlier
                         for earlier, earlier_size in added
-                        if earlier_size == size and content(earlier) == content(movie)
+                        if earlier_size == size
+                        and (earlier_hash := content(earlier)) is not None
+                        and earlier_hash == content(movie)
                     ),
                     None,
                 )
-            except OSError:
-                size = -1
             if twin is not None:
                 action = f"same content as {twin.name}: will be skipped"
             else:

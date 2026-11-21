@@ -1132,5 +1132,35 @@ def test_a_dry_run_skips_a_second_copy_of_a_movie_the_run_adds(tmp_path: Path, c
     ]
 
 
+def test_a_dry_run_matches_later_duplicates_after_an_unreadable_movie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tether.project.extract as extraction  # noqa: PLC0415
+
+    data = tmp_path / "data"
+    readable = _movie(data, "b.tif", 300.0)
+    unreadable, duplicate = data / "a.tif", data / "c.tif"
+    unreadable.write_bytes(readable.read_bytes())
+    duplicate.write_bytes(readable.read_bytes())
+    real_hash = extraction._hash_movie
+
+    def hash_movie(path: Path) -> tuple[str, int, float]:
+        if path == unreadable:
+            raise PermissionError("test movie cannot be read")
+        return real_hash(path)
+
+    monkeypatch.setattr(extraction, "_hash_movie", hash_movie)
+    project = tmp_path / "P.tether"
+    request = BatchRequest(movies=(str(data),), into=str(project), idealize=False)
+
+    assert plan(request).movies[2].action == "same content as b.tif: will be skipped"
+    assert not project.exists()
+    assert [result.stages[STAGE_EXTRACT].status for result in run(request).summary.results] == [
+        STATUS_FAILED,
+        STATUS_DONE,
+        STATUS_SKIPPED,
+    ]
+
+
 def _text(value: object) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
