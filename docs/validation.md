@@ -810,16 +810,24 @@ tMAVEN's own loader in `tests/test_handoff_sidecar.py::test_tether_smd_opens_in_
 `test_coordinate_superset_intact_after_tmaven_open` — `sidecar`-marked, so they run in the
 required `sidecar / parity` job under its path filter rather than on the 3-OS matrix.
 
-**Schema migration is not part of (f) yet.** There is no migration machinery and no
-migration test, and none is needed: the freeze is additive-only by construction (ADR-0005)
-and `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
-A search for `migrate`/`migration` in `tests/`, `src/tether/io/` and the workflows returns
-nothing. The specification's project-lifecycle rules name the condition that changes this:
-the **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an
-ADR, carries the backup-and-migrate path and a test that exercises it, and that test joins
-(f) in the same pull request. The other half of those rules, that a file newer than the app
-is refused, is tested now (`test_assert_compatible_refuses_newer_file`). Maintainer decision
-of 2026-11-13 on [#547](https://github.com/bioedca/tether/issues/547).
+**Schema migration.** The specification's project-lifecycle rules say the **first
+schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR, carries
+the backup-and-migrate path and a test that exercises it, and that the test joins (f) in the
+same pull request (maintainer decision of 2026-11-13 on
+[#547](https://github.com/bioedca/tether/issues/547)). Version 2 is that step: it adds the
+`/generations` table ([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+A publish that raises a file's stamp first copies the file, as it was, to
+`<stem>.v<old>-backup.tether` beside it.
+
+The enforcing tests are in
+`tests/test_trace_generations.py` (unmarked, required matrix):
+`test_a_version_1_store_is_backed_up_before_it_is_migrated` (the backup is byte-identical to the
+version-1 file and still opens, the project is stamped 2, and a later write makes no second
+backup), `test_a_second_version_1_store_of_one_name_keeps_the_first_backup` and
+`test_a_refused_write_to_a_version_1_store_makes_no_backup`. A version-1 file that is only read
+is not migrated (`test_a_store_from_before_generations_reads_as_generation_1_unchanged`). The
+other half of those rules, that a file newer than the app is refused, is
+`test_assert_compatible_refuses_newer_file`.
 
 ## (g) Photobleaching detector
 
@@ -1633,8 +1641,7 @@ evidence about the size of the difference and not a tolerance.
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
   the workstation only. Each is stated in its own section above with the ADR that
-  deferred it. (f) has no migration tests, which is not a gap: the specification makes them
-  required only at the first schema-version step (see (f) above).
+  deferred it.
 - The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video project file, because the real fixtures do not carry the required

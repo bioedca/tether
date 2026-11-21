@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from tether.io.generations import pending_label_ids
 from tether.project.labels import CurationLabel
 
 if TYPE_CHECKING:
@@ -67,7 +68,9 @@ class RankingDataset:
     [`CurationLabel`][tether.project.labels.CurationLabel] code (``+1`` accept, ``-1`` reject, ``0``
     uncurated). [`labeled_mask`][] marks the human-labeled rows (the ground truth) and
     [`is_good`][] is the ``molecule_id -> accepted?`` map over just those rows, ready for
-    [`tether.ml.ranking`][].
+    [`tether.ml.ranking`][]. Carried labels awaiting confirmation appear uncurated in
+    this supervised view. ``pending_label_ids`` also identifies carry-overs with no
+    feature row, so training and label weighting apply the same eligibility rule.
     """
 
     molecule_ids: list[str]
@@ -75,6 +78,7 @@ class RankingDataset:
     feature_names: tuple[str, ...]
     X: np.ndarray
     curation_label: np.ndarray
+    pending_label_ids: frozenset[str] = frozenset()
 
     @property
     def n_molecules(self) -> int:
@@ -106,7 +110,8 @@ def ranking_dataset(project: ProjectRef) -> RankingDataset:
 
     Reads the stored feature matrix ([`tether.project.features.feature_matrix`][]) and each
     molecule's ``curation_label`` ([`tether.project.labels.curation_labels`][]), joining on
-    ``molecule_key``. Read-only.
+    ``molecule_key``. A carried label is supervised evidence after a human confirms
+    it on the active extraction. Read-only.
 
     Raises
     ------
@@ -117,9 +122,14 @@ def ranking_dataset(project: ProjectRef) -> RankingDataset:
     from tether.project.labels import curation_labels
 
     stored = feature_matrix(project)
-    labels_by_key = curation_labels(_project_path(project))
+    path = _project_path(project)
+    labels_by_key = curation_labels(path)
+    pending = pending_label_ids(path)
     curation = np.array(
-        [int(labels_by_key.get(key, _UNCURATED)) for key in stored.molecule_keys],
+        [
+            _UNCURATED if mid in pending else int(labels_by_key.get(key, _UNCURATED))
+            for mid, key in zip(stored.molecule_ids, stored.molecule_keys, strict=True)
+        ],
         dtype=np.int64,
     )
     return RankingDataset(
@@ -128,6 +138,7 @@ def ranking_dataset(project: ProjectRef) -> RankingDataset:
         feature_names=stored.feature_names,
         X=np.asarray(stored.matrix, dtype=np.float64),
         curation_label=curation,
+        pending_label_ids=pending,
     )
 
 
