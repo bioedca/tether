@@ -74,10 +74,11 @@ size and its SHA-256, and the check refuses a file with a different SHA-256. The
 public, so they can be in the repository. Put each archive at its manifest path below the data
 folder, and give it the neutral id that its check uses:
 
-| Neutral id | Manifest path below the data folder | Check (#716) |
+| Neutral id | Manifest path below the data folder | Check |
 | --- | --- | --- |
 | `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-color Deep-LASI set: import and molecule count |
 | `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-color Deep-LASI set: import, FRET states and dwell times |
+| `dlasi-760` | `zenodo-7561162/Trace_Classifiers_Validation_Data.zip` | held-out classifier score and CPU/CUDA comparison |
 
 ```json
 {
@@ -162,10 +163,15 @@ cron runs only while the WSL distribution runs and its cron service is on (`syst
 
 ### Checking the deep interpreter
 
-Pass `--deep-python <path to Python>` to check CUDA in an existing isolated deep environment.
-The runner records `deep/cuda` as failed when PyTorch sees no CUDA device and as an error if it
-cannot run the probe. This option also works with `--dry-run`. The base and sidecar environments
-do not run the probe, and the committed `deep/conda-lock.yml` selects CPU-only PyTorch.
+Pass `--deep-python <path to Python>` to use an existing isolated deep environment.
+The runner records `deep/cuda` as failed when PyTorch sees no CUDA device.
+It reports an error if it cannot run the probe. A dry run only checks CUDA.
+The committed `deep/conda-lock.yml` selects CPU-only PyTorch.
+
+Set the `dlasi-760` mapping to the archive path in the table for the scheduled check.
+With this option the runner trains on the approved training rows on each device.
+It records both ROC AUC scores on the held-out rows. It also records the
+fraction of matching decisions and the largest difference between paired scores.
 
 A complete `deep/performance` result carries times and memory peaks for training and prediction
 on each device. The CPU figures are process high-water marks from separate stages. The CUDA

@@ -20,7 +20,7 @@ pull request can run code on that computer (ADR-0071). ``run`` does these steps 
 
 After step 3 a scheduled run also runs the benchmark suite of #722 and appends one record to the
 speed history (``perf_history.py``, #723); the history adds two checks to the result file.
-When given a separate deep interpreter, the runner records whether that interpreter can use CUDA.
+When given a separate deep interpreter, the runner checks CUDA and runs the held-out deep check.
 
 ``run --dry-run`` skips steps 1 and 2 and runs only the self-check, with this interpreter, against
 the data directory it gets. ``run --dry-run --speed --history FILE`` also runs the speed test, the
@@ -885,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--history", help="the speed history file (default: STATE/perf-history.jsonl)")
     go.add_argument("--sidecar-python", default=os.environ.get(SIDECAR_ENV),
                     help=f"the sidecar python (default: ${SIDECAR_ENV})")  # fmt: skip
-    go.add_argument("--deep-python", help="record CUDA availability with this isolated interpreter")
+    go.add_argument("--deep-python", help="use this isolated interpreter for the deep checks")
     show = sub.add_parser("latest", help="print the newest result as JSON for an agent")
     show.add_argument("--results", required=True)
     args = parser.parse_args(argv)

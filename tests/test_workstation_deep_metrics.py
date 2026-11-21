@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Small public cases for the workstation deep-check reporting mechanics."""
 
+import os
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,12 +16,21 @@ from tether.ml.deep import assemble_dataset
 
 
 class _SyntheticModel:
-    def __init__(self, held_out_ids):
+    def __init__(self, held_out_ids, device):
         self.held_out_ids = held_out_ids
+        self.device = device
+        self.train_pid = os.getpid()
 
     def predict_proba(self, dataset):
         assert dataset.molecule_ids == self.held_out_ids
+        assert (os.getpid() != self.train_pid) == (self.device == "cpu")
         return dataset.y / 4
+
+
+def _train_stub(data, *, training_ids, held_out_ids, seed, device):
+    assert data.molecule_ids == training_ids
+    assert seed == 0 and device in ("cpu", "cuda")
+    return _SyntheticModel(held_out_ids, device)
 
 
 def test_workload_uses_disjoint_ordered_traces_and_reports_four_phases(monkeypatch) -> None:
@@ -33,21 +44,17 @@ def test_workload_uses_disjoint_ordered_traces_and_reports_four_phases(monkeypat
         np.arange(10) % 2, np.ones(10),
     )  # fmt: skip
     train, held = split_reference(dataset)
-    device_calls = []
-
-    def train_stub(data, *, seed, device):
-        assert data.molecule_ids == [dataset.molecule_ids[i] for i in train]
-        assert seed == 0
-        device_calls.append(device)
-        return _SyntheticModel([dataset.molecule_ids[i] for i in held])
-
+    train_stub = partial(
+        _train_stub,
+        training_ids=[dataset.molecule_ids[i] for i in train],
+        held_out_ids=[dataset.molecule_ids[i] for i in held],
+    )
     monkeypatch.setattr(deep_check, "train_classifier", train_stub)
     cuda = SimpleNamespace(
         synchronize=lambda: None, reset_peak_memory_stats=lambda: None,
         max_memory_allocated=lambda: 123,
     )  # fmt: skip
     numbers = deep_check.run_workload(dataset, cuda=cuda)
-    assert device_calls == ["cpu", "cuda"]
     assert numbers["cpu_roc_auc"] == numbers["cuda_roc_auc"] == 1.0
     assert numbers["agreement"] == 1.0
     assert numbers["max_score_difference"] == numbers["n_disagreements"] == 0

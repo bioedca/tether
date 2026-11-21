@@ -19,32 +19,32 @@ from reference_data.fetch import load_manifest
 from tether.ml.deep.model import train_classifier
 
 
-def _predict_cpu(model, held_out):
-    # A fresh process keeps training's CPU high-water mark out of the prediction measurement.
+def _measure_cpu(call):
     job = _windows_job() if os.name == "nt" else None
-    return measure_stage(lambda: model.predict_proba(held_out), job=job)
+    return measure_stage(call, job=job)
+
+
+def _measure(call, *, cuda):
+    if cuda is not None:
+        return measure_stage(call, cuda=cuda)
+    # Each CPU peak starts in a process that has never loaded the archive or run another phase.
+    with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
+        return pool.submit(_measure_cpu, call).result()
 
 
 def run_workload(dataset, *, cuda) -> dict[str, float]:
     """Use the approved held-out rows and emit only aggregate numbers."""
     train, held = split_reference(dataset)
     training, held_out = reference_subset(dataset, train), reference_subset(dataset, held)
-    cpu_job = _windows_job() if os.name == "nt" else None
     scores = {}
     numbers = {}
     for device, backend in (("cpu", None), ("cuda", cuda)):
-        model, training_metrics = measure_stage(
-            partial(train_classifier, training, seed=0, device=device), job=cpu_job, cuda=backend
+        model, training_metrics = _measure(
+            partial(train_classifier, training, seed=0, device=device), cuda=backend
         )
-        if backend is None:
-            with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
-                scores[device], prediction_metrics = pool.submit(
-                    _predict_cpu, model, held_out
-                ).result()
-        else:
-            scores[device], prediction_metrics = measure_stage(
-                partial(model.predict_proba, held_out), cuda=backend
-            )
+        scores[device], prediction_metrics = _measure(
+            partial(model.predict_proba, held_out), cuda=backend
+        )
         for phase, values in (("train", training_metrics), ("predict", prediction_metrics)):
             numbers[f"{device}_{phase}_s"] = values["time_s"]
             numbers[f"{device}_{phase}_peak_bytes"] = values["peak_bytes"]
