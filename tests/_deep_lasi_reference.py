@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Decode the public two-colour Deep-LASI trace-classifier reference for #760."""
 
+from dataclasses import replace
 from hashlib import file_digest
 from pathlib import Path
 from zipfile import ZipFile
@@ -70,3 +71,16 @@ def split_reference(dataset: DeepTraceDataset) -> tuple[np.ndarray, np.ndarray]:
 def held_out_auc(dataset: DeepTraceDataset, rows: np.ndarray, scores: np.ndarray) -> float:
     """Score probabilities in the order of the supplied held-out rows."""
     return roc_auc(dataset.y[rows], scores)
+
+
+def reference_subset(dataset: DeepTraceDataset, rows: np.ndarray) -> DeepTraceDataset:
+    """Select already normalized rows without changing their preprocessing provenance."""
+    return replace(
+        dataset,
+        molecule_ids=[dataset.molecule_ids[row] for row in rows],
+        X=dataset.X[rows],
+        mask=dataset.mask[rows],
+        lengths=dataset.lengths[rows],
+        y=dataset.y[rows],
+        sample_weight=dataset.sample_weight[rows],
+    )

@@ -75,6 +75,8 @@ SELF_CHECK = "tests/test_workstation_selfcheck.py"
 SPEED_CHECK = "tests/test_workstation_perf.py"
 CUDA_CHECK = "deep/cuda"
 CUDA_UNAVAILABLE = 86
+DEEP_CHECK = "deep/performance"
+DEEP_ARCHIVE_ID = "dlasi-760"
 #: The benchmark groups of #722 that a run measures (``sidecar`` needs the sidecar environment).
 BENCH_GROUPS = ("default", "gui")
 RESULT_SCHEMA = "tether-workstation-result/1"
@@ -470,6 +472,36 @@ def check_cuda(python: Path, source: Path, log) -> dict:
     }
 
 
+def check_deep_workload(python: Path, source: Path, data: Path, state: Path, log) -> dict:
+    """Run the deep check in the given interpreter and retain only its aggregate metrics."""
+    script = source / "scripts" / "workstation" / "deep_check.py"
+    prefix = python.parent
+    if prefix.name.lower() in ("bin", "scripts"):
+        prefix = prefix.parent
+    env = activated_env(prefix)
+    env["PYTHONPATH"] = os.pathsep.join(map(str, (source / "src", source / "tests", script.parent)))
+    start = time.perf_counter()
+    datasets = {}
+    with tempfile.TemporaryDirectory(prefix="deep-check-", dir=state) as temp:
+        output = Path(temp) / "metrics.json"
+        status = _run_logged(
+            [str(python), "-P", "-s", str(script), str(data), str(output)],
+            log, check=False, cwd=source, env=env,
+        )  # fmt: skip
+        if status == 0:
+            try:
+                datasets[DEEP_ARCHIVE_ID] = json.loads(output.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                print("the deep check did not return readable metrics", file=log)
+                status = None
+    return {
+        "check": DEEP_CHECK,
+        "outcome": {0: "passed", CUDA_UNAVAILABLE: "failed"}.get(status, "error"),
+        "duration_s": round(time.perf_counter() - start, 3),
+        "datasets": datasets,
+    }
+
+
 def _cpu_name() -> str | None:
     if sys.platform == "win32":
         import winreg
@@ -694,7 +726,10 @@ def run(args: argparse.Namespace) -> int:
             checks = collect_checks(record)
             if args.deep_python:
                 deep_python = Path(args.deep_python).expanduser().absolute()
-                checks.append(check_cuda(deep_python, source, log))
+                cuda = check_cuda(deep_python, source, log)
+                checks.append(cuda)
+                if cuda["outcome"] == "passed" and not args.dry_run:
+                    checks.append(check_deep_workload(deep_python, source, data, state, log))
             tools = tool_versions(python, env)
             if speed and code in (0, 1):
                 bench = run_benchmarks(python, source, env, log)

@@ -143,6 +143,30 @@ def test_no_cuda_is_a_failed_result_check(tmp_path, monkeypatch) -> None:
     }
 
 
+@pytest.mark.parametrize("output", ['{"cpu_roc_auc": 0.75}', "broken"])
+def test_deep_worker_returns_only_summary_numbers(tmp_path, monkeypatch, output) -> None:
+    deep_python = tmp_path / "env" / "bin" / "python"
+    data = _data_dir(tmp_path)
+
+    def child(cmd, log, *, check, cwd, env):
+        assert not check and cwd == _REPO
+        assert cmd[:3] == [str(deep_python), "-P", "-s"]
+        assert cmd[4] == str(data)
+        assert env["PYTHONPATH"].split(os.pathsep)[0] == str(_REPO / "src")
+        Path(cmd[5]).write_text(output, encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged", child)
+    with (tmp_path / "deep.log").open("w", encoding="utf-8") as log:
+        check = runner.check_deep_workload(deep_python, _REPO, data, tmp_path, log)
+    assert check["check"] == runner.DEEP_CHECK
+    if output == "broken":
+        assert (check["outcome"], check["datasets"]) == ("error", {})
+    else:
+        assert check["outcome"] == "passed"
+        assert check["datasets"] == {runner.DEEP_ARCHIVE_ID: {"cpu_roc_auc": 0.75}}
+
+
 def test_no_mapped_name_reaches_the_result_or_the_console(passing_run, failing_run) -> None:
     for root, proc in (passing_run, failing_run):
         text, _ = _only_result(root)
