@@ -282,7 +282,7 @@ def _registry():  # noqa: ANN202 - the registry module
 def _resolve(value: Any, folder: Path) -> Any:
     if isinstance(value, str) and value and not os.path.isabs(value):
         # The filesystem must interpret `..` after following any symbolic link.
-        return os.path.join(folder, value)
+        return str(folder / value)
     if isinstance(value, tuple):
         return tuple(_resolve(v, folder) for v in value)
     return value
