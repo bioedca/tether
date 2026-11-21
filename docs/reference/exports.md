@@ -215,6 +215,13 @@ The order is frozen in `tether.project.export.MOLECULE_TABLE_COLUMNS`, annotated
 source as *"the per-molecule CSV column order (frozen; a reader may key on these names)"*.
 [`tests/test_docs_export_columns.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_export_columns.py) fails if this table and that tuple ever disagree. The
 underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
+The same columns are in a file you can download,
+[`molecule-table-columns.csv`](molecule-table-columns.csv): one row per column, with its
+name, CSV type, unit, whether it can be blank, and a one-line meaning (see
+[Put these files in your deposit](#put-these-files-in-your-deposit)).
+[`tests/test_docs_published_data.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_published_data.py)
+fails if that file and the tuple differ, or if its type, unit or blank entry for a column
+disagrees with this table.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
@@ -331,6 +338,7 @@ result = export_subset_tether(
     include_rejected=False,
     include_raw=False,
     overwrite=False,
+    curator_alias=None,        # or a prefix such as "curator"; see below
 )
 ```
 
@@ -350,6 +358,7 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `/patches` | Every channel (`donor`, `acceptor`), row-subset, aperture window unchanged |
 | `/idealization/{model}` | Per-model, filtered on **`molecule_id`** (the unique UUID, not the non-unique `molecule_key`). The row-aligned members `idealized`, `state_path`, `molecule_key`, `molecule_id`, `input_hash` are subset; every other member (`mean`, `var`, `frac`, `tmatrix`, `norm_tmatrix`, `rates`, `pi`, the `priors` group) is a global consensus array and is copied verbatim. The group's `n_molecules` attribute is rewritten to the kept count |
 | `/labels` | Rows whose `molecule_key` is in the selection |
+| `/labels/reject_log` | Rows whose `molecule_key` is in the selection, so each reject keeps its reason. Absent when the source has no log or no selected molecule has a row |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim |
 
 **What does not travel:**
@@ -361,8 +370,44 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
+**User names (`curator_alias`).** A project records a person's user name in
+the `labeler` of each `/labels/table` and `/labels/reject_log` row, the `labeler` of each
+`/settings/condition_audit` row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
+`/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
+`/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
+A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
+`person`. The `actor` of a `policy` row contains policy text and keeps its value.
+By default each user name is the operating-system login.
+
+The plain fields are listed in `tether.project.export.USER_NAME_FIELDS`. The JSON fields
+that hold a name under one key are listed in `tether.project.export.JSON_USER_KEYS`.
+Only that key changes, so the record keeps its shape.
+
+| `curator_alias` | Result |
+|---|---|
+| `None` (default) | The names are copied as they are. The output is the same as before the option existed |
+| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the selected `/labels/table` and `/labels/reject_log` rows in store order, followed by the `/settings` logs. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty name stays empty. The source project does not change |
+
+A path can name the user too, for example a model file in a home folder. With the option,
+each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today that is the
+`artifact_path` of each `/models/<condition_id>` reference, so the copy's reference names
+the model file but not its folder.
+
+A name-bearing table is written directly from its aliased rows so those fields store only
+their new values. The count covers the names in the records selected for export. A name
+whose only labels stay behind, for example on a rejected molecule, is excluded from the count.
+A blank prefix raises `ValueError`.
+
+The option does **not** remove `source_filename` or `tether_subset_of`. They are file
+names, not paths, and they are the origin record of each molecule. A file name can
+identify a sample, so read them before you share the copy. Free text such as an audit
+`reason`, a correction transition's `detail`, and the text of a correction policy is
+copied as it is. So are the computer names (`holder_host`,
+`ousted_host`) of a lock takeover row and the `host` of a job owner. The `request` and
+`error` text of a job row are copied as they are too, and they can hold a full file path.
+
 **Embedded provenance.** Besides the provenance file, the subset stamps four root attributes
-(readable with `h5py`):
+(readable with `h5py`), and two more with `curator_alias`:
 
 | Attribute | Value |
 |---|---|
@@ -370,6 +415,8 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the provenance file's `created_utc` |
 | `tether_subset_include_raw` | `0` or `1` — an integer, not a bool |
 | `tether_subset_n_molecules` | The exported count |
+| `tether_subset_names_aliased` | `1`, only with `curator_alias` |
+| `tether_subset_n_aliased_names` | The count of distinct names replaced, only with `curator_alias`. No name is recorded |
 
 The root also carries `create_project`'s own `format="tether-project"`, `schema_version`
 and `app_version`; the last is the version of the build that performed the *export*, not
@@ -377,11 +424,14 @@ the source's.
 
 **Refusals.** `FileExistsError` when `out_path` exists and `overwrite=False`; `ValueError`
 when the output resolves to (or is a hard link of) the source, when the selection is
-empty, or when the preflight fails.
+empty, when the preflight fails, or when `curator_alias` is blank, contains a user name
+stored in the source, or leaves no alias that is free of every source user name.
 
 Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
-`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
+`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`, `n_reject_log_rows`.
+With `curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
+`n_aliased_names`. It never records the names.
 
 ## 4. Plot export (PDF + SVG + PNG)
 
@@ -427,7 +477,9 @@ A plot export is stamped **three** ways:
 1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). The provenance file is written even when `stamp=False`.
+   basenames, not paths). A figure drawn from several series also adds `series`, and a
+   figure that records how it was drawn adds `display` (both below). The provenance file is
+   written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
    55 %-opacity texts at the bottom of the figure — `Tether <version> · <kind>` on the
    left and the ISO timestamp on the right.
@@ -516,6 +568,71 @@ un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count 
 `n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
 so read it off the dataclass.
 
+### Several series on one figure
+
+Every renderer also takes an ordered sequence of `(label, result)` pairs. These are the series of
+one composed plot (FR-PLOT). Each label must be a distinct, non-empty string. A sequence of one
+series draws exactly the figure of the bare result, byte for byte. Its label goes only to the
+provenance file.
+
+```python
+from tether.analysis.histogram import population_apparent_e_histogram
+from tether.analysis.plot_export import export_figure, render_histogram1d
+
+wild_type = population_apparent_e_histogram("wt.tether", bins=151)
+mutant = population_apparent_e_histogram("mutant.tether", bins=151)
+figure = render_histogram1d([("WT", wild_type), ("mutant", mutant)])
+export_figure(
+    figure,
+    "figures/a1-wt-vs-mutant",
+    tether_export="plot:a1",
+    source="wt.tether, mutant.tether",
+    parameters={"series": [{"selection": "WT v1"}, {"selection": "mutant v1"}]},
+)
+```
+
+- **Overlay.** Seven renderers draw all series on one axis, with a legend entry for each: the 1-D
+  histogram, the dwell survival, the transition probability, the state-number chart (as grouped
+  bars), the cross-correlation, the alpha shape and the elbow. The series take their colors from
+  one cycle, `SERIES_COLOR_CYCLE = "okabe-ito-4"`. It has four colors of the Okabe–Ito set: blue,
+  vermilion, bluish green and reddish purple. After them come the same four with the next line
+  style (`--`, `-.`, `:`), so 16 series differ. Where a series can be drawn as points alone, its
+  marker (`o`, `s`, `^`, `D`) steps with the line style, as the dwell survival markers do. `series_style(k)` returns the style of series `k`.
+  Each color reaches 3 : 1 against the white background. Every two colors also stay apart under
+  simulated protanopia, deuteranopia and tritanopia, the check the [trace colors](gui-theme.md)
+  pass.
+- **Small multiples.** Where one series would hide another, each series gets its own panel, titled
+  with its label. This applies to the time-vs-signal heatmap, the transition-density plot, the raw
+  FRET cloud, the transition-synchronized heatmap, the per-condition overlay and the
+  anticorrelation raster. The panels share their axes. The anticorrelation panels share only the
+  frame axis: each has its own molecule rows, so one row position is not one molecule across
+  panels. The heatmaps and the raster share one color scale and one color bar, so a color means
+  the same value in every panel. In the per-condition
+  panels, a condition keeps its color in every panel.
+- **One grid.** Two series that are not on one grid are refused with a `ValueError`. It names the
+  series, what differs and both values. Tether never resamples one series onto another. What must
+  agree depends on the plot. Examples are the bin edges, value range and density normalization of
+  a histogram, the frame time of anything with a time axis, the `init → final` pair of a
+  transition-probability histogram and the lags of a cross-correlation. A lever of the series, such
+  as per-molecule equal weight, may differ.
+
+`export_figure` writes one record per series to `parameters.series`, in figure order. A record
+holds the `label`, the `result` type, the `parameters` that result carries and its `display`. The
+parameters are the scalars, ranges and grid of the result, never its data. The display is the color
+and line style, or the panel. A one-series figure is the bare result's figure, so its record says
+`{"as_bare_result": true}`. The layout goes to `parameters.display` (`series_layout`, and
+`series_cycle` or `series_color_scale`).
+
+A model drawn with a series keeps its own parameters in the record. Examples are the Gaussian
+means, variances and weights, or the fitted rates. Its sampled curve is data and is left out. A
+series drawn without its model overlay or cloud records `null` for it.
+A parameter that is NaN or infinite, such as the `alpha` of an empty alpha shape, is recorded as
+`null`, so the file stays strict JSON. So is one in a key you add.
+
+To add your own keys to a series, such as the selection
+and its version, pass `parameters["series"]` as a list of one dict per series. A key that
+contradicts what was drawn raises `ValueError`. ADR-0132 records these choices.
+
 <a id="provenance-sidecar"></a>
 
 ## Provenance file
@@ -525,6 +642,9 @@ Every one of the four exports writes `<file>.provenance.json` beside its output,
 full filename, so the original extension survives: `molecules.csv.provenance.json`,
 `traces.txt.provenance.json`, `subset.tether.provenance.json`. Plot exports pass the
 extension-less stem, so theirs is `<stem>.provenance.json`.
+
+[`tether-provenance-schema.json`](tether-provenance-schema.json) states the keys below as a
+JSON Schema, with the `parameters` of each export.
 
 The payload is `json.dumps(payload, indent=2, sort_keys=True) + "\n"`, UTF-8 — which is
 why the keys read alphabetically:
@@ -561,12 +681,27 @@ The provenance file exists because flat text has no metadata slot and the Deep-L
 stay header-free — so the stamp travels beside the file rather than inside it (ADR-0001). Keep it with the data file when you move or share the export. For
 the CSV and the `.txt` it is the **only** record of which build, which project and which
 parameters produced those numbers. A subset `.tether` and a plot export also carry a stamp
-*inside* the file — the subset's four `tether_subset_*` root attributes plus
+*inside* the file — the subset's `tether_subset_*` root attributes plus
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
 metadata (both above) — but only the provenance file carries the full parameter set.
 
 To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
+
+## Put these files in your deposit
+
+A CSV or `.txt` export is flat text. To let another person read it correctly, put these
+files beside your data when you deposit it. Download them from the documentation of the
+Tether version that wrote your exports, so that they describe that version:
+
+| File | What it describes |
+|---|---|
+| [`tether-schema.json`](tether-schema.json) | The frozen skeleton of a `.tether` file: its groups, its four compound tables and its root attributes. It is `schema/schema_frozen.json` from the repository, unchanged ([format reference](tether-format.md)). |
+| [`molecule-table-columns.csv`](molecule-table-columns.csv) | The data dictionary of the molecule-table CSV: one row per column, with `name`, `type`, `unit`, `can_be_blank` and `description` ([columns](#molecule-table-columns)). |
+| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` provenance file ([above](#provenance-file)). Any JSON Schema validator can check a provenance file against it. |
+
+These three files are licensed **CC0-1.0**, so you can copy them into a deposit with no
+conditions. The program code keeps its GPL-3.0-or-later license.
 
 ## Reading the exports elsewhere
 

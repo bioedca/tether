@@ -108,3 +108,47 @@ def test_vbfret_unknown_model_type_errors(tmp_path):
     shutil.copyfile(FOUR_MOL, smd)
     with pytest.raises(SidecarError, match="unknown model_type"):
         run_vbfret(smd, model_type="not_a_model", timeout=300.0)
+
+
+@requires_sidecar
+def test_vbgmm_key_fits_the_requested_states_reproducibly(tmp_path):
+    # ``vbgmm`` is tMAVEN's plain vbGMM (#1076): a fixed number of states, no HMM and no model
+    # selection. Three states is not tMAVEN's default of two, so a runner that dropped the
+    # ``modeler.vbgmm.nstates`` pref, or dispatched to ``vbgmm_vbhmm`` (which chooses the
+    # number itself and returns a vbHMM), fails here.
+    smd = tmp_path / "smd_4mol.hdf5"
+    shutil.copyfile(FOUR_MOL, smd)
+
+    fits = [
+        run_vbfret(
+            smd,
+            model_type="vbgmm",
+            nstates=3,
+            nrestarts=1,
+            seed=1076,
+            model_out=tmp_path / f"vbgmm_{run}.hdf5",
+            timeout=1800.0,
+        )
+        for run in range(2)
+    ]
+    for result in fits:
+        assert result.status["ok"] is True
+        assert result.status["method"] == "run_vbgmm"
+        assert result.status["result_type"] == "vb GMM"
+        assert result.status["nstates"] == 3
+        model = result.model
+        assert model.model_type == "vb GMM"
+        assert model.nstates == 3
+        assert model.means.shape == (3,)
+        assert np.all(np.isfinite(model.means))
+        assert model.idealized is not None
+        assert model.idealized.shape == (4, 1700)
+        assert sorted(result.state_paths) == [0, 1, 2, 3]
+        for mol_idx, path in result.state_paths.items():
+            expected = states_from_idealized(model.idealized[mol_idx], model.means)
+            np.testing.assert_array_equal(path, expected)
+
+    # The same SMD, settings and seed give the same model (the ``--seed`` contract, ADR-0075).
+    first, second = (result.model for result in fits)
+    np.testing.assert_array_equal(first.means, second.means)
+    np.testing.assert_array_equal(first.idealized, second.idealized)

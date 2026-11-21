@@ -41,6 +41,14 @@ FITS = SETTINGS["fits"]
 SEED = 757
 PAGE = Path(__file__).resolve().parents[1] / "docs" / "validation.md"
 METHODS_PRIORS = {"alpha": 1.0, "beta": 0.25, "pi": 1.0, "a": 2.5, "b": 0.01}
+#: The metrics each kind of fit is held to. A global fit has a published count matrix, so it carries
+#: all four; a ΔNCCA sub-population has none, so it carries the means and the transitions only.
+GLOBAL_METRICS = frozenset(cc.METRICS)
+SUBPOPULATION_METRICS = frozenset({"means_max_abs", "tdp_counts_l1_rel"})
+
+
+def _required_metrics(key: str) -> frozenset[str]:
+    return SUBPOPULATION_METRICS if FITS[key].get("kmatrix") is None else GLOBAL_METRICS
 
 
 def _round_2sig_up(value: float) -> float:
@@ -79,9 +87,9 @@ def test_each_model_key_is_one_the_child_can_run() -> None:
     import _campos_chavez_hmm_child as child
     from tether.idealize import _sidecar_runner
 
-    keys = set(_sidecar_runner._DISPATCH) | set(child.EXTRA_KEYS)
+    # The child adds no key of its own: each fit runs a key of the runner (#1076).
     for fit in FITS.values():
-        assert fit["model_key"] in keys
+        assert fit["model_key"] in _sidecar_runner._DISPATCH
         assert fit["model_key"] in child.OLD_ROUTINES
 
 
@@ -172,31 +180,6 @@ def test_a_stored_trace_matches_its_column_through_an_offset_and_a_dropped_frame
     assert cc.match_share(raw, donor[:1400]) == (0.0, 0.0)
 
 
-def test_the_stored_model_reader_skips_an_empty_rates_group(tmp_path: Path) -> None:
-    import h5py
-
-    path = tmp_path / "model.hdf5"
-    with h5py.File(path, "w") as f:
-        g = f.create_group("model")
-        g["mean"] = np.array([0.1, 0.5])
-        g["tmatrix"] = np.array([[9.0, 1.0], [2.0, 8.0]])
-        g["ran"] = np.arange(3)
-        g.create_group("rates")
-    model = cc.read_stored_model(path)
-    assert model.nstates == 2 and model.ran.tolist() == [0, 1, 2]
-    assert model.tmatrix.tolist() == [[9.0, 1.0], [2.0, 8.0]]
-
-
-def test_the_stored_model_reader_rejects_a_model_without_means(tmp_path: Path) -> None:
-    import h5py
-
-    path = tmp_path / "model.hdf5"
-    with h5py.File(path, "w") as f:
-        f.create_group("model")["tmatrix"] = np.eye(2)
-    with pytest.raises(ValueError, match="mean"):
-        cc.read_stored_model(path)
-
-
 def test_compare_matches_the_states_one_to_one() -> None:
     # Two fitted states lie nearest the same published level (as for the Linker fit): their
     # transitions must count against the published ones by rank, not fall onto the diagonal.
@@ -226,13 +209,29 @@ def test_parse_summary_reads_a_tmaven_report() -> None:
 # --- required matrix: the limits and the page ---------------------------------------------------
 
 
+def _gate_set_problems(gates_by_key: dict) -> list[str]:
+    return [key for key, gates in gates_by_key.items() if set(gates) != _required_metrics(key)]
+
+
+def test_each_fit_carries_the_metric_set_of_its_kind() -> None:
+    assert _gate_set_problems(LIMITS["gates"]) == []
+    assert {k for k in FITS if _required_metrics(k) == SUBPOPULATION_METRICS} == {
+        "dncca_one_state",
+        "dncca_two_state",
+    }
+
+
+def test_a_metric_taken_out_of_the_limits_file_is_caught() -> None:
+    for key, gates in LIMITS["gates"].items():
+        for name in gates:
+            trimmed = {**LIMITS["gates"], key: {m: e for m, e in gates.items() if m != name}}
+            assert _gate_set_problems(trimmed) == [key], (key, name)
+
+
 def test_every_limit_is_its_measurement_rounded_up() -> None:
     for key, gates in LIMITS["gates"].items():
-        assert set(gates) <= set(cc.METRICS), key
         for name, entry in gates.items():
             assert entry["limit"] == _round_2sig_up(entry["measured"]), (key, name)
-            if FITS[key].get("kmatrix") is None:
-                assert name not in {"populations_max_abs", "offdiag_counts_l1_rel"}, key
 
 
 def test_the_rounding_rule() -> None:
@@ -284,8 +283,9 @@ def test_the_sidecar_fit_is_within_its_frozen_limits(key: str, tmp_path: Path) -
     got = cc.compare(cc.run_fit(fit, smd, SEED), cc.published(fit, _book(), _archive()))
     print(key, {m: got.get(m) for m in cc.METRICS}, "means", got["means"])
     assert not got.get("state_count_differs"), got
-    for name, entry in LIMITS["gates"][key].items():
-        assert got[name] <= entry["limit"], (name, got[name], entry["limit"])
+    for name in sorted(_required_metrics(key)):
+        limit = LIMITS["gates"][key][name]["limit"]
+        assert got[name] <= limit, (name, got[name], limit)
 
 
 @pytest.mark.reference_download

@@ -74,7 +74,7 @@ single-writer lock on `overwrite`, mirroring `reconstruct_project`):
   default). **No** `raw`/`background` layers and **no** `/patches` are synthesized — both
   genuinely absent.
 - **`/settings/analysis_only`** — an additive project marker (`round_trip_available=False`
-  + the banner text + source provenance) read by `read_analysis_only_marker`, so the later
+  \+ the banner text + source provenance) read by `read_analysis_only_marker`, so the later
   GUI wizard gates the round-trip/patch views off an O(1) read.
 - **Correction** — `compute_corrected_fret` stamps `METHOD_APPARENT_UNAVAILABLE` (α/γ
   left `NaN`): the honest apparent-E substrate (ADR-0003).

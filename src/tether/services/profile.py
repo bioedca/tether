@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The extraction profile: every extraction option, saved as one file (#349, ADR-0129).
 
-An *extraction profile* holds the eighteen fields of
+An *extraction profile* holds the nineteen fields of
 [`ExtractOptions`][tether.project.extract.ExtractOptions], so a run that names one is fully
-described by it. Seventeen are one value each; the channel layout (#908) is four fields,
+described by it. Eighteen are one value each; the channel layout (#908) is four fields,
 ``channel_layout`` (the kind) and ``channel_layout_donor``, ``channel_layout_donor_rect`` and
 ``channel_layout_acceptor_rect``, because a request field holds one plain value.
 ``tether extract --profile`` and ``tether batch --profile`` read one, and
@@ -112,6 +112,7 @@ class ExtractionFields:
     rms_gate: float = 0.5
     window: int = 21
     coloc_distance: float = 3.0
+    colocalization: str = "partner-in-both"  # = DEFAULT_COLOCALIZATION_POLICY (tested)
     disk_radius: float = 3.0
     ring_inner: float = 6.0
     ring_outer: float = 8.0
@@ -173,10 +174,26 @@ class ExtractionProfile(ExtractionFields, Request):
 
     @classmethod
     def from_options(cls, options: ExtractOptions) -> ExtractionProfile:
-        """Return the profile of an [`ExtractOptions`][tether.project.extract.ExtractOptions]."""
+        """Return the profile of an [`ExtractOptions`][tether.project.extract.ExtractOptions].
+
+        Raises [`ExtractionError`][tether.project.extract.ExtractionError] for a channel
+        layout with a channel recipe (#910), which a profile cannot hold yet.
+        """
+        from tether.project.extract import ExtractionError
+
         names = {f.name for f in dataclasses.fields(ExtractionFields)} - set(LAYOUT_FIELDS)
         values: dict[str, Any] = {name: getattr(options, name) for name in names}
         layout = options.channel_layout
+        if layout is not None and (
+            layout.donor_recipe is not None or layout.acceptor_recipe is not None
+        ):
+            # A profile has no field for a channel recipe (#910); dropping it would save a
+            # profile that splits the movie differently from these options.
+            raise ExtractionError(
+                "an extraction profile cannot hold a channel recipe yet; the channel layout "
+                f"has donor recipe {layout.donor_recipe} and acceptor recipe "
+                f"{layout.acceptor_recipe}"
+            )
         if layout is not None:
             values.update(
                 channel_layout=layout.kind,

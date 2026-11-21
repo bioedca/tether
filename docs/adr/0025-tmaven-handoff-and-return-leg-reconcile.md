@@ -49,6 +49,7 @@ are **not trusted**; identity must be recovered another way.
 ## Considered options
 
 **Return-leg identity**
+
 - **A — exact intensity match of SMD `raw` vs the retained store** (id/order as a hint).
   tMAVEN preserves `raw` byte-for-byte across a save (corrections/idealization live in
   separate arrays), so equality *is* the correct identity test.
@@ -56,12 +57,14 @@ are **not trusted**; identity must be recovered another way.
   per-molecule slot; the exporter drops/reorders) — the exact gap §5.3 calls out.
 
 **Re-import destructiveness**
+
 - **A — new `/idealization/{model}`; window/class edits applied only on per-trace
   accept** (a reconcile diff the caller resolves).
 - **B — overwrite the matched model / windows in place**: violates §7.4 ("rather than
   silently overwriting") and loses the prior idealization.
 
 **Preview vs commit**
+
 - **A — split `read_return_leg` (pure preview) from `apply_reconcile` (commit)**, both
   over one deterministic match+diff core; the GUI renders the preview, the user's
   decisions drive the commit.
@@ -69,6 +72,7 @@ are **not trusted**; identity must be recovered another way.
   to show a dry-run prompt.
 
 **Imported-model writer**
+
 - **A — reuse the single `/idealization` writer** (`write_idealization_model`, factored
   out of the M2 S6 fitter) with `nstates_selected_by="imported"` + return-leg provenance
   attrs.

@@ -19,9 +19,10 @@ and a restarted application see the same run as the window that started it:
 
 The stale marks of ADR-0103 are here too. [`record_inputs`][] stores the identity of each
 upstream instance that a record is made from; [`set_stale_marks`][] is the one function
-that sets marks after an edit, and [`read_stale_marks`][] the one that reads them. A mark is
-a cache: the comparison of recorded and current identities is the authority (ADR-0103,
-decision 2).
+that sets marks after an edit, and [`read_stale_marks`][] the one that reads them. The owner
+of each downstream record judges the guard of a guarded edge for that record, so two records
+made from one upstream instance can differ on it (#1170). A mark is a cache: the comparison
+of recorded and current identities is the authority (ADR-0103, decision 2).
 
 Every write needs the single-writer lock (PRD §7.10). A job binds to the lock epoch that it
 started under and checks it again before each write, so a steal stops it. The file is open
@@ -733,7 +734,7 @@ def set_stale_marks(
     instance: str,
     identity: str,
     *,
-    guards_hold: Iterable[int] = (),
+    guards_hold: Iterable[int] | Callable[[int, str, str], bool] = (),
 ) -> list[StaleMark]:
     """Mark stale every record that an edit of ``(node_key, instance)`` makes stale.
 
@@ -744,13 +745,42 @@ def set_stale_marks(
     ``CONTENT_COMPARED`` except by an edge from the edited node. Only the instances that
     recorded a marked instance are reached, never every instance of a node.
 
-    A guarded edge is crossed only when its number is in ``guards_hold``: the owner of the
-    downstream record judges its guard. A record already marked is not marked again.
-    Returns the new marks.
+    A guarded edge is crossed only when the owner of the downstream record says that its
+    guard holds **for that record**. ``guards_hold`` says it in one of two forms:
+
+    * a callable ``(edge number, downstream node key, downstream instance id) -> bool``,
+      asked once for each record that a guarded edge would mark, so two records made from
+      one upstream instance can be judged apart (two factor versions of one trace
+      generation, of which changed intensities touch a contributor of only one: edge 7);
+    * the edge numbers whose guard holds for every record they reach (the form before
+      #1170, which still works).
+
+    A record already marked is not marked again, and its guard is not asked. The writer
+    check is made again before the marks are stored, and a lock taken or released while
+    the guards were asked refuses the write with ``LockedError``. Returns the new marks.
     """
+    from tether.project import lock  # noqa: PLC0415
+
     project._assert_writable()
     _input_key(node_key, instance)
-    guards = frozenset(int(g) for g in guards_hold)
+
+    def lock_nonce() -> str | None:
+        current = lock.read_lock(project.path)
+        return None if current is None else current.nonce
+
+    epoch = lock_nonce()
+    if callable(guards_hold):
+        judge = guards_hold
+
+        def holds(edge: int, node: str, inst: str) -> bool:
+            return bool(judge(edge, node, inst))
+
+    else:
+        numbers = frozenset(int(g) for g in guards_hold)
+
+        def holds(edge: int, node: str, inst: str) -> bool:  # noqa: ARG001 - one answer
+            return edge in numbers
+
     recorded = read_recorded_inputs(project.path)
     already = {(m.node, m.instance) for m in read_stale_marks(project.path)}
     made_from: dict[tuple[str, str], list[RecordedInput]] = {}
@@ -764,13 +794,13 @@ def set_stale_marks(
         edited = (up_node, up_instance) == (node_key, instance)
         for r in made_from.get((up_node, up_instance), []):
             edge = next(e for e in graph.EDGES if e.upstream == up_node and e.downstream == r.node)
-            if edge.guarded and edge.number not in guards:
-                continue
             if edited and r.identity == identity:
                 continue
             if not edited and r.node in graph.CONTENT_COMPARED:
                 continue
             if (r.node, r.instance) in already:
+                continue
+            if edge.guarded and not holds(edge.number, r.node, r.instance):
                 continue
             already.add((r.node, r.instance))
             new.append(
@@ -794,5 +824,9 @@ def set_stale_marks(
         }
         for m in new
     ]
+    if rows:  # the guards are the owners' code: the lock may have moved while they ran
+        project._assert_writable()
+        if lock_nonce() != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
     _append(project.path, _MARKS, _MARK_FIELDS, rows)
     return new

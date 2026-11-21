@@ -85,8 +85,8 @@ def put_env_folders_first(
 ) -> bool:
     """Put the running env's activation folders first on ``PATH``, on Windows only.
 
-    ``environ``, ``prefix`` and ``platform`` default to [`os.environ`][],
-    [`sys.prefix`][] and [`sys.platform`][]; tests pass their own. Returns ``True``
+    ``environ``, ``prefix`` and ``platform`` default to `os.environ`,
+    `sys.prefix` and `sys.platform`; tests pass their own. Returns ``True``
     when ``PATH`` was changed. On other platforms it does nothing and returns ``False``:
     there the env's libraries find each other through their run paths, not ``PATH``.
     """

@@ -26,7 +26,7 @@ goes to a file that no name points to any more. The single-writer lock (§5.4) d
 other two asserted the lock once at the start, which a holder that is this same process passes by
 identity alone.
 
-#249 recorded the defect "conceptually". The regression test this ADR adds
+\#249 recorded the defect "conceptually". The regression test this ADR adds
 (`test_second_process_cannot_replace_a_project_another_process_holds`) makes it real: on the tree
 before this change, process B's `extract_movie(..., overwrite=True)` replaced the project that
 process A held, and the test fails there.

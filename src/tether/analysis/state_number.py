@@ -18,7 +18,7 @@ in one level shows 1 state even though the consensus model has three; a trace th
 visits 0↔1↔2 shows 3. This is the only per-trace state-count heterogeneity a
 consensus model produces, and it answers the same scientific question C1 exists for
 — how many conformational states does each molecule visit — from Tether's data model
-[McKinney2006][vandeMeent2014].
+[McKinney2006], [vandeMeent2014].
 
 [`state_number_counts`][] is the pure-array core (an iterable of per-molecule
 integer Viterbi paths → a [`StateNumberCounts`][] bar-chart table);

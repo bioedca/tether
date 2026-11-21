@@ -13,7 +13,7 @@ upstream papers behind the methods that part implements, which you should cite a
 Tether is archived on Zenodo. Its **concept DOI** always resolves to the newest archived
 version:
 
-> Campos-Chávez E, Mondragon A. *Tether*. Zenodo.
+> Campos-Chávez E, Mondragón A. *Tether*. Zenodo.
 > [https://doi.org/10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397)
 
 The same metadata is in
@@ -38,7 +38,7 @@ The idealization backend is the `type` attribute of the model's group under
 `/idealization/` in your `.tether` project. The group itself is named after the backend
 unless a different name was chosen when the model was written. A model imported from
 tMAVEN keeps tMAVEN's own label in `type` (for example `vb Consensus HMM` or `vbFRET`)
-rather than one of Tether's six backend keys. `vbFRET` has its own row below; for any
+rather than one of Tether's seven backend keys. `vbFRET` has its own row below; for any
 other label, find the row that describes the same method and cite that.
 
 | Backend (model type) | What it is | Cite |
@@ -49,6 +49,7 @@ other label, find the row that describes the same method and cite that.
 | `ebhmm_modelselection` | The same ebFRET HMM, with the number of states chosen by model selection. | van de Meent 2014; Verma 2024 |
 | `vbgmm_vbhmm` | VB-HMM seeded from a variational-Bayes Gaussian mixture, with the number of states chosen by model selection, run in the tMAVEN sidecar. | Verma 2024 |
 | `kmeans_vbhmm` | VB-HMM seeded from k-means, run in the tMAVEN sidecar. | Verma 2024 |
+| `vbgmm` | Variational-Bayes Gaussian mixture with a fixed number of states and no HMM, run in the tMAVEN sidecar. | Verma 2024 |
 | `vbFRET` (imported only) | Per-trace variational-Bayes HMM (vbFRET), fitted in standalone tMAVEN and imported into the project. | Bronson 2009; Verma 2024 |
 
 ### The rest of the pipeline
