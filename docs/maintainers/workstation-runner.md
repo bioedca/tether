@@ -160,6 +160,34 @@ cron starts a command with a short `PATH`, so give the full path of `micromamba`
 cron runs only while the WSL distribution runs and its cron service is on (`systemd=true` in
 `/etc/wsl.conf`, or `sudo service cron start`). The Windows task is the more reliable method.
 
+### Checking the deep interpreter
+
+Pass `--deep-python <path to Python>` to check CUDA in an existing isolated deep environment.
+The runner records `deep/cuda` as failed when PyTorch sees no CUDA device and as an error if it
+cannot run the probe. This option also works with `--dry-run`. The base and sidecar environments
+do not run the probe, and the committed `deep/conda-lock.yml` selects CPU-only PyTorch.
+
+A complete `deep/performance` result carries times and memory peaks for training and prediction
+on each device. The CPU figures are process high-water marks from separate stages. The CUDA
+figures are peak allocated tensor bytes with synchronization at both ends of the timed stage.
+The speed history keeps the four cases under its existing benchmark report rule.
+
+The [Deep-LASI reference archive][deep-lasi-archive] holds 20,080 two-color traces.
+Tether uses the [donor and acceptor channels under donor excitation][deep-lasi-channels].
+The [publisher's frame labels][deep-lasi-labels] determine one label per molecule.
+
+Tether accepts static and dynamic traces. It rejects aggregate, randomized, noisy, and
+bleach-only traces. Tether reads every frame and uses the non-bleach labels to classify
+the other traces.
+
+The reference has 8,678 accepted and 11,402 rejected molecules, including 343 bleach-only
+molecules. The split reserves 30 percent for testing. It stratifies whole traces with seed 0.
+The primary score is ROC AUC. Check duplicate inputs and shared provenance before measurement.
+
+[deep-lasi-archive]: https://zenodo.org/records/7561162
+[deep-lasi-channels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/generate_training_data_from_MATLAB.py#L79-84
+[deep-lasi-labels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/training_data_2color.py#L188-201
+
 ## Read a result
 
 Each run writes `<state>/results/<UTC time>-<commit>.json`. To see the newest one:

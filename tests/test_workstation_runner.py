@@ -112,6 +112,37 @@ def test_the_dry_run_writes_a_result_that_matches_the_format(passing_run) -> Non
     assert result["tools"]["python"] and "pytest" in result["tools"]
 
 
+def test_no_cuda_is_a_failed_result_check(tmp_path, monkeypatch) -> None:
+    data = _data_dir(tmp_path)
+    state = tmp_path / "state"
+    deep_python = tmp_path / "synthetic-deep-env" / "bin" / "python"
+    run_logged = runner._run_logged
+
+    def with_no_cuda(cmd, log, **kwargs):
+        if cmd[0] == str(deep_python):
+            assert cmd[1:3] == ["-I", "-c"]
+            assert "torch.cuda.is_available()" in cmd[3]
+            return runner.CUDA_UNAVAILABLE
+        return run_logged(cmd, log, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_logged", with_no_cuda)
+    code = runner.main(
+        ["run", "--dry-run", "--state", str(state), "--data", str(data),
+         "--deep-python", str(deep_python)]
+    )  # fmt: skip
+
+    assert code == runner.EXIT_FAILED
+    text, result = _only_result(tmp_path)
+    assert runner.validate_result(result) == []
+    assert result["status"] == "failed"
+    assert str(deep_python) not in text
+    checks = {c["check"]: c["outcome"] for c in result["checks"]}
+    assert checks == {
+        f"{runner.SELF_CHECK}::test_every_neutral_id_names_readable_files": "passed",
+        runner.CUDA_CHECK: "failed",
+    }
+
+
 def test_no_mapped_name_reaches_the_result_or_the_console(passing_run, failing_run) -> None:
     for root, proc in (passing_run, failing_run):
         text, _ = _only_result(root)
