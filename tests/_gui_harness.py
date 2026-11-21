@@ -10,8 +10,8 @@ uses, so a test module can also import the guards directly. A test asks for a sh
         bare = section_shell(project=False)  # no project, the default section
 
 The harness closes every shell it built when the test ends and then checks that nothing leaked:
-the session lock file of each project it opened is gone, the curation event filter no longer
-reaches the controller, the window's close filter is removed, and the process-local owner
+the session lock file of each project it opened writable is gone, the curation event filter no
+longer reaches the controller, the window's close filter is removed, and the process-local owner
 registry ``_GUI_PROJECT_OWNERS`` is empty. A leak is an error in the teardown of that test.
 
 **Pixels are never asserted.** The offscreen platform gives a canvas of 0×0 pixels, so every
@@ -74,9 +74,13 @@ needs_gl = pytest.mark.skipif(
 #: checks this against ``TetherShell().sections.ids``, so a new section cannot skip the contract.
 SECTION_IDS: tuple[str, ...] = ("prepare", "curate", "analyze")
 
-#: The sections whose page or docks build a napari ``Viewer``. None does today; the movie panel
-#: of #356 adds its section here, and the contract then skips it on macOS offscreen only.
-VIEWER_SECTIONS: frozenset[str] = frozenset()
+#: The sections whose page or docks build a napari ``Viewer``: Curate and correct, whose movie
+#: dock holds the napari movie panel (#356). The contract skips them on macOS offscreen only, and
+#: ``SectionShells`` gives them a project with a real movie so that dock is built.
+VIEWER_SECTIONS: frozenset[str] = frozenset({"curate"})
+
+#: The committed big-endian test movie, the movie file of a project built with ``movie=True``.
+MOVIE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 
 
 def section_marks(section_id: str) -> list[pytest.MarkDecorator]:
@@ -90,9 +94,13 @@ def section_params(section_ids: tuple[str, ...] = SECTION_IDS) -> list[Any]:
 
 
 def build_project(
-    tmp_path: Path, *, name: str = "harness.tether", n: int = 3, t: int = 12
+    tmp_path: Path, *, name: str = "harness.tether", n: int = 3, t: int = 12, movie: bool = False
 ) -> Project:
-    """A small extracted ``.tether`` of ``n`` molecules by ``t`` frames under ``tmp_path``."""
+    """A small extracted ``.tether`` of ``n`` molecules by ``t`` frames under ``tmp_path``.
+
+    ``movie=True`` records ``MOVIE_FIXTURE`` as the movie file, so opening the project in a
+    shell builds the napari movie panel (#356); only a ``needs_gl`` test may ask for it.
+    """
     import numpy as np
 
     from _analysis_store import build_store_with_channels
@@ -100,7 +108,8 @@ def build_project(
     rng = np.random.default_rng(344)
     donor = rng.uniform(400.0, 800.0, size=(n, t))
     acceptor = rng.uniform(200.0, 600.0, size=(n, t))
-    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name)
+    uri = str(MOVIE_FIXTURE) if movie else ""
+    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name, uri=uri)
     return project
 
 
@@ -121,6 +130,7 @@ class SectionShells:
         section: str | None = None,
         *,
         project: bool | str | os.PathLike[str] = True,
+        movie: bool | None = None,
         **shell_kwargs: Any,
     ) -> TetherShell:
         """A new shell showing ``section`` (``None``: the default section).
@@ -128,8 +138,10 @@ class SectionShells:
         ``project=True`` builds a temporary ``.tether`` and opens it writable; a path opens that
         file instead; ``False`` leaves the shell bare. With a project the lazily built docks are
         built as well (the overlap dock on opening, the histogram dock by showing it), so every
-        dock a section can hold is attached before the shell is parked. ``shell_kwargs`` go to
-        ``TetherShell``.
+        dock a section can hold is attached before the shell is parked. When ``movie`` is true
+        the built project records a real movie file, so the movie dock (#356) is built too;
+        ``None`` (the default) means "when ``section`` is in ``VIEWER_SECTIONS``", whose tests
+        carry ``needs_gl``. ``shell_kwargs`` go to ``TetherShell``.
         """
         from tether.gui.shell import TetherShell
 
@@ -142,12 +154,18 @@ class SectionShells:
         if project is not False:
             if project is True:
                 index = len(self._built)
-                path = build_project(self._tmp_path, name=f"harness-{index}.tether").path
+                with_movie = section in VIEWER_SECTIONS if movie is None else movie
+                path = build_project(
+                    self._tmp_path, name=f"harness-{index}.tether", movie=with_movie
+                ).path
             else:
                 path = Path(project)
             loaded = shell.load_project(path)
             assert loaded is not None, f"the harness could not open {path}: {shell.status_message}"
-            opened.append(Path(loaded.path))
+            # Only a lock this shell took is its to release: a shell that opened a file another
+            # shell holds writable is read-only and never held that lock (#1238).
+            if shell.holds_project_claim:
+                opened.append(Path(loaded.path))
             assert shell.show_histogram() is not None, shell.status_message
         wanted = default_section if section is None else section
         if shell.section != wanted:

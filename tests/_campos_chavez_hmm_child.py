@@ -8,8 +8,8 @@ Runs under a sidecar interpreter only, never in the test process. Usage::
 
 ``RUNNER`` is Tether's ``_sidecar_runner.py``. With the pinned tMAVEN the fit *is* that runner's
 ``run``: the only change is that each new ``maven_class`` also takes ``PREFS_JSON`` (the priors
-the Methods give), which the runner has no argument for, and that ``KEY`` may be ``vbgmm``,
-tMAVEN's plain vbGMM, which the runner has no key for (ADR-0106).
+the Methods give), which the runner has no argument for (ADR-0106). ``KEY`` is one of the
+runner's own keys; tMAVEN's plain vbGMM is its ``vbgmm`` key (#1076).
 
 Older tMAVEN (0.2.x) has no ``run_vbconhmm``; its routines are ``run_fret_*(nstates)``. The same
 SMD, prefs and seeding then drive that API, so the version comparison of the limits file differs
@@ -26,8 +26,7 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("NAPARI_ASYNC", "0")
 
-#: Plain vbGMM is ``run_vbgmm`` with ``modeler.vbgmm.nstates`` (the Two-state population).
-EXTRA_KEYS = {"vbgmm": ("run_vbgmm", "modeler.vbgmm.nstates")}
+#: The routine of each key in tMAVEN 0.2.x, which takes the number of states as an argument.
 OLD_ROUTINES = {
     "vbconhmm": "run_fret_vbconhmm",
     "kmeans_vbhmm": "run_fret_kmeans_vbhmm",
@@ -58,8 +57,6 @@ def main(argv: list[str]) -> int:
                     self.prefs[name] = value  # prefs_object wraps each value; no dict.update
 
         tm.maven_class = WithPrefs
-        for name, entry in EXTRA_KEYS.items():
-            runner._DISPATCH.setdefault(name, entry)
         status = runner.run(smd, group, key, int(nstates), out, None, int(seed))
     else:
         maven = tm.maven_class()
