@@ -28,9 +28,9 @@ def test_bad_label_rows_raise(frames, message):
 
 def test_archive_keeps_molecules_and_uses_donor_excitation_channels(tmp_path, monkeypatch):
     path = tmp_path / "reference.zip"
-    traces = np.broadcast_to([1.0, 3.0, 100.0], (2, 500, 3))
-    labels = np.zeros((2, 500, 1), dtype=np.int8)
-    labels[0, 0, 0] = 6
+    traces = np.broadcast_to([1.0, 3.0, 100.0], (20, 500, 3))
+    labels = np.zeros((20, 500, 1), dtype=np.int8)
+    labels[::2, 0, 0] = 6
     with ZipFile(path, "w") as archive:
         for name, array in (("X", traces), ("y", labels)):
             member = BytesIO()
@@ -38,14 +38,18 @@ def test_archive_keeps_molecules_and_uses_donor_excitation_channels(tmp_path, mo
             archive.writestr(f"{name}_sim_2color_test.npz", member.getvalue())
     with path.open("rb") as source:
         digest = file_digest(source, "sha256").hexdigest()
-    monkeypatch.setattr(reference, "REFERENCE_COUNTS", (1, 1))
+    monkeypatch.setattr(reference, "REFERENCE_COUNTS", (10, 10))
     with pytest.raises(ValueError, match="SHA-256"):
         reference.load_reference(path, sha256="0" * 64)
     dataset = reference.load_reference(path, sha256=digest)
-    assert dataset.y.tolist() == [1, 0]
+    assert dataset.y.tolist() == [1, 0] * 10
     assert dataset.mask.all()
     assert dataset.intensity_quantity == "raw"
-    assert dataset.X[:, :, 0].tolist() == [[0.25, 0.75], [0.25, 0.75]]
-    monkeypatch.setattr(reference, "REFERENCE_COUNTS", (2, 0))
+    assert dataset.X[:, :, 0].tolist() == [[0.25, 0.75]] * 20
+    train, held = reference.split_reference(dataset)
+    assert held.tolist() == [4, 5, 6, 9, 13, 18]
+    assert train.tolist() == sorted(set(range(20)) - set(held))
+    assert reference.held_out_auc(dataset, held, dataset.y[held] / 4) == 1.0
+    monkeypatch.setattr(reference, "REFERENCE_COUNTS", (20, 0))
     with pytest.raises(ValueError, match="accept and reject counts"):
         reference.load_reference(path, sha256=digest)

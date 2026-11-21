@@ -8,6 +8,7 @@ from zipfile import ZipFile
 
 import numpy as np
 
+from _deep_reference import roc_auc
 from tether.ml.deep import DeepTraceDataset, assemble_dataset
 
 REFERENCE_COUNTS = (8678, 11402)
@@ -59,3 +60,13 @@ def load_reference(path: Path, *, sha256: str) -> DeepTraceDataset:
         traces[:, :, 0], traces[:, :, 1], labels, np.ones(len(labels)),
         intensity_quantity="raw",
     )  # fmt: skip
+
+
+def split_reference(dataset: DeepTraceDataset) -> tuple[np.ndarray, np.ndarray]:
+    """Return training and held-out indices from the approved whole-trace split."""
+    return dataset.split(val_fraction=0.30, seed=0, stratify=True)
+
+
+def held_out_auc(dataset: DeepTraceDataset, rows: np.ndarray, scores: np.ndarray) -> float:
+    """Score probabilities in the order of the supplied held-out rows."""
+    return roc_auc(dataset.y[rows], scores)

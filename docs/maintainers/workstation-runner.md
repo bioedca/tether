@@ -181,7 +181,8 @@ bleach-only traces. Tether reads every frame and uses the non-bleach labels to c
 the other traces.
 
 The reference has 8,678 accepted and 11,402 rejected molecules, including 343 bleach-only
-molecules.
+molecules. The split reserves 30 percent for testing. It stratifies whole traces with seed 0.
+The primary score is ROC AUC. Check duplicate inputs and shared provenance before measurement.
 
 [deep-lasi-archive]: https://zenodo.org/records/7561162
 [deep-lasi-channels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/generate_training_data_from_MATLAB.py#L79-84
