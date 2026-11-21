@@ -226,14 +226,16 @@ def create_shell(
     screen = startup.open_splash(app) if wanted else None
     try:
         from tether.gui import app_settings, theme
+        from tether.gui.curation import default_keymap_path
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
         # The stored View -> Trace colors choice (#636, ADR-0123); unset is the default.
         theme.set_trace_palette(app_settings.stored_trace_colors() or theme.DEFAULT_TRACE_PALETTE)
 
-        # The application remembers the session on this computer (#628, ADR-0122).
-        shell = TetherShell(preferences_file=preferences_path())
+        # The application remembers the session on this computer (#628, ADR-0122), and
+        # starts with the keyboard shortcuts the user saved (#635).
+        shell = TetherShell(preferences_file=preferences_path(), keymap_file=default_keymap_path())
         if args.project is not None:
             shell.load_project(args.project)
         # The opt-in update notice (#248): the first-run question, or one check on a
@@ -249,6 +251,11 @@ def create_shell(
         raise
     file_open.setParent(shell.window)
     file_open.attach(shell.load_project)
+    # A startup project can replace the keymap warning before the window is visible.
+    keymap_error = shell.keymap_error
+    status = shell.status_message
+    if keymap_error is not None and status != keymap_error:
+        shell.window.statusBar().showMessage(f"{keymap_error} {status}")
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell

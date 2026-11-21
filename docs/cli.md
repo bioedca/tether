@@ -433,8 +433,13 @@ the first one's data. So the output name follows one rule:
   `Movie_010.tether` and `movie_010.tether` are one file on Windows and macOS.
 
 The folders are those of the movie's full path, so the names do not depend on the folder
-you run the command from. If no folder tells two movies apart — `A.tif` and `a.tif` in one
-folder — the run stops before anything is written. `--dry-run` shows each name before
+you run the command from. The folders are read as you typed them, with one exception:
+after a link, `..` goes to the parent of the link's target. Say `work/link` is a link to
+`archive/sub`. Then `work/link/../m.tif` is the file `archive/m.tif`. Its folders are read
+from where it really is, so its name is `archive__m`. Windows reads `..` before it follows
+a link, so there the path is `work/m.tif` and the batch holds that movie once.
+
+If no folder tells two movies apart — `A.tif` and `a.tif` in one folder — the run stops before anything is written. `--dry-run` shows each name before
 the run, and the structured log records each movie and its output as an `input` event
 with status `mapped`.
 
@@ -505,10 +510,18 @@ Batch plan (dry run): 3 movie(s) into projects; no movie was read and nothing wa
   data/day1/movie_010.tif -> projects/day1__movie_010.tether  [new]
   data/day1/movie_011.tif -> projects/movie_011.tether  [exists, complete: will be skipped]
   data/day2/movie_010.tif -> projects/day2__movie_010.tether  [exists: will resume at idealize]
-Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, max-restarts=3, sidecar-timeout=1800.0s, defer=on
+Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, channel-layout=none, donor-side=left, detection-mode=wavelet, detection-threshold=mode default, max-restarts=3, sidecar-timeout=1800.0s, defer=on
 Structured log: projects/batch-log.jsonl
 Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it starts before the first movie)
 ```
+
+The settings also name how each movie would be extracted. `channel-layout` gives the
+split. Without a layout, `donor-side` follows it. A half layout adds its `donor` half, and a
+`rectangles` layout adds `donor-rect` and `acceptor-rect`. With `--tmap` the split reads
+`from .tmap`, since the `.tmap` holds its own crops.
+
+Then come `detection-mode` and `detection-threshold`. The threshold reads `mode default`
+when the profile leaves it `null`. Both read `from .tdat` when `--tdat` supplies them.
 
 What a line says comes from the output project's checkpoint, which is opened read-only:
 
@@ -520,8 +533,9 @@ What a line says comes from the output project's checkpoint, which is opened rea
 | `exists, incomplete:` | holds no finished extraction, and only `--overwrite` replaces it |
 | `exists, over the gate:` | holds an extraction that `--policy fail` rejects |
 
-A refusal to start, such as a movie argument that gives no movie, is reported as
-it would be by the run, with exit code `2`. The dry run only looks for the sidecar
+A refusal to start is reported as it would be by the run, with exit code `2`. A movie
+argument that gives no movie is one. A profile `channel_layout` beside `--tmap` is another,
+because the `.tmap` splits each frame at its own crops. The dry run only looks for the sidecar
 interpreter. The real run also starts it once before the first movie.
 
 ### Progress while the batch runs
@@ -1361,7 +1375,7 @@ with. Two `tether batch` flags are positive fields: `--no-idealize` is
 |---|---|---|---|---|---|
 | `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change | every export was written |
 | `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, `--tmap` beside a profile `channel_layout`, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 
 `tether status` has a code `3` of its own, for a `--require` stage that is not ready. Its

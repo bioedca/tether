@@ -94,6 +94,41 @@ def test_every_export_writes_a_sidecar_that_validates(validator, sidecars) -> No
         assert _errors(validator, payload) == [], kind
 
 
+@pytest.mark.parametrize("curator_alias", [None, "curator"])
+def test_subset_sidecars_validate_before_and_after_reject_log_count(
+    validator, tmp_path, curator_alias
+) -> None:
+    # Captured from a pre-count subset export of a synthetic project on main (9d2efe0).
+    previous = {
+        "app_version": "0.0.1.dev541+g9d2efe066",
+        "created_utc": "2026-11-20T01:09:33.162056+00:00",
+        "parameters": {
+            "idealization_models": ["vbconhmm"],
+            "include_raw": False,
+            "include_rejected": True,
+            "molecule_keys": ["e3a092a2734a94583257c5b1d1e7f9b529149f83bdc7f68cf08a842b357d3e54"],
+            "n_idealization_models": 1,
+            "n_label_rows": 3,
+            "n_molecules": 1,
+            "n_trace_layers": 2,
+            "skipped_idealization_models": [],
+            "trace_layers": ["donor_corrected", "acceptor_corrected"],
+        },
+        "source_project": "exp.tether",
+        "tether_export": "subset-tether",
+    }
+    project, keys = build_store_with_model(tmp_path, _STATES, MEANS)
+    project.reject(keys[0], labeler="synthetic-reviewer", reason="multiple-molecules")
+    result = export_subset_tether(
+        project, tmp_path / "subset.tether", include_rejected=True, curator_alias=curator_alias
+    )
+    current = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+
+    assert current["parameters"]["n_reject_log_rows"] == 1
+    assert _errors(validator, current) == []
+    assert _errors(validator, previous) == []
+
+
 @pytest.fixture
 def aliased_subset_sidecar(tmp_path: Path) -> dict:
     """Write a subset with one synthetic user name replaced."""

@@ -188,6 +188,13 @@ def _settings(request: BatchRequest) -> tuple[ExtractOptions, SidecarSupervision
         extract_options = request.extract_options()
     except ExtractionError as exc:
         raise RequestRefused(str(exc)) from exc
+    # A .tmap splits each frame at its own crops, so extraction refuses a layout beside it
+    # for every movie; refusing it here keeps the dry run from promising a run that fails.
+    if request.tmap is not None and extract_options.channel_layout is not None:
+        raise RequestRefused(
+            "channel_layout and --tmap both set the channel split (the .tmap splits at its "
+            "own crops); leave channel_layout null in the profile or drop --tmap"
+        )
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
     # a startup liveness probe -> idealization-deferred mode when the sidecar env is
     # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
@@ -287,6 +294,35 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
     return f"found at {found} (the run checks that it starts before the first movie)"
 
 
+def _rect_text(rect: tuple[int, ...] | None) -> str:
+    return "[" + " ".join(str(v) for v in rect or ()) + "]"
+
+
+def _extraction_settings(options: ExtractOptions, *, tmap: bool, tdat: bool) -> tuple[str, ...]:
+    """Name the channel split and the detection the run would extract each movie with."""
+    layout = options.channel_layout
+    if tmap:  # the .tmap splits at its own crops, so donor_side is not used
+        split: tuple[str, ...] = ("channel-layout=from .tmap",)
+    elif layout is None:
+        split = ("channel-layout=none", f"donor-side={options.donor_side}")
+    elif layout.donor is None:  # a rectangles layout names its channels by rectangle
+        split = (
+            f"channel-layout={layout.kind}",
+            f"donor-rect={_rect_text(layout.donor_rect)}",
+            f"acceptor-rect={_rect_text(layout.acceptor_rect)}",
+        )
+    else:
+        split = (f"channel-layout={layout.kind}", f"donor={layout.donor}")
+    if tdat:  # the .tdat supplies both, and a choice beside it was refused
+        return (*split, "detection-mode=from .tdat", "detection-threshold=from .tdat")
+    threshold = options.detection_threshold
+    return (
+        *split,
+        f"detection-mode={options.detection_mode}",
+        f"detection-threshold={'mode default' if threshold is None else threshold}",
+    )
+
+
 def plan(request: BatchRequest) -> BatchPlan:
     """Say what [`run`][] would do with *request*, writing nothing.
 
@@ -302,7 +338,7 @@ def plan(request: BatchRequest) -> BatchPlan:
         describe_project_stages,
     )
 
-    _, supervision = _settings(request)
+    extract_options, supervision = _settings(request)
     out_dir = _out_dir(request)
     jobs = _jobs(request, out_dir)
     into = Path(request.into) if request.into is not None else None
@@ -344,6 +380,9 @@ def plan(request: BatchRequest) -> BatchPlan:
             f"recursive={'on' if request.recursive else 'off'}",
             f"tmap={request.tmap or 'none'}",
             f"tdat={request.tdat or 'none'}",
+            *_extraction_settings(
+                extract_options, tmap=request.tmap is not None, tdat=request.tdat is not None
+            ),
         )
     )
     if supervision is not None:
@@ -374,9 +413,10 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read
     and before anything is written when the policy, the supervision settings or the
     extraction options are invalid, when a ``tdat`` comes with a ``detection_mode`` or
-    ``detection_threshold``, when a movie argument gives no movie, or when two movies would
-    write the same project and no parent folder name tells them apart; also when it gives
-    both or neither of ``out_dir`` and ``into``, or ``overwrite`` with ``into``. Raises
+    ``detection_threshold``, when a ``channel_layout`` comes with a ``tmap``, when a movie
+    argument gives no movie, or when two movies would write the same project and no parent
+    folder name tells them apart; also when it gives both or neither of ``out_dir`` and
+    ``into``, or ``overwrite`` with ``into``. Raises
     [`CommandFailed`][tether.services.base.CommandFailed] when the output directory or the
     log cannot be written. A failed stage is not an error: it is in the summary.
     """

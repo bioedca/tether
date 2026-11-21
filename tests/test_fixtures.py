@@ -42,6 +42,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "rf2_core_wtprensec_model.hdf5",
     FIXTURES / "mashfret_ed135e_30mm_extract.mat",
     FIXTURES / "mashfret_ed135e_30mm_path_a.mat",
+    FIXTURES / "mashfret_2chan2exc_leakage_extract.mat",
 ]
 
 # The SHA-256 of each plain fixture's content. A fixture that a script regenerates on
@@ -76,6 +77,9 @@ PLAIN_FIXTURE_SHA256 = {
     ),
     "mashfret_ed135e_30mm_path_a.mat": (
         "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79"
+    ),
+    "mashfret_2chan2exc_leakage_extract.mat": (
+        "e4ddd2ee884269433814cf39f96935c9b0fe3c8eb6cd3321fa1db96a5e1476fb"
     ),
 }
 
