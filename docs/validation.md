@@ -1155,6 +1155,7 @@ method, the limits and the measurements.
 | Representative traces, Figs. 2b, 3g, 4a, 4e | `Fig2b`, `Fig3g`, `Fig4a`, `Fig4e` | `apparent_fret` | 12,000 values, 9.8e-15 relative |
 | FRET histograms, Figs. 2c, 3b, 3h, 4b, 4f, 6b, 7b | the seven sheets and their trace matrix | `apparent_fret`, `apparent_e_histogram` | 1,016,781 values in 1,440 recovered windows, each within the rounding bound (largest ratio 0.91); every bin count equal |
 | intraFRET histograms, Fig. 5b (4 of 5 columns) | `Fig5b` and the `intraFRET_*` matrices | `apparent_fret` | 282,800 values, first 400 frames, within the rounding bound (0.91) |
+| Closed-state fraction, Fig. 5c (5 columns) | `Fig5c` and the notebook `ErrorFractionOfClosedState.ipynb` | `fit_gaussians` (`area="bin_sum"`) | fraction and error within 5e-5 of what the notebook printed (largest 4.7e-5, the same on the three systems to 1.2e-9); Fig. 5c itself has two fractions that are not the notebook's, 5 uM WT tRNA and 5 uM tRNA-ΔNCCA (ADR-0120); 5 uM WT tRNA is fitted from the published efficiencies |
 | Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
@@ -1180,18 +1181,24 @@ so each test finds the windows in the trace matrix when it runs.
    start at frame 0 or at frame 1.
 
 **Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
-time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
-fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+time of a double exponential with its error, and the TDP smoothing and spline. Tether has no
+function for the last two: #1028 and #1029. The two-Gaussian fit of Fig. 5c is compared since #1030
+and #1131
+([ADR-0120](adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
-`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
-`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
+`test_dwells_from_survival_give_back_the_survival_curve` and
+`test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians`. Weekly (`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
-`test_double_exponential_parameters_and_errors` and
-`test_transition_density_counts_equal_checktdp`.
+`test_double_exponential_parameters_and_errors`,
+`test_transition_density_counts_equal_checktdp`, and for Fig. 5c
+`test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
+`test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
+`test_a_198_bin_histogram_fails_the_fig5c_comparison`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
