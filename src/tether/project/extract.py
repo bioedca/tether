@@ -301,6 +301,8 @@ class ExtractionSummary:
     #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
     #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
     rms_gate: float | None = None
+    #: The content SHA-256 stored for this movie when it was extracted.
+    movie_sha256: str | None = None
     #: The channel layout the extraction was given (``options.channel_layout``, #908);
     #: ``None`` when the split came from ``donor_side`` or an imported ``.tmap``. The
     #: donor-side check's remedy names it rather than ``--donor-side`` (#1157).
@@ -800,6 +802,30 @@ def _run_pipeline(
     )
 
 
+#: The ``/settings/batch`` marks naming the movies each project stage of
+#: ``tether batch --into`` covers (#1151); an empty mark means "not every movie".
+_BATCH_SETTINGS = "batch"
+_BATCH_STAGE_MARKS = ("correct_movies", "idealize_movies")
+
+
+def _mark_project_stages_unfinished(project_path: Path) -> None:
+    """Mark the project's correct and idealize stages as not covering every movie (#1243).
+
+    An append leaves ``/settings/correction`` and ``/idealization`` in place, so their
+    checkpoints still read as done although the new movie's molecules are in neither.
+    The empty ``{stage}_movies`` marks in ``/settings/batch`` tell the next
+    ``tether batch --into`` run to correct and idealize the project again, whichever
+    route the movie came by. Written into the staged copy, so the marks publish with
+    the movie or not at all.
+    """
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(project_path, "r+") as f:
+        grp = f["settings"].require_group(_BATCH_SETTINGS)
+        for name in _BATCH_STAGE_MARKS:
+            grp.attrs[name] = ""
+
+
 def _persist(
     project_path: Path,
     extracted: _Extracted,
@@ -891,6 +917,7 @@ def _summary(
         colocalization=extracted.molecules.policy,
         rule_counts=dict(extracted.molecules.rule_counts),
         rms_gate=float(reg_map.gate_px),
+        movie_sha256=extracted.sha256,
         channel_layout=extracted.options.channel_layout,
     )
 
@@ -1149,7 +1176,9 @@ def add_movie_to_project(
     positional trace↔molecule join). A movie longer than every stored one widens
     each ``/traces`` array, and the existing rows gain zero-padded columns. The
     movie's settings profile is recorded under ``/settings/extraction/movies``; the
-    first extraction's stamp is not changed (#347, ADR-0117).
+    first extraction's stamp is not changed (#347, ADR-0117). The project's correction
+    and idealization no longer cover every movie, so the same publish marks both
+    unfinished for ``tether batch --into`` (#1243); the stored results are kept.
 
     The update is written to a sibling copy of the project and published by one
     atomic replace, under the project's writer lock: ``publish_guard`` is called
@@ -1229,6 +1258,7 @@ def add_movie_to_project(
             movie_id, calibration_id, molecule_ids = _persist(
                 stage, extracted, movie_path, tmap=tmap, tdat=tdat, map_path=map_path
             )
+            _mark_project_stages_unfinished(stage)
     except ExtractionError:
         raise
     except Exception as exc:  # aperture mismatch, lost lock, IO failure

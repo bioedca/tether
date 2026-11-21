@@ -195,6 +195,9 @@ tether batch movie_2.tif --into movie.tether
 
 To add the movie without correcting and idealizing again, run a short Python script instead.
 
+The project's correction and idealization stay as they were after an append. They no longer
+cover every movie, so the next `tether batch --into` run over the project does them again.
+
 Close the project in the desktop application first. The script needs the project's writer lock.
 
 Save this as `add_movie.py` beside the project, with your project and movie names:
