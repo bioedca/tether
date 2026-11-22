@@ -1162,6 +1162,7 @@ method, the limits and the measurements.
 | Mean dwell time, the six parameter files (Supplementary Table 6) | `Double-*.txt` and `Double-*.out` | `mean_dwell_time` | `tau` and its error equal to the two decimals of each `.out` |
 | Mean dwell time of the fitted panels, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `DwellFit.mean_dwell_time` | `tau` 9.3e-6 relative, within the `.out`'s two decimals; error 1.8e-3 relative to the re-paired error (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0, limit 1e-12) |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
 calculated from them can differ from a published one by the rounding of the two intensities. The
@@ -1185,15 +1186,17 @@ so each test finds the windows in the trace matrix when it runs.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
 
-**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), and the TDP
-smoothing and spline, which Tether does not implement (#1029). The two-Gaussian fit of Fig. 5c
-is compared since #1030 and #1131
+**Not compared.** The HMM population fits (#757) and the rates and their bounds (#758).
+
+The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
 ([ADR-0120](adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
 `test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
-`test_dwells_from_survival_give_back_the_survival_curve` and
+`test_dwells_from_survival_give_back_the_survival_curve`,
 `tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`,
+`test_smoothed_transition_density_of_built_counts_equals_checktdp`,
+`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`, and
 `test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians`. Weekly (`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
@@ -1201,7 +1204,8 @@ is compared since #1030 and #1131
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
 `test_double_exponential_parameters_and_errors`,
 `test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau`,
-`test_transition_density_counts_equal_checktdp`, and for Fig. 5c
+`test_transition_density_counts_equal_checktdp`,
+`test_smoothed_transition_density_equals_checktdp`, and for Fig. 5c
 `test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
 `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
 `test_a_198_bin_histogram_fails_the_fig5c_comparison`.

@@ -93,6 +93,7 @@ What is compared, with which limit, and where does it run?
 | That `tau` vs the `.out` file, absolute (s) | 2.5e-3 | 5e-3 (half a unit of the second decimal) |
 | Its error vs the parameter files' error, re-paired, relative (#1129) | 1.8e-3 | 1e-2 |
 | TDP counts, bins that differ | 0 | 0 |
+| Smoothed TDP array (800 x 800, peak 1), absolute; Amendments below | 0.0 | 1e-12 |
 
 Each value is the largest of the three operating systems (run 43610165074 of a temporary
 workflow on this branch). The efficiencies, bin counts, survival curves and TDP counts were the same
@@ -133,7 +134,6 @@ the dwell inversion and the column reader.
 | --- | --- |
 | Population fits of the histograms (Figs. 2c, 3b, ...) | HMM fits, #757 |
 | Rates and their Dirichlet bounds (Supplementary Table 5) | #758 |
-| TDP smoothing, spline and normalization (`checkTDP.py` after `histogram2d`) | Tether's TDP keeps the raw counts and the GUI has no smoothing: #1029 |
 | Fig. 5b, 5 uM WT tRNA column, its efficiencies | no trace matrix in the archive (its Fig. 5c fraction is compared, below) |
 | Transition-synchronized histograms (Supp. Figs. S3-S6) | they need the Viterbi paths, which the archive does not hold (#757) |
 | Representative traces of Supp. Figs. S5a and S6a | same check as Figs. 2b-4e; reading the 30 MB second workbook adds time and no new case |
@@ -181,6 +181,38 @@ removed before review). The largest of the three is in the table above: `tau` 9.
 to the sixth digit. The error limit is the one of the parameter errors, whose published values
 keep three digits. A deliberate error makes the weekly test fail in all three panels: `tau` times
 1.0001, and the error times 1.02.
+
+## Amendment, 2026-11-17 — the smoothed transition density (#1029, #1130)
+
+Issue #1029 added `smooth_transition_density`, the array `checkTDP.py` computes after `histogram2d`: a
+Gaussian filter of 1 bin, a bicubic spline through the bin centres onto 800 x 800 points from -0.25
+to 1.25 with negative values set to 0, and a division by the maximum. It is compared one step past
+the TDP counts above, with the same rule.
+
+- **Weekly** (`reference_download`): for each of the seven TDP sheets, Tether's view of Tether's
+  counts beside the array of the committed `checkTDP.py`, run on the sheet's two columns from its
+  first line to its `# Plot` comment. Only the CSV read and the two imports it needs for the CSV and
+  the plot are left out, and each of those lines must still be in the script. Same shape, same grid,
+  largest absolute difference at most the limit.
+- **Required matrix**: the same comparison on 606 transitions built in the test (three states, plus
+  pairs on both edges of the range, on interior bin edges and outside it), so the method is checked
+  on every push without the archive.
+- **Deliberate errors**: a filter of 1.1 bins on both axes, on the initial or the final axis alone,
+  and a view left unnormalized each exceed the limit by more than 10^6 (a required-matrix test).
+  With Tether's default filter set to 1.1 bins, the built-counts test and all seven weekly tests
+  fail.
+
+**Measured** (run 44163991160 of a temporary workflow on the #1130 branch; NumPy 2.1.3 and SciPy
+1.18.0 on all three): the largest absolute difference is 0.0 on Linux, macOS and Windows, for each of
+the seven sheets and for the built counts. The smallest deliberate error measured 0.029 on the built
+counts and 0.067 on the sheets, the same on the three systems to the seventh digit.
+
+**The limit is not derived from the measurement.** Both sides make the same SciPy calls on the same
+counts, so they agree to the bit wherever the counts are equal. The limit of 1e-12 that #1029 set is
+kept: about 4,500 times the spacing of doubles at the peak value 1, room for a change in the order of
+the operations, and more than 10^10 below the smallest error measured. The maintainer chose to keep
+it on the #1130 pull request (2026-11-17); a later change of it is again the maintainer's decision
+on its pull request (M19).
 
 ## Amendment, 2026-11-17 — Fig. 5c, the closed-state fraction, is compared (#1030, #1131)
 

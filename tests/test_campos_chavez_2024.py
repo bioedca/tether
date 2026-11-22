@@ -6,14 +6,15 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
 ``campos2024-source-data`` entry of the reference-data manifest (CC BY-NC-ND 4.0, ADR-0083).
 
 * Required matrix: the method of ``_campos_chavez_2024`` on data built here — the rounding bound,
-  the window search and the survival-curve inversion.
+  the window search, the survival-curve inversion, and the smoothed transition density beside
+  the committed ``checkTDP.py`` with a deliberate error it must catch (#1130).
 * Weekly ``reference-data`` job (``reference_download``): the archive is downloaded and verified,
   and each published efficiency, histogram, survival curve, exponential fit, transition density
   count and smoothed transition density array is compared with Tether's. The limits in
   :data:`LIMITS` were measured on Linux, macOS and Windows (ADR-0097 has the numbers) and are
-  frozen; the smoothed-array limit (#1029) is measured on three systems by #1130. The mean dwell
-  time of each fitted double exponential (#1129) is held to the ``.out`` file's ``tau``, and its
-  error to the published formula with each error paired with its own parameter.
+  frozen; the smoothed-array limit (#1029) was measured on the three by #1130.
+  The mean dwell time of each fitted double exponential (#1129) is held to the ``.out`` file's
+  ``tau``, and its error to the published formula with each error paired with its own parameter.
 
 * Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
   fraction of the closed state that the archive's notebook printed, in all five columns. Three of
@@ -42,6 +43,7 @@ from _campos_chavez_2024 import (
     SURVIVAL,
     TDPS,
     TRACE_SHEETS,
+    built_tdp_columns,
     column,
     compare_closed_fraction,
     compare_histogram,
@@ -49,6 +51,7 @@ from _campos_chavez_2024 import (
     compare_survival,
     compare_tdp,
     compare_tdp_view,
+    compare_tdp_view_columns,
     compare_trace_sheet,
     dwells_from_survival,
     find_windows,
@@ -218,6 +221,29 @@ def test_every_double_exponential_panel_has_a_committed_parameter_file() -> None
         member = f"ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/{name}.txt"
         assert member in files, name
         assert SURVIVAL[next(k for k, v in DOUBLE_PARAMS.items() if v == name)] == "double"
+
+
+def test_smoothed_transition_density_of_built_counts_equals_checktdp() -> None:
+    # The weekly comparison (#1029) on counts built here (#1130): the committed checkTDP.py is
+    # run on the built columns, so the method is checked on every push without the archive.
+    initial, final = built_tdp_columns()
+    got = compare_tdp_view_columns(initial, final)
+    assert got["shape_equal"], got
+    assert got["grid_equal"], got
+    assert got["max_abs"] <= LIMITS["tdp_view_abs"], got
+
+
+@pytest.mark.parametrize(
+    "error",
+    [{"smooth": (1.1, 1.1)}, {"smooth": (1.0, 1.1)}, {"smooth": (1.1, 1.0)}, {"normalize": False}],
+    ids=["filter-1.1-bins", "final-axis-filter-1.1", "initial-axis-filter-1.1", "not-normalized"],
+)
+def test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison(error: dict) -> None:
+    # A filter of 1.1 bins, on both axes or on one, or a view left unnormalized, must exceed the
+    # frozen limit by orders of magnitude (#1130); otherwise the comparison above proves nothing.
+    initial, final = built_tdp_columns()
+    got = compare_tdp_view_columns(initial, final, **error)
+    assert got["max_abs"] > 1e6 * LIMITS["tdp_view_abs"], got
 
 
 # --- weekly: Tether beside the published numbers ------------------------------------------------

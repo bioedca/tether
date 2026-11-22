@@ -670,7 +670,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | a bead TIFF: one image, or a video of frames |
 | `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
-| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one) |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one). Tether holds the map file's writer lock for the replacement, so it refuses while another `tether map create` holds that lock |
 | `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
 | `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
 | `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
@@ -685,8 +685,14 @@ $ tether extract movie.tif -o movie.tether --map beads.npz
 A map over `--rms-gate` is still written and the command exits `0`, with a warning on
 stderr: the map is flagged low-confidence, and every molecule extracted with it is tagged
 `low-confidence-registration`. A bead file with too few beads in either half, a bad frame
-range, an output that exists without `--overwrite`, or an output name without `.npz`
-exits `1` with one line on stderr. Bad arguments exit `2`.
+range, an output that exists without `--overwrite`, an output whose writer lock another
+writer holds, or an output name without `.npz` exits `1` with one line on stderr. Bad arguments exit `2`.
+
+Without `--overwrite` the map is saved as a hard link to a finished temporary file, which
+never replaces a file. On a file system without hard links (a FAT drive, some network
+shares) the map is copied instead, under the map file's writer lock, so a copy that fails
+removes only its own file. The writer lock, whenever it is taken, leaves a
+`<file>.lock.guard` file beside the map, as it does beside a project.
 
 The map file has a `format_version` (now `1`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. The file holds only plain
@@ -1113,6 +1119,11 @@ These rules apply to all three forms:
   So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
   second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
   of a project you gave is refused in the same way.
+- **Two exports never share a file.** Two outputs or provenance files that are hard links to
+  one existing file stop the command with exit code `1` before the first export, even with
+  `--overwrite`: otherwise the second export would replace the first one's file. `subset`
+  replaces its `.tether` file with a new one, which breaks the link, so for `subset` only the
+  provenance files are compared.
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
@@ -1291,7 +1302,7 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` | `tether export` |
 |---|---|---|---|---|---|
 | `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change | every export was written |
-| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, two outputs or provenance files are one file (hard links), or the function refused the selection; or the output path could not be checked or its folder made |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, `--tmap` beside a profile `channel_layout`, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 

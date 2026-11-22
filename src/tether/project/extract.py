@@ -303,6 +303,10 @@ class ExtractionSummary:
     rms_gate: float | None = None
     #: The content SHA-256 stored for this movie when it was extracted.
     movie_sha256: str | None = None
+    #: The channel layout the extraction was given (``options.channel_layout``, #908);
+    #: ``None`` when the split came from ``donor_side`` or an imported ``.tmap``. The
+    #: donor-side check's remedy names it rather than ``--donor-side`` (#1157).
+    channel_layout: ChannelLayout | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -914,6 +918,7 @@ def _summary(
         rule_counts=dict(extracted.molecules.rule_counts),
         rms_gate=float(reg_map.gate_px),
         movie_sha256=extracted.sha256,
+        channel_layout=extracted.options.channel_layout,
     )
 
 
