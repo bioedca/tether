@@ -1101,18 +1101,19 @@ def export_subset_tether(
         # to a temp sibling and atomically moved into place — os.replace always clobbers.
         raise FileExistsError(f"{out_path} already exists; pass overwrite=True to replace it")
 
-    molecules = read_molecules(path)
-    rows = _selected_rows(molecules, molecule_keys, include_rejected)
-    if not rows:
-        raise ValueError(
-            "no molecules selected to export (empty selection, or every match rejected "
-            "with include_rejected=False)"
-        )
-    selected_keys = _selected_keys(molecules, rows)
-    selected_ids = _selected_ids(molecules, rows)
-
     created_utc = datetime.now(UTC).isoformat()
     with h5py.File(path, "r") as src:
+        # Select rows and copy their review state from one open file. A
+        # generation can replace the canonical path between separate opens.
+        molecules = src["molecules"][TABLE][()]
+        rows = _selected_rows(molecules, molecule_keys, include_rejected)
+        if not rows:
+            raise ValueError(
+                "no molecules selected to export (empty selection, or every match rejected "
+                "with include_rejected=False)"
+            )
+        selected_keys = _selected_keys(molecules, rows)
+        selected_ids = _selected_ids(molecules, rows)
         _preflight_source(src, int(molecules.shape[0]), include_raw)
         kept_indices, kept_labels = _subset_label_rows(src["labels"][TABLE][()], selected_keys)
         kept_reject_log = _kept_reject_log(src, selected_keys)

@@ -16,6 +16,7 @@ One test per acceptance criterion of #921, on small synthetic movies:
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -45,8 +46,9 @@ from tether.io.schema import (  # noqa: E402
     assert_is_compatible_project,
     read_schema_version,
 )
-from tether.project import labels, lock  # noqa: E402
+from tether.project import batch, labels, lock  # noqa: E402
 from tether.project.core import Project  # noqa: E402
+from tether.project.correct import compute_corrected_fret  # noqa: E402
 from tether.project.extract import (  # noqa: E402
     ExtractionError,
     ExtractOptions,
@@ -593,3 +595,298 @@ def test_a_refused_write_to_a_version_1_store_makes_no_backup(tmp_path: Path) ->
         _reextract(project, stranger)
     assert not list(tmp_path.glob("*backup*"))
     assert read_schema_version(project) == 1
+
+
+def test_a_failed_human_clear_does_not_enable_an_older_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.io import generations
+    from tether.project.features import compute_features
+    from tether.project.gbranking import weighted_training_set
+
+    movie = _movie_a(tmp_path)
+    project = tmp_path / "movie.tether"
+    extract_movie(movie, project, options=_options())
+    mid = _movie_ids(project)[0]
+    key = _text(read_molecules(project)["molecule_key"][0])
+    labels.set_curation_label(
+        project, key, labels.CurationLabel.ACCEPT, source=labels.LABEL_SOURCE_DEEPLASI
+    )
+    labels.accept(project, key, labeler="generation-1")
+    _reextract(project, movie)
+    labels.accept(project, key, labeler="generation-2")
+    current_id = _text(read_generation(project, mid).molecules["molecule_id"][0])
+    compute_features(project)
+
+    def fail_append(*args, **kwargs):
+        raise OSError("failed to append pending review")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(generations, "append_label_reviews", fail_append)
+        with pytest.raises(OSError, match="failed to append"):
+            labels.set_curation_label(project, key, labels.CurationLabel.UNCURATED, labeler="clear")
+
+    current = read_generation(project, mid).molecules[0]
+    assert current["curation_label"] == labels.CurationLabel.ACCEPT
+    training = weighted_training_set(project)
+    assert training.molecule_ids == [current_id]
+    assert training.sample_weight.tolist() == [1.0]
+
+    labels.set_curation_label(project, key, labels.CurationLabel.UNCURATED, labeler="clear")
+    assert key in carried_molecule_keys(project)
+    assert current_id not in weighted_training_set(project).molecule_ids
+
+
+def test_subset_selection_and_confirmation_come_from_the_same_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    from shutil import copyfile
+
+    from tether.project import export
+
+    movie = _movie_a(tmp_path)
+    source = tmp_path / "source.tether"
+    extract_movie(movie, source, options=_options())
+    mid = _movie_ids(source)[0]
+    key = _text(read_molecules(source)["molecule_key"][0])
+    old_id = _text(read_generation(source, mid).molecules["molecule_id"][0])
+    labels.accept(source, key, labeler="generation-1")
+
+    newer = tmp_path / "replacement.tether"
+    copyfile(source, newer)
+    _reextract(newer, movie)
+    new_id = _text(read_generation(newer, mid).molecules["molecule_id"][0])
+    assert key in carried_molecule_keys(newer)
+
+    def read_then_replace(path):
+        rows = read_molecules(path)
+        os.replace(newer, source)
+        return rows
+
+    monkeypatch.setattr(export, "read_molecules", read_then_replace)
+    subset = tmp_path / "subset.tether"
+    export.export_subset_tether(source, subset, molecule_keys=[key])
+    exported = read_molecules(subset)[0]
+    exported_id = _text(exported["molecule_id"])
+    if exported_id == new_id:
+        assert key in carried_molecule_keys(subset)
+    else:
+        assert exported_id == old_id
+        assert exported["curation_label"] == labels.CurationLabel.ACCEPT
+
+
+@pytest.mark.parametrize("consumer", ["weighted", "condition"])
+def test_training_reads_one_generation_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, consumer: str
+) -> None:
+    import os
+    from shutil import copyfile
+
+    from tether.project.condition_model import condition_training_set
+    from tether.project.features import compute_features
+    from tether.project.gbranking import weighted_training_set
+
+    project = tmp_path / "snapshot.tether"
+    movie = _movie_a(tmp_path)
+    extract_movie(movie, project, options=_options())
+    row = read_molecules(project)[0]
+    key = _text(row["molecule_key"])
+    active_id = _text(row["molecule_id"])
+    condition = _text(row["condition_id"])
+    labels.accept(project, key, labeler="generation-1")
+    compute_features(project)
+
+    next_generation = tmp_path / "next.tether"
+    copyfile(project, next_generation)
+    _reextract(next_generation, movie)
+    assert key in carried_molecule_keys(next_generation)
+    incoming = tmp_path / "incoming.tether"
+    copyfile(next_generation, incoming)
+
+    open_file = h5py.File
+    opens = 0
+
+    def open_and_replace(path, mode="r", *args, **kwargs):
+        nonlocal opens
+        if path == project and mode == "r":
+            opens += 1
+            if opens == 2:
+                os.replace(incoming, project)
+        return open_file(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(h5py, "File", open_and_replace)
+    if consumer == "weighted":
+        training = weighted_training_set(project)
+    else:
+        training = condition_training_set([project], condition)
+
+    assert training.molecule_ids == [active_id]
+    assert training.sample_weight.tolist() == [1.0]
+    assert opens == 1
+
+
+def test_ranking_refuses_a_feature_row_whose_molecule_is_retired(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+    from tether.project.ranking import ranking_dataset
+
+    project = tmp_path / "retired-feature.tether"
+    extract_movie(_movie_a(tmp_path), project, options=_options())
+    compute_features(project)
+    with h5py.File(project, "r+") as f:
+        table = f["features/table"]
+        row = table[0]
+        row["molecule_id"] = "retired-id"
+        table[0] = row
+
+    with pytest.raises(ValueError, match="Run compute_features"):
+        ranking_dataset(project)
+
+
+def test_batch_recorrects_active_rows_after_reextraction(tmp_path: Path) -> None:
+    project = tmp_path / "experiment.tether"
+    movie = _movie_a(tmp_path)
+    extract_movie(movie, project, options=_options())
+    movie_id = _movie_ids(project)[0]
+    compute_corrected_fret(project, alpha_override=0.1, gamma_override=1.3)
+    first = read_molecules(project)
+    _reextract(project, movie)
+    assert np.isnan(read_molecules(project)["gamma"]).all()
+    _assert_rows_equal(read_generation(project, movie_id, 1).molecules, first)
+
+    def correct(path: Path) -> str:
+        compute_corrected_fret(path, alpha_override=0.1, gamma_override=1.5)
+        return "corrected"
+
+    job = batch.MovieJob(movie_path=movie, output_path=project)
+    resumed = batch.run_batch([job], idealize=False, _correct=correct)
+    assert resumed.results[0].stages[batch.STAGE_EXTRACT].status == batch.STATUS_SKIPPED
+    assert resumed.results[0].stages[batch.STAGE_CORRECT].status == batch.STATUS_DONE
+    np.testing.assert_array_equal(read_molecules(project)["gamma"], 1.5)
+    again = batch.run_batch([job], idealize=False, _correct=correct)
+    assert again.results[0].stages[batch.STAGE_CORRECT].status == batch.STATUS_SKIPPED
+    _assert_rows_equal(read_generation(project, movie_id, 1).molecules, first)
+
+
+def test_correcting_another_movie_leaves_the_active_checkpoint_stale(tmp_path: Path) -> None:
+    project, movie_a, _ = _project_a_b(tmp_path)
+    movie_a_id, movie_b_id = _movie_ids(project)
+    compute_corrected_fret(project, alpha_override=0.1, gamma_override=1.1)
+    initial_a = read_generation(project, movie_a_id).molecules
+    _reextract(project, movie_a)
+    assert np.isnan(read_generation(project, movie_a_id).molecules["gamma"]).all()
+    compute_corrected_fret(project, movie_id=movie_b_id, alpha_override=0.1, gamma_override=1.6)
+    assert not batch._is_corrected(project)
+    movie_b = read_generation(project, movie_b_id).molecules
+    np.testing.assert_array_equal(movie_b["gamma"], 1.6)
+
+    compute_corrected_fret(project, movie_id=movie_a_id, alpha_override=0.1, gamma_override=1.7)
+    assert batch._is_corrected(project)
+    np.testing.assert_array_equal(read_generation(project, movie_a_id).molecules["gamma"], 1.7)
+    _assert_rows_equal(read_generation(project, movie_b_id).molecules, movie_b)
+    _assert_rows_equal(read_generation(project, movie_a_id, 1).molecules, initial_a)
+
+
+def _set_stored_registration_gate(
+    project: Path, movie_id: str, *, first_over: bool, active_over: bool
+) -> None:
+    with h5py.File(project, "r+") as store:
+        extraction = store["settings/extraction"]
+        for attrs, name, over in (
+            (extraction.attrs, "profile_json", first_over),
+            (extraction["movies"].attrs, movie_id, active_over),
+        ):
+            profile = json.loads(attrs[name])
+            profile.update(registration_rms_px=0.75 if over else 0.25, rms_gate=0.5)
+            attrs[name] = json.dumps(profile)
+
+
+@pytest.mark.parametrize("active_over", [False, True], ids=["in-gate", "over-gate"])
+def test_strict_batch_reads_the_active_registration_gate(tmp_path: Path, active_over: bool) -> None:
+    project = tmp_path / "strict.tether"
+    movie = _movie_a(tmp_path)
+    extract_movie(movie, project, options=_options())
+    movie_id = _movie_ids(project)[0]
+    label_key = _text(read_molecules(project)["molecule_key"][0])
+    labels.accept(project, label_key, labeler="generation-1")
+    _reextract(project, movie)
+    assert label_key in carried_molecule_keys(project)
+    _set_stored_registration_gate(
+        project, movie_id, first_over=not active_over, active_over=active_over
+    )
+    before = project.read_bytes()
+
+    summary = batch.run_batch(
+        [batch.MovieJob(movie_path=movie, output_path=project)],
+        policy=batch.POLICY_FAIL,
+        overwrite=True,
+        idealize=False,
+        stamp_provenance=active_over,
+        extract_options=_options(),
+        _correct=lambda _path, **_guard: "corrected",
+    )
+    stages = summary.results[0].stages
+    if active_over:
+        assert stages[batch.STAGE_EXTRACT].status == batch.STATUS_FAILED
+        assert "reextract_movie" in (stages[batch.STAGE_EXTRACT].error or "")
+        assert stages[batch.STAGE_CORRECT].status == batch.STATUS_BLOCKED
+    else:
+        assert stages[batch.STAGE_EXTRACT].status == batch.STATUS_SKIPPED
+    assert project.read_bytes() == before
+    assert [record.generation for record in read_generations(project, movie_id)] == [1, 2]
+    assert len(labels.read_labels(project)) == 1
+    assert lock.read_lock(project) is None
+
+
+@pytest.mark.parametrize("reviewed", [False, True], ids=["generation-history", "review-history"])
+def test_strict_batch_refuses_each_kind_of_protected_over_gate_checkpoint(
+    tmp_path: Path, reviewed: bool
+) -> None:
+    project = tmp_path / "strict.tether"
+    movie = _movie_a(tmp_path)
+    extract_movie(movie, project, options=_options())
+    movie_id = _movie_ids(project)[0]
+    if reviewed:
+        labels.accept(project, _text(read_molecules(project)["molecule_key"][0]), labeler="review")
+    else:
+        _reextract(project, movie)
+        assert len(labels.read_labels(project)) == 0
+    _set_stored_registration_gate(project, movie_id, first_over=True, active_over=True)
+    before = project.read_bytes()
+
+    summary = batch.run_batch(
+        [batch.MovieJob(movie_path=movie, output_path=project)],
+        policy=batch.POLICY_FAIL,
+        overwrite=True,
+        idealize=False,
+        extract_options=_options(),
+        _correct=lambda _path, **_guard: "corrected",
+    )
+    stages = summary.results[0].stages
+    assert stages[batch.STAGE_EXTRACT].status == batch.STATUS_FAILED
+    assert "reextract_movie" in (stages[batch.STAGE_EXTRACT].error or "")
+    assert stages[batch.STAGE_CORRECT].status == batch.STATUS_BLOCKED
+    assert project.read_bytes() == before
+    assert lock.read_lock(project) is None
+
+
+def test_strict_batch_still_retries_an_unreviewed_first_extraction(tmp_path: Path) -> None:
+    project = tmp_path / "strict.tether"
+    movie = _movie_a(tmp_path)
+    extract_movie(movie, project, options=_options())
+    movie_id = _movie_ids(project)[0]
+    _set_stored_registration_gate(project, movie_id, first_over=False, active_over=True)
+
+    summary = batch.run_batch(
+        [batch.MovieJob(movie_path=movie, output_path=project)],
+        policy=batch.POLICY_FAIL,
+        overwrite=True,
+        idealize=False,
+        extract_options=_options(),
+        _correct=lambda _path, **_guard: "corrected",
+    )
+    assert summary.results[0].stages[batch.STAGE_EXTRACT].status == batch.STATUS_DONE
+    (record,) = read_generations(project)
+    assert record.generation == 1
+    assert record.movie_id != movie_id
+    assert lock.read_lock(project) is None

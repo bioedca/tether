@@ -645,6 +645,10 @@ def write_extraction(
     batch runner's per-stage concern, §7.11). A molecule whose ``molecule_key`` is
     already in ``/molecules`` raises too, so no two rows share a key (#347, ADR-0117).
 
+    When appending to a schema-v1 project, call this on the stage yielded by
+    ``guarded_project_write`` in ``tether.project._guarded_publish``.
+    Publishing the stage backs up the canonical v1 file before replacing it (ADR-0136).
+
     Parameters
     ----------
     project_path:
@@ -913,8 +917,10 @@ def write_generation(
     Corrections, bleach frames and the ML class start again from their not-computed
     sentinels (ADR-0016). A feature cache with a row for a previous molecule is dropped.
 
-    Every check runs before the first write, as for [`write_extraction`][]; the store is
-    not transactional, so callers write into a staged copy (``reextract_movie`` does).
+    The store is not transactional. Call this on the stage yielded by
+    ``guarded_project_write`` in ``tether.project._guarded_publish``, as
+    ``reextract_movie`` does. Publishing that stage backs up the canonical file first
+    when the schema version increases (ADR-0136).
 
     Returns
     -------
@@ -926,7 +932,8 @@ def write_generation(
     ValueError
         If the movie is not in the project or has other bytes, the aperture parameters
         differ from the project's, the arrays are misaligned, the movie's rows are not
-        one block, or a new key repeats another movie's (or another new molecule's).
+        one block, a new key repeats another movie's (or another new molecule's),
+        or ``match_px`` is negative or nonfinite.
     """
     import json  # noqa: PLC0415
 
@@ -942,6 +949,8 @@ def write_generation(
     from tether.io.schema import TABLE, assert_is_compatible_project  # noqa: PLC0415
 
     match_px = GENERATION_MATCH_PX if match_px is None else float(match_px)
+    if not np.isfinite(match_px) or match_px < 0:
+        raise ValueError(f"match_px must be a finite distance >= 0, got {match_px!r}")
     project_path = Path(project_path)
     assert_is_compatible_project(project_path)
     _validate_alignment(movie, molecules, traces)

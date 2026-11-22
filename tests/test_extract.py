@@ -493,6 +493,40 @@ def test_write_extraction_empty_molecules_writes_movie_only(tmp_path: Path) -> N
         assert "donor_corrected" not in f["traces"]  # no trace datasets created yet
 
 
+@pytest.mark.parametrize("match_px", [-1.0, float("nan"), float("inf")])
+def test_write_generation_rejects_invalid_distance_with_no_previous_molecules(
+    tmp_path: Path, match_px: float
+) -> None:
+    project = tmp_path / "empty.tether"
+    create_project(project)
+    _extract_into(project, movie_id="m", sha="s", donor=np.empty((0, 2)))
+    before = project.read_bytes()
+    molecules = _molecules(np.array([[20.0, 20.0]]))
+    traces = extract_molecules(
+        _channel(molecules.donor_xy), _channel(molecules.acceptor_xy), molecules
+    )
+    with pytest.raises(ValueError, match="match_px must be a finite distance >= 0"):
+        write_generation(
+            project,
+            movie=_movie("m", sha="s"),
+            molecules=molecules,
+            traces=traces,
+            parsed=_PARSED,
+            match_px=match_px,
+        )
+    assert project.read_bytes() == before
+    record, ids = write_generation(
+        project,
+        movie=_movie("m", sha="s"),
+        molecules=molecules,
+        traces=traces,
+        parsed=_PARSED,
+        match_px=0.0,
+    )
+    assert record.match_px == 0.0
+    assert len(ids) == 1
+
+
 def test_write_extraction_rejects_row_mismatch(tmp_path: Path) -> None:
     project = tmp_path / "p.tether"
     create_project(project)

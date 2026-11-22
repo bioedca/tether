@@ -117,18 +117,6 @@ def _publish_over_reserved_name(stage: str | Path, destination: str | Path) -> N
             raise
 
 
-def _stamped_version(path: Path) -> int | None:
-    """Return the ``schema_version`` stamped in ``path``, or ``None`` when it has none."""
-    import h5py  # noqa: PLC0415
-
-    try:
-        with h5py.File(path, "r") as f:
-            value = f.attrs.get("schema_version")
-    except OSError:
-        return None
-    return None if value is None else int(value)
-
-
 def migration_backup_path(project_path: str | Path, version: int) -> Path:
     """Return the free name a project stamped ``version`` is backed up to before a migration.
 
@@ -151,11 +139,13 @@ def _back_up_before_migration(
     """Copy ``canonical`` beside itself when the staged copy raised its ``schema_version``.
 
     A same-directory temporary copy keeps a failed copy out of the backup name.
-    Check the source after that copy, publish the backup without replacing an
-    earlier one, and check once more before the canonical file is replaced.
+    Check the source after that copy and publish the backup without replacing an
+    earlier one. An unreadable stamp prevents publication.
     """
-    before, after = _stamped_version(canonical), _stamped_version(staged)
-    if before is None or after is None or after <= before:
+    from tether.io.schema import read_schema_version  # noqa: PLC0415
+
+    before, after = read_schema_version(canonical), read_schema_version(staged)
+    if after <= before:
         return
 
     fd, raw_backup = mkstemp(
@@ -175,7 +165,6 @@ def _back_up_before_migration(
             break
     finally:
         backup_stage.unlink(missing_ok=True)
-    check_publish()
 
 
 def _is_placeholder(path: str | Path, placeholder: tuple[int, int] | None) -> bool:
@@ -259,6 +248,7 @@ def guarded_project_write(
 
         check_publish()
         _back_up_before_migration(canonical_path, guarded_stage, check_publish=check_publish)
+        check_publish()
         with replacement_identity(guarded_stage, canonical_path):
             os.replace(guarded_stage, canonical_path)
         guarded_stage = None

@@ -31,11 +31,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from tether.io.generations import pending_label_ids
-from tether.project.labels import CurationLabel
+from tether.io.generations import pending_label_ids_in
+from tether.io.schema import TABLE
+from tether.project.labels import CurationLabel, _to_str
 
 if TYPE_CHECKING:
     from os import PathLike
+
+    from h5py import File
 
     from tether.project.core import Project
 
@@ -108,38 +111,61 @@ class RankingDataset:
 def ranking_dataset(project: ProjectRef) -> RankingDataset:
     """Assemble the supervised ranking dataset from a project's ``/features`` + ``/labels``.
 
-    Reads the stored feature matrix ([`tether.project.features.feature_matrix`][]) and each
-    molecule's ``curation_label`` ([`tether.project.labels.curation_labels`][]), joining on
-    ``molecule_key``. A carried label is supervised evidence after a human confirms
-    it on the active extraction. Read-only.
+    Reads features, active molecules and pending reviews from one file handle.
+    Features join to active molecule IDs with matching keys. A carried label becomes
+    supervised evidence after a human confirms it on the active extraction. Read-only.
 
     Raises
     ------
     KeyError
         No ``/features/table`` has been written (run ``compute_features`` first).
+    ValueError
+        A feature row does not match an active molecule (run ``compute_features`` again).
     """
-    from tether.project.features import feature_matrix
-    from tether.project.labels import curation_labels
+    import h5py
 
-    stored = feature_matrix(project)
     path = _project_path(project)
-    labels_by_key = curation_labels(path)
-    pending = pending_label_ids(path)
-    curation = np.array(
-        [
-            _UNCURATED if mid in pending else int(labels_by_key.get(key, _UNCURATED))
-            for mid, key in zip(stored.molecule_ids, stored.molecule_keys, strict=True)
-        ],
-        dtype=np.int64,
-    )
-    return RankingDataset(
+    with h5py.File(path, "r") as f:
+        return _ranking_data_in(f, path)[0]
+
+
+def _training_snapshot(project: ProjectRef) -> tuple[RankingDataset, np.ndarray, np.ndarray]:
+    """Read the ranking dataset, molecule rows and label history from one project."""
+    import h5py
+
+    path = _project_path(project)
+    with h5py.File(path, "r") as f:
+        data, molecules = _ranking_data_in(f, path)
+        return data, molecules, f["labels"][TABLE][:]
+
+
+def _ranking_data_in(f: File, path: Path) -> tuple[RankingDataset, np.ndarray]:
+    """Join cached features to active molecules in an open project snapshot."""
+    from tether.project.features import _feature_matrix_in
+
+    stored = _feature_matrix_in(f, path)
+    molecules = f["molecules"][TABLE][:]
+    by_id = {_to_str(row["molecule_id"]): row for row in molecules}
+    pending = pending_label_ids_in(f)
+    curation = []
+    for mid, key in zip(stored.molecule_ids, stored.molecule_keys, strict=True):
+        row = by_id.get(mid)
+        if row is None or _to_str(row["molecule_key"]) != key:
+            raise ValueError(
+                f"{path}: feature row {mid!r} does not match an active molecule. "
+                "Run compute_features again with its default arguments, then retry."
+            )
+        curation.append(_UNCURATED if mid in pending else int(row["curation_label"]))
+
+    data = RankingDataset(
         molecule_ids=list(stored.molecule_ids),
         molecule_keys=list(stored.molecule_keys),
         feature_names=stored.feature_names,
         X=np.asarray(stored.matrix, dtype=np.float64),
-        curation_label=curation,
+        curation_label=np.asarray(curation, dtype=np.int64),
         pending_label_ids=pending,
     )
+    return data, molecules
 
 
 def baseline_precision_at_k(project: ProjectRef, k: int) -> float:

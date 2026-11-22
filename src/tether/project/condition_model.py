@@ -220,26 +220,23 @@ def _check_available(path: Path) -> None:
 def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
     """Read one project's labelled rows of ``condition_id``. Read-only; takes no lock.
 
-    Opens the file only through the path-based readers, which open it with ``h5py`` mode ``"r"``.
+    Uses one read-only file handle for the features, active molecules, labels and reviews.
     A human accept/reject supersedes a provisional prior on the same molecule (the
     [`tether.project.gbranking`][] rule).
     """
-    from tether.imaging.extract import read_molecules  # noqa: PLC0415
     from tether.project.gbranking import (  # noqa: PLC0415
         _latest_provisional_labels,
         _require_featured_human_labels,
     )
-    from tether.project.labels import read_labels  # noqa: PLC0415
-    from tether.project.ranking import ranking_dataset  # noqa: PLC0415
+    from tether.project.ranking import _training_snapshot  # noqa: PLC0415
     from tether.project.weighting import (  # noqa: PLC0415
         human_counts_by_condition,
         training_curation_codes,
     )
 
     try:
-        data = ranking_dataset(path)
-        molecules = read_molecules(path)
-        provisional = _latest_provisional_labels(read_labels(path))
+        data, molecules, label_rows = _training_snapshot(path)
+        provisional = _latest_provisional_labels(label_rows)
     except OSError as exc:
         raise SourceProjectUnavailableError(path, "unreadable", str(exc)) from exc
 
@@ -249,7 +246,7 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
     }
     pending = data.pending_label_ids
     _require_featured_human_labels(
-        path, molecules, data.molecule_keys, condition_id, pending=pending
+        path, molecules, data.molecule_ids, condition_id, pending=pending
     )
     n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
     eligible = training_curation_codes(

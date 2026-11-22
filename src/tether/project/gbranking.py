@@ -33,7 +33,7 @@ import numpy as np
 
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT, seed_weight
 from tether.project.labels import HUMAN_WEIGHT, PROVISIONAL_LABEL_SOURCES, CurationLabel
-from tether.project.ranking import ranking_dataset
+from tether.project.ranking import _training_snapshot
 from tether.project.weighting import human_counts_by_condition, training_curation_codes
 
 if TYPE_CHECKING:
@@ -112,18 +112,17 @@ class FeatureCacheIncompleteError(ValueError):
 def _require_featured_human_labels(
     path: Path,
     molecules: np.ndarray,
-    featured_keys: list[str],
+    featured_ids: list[str],
     condition_id: str | None = None,
     *,
     pending: frozenset[str],
 ) -> None:
     """Stop when a human label (of ``condition_id``, or of any condition) has no feature row."""
-    featured = set(featured_keys)
+    featured = set(featured_ids)
     missing = tuple(
         _to_str(mid)
-        for mid, key, cond, code in zip(
+        for mid, cond, code in zip(
             molecules["molecule_id"],
-            molecules["molecule_key"],
             molecules["condition_id"],
             molecules["curation_label"],
             strict=True,
@@ -131,7 +130,7 @@ def _require_featured_human_labels(
         if int(code) != _UNCURATED
         and _to_str(mid) not in pending
         and (condition_id is None or _to_str(cond) == condition_id)
-        and _to_str(key) not in featured
+        and _to_str(mid) not in featured
     )
     if missing:
         raise FeatureCacheIncompleteError(path, missing)
@@ -242,14 +241,10 @@ def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, Ranki
     Returns both so a caller that also ranks/evaluates (`_train_and_rank`) reuses the single
     ``/features`` read rather than assembling it twice. Read-only.
     """
-    from tether.imaging.extract import read_molecules  # noqa: PLC0415
-    from tether.project.labels import read_labels  # noqa: PLC0415
-
-    data = ranking_dataset(project)
+    data, molecules, label_rows = _training_snapshot(project)
     path = _project_path(project)
-    molecules = read_molecules(path)
     pending = data.pending_label_ids
-    _require_featured_human_labels(path, molecules, data.molecule_keys, pending=pending)
+    _require_featured_human_labels(path, molecules, data.molecule_ids, pending=pending)
     eligible = training_curation_codes(
         molecules["molecule_id"], molecules["curation_label"], pending
     )
@@ -258,7 +253,7 @@ def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, Ranki
         _to_str(key): _to_str(cond)
         for key, cond in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
     }
-    provisional_by_key = _latest_provisional_labels(read_labels(path))
+    provisional_by_key = _latest_provisional_labels(label_rows)
 
     idx: list[int] = []
     labels: list[bool] = []

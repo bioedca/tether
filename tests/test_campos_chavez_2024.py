@@ -32,10 +32,12 @@ import zipfile
 
 import numpy as np
 import pytest
+from scipy.stats import norm
 
 from _campos_chavez_2024 import (
     ARCHIVE_ID,
     DOUBLE_PARAMS,
+    FRACTION_BINS,
     HISTOGRAMS,
     INTRAFRET,
     SURVIVAL,
@@ -115,13 +117,13 @@ def _traces(name: str):
 
 
 @functools.cache
-def _closed_fraction(col: int) -> dict:
+def _closed_fraction(col: int, bins: int = FRACTION_BINS) -> dict:
     """Tether's fit of one Fig. 5b column: of Tether's efficiencies where the archive has the trace
     matrix, else (5 uM WT tRNA) of the published efficiencies."""
     values = column(_book()["Fig5b"], "FRET Efficiency", col)
     name = INTRAFRET.get(col)
     source = intrafret_efficiencies(values, *_traces(name)) if name else values
-    return compare_closed_fraction(source)
+    return compare_closed_fraction(source, bins)
 
 
 # --- required matrix: the method, on data built here --------------------------------------------
@@ -193,6 +195,23 @@ def test_read_fig5c_maps_each_row_to_its_fig5b_column() -> None:
         (None, None, None, None),
     ]
     assert read_fig5c(rows) == {0: (0.3, 0.01), 2: (0.4, 0.02)}
+
+
+@pytest.mark.parametrize("closed", [0.2, 0.35, 0.5])
+def test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians(closed: float) -> None:
+    # Fig. 5c's bins and starting point (#1131) on efficiencies at the quantiles of two known
+    # Gaussians, open at 0.1 and closed at 0.4. Measured off by at most 9.9e-5 with the bin-sum
+    # area and 8.6e-6 with the integral, on Linux.
+    n = 200_000
+    k = round(closed * n)
+    open_e = norm.ppf((np.arange(n - k) + 0.5) / (n - k), 0.1, 0.09)
+    closed_e = norm.ppf((np.arange(k) + 0.5) / k, 0.4, 0.11)
+    got = compare_closed_fraction(np.concatenate([open_e, closed_e]))
+    assert got["success"], got
+    assert got["bins_differing"] == 0, got
+    np.testing.assert_allclose(got["means"], [0.1, 0.4], atol=1e-5)
+    assert abs(got["fraction"] - closed) <= 5e-4, got
+    assert abs(got["integral_fraction"] - closed) <= 5e-5, got
 
 
 def test_every_double_exponential_panel_has_a_committed_parameter_file() -> None:
@@ -270,17 +289,20 @@ def test_the_fig5c_sheet_and_the_notebook_cover_every_fig5b_column() -> None:
     assert sorted(read_notebook_fractions(_archive())) == list(FIG5C_COLUMNS)
 
 
-@pytest.mark.reference_download
-@pytest.mark.parametrize("col", FIG5C_COLUMNS)
-def test_two_gaussian_fit_gives_the_closed_state_fraction(col: int) -> None:
+def _fraction_deviations(got: dict, col: int) -> tuple[float, float]:
+    """How far one fit is from the notebook's printed ``(fraction, error)`` of column ``col``."""
+    printed = read_notebook_fractions(_archive())[col]
+    return abs(got["fraction"] - printed[0]), abs(got["published_error"] - printed[1])
+
+
+def _check_closed_fraction(col: int) -> None:
     got = _closed_fraction(col)
     assert got["success"], got
     assert got["bins_differing"] == 0, got  # Tether's histogram is the notebook's
     printed = read_notebook_fractions(_archive())[col]
     published = read_fig5c(_book()["Fig5c"])[col]
     # Tether gives what the notebook printed, the fraction and the notebook's error of it.
-    assert abs(got["fraction"] - printed[0]) <= LIMITS["fraction_abs"], (got, printed)
-    assert abs(got["published_error"] - printed[1]) <= LIMITS["fraction_abs"], (got, printed)
+    assert max(_fraction_deviations(got, col)) <= LIMITS["fraction_abs"], (got, printed)
     # Fig. 5c has the notebook's errors; two of its fractions are not the notebook's.
     assert abs(got["published_error"] - published[1]) <= LIMITS["fraction_abs"], (got, published)
     off = abs(got["fraction"] - published[0])
@@ -291,6 +313,34 @@ def test_two_gaussian_fit_gives_the_closed_state_fraction(col: int) -> None:
         assert off <= LIMITS["fraction_abs"], (got, published)
     # Tether's own error keeps the covariances that the notebook leaves out, and is smaller.
     assert 0.0 < got["tether_error"] < got["published_error"], got
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("col", sorted(INTRAFRET))
+def test_two_gaussian_fit_gives_the_closed_state_fraction(col: int) -> None:
+    # The four columns with trace data: Tether's efficiencies of their 400-frame windows (#1131).
+    _check_closed_fraction(col)
+
+
+@pytest.mark.reference_download
+def test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data() -> None:
+    # The archive has no trace matrix for 5 uM WT tRNA (#1128), so this column fits Fig. 5b's
+    # published efficiencies, not Tether's (#1131).
+    assert 2 not in INTRAFRET
+    _check_closed_fraction(2)
+
+
+@pytest.mark.reference_download
+def test_a_198_bin_histogram_fails_the_fig5c_comparison() -> None:
+    # A deliberate error (#1131): one bin fewer than the notebook's 199 moves the fraction or its
+    # error of columns 0, 2 and 6 past the limit (ADR-0097 amendment), so the test above fails.
+    assert FRACTION_BINS == 199
+    failing = [
+        col
+        for col in FIG5C_COLUMNS
+        if max(_fraction_deviations(_closed_fraction(col, 198), col)) > LIMITS["fraction_abs"]
+    ]
+    assert failing, "a 198-bin histogram passes the Fig. 5c comparison"
 
 
 @pytest.mark.reference_download

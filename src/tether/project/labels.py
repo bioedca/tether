@@ -339,15 +339,23 @@ def set_curation_label(
             )
 
             carried = label_reviews_in(f)
-            reviews: dict[str, int] = {}
-            for i in idx:
-                row = mol_table[i]
+            rows = {i: mol_table[i] for i in idx}
+            clearing = label == CurationLabel.UNCURATED
+            event = PENDING_LABEL_REVIEW if clearing else n0
+            reviews = {
+                mid: event
+                for row in rows.values()
+                if (mid := _to_str(row["molecule_id"])) in carried
+            }
+            # A clear must exclude the carried row before it can fall back to an
+            # old seed. Accept and reject confirm only after writing curation.
+            if clearing:
+                append_label_reviews(f, reviews)
+            for i, row in rows.items():
                 row["curation_label"] = int(label)
                 mol_table[i] = row
-                mid = _to_str(row["molecule_id"])
-                if mid in carried:
-                    reviews[mid] = PENDING_LABEL_REVIEW if label == CurationLabel.UNCURATED else n0
-            append_label_reviews(f, reviews)
+            if not clearing:
+                append_label_reviews(f, reviews)
 
     return label_row[0].copy()
 

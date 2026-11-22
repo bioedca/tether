@@ -108,6 +108,12 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    through edges 5 to 10 by `mark_stale_in`, the store-path form of `set_stale_marks`, written into
    the staged copy so the marks are published with the generation. Edge 7's guard (the intensities
    of an α or γ contributor change) always holds: every trace of the movie is integrated again.
+   Batch reads the active molecule rows of re-extracted movies before accepting a correction
+   checkpoint. A row with valid frames and an unset method needs correction even when there
+   is a saved correction stamp.
+   Strict batch resume reads the active extraction's registration profile. When an over-gate
+   `--policy fail --overwrite` retry would discard review or generation history, batch leaves
+   the checkpoint unchanged and directs the operator to `reextract_movie` under the writer lock.
 7. **The ranker (§7.5) and a carried label.** A carried label waits for human confirmation
    before it can train the ranker, count toward provisional-label decay, or serve as evaluation
    ground truth. The ranker can still score the molecule on current features. An explicit human
@@ -130,8 +136,9 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    name is taken, so a backup is never overwritten), and only then replaces it. It copies to a
    temporary sibling, rechecks the source file and writer lock, and publishes the completed backup.
    A failed copy or source check at this point publishes neither file. A completed backup remains
-   available if the subsequent project publish fails. Every writer that can migrate a file (the
-   append and a new generation) runs in that publish (`guarded_project_write`, ADR-0112).
+   available if the subsequent project publish fails. Appending a movie and re-extracting it both
+   run in that publish (`guarded_project_write`, ADR-0112). A caller of the lower-level
+   `write_extraction` or `write_generation` must pass the stage yielded by it for schema-v1 data.
    The tests join oracle (f).
 
 ### Consequences
