@@ -169,9 +169,14 @@ It reports an error if it cannot run the probe. A dry run only checks CUDA.
 The committed `deep/conda-lock.yml` selects CPU-only PyTorch.
 
 Set the `dlasi-760` mapping to the archive path in the table for the scheduled check.
-With this option the runner trains on the approved training rows on each device.
-It records both ROC AUC scores on the held-out rows. It also records the
-fraction of matching decisions and the largest difference between paired scores.
+Each approved calibration run adds `--deep-training-seed` and the full main `--commit`.
+The first ten paired runs use training seeds 0 through 9 in order. Both devices use the same
+seed for a pair. Check the sealed result and wait for the run to exit before starting the next
+pair. If a pair fails, keep its result and use the same seed on a later approved retry.
+
+The runner records the training seed and both ROC AUC scores on the held-out rows.
+Both devices must meet the same score floor once it is set.
+It also records the fraction of matching decisions and the largest difference between paired scores.
 
 A complete `deep/performance` result carries times and memory peaks for training and prediction
 on each device. The CPU figures are process high-water marks from separate stages. The CUDA

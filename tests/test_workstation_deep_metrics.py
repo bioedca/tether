@@ -29,7 +29,7 @@ class _SyntheticModel:
 
 def _train_stub(data, *, training_ids, held_out_ids, seed, device):
     assert data.molecule_ids == training_ids
-    assert seed == 0 and device in ("cpu", "cuda")
+    assert seed == 7 and device in ("cpu", "cuda")
     return _SyntheticModel(held_out_ids, device)
 
 
@@ -54,7 +54,8 @@ def test_workload_uses_disjoint_ordered_traces_and_reports_four_phases(monkeypat
         synchronize=lambda: None, reset_peak_memory_stats=lambda: None,
         max_memory_allocated=lambda: 123,
     )  # fmt: skip
-    numbers = deep_check.run_workload(dataset, cuda=cuda)
+    numbers = deep_check.run_workload(dataset, cuda=cuda, training_seed=7)
+    assert numbers["training_seed"] == 7
     assert numbers["cpu_roc_auc"] == numbers["cuda_roc_auc"] == 1.0
     assert numbers["agreement"] == 1.0
     assert numbers["max_score_difference"] == numbers["n_disagreements"] == 0

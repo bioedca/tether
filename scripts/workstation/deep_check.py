@@ -11,7 +11,13 @@ from multiprocessing import get_context
 from pathlib import Path
 
 from perf_stage import _windows_job, measure_stage
-from run_private_checks import CUDA_UNAVAILABLE, DEEP_ARCHIVE_ID, DEEP_CHECK, PrivateData
+from run_private_checks import (
+    CUDA_UNAVAILABLE,
+    DEEP_ARCHIVE_ID,
+    DEEP_CHECK,
+    DEEP_TRAINING_SEEDS,
+    PrivateData,
+)
 
 from _deep_device import compare_device_scores
 from _deep_lasi_reference import held_out_auc, load_reference, reference_subset, split_reference
@@ -32,15 +38,15 @@ def _measure(call, *, cuda):
         return pool.submit(_measure_cpu, call).result()
 
 
-def run_workload(dataset, *, cuda) -> dict[str, float]:
+def run_workload(dataset, *, cuda, training_seed: int) -> dict[str, float]:
     """Use the approved held-out rows and emit only aggregate numbers."""
     train, held = split_reference(dataset)
     training, held_out = reference_subset(dataset, train), reference_subset(dataset, held)
     scores = {}
-    numbers = {}
+    numbers = {"training_seed": training_seed}
     for device, backend in (("cpu", None), ("cuda", cuda)):
         model, training_metrics = _measure(
-            partial(train_classifier, training, seed=0, device=device), cuda=backend
+            partial(train_classifier, training, seed=training_seed, device=device), cuda=backend
         )
         scores[device], prediction_metrics = _measure(
             partial(model.predict_proba, held_out), cuda=backend
@@ -54,7 +60,9 @@ def run_workload(dataset, *, cuda) -> dict[str, float]:
     return {**numbers, **agreement._asdict()}
 
 
-def main(data: Path, output: Path) -> int:
+def main(data: Path, output: Path, training_seed: int) -> int:
+    if training_seed not in DEEP_TRAINING_SEEDS:
+        raise ValueError("a calibration training seed must be an integer from 0 through 9")
     from torch import cuda
 
     if not cuda.is_available():
@@ -64,9 +72,11 @@ def main(data: Path, output: Path) -> int:
     if archive.resolve() != (data / entry.file).resolve():
         raise ValueError("the mapping must name the manifest's Deep-LASI classifier archive")
     dataset = load_reference(archive, sha256=entry.sha256)
-    output.write_text(json.dumps(run_workload(dataset, cuda=cuda)), encoding="utf-8")
+    metrics = run_workload(dataset, cuda=cuda, training_seed=training_seed)
+    output.write_text(json.dumps(metrics), encoding="utf-8")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(*map(Path, sys.argv[1:])))
+    data, output, seed = sys.argv[1:]
+    sys.exit(main(Path(data), Path(output), int(seed)))

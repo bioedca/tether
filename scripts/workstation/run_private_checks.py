@@ -77,6 +77,7 @@ CUDA_CHECK = "deep/cuda"
 CUDA_UNAVAILABLE = 86
 DEEP_CHECK = "deep/performance"
 DEEP_ARCHIVE_ID = "dlasi-760"
+DEEP_TRAINING_SEEDS = range(10)
 #: The benchmark groups of #722 that a run measures (``sidecar`` needs the sidecar environment).
 BENCH_GROUPS = ("default", "gui")
 RESULT_SCHEMA = "tether-workstation-result/1"
@@ -472,7 +473,9 @@ def check_cuda(python: Path, source: Path, log) -> dict:
     }
 
 
-def check_deep_workload(python: Path, source: Path, data: Path, state: Path, log) -> dict:
+def check_deep_workload(
+    python: Path, source: Path, data: Path, state: Path, log, training_seed: int
+) -> dict:
     """Run the deep check in the given interpreter and retain only its aggregate metrics."""
     script = source / "scripts" / "workstation" / "deep_check.py"
     prefix = python.parent
@@ -485,12 +488,16 @@ def check_deep_workload(python: Path, source: Path, data: Path, state: Path, log
     with tempfile.TemporaryDirectory(prefix="deep-check-", dir=state) as temp:
         output = Path(temp) / "metrics.json"
         status = _run_logged(
-            [str(python), "-P", "-s", str(script), str(data), str(output)],
+            [str(python), "-P", "-s", str(script), str(data), str(output), str(training_seed)],
             log, check=False, cwd=source, env=env,
         )  # fmt: skip
         if status == 0:
             try:
-                datasets[DEEP_ARCHIVE_ID] = json.loads(output.read_text(encoding="utf-8"))
+                metrics = json.loads(output.read_text(encoding="utf-8"))
+                seed = metrics.get("training_seed") if isinstance(metrics, dict) else None
+                if isinstance(seed, bool) or not isinstance(seed, int) or seed != training_seed:
+                    raise ValueError("the deep check returned an unexpected training seed")
+                datasets[DEEP_ARCHIVE_ID] = metrics
             except (OSError, ValueError):
                 print("the deep check did not return readable metrics", file=log)
                 status = None
@@ -728,8 +735,9 @@ def run(args: argparse.Namespace) -> int:
                 deep_python = Path(args.deep_python).expanduser().absolute()
                 cuda = check_cuda(deep_python, source, log)
                 checks.append(cuda)
-                if cuda["outcome"] == "passed" and not args.dry_run:
-                    checks.append(check_deep_workload(deep_python, source, data, state, log))
+                seed = args.deep_training_seed
+                if cuda["outcome"] == "passed" and seed is not None:
+                    checks.append(check_deep_workload(deep_python, source, data, state, log, seed))
             tools = tool_versions(python, env)
             if speed and code in (0, 1):
                 bench = run_benchmarks(python, source, env, log)
@@ -886,6 +894,10 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--sidecar-python", default=os.environ.get(SIDECAR_ENV),
                     help=f"the sidecar python (default: ${SIDECAR_ENV})")  # fmt: skip
     go.add_argument("--deep-python", help="use this isolated interpreter for the deep checks")
+    go.add_argument(
+        "--deep-training-seed", type=int, choices=DEEP_TRAINING_SEEDS,
+        help="training seed for one paired calibration run",
+    )  # fmt: skip
     show = sub.add_parser("latest", help="print the newest result as JSON for an agent")
     show.add_argument("--results", required=True)
     args = parser.parse_args(argv)
@@ -896,6 +908,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"give --data or set ${DATA_ENV}")
     if args.dry_run and args.commit:
         parser.error("--commit needs a scheduled run; a dry run runs this checkout")
+    if args.deep_training_seed is not None and (
+        args.dry_run or not args.deep_python or not _matches(_HEX40, args.commit)
+    ):
+        parser.error("--deep-training-seed needs --deep-python and a full main --commit")
     if args.speed and not (args.dry_run and args.history):
         parser.error("--speed is for a dry run, and it needs --history: a copy, not the real file")
     try:
