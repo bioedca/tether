@@ -479,9 +479,8 @@ def _code_blocks(
 ) -> set[int]:
     """Find root code blocks whose preceding sibling cannot be a list.
 
-    ``ListIndentProcessor`` wins over ``CodeBlockProcessor`` after a list. Follow real
-    blank lines over runs of indentation to find what preceded them. A fence adds a
-    block of its own; reference definitions can disappear without adding one.
+    Across source blanks, skip indented runs and reference-only blocks that can leave
+    the same list in place. A fence or a standalone line comment ends a preceding list.
     """
     masked_lines = masked.split("\n")
 
@@ -502,9 +501,14 @@ def _code_blocks(
                 start -= 1
             block = source[start : k + 1]
             if block != masked_lines[start : k + 1]:
-                return False
+                comment = re.fullmatch(r" {0,3}<!--(?:(?!--!?>).)*--!?> *", block[0])
+                return len(block) == 1 and not masked_lines[k].strip() and comment is not None
+            text = "\n".join(block)
+            if not _REF_DEF_RE.sub("", text).strip() and not any(map(_LIST_START_RE.match, block)):
+                k = start - 1  # standalone definitions do not add a sibling
+                continue
             if not block[0].startswith(" " * _TAB):
-                if _LIST_START_RE.match(block[0]) or _DEF_ANY_RE.search("\n".join(block)):
+                if _LIST_START_RE.match(block[0]) or _DEF_ANY_RE.search(text):
                     return False
                 # A later item marker is lazy text unless a heading or rule can split it off.
                 return not (
@@ -1559,6 +1563,9 @@ def test_a_form_outside_the_model_fails_loudly(
     [
         pytest.param("    x[a][b]\n", id="start-of-page"),
         pytest.param("Text.\n\n    x[a][b] = 1\n", id="after-paragraph"),
+        pytest.param("# A\n\n[k]: #a\n\n    x[a][b] = 1\n", id="after-definition"),
+        pytest.param("# A\n\n[k\n]: #a\n\n    x[a][b]\n", id="after-two-line-definition"),
+        pytest.param("- item\n\n<!-- separator -->\n\n    x[a][b]\n", id="after-comment"),
         pytest.param("***\n\n    x[a][b]\n", id="after-rule"),
         pytest.param("Title\n=====\n\n    x[a][b]\n", id="after-setext"),
         pytest.param("a | b\n--|--\n1 | 2\n\n    x[a][b]\n", id="after-table"),
@@ -1628,6 +1635,8 @@ def test_text_after_an_indented_code_block_is_read(
         ("- item\n\n[k]: #a\n\n    x[t][nokey]\n", 7),
         # the same, with a label that runs over two lines, which the renderer allows
         ("- item\n\n[k\n]: #a\n\n    x[t][nokey]\n", 8),
+        ("- item\n\n    <!-- separator -->\n\n    x[t][nokey]\n", 7),
+        ("<!-- separator -->- item\n\n    x[t][nokey]\n", 5),
         # A quote without a separating blank stays inside the root list.
         ("- item\n>\n> q\n\n    x[t][nokey]\n", 7),
         # Definitions and setext headings can split a block before an item line.
@@ -1637,6 +1646,8 @@ def test_text_after_an_indented_code_block_is_read(
     ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"]
     + [
         "after-two-line-definition",
+        "indented-comment",
+        "comment-with-item",
         "quote-inside-list",
         "definition-before-item",
         "setext-before-item",
