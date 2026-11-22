@@ -736,8 +736,13 @@ def _exclusive_create(lp: Path, info: LockInfo) -> bool:
         fd = os.open(lp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     except FileExistsError:
         return False
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(info.to_dict(), indent=2))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(info.to_dict(), indent=2))
+    except BaseException:
+        # The caller still holds the lifecycle guard, so the failed claim is ours.
+        lp.unlink(missing_ok=True)
+        raise
     return True
 
 

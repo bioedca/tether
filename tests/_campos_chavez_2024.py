@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sys
 import tempfile
 import zipfile
@@ -148,6 +149,16 @@ def read_double_params(archive: Path, name: str) -> np.ndarray:
     """``A1, A1err, A2, A2err, K1, K1err, K2, K2err`` of one parameter file."""
     with zipfile.ZipFile(archive) as zf:
         return np.loadtxt(io.BytesIO(zf.read(f"{DOUBLE_DIR}/{name}.txt")))
+
+
+def read_double_out(archive: Path, name: str) -> tuple[float, float]:
+    """``(tau, error)`` that ``CalculateDoubleExponentialErrors.py`` printed for one parameter
+    file, in seconds and to the two decimals the ``.out`` file keeps (Supplementary Table 6)."""
+    with zipfile.ZipFile(archive) as zf:
+        text = zf.read(f"{DOUBLE_DIR}/{name}.out").decode()
+    tau = re.search(r"^tau value: (\S+)$", text, re.M)
+    err = re.search(r"^Uncertainty in tau: (\S+)$", text, re.M)
+    return float(tau.group(1)), float(err.group(1))
 
 
 def read_notebook_fractions(archive: Path) -> dict[int, tuple[float, float]]:
@@ -457,8 +468,41 @@ def compare_closed_fraction(efficiencies: np.ndarray) -> dict:
     }
 
 
-def compare_survival(rows: list[tuple], col: int, model: str, params: np.ndarray | None) -> dict:
-    """Tether's survival curve and exponential fit beside one published survival panel."""
+def _double_tau_reference(params: np.ndarray, *, repaired: bool) -> tuple[float, float]:
+    """``tau`` and its error from one parameter file, by ``CalculateDoubleExponentialErrors.py``'s
+    formula ``tau = (A1/K1 + A2/K2) / (A1 + A2)`` with its four partial derivatives written out.
+
+    ``repaired`` pairs each error with its own parameter (tMAVEN's file has them swapped, #756);
+    without it the errors are used as the file labels them, which is what the script did.
+    """
+    a1, a1e, a2, a2e, k1, k1e, k2, k2e = params
+    if repaired:
+        a1e, a2e, k1e, k2e = a2e, a1e, k2e, k1e
+    s = a1 + a2
+    tau = (a1 / k1 + a2 / k2) / s
+    d_a1 = a2 * (1 / k1 - 1 / k2) / s**2
+    d_a2 = a1 * (1 / k2 - 1 / k1) / s**2
+    d_k1 = -a1 / (k1**2 * s)
+    d_k2 = -a2 / (k2**2 * s)
+    err = np.sqrt((d_a1 * a1e) ** 2 + (d_a2 * a2e) ** 2 + (d_k1 * k1e) ** 2 + (d_k2 * k2e) ** 2)
+    return float(tau), float(err)
+
+
+def compare_survival(
+    rows: list[tuple],
+    col: int,
+    model: str,
+    params: np.ndarray | None,
+    published: tuple[float, float] | None = None,
+) -> dict:
+    """Tether's survival curve and exponential fit beside one published survival panel.
+
+    With ``params`` (a double-exponential parameter file) the fitted parameters and errors are
+    compared too, and with ``published`` (the ``tau`` and error of its ``.out`` file, #1129)
+    Tether's mean dwell time of the fit and its error. The published error comes from tMAVEN's
+    errors in tMAVEN's order, so it is reported beside the error of the same formula with each
+    error paired with its own parameter, which is the one Tether's fit gives.
+    """
     t = column(rows, "Time (s)", col)
     surv = column(rows, "Survival probability", col + 1)
     curve = column(rows, "Model", col + 2)
@@ -487,6 +531,21 @@ def compare_survival(rows: list[tuple], col: int, model: str, params: np.ndarray
         out["errors_swapped_max_rel"] = float(np.max(np.abs(got_err - swapped) / swapped))
         labelled = np.array([a1e, a2e, k1e, k2e])
         out["errors_as_labelled_max_rel"] = float(np.max(np.abs(got_err - labelled) / labelled))
+    if params is not None and published is not None:
+        tau, err = fit.mean_dwell_time()
+        # The reference is the published parameters, not Tether's mean_dwell_time, so an error in
+        # that function cannot cancel out of the comparison.
+        tau_txt, err_repaired = _double_tau_reference(params, repaired=True)
+        out["tau_s"], out["tau_err_s"] = tau, err
+        out["tau_published_s"], out["tau_err_published_s"] = published
+        out["tau_err_repaired_s"] = err_repaired
+        out["tau_rel"] = abs(tau - tau_txt) / tau_txt
+        out["tau_out_abs"] = abs(tau - published[0])
+        out["tau_err_repaired_rel"] = abs(err - err_repaired) / err_repaired
+        out["tau_err_published_ratio"] = published[1] / err
+        # The published error is the same formula with the errors as the file labels them.
+        _, err_labelled = _double_tau_reference(params, repaired=False)
+        out["tau_err_as_labelled_out_abs"] = abs(err_labelled - published[1])
     return out
 
 
@@ -544,21 +603,50 @@ def checktdp_array(initial: np.ndarray, final: np.ndarray) -> tuple[np.ndarray, 
 
 def compare_tdp_view(rows: list[tuple]) -> dict:
     """Tether's smoothed transition density beside ``checkTDP.py``'s array of one sheet."""
-    initial = column(rows, "Initial E_FRET", 0)
-    final = column(rows, "Final E_FRET", 1)
+    return compare_tdp_view_columns(
+        column(rows, "Initial E_FRET", 0), column(rows, "Final E_FRET", 1)
+    )
+
+
+def compare_tdp_view_columns(initial: np.ndarray, final: np.ndarray, **settings) -> dict:
+    """Tether's smoothed transition density beside ``checkTDP.py``'s array of two columns.
+
+    Each ``initial[i], final[i]`` pair is one transition, as in a TDP sheet. ``settings`` go to
+    :func:`~tether.analysis.tdp.smooth_transition_density` and default to its own defaults, which
+    are ``checkTDP.py``'s settings; a test passes a different one to show the comparison sees it.
+    """
     tdp = transition_density(
         [np.array([a, b]) for a, b in zip(initial, final, strict=True)],
         nskip=1,
         signal_bins=TDP_BINS,
         signal_range=TDP_RANGE,
     )
-    view = smooth_transition_density(tdp)  # the defaults are checkTDP.py's settings
+    view = smooth_transition_density(tdp, **settings)
     ref, ref_grid = checktdp_array(initial, final)
     return {
         "shape_equal": view.values.shape == ref.shape,
         "grid_equal": bool(np.array_equal(view.grid, ref_grid)),
         "max_abs": float(np.max(np.abs(view.values - ref))),
     }
+
+
+def built_tdp_columns(seed: int = 1130) -> tuple[np.ndarray, np.ndarray]:
+    """``(initial, final)`` efficiencies of a TDP sheet built without the archive.
+
+    600 transitions among three states (0.15, 0.5, 0.85) with a spread of 0.05, so the peaks sit
+    off the diagonal as in a published TDP, plus pairs the grid must treat as ``histogram2d``
+    does: on each edge of :data:`TDP_RANGE`, on an interior bin edge, and outside the range.
+    """
+    rng = np.random.default_rng(seed)
+    states = np.array([0.15, 0.5, 0.85])
+    first = rng.integers(0, 3, 600)
+    second = (first + rng.integers(1, 3, 600)) % 3  # a transition changes the state
+    initial = states[first] + rng.normal(0.0, 0.05, 600)
+    final = states[second] + rng.normal(0.0, 0.05, 600)
+    edges = np.linspace(TDP_RANGE[0], TDP_RANGE[1], TDP_BINS + 1)
+    extra_initial = [edges[0], edges[-1], edges[17], -0.3, 0.5, 1.3]
+    extra_final = [edges[-1], edges[0], edges[33], 0.5, 1.3, -0.3]
+    return np.concatenate([initial, extra_initial]), np.concatenate([final, extra_final])
 
 
 def measure(archive: Path) -> dict:
@@ -595,7 +683,10 @@ def measure(archive: Path) -> dict:
     for (sheet, col), model in SURVIVAL.items():
         name = DOUBLE_PARAMS.get((sheet, col))
         params = read_double_params(archive, name) if name else None
-        out["survival"][f"{sheet}:{col}"] = compare_survival(book[sheet], col, model, params)
+        published = read_double_out(archive, name) if name else None
+        out["survival"][f"{sheet}:{col}"] = compare_survival(
+            book[sheet], col, model, params, published
+        )
     for sheet in TDPS:
         out["tdp"][sheet] = compare_tdp(book[sheet])
         out["tdp_view"][sheet] = compare_tdp_view(book[sheet])
