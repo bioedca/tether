@@ -654,15 +654,17 @@ def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _stored_movie_donor_side_check(path: Path, movie_id: str) -> dict[str, Any] | None:
-    """Read back the donor-side record of one movie of a several-movie project (#1151).
+def _stored_movie_donor_side_check(
+    path: Path, movie_id: str | None = None
+) -> dict[str, Any] | None:
+    """Read back a movie's active donor-side advisory (#921).
 
     Read from that movie's own settings record (``/settings/extraction/movies``,
     ADR-0117), so each appended movie reports its own check; only that movie's record is
-    decoded, so a malformed record of another movie cannot hide it (#1243). A project
-    written before per-movie records existed holds one movie, whose profile is the
-    stamp's own: that movie falls back to ``_stored_donor_side_check``. ``None`` as
-    above.
+    decoded, so a malformed record of another movie cannot hide it (#1243).
+    Ordinary batch has no movie ID. For a single-movie checkpoint it reads that
+    movie's profile, which can differ from the first stamp after re-extraction.
+    Without a per-movie record it keeps the stamp fallback for older checkpoints.
     """
     try:
         import h5py  # noqa: PLC0415
@@ -672,12 +674,17 @@ def _stored_movie_donor_side_check(path: Path, movie_id: str) -> dict[str, Any] 
         with h5py.File(path, "r") as f:
             extraction = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
             records = extraction.get(_MOVIE_SETTINGS)
-            raw = None if records is None else records.attrs.get(movie_id)
-            sole = raw is None and [_as_text(v) for v in f["movies"][TABLE]["movie_id"]] == [
-                movie_id
-            ]
+            if movie_id is None and records is not None:
+                table = f["movies"].get(TABLE)
+                if table is not None and len(table) == 1:
+                    movie_id = _as_text(table["movie_id"][0])
+            raw = None if records is None or movie_id is None else records.attrs.get(movie_id)
+            use_stamp = raw is None and (
+                movie_id is None
+                or [_as_text(v) for v in f["movies"][TABLE]["movie_id"]] == [movie_id]
+            )
         if raw is None:
-            return _stored_donor_side_check(path) if sole else None
+            return _stored_donor_side_check(path) if use_stamp else None
         return _donor_side_from_profile(json.loads(_as_text(raw)))
     except (KeyError, TypeError, ValueError, RecursionError, OSError):
         return None
@@ -1324,7 +1331,7 @@ def run_batch(
                     # Advisory (#646): reading or reporting the check must never cost the
                     # movie its later stages, so any failure here is silence.
                     with contextlib.suppress(Exception):
-                        donor_side = _stored_donor_side_check(job.output_path)
+                        donor_side = _stored_movie_donor_side_check(job.output_path)
                         if donor_side is not None and donor_side.get("verdict") == "swapped":
                             _safe_event(
                                 log,
