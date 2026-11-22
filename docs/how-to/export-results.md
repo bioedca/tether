@@ -111,13 +111,10 @@ table only when both leave out the same molecules. This export leaves out reject
 molecules and the molecule table keeps them, so if you will pair the two, for example to
 apply each molecule's γ to its trace, export the table with `include_rejected=False` as
 well (`--exclude-rejected`). The molecule table always covers the whole project and takes no
-`molecule_keys=`, so for
-a project that combines movies, first make a subset of one movie and export both files from
-it. The table's `movie_id` column identifies each molecule's movie, and `source_filename`
+`molecule_keys=`. So for a project of several movies, first make a subset of one movie and
+export both files from it. The table's `movie_id` column identifies each molecule's movie, and `source_filename`
 beside it names the movie's file. Two movies can share a file name, so pick the movie by its
-`movie_id`, here `mov-1`. A subset is chosen by `molecule_key`, and a movie file added to
-the project twice gives both copies the same keys, so the script stops rather than export
-both:
+`movie_id`, here `mov-1`:
 
 ```python
 import csv
@@ -132,9 +129,6 @@ export_molecule_table_csv("movie.tether", "molecules.csv", include_rejected=Fals
 with open("molecules.csv", newline="", encoding="utf-8") as f:
     rows = list(csv.DictReader(f))
 one_movie = [row["molecule_key"] for row in rows if row["movie_id"] == "mov-1"]
-shared = {row["molecule_key"] for row in rows if row["movie_id"] != "mov-1"} & set(one_movie)
-if shared:
-    raise SystemExit(f"{len(shared)} molecule keys also belong to another movie")
 
 export_subset_tether("movie.tether", "movie_010.tether", molecule_keys=one_movie)
 export_molecule_table_csv("movie_010.tether", "movie_010.csv", include_rejected=False)
@@ -142,10 +136,10 @@ export_deeplasi_txt("movie_010.tether", "movie_010-donc-accc-w.txt")
 ```
 
 The first row of the file is not always frame 0 of the movie. The provenance file's `frame_range`
-records which frames it covers. Every molecule in one file shares that one frame axis, so a
-project that combines movies of different lengths has to be exported one movie at a time,
-passing that movie's molecules as `molecule_keys=` (or `--molecule-key`); otherwise the export
-stops with an error naming the frame ranges.
+records which frames it covers. Every molecule in one file shares that one frame axis. So
+export a project of movies of different lengths one movie at a time. Pass that movie's
+molecules as `molecule_keys=` (or `--molecule-key`), like `one_movie` in the script above.
+Otherwise the export stops with an error naming the frame ranges.
 
 ## Export a subset project
 

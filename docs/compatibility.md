@@ -107,6 +107,11 @@ channels of the map. That is how a movie turned by 90 degrees against a map made
 frames is caught (#887). A square movie turned by 90 degrees has the same frame size as its map,
 so this check cannot see it.
 
+The donor-side check also works with a layout. When it finds swapped channels, its message names
+a change to the layout. It does not name `--donor-side`. For a half layout, give the other half as
+the donor. For a `rectangles` layout, exchange `donor_rect` and `acceptor_rect`. A layout with a recipe
+exchanges `donor_recipe` and `acceptor_recipe` as well.
+
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
 so every movie in a batch run uses the default **left** donor. If your acquisition puts the

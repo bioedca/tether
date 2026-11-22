@@ -358,6 +358,7 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `/patches` | Every channel (`donor`, `acceptor`), row-subset, aperture window unchanged |
 | `/idealization/{model}` | Per-model, filtered on **`molecule_id`** (the unique UUID, not the non-unique `molecule_key`). The row-aligned members `idealized`, `state_path`, `molecule_key`, `molecule_id`, `input_hash` are subset; every other member (`mean`, `var`, `frac`, `tmatrix`, `norm_tmatrix`, `rates`, `pi`, the `priors` group) is a global consensus array and is copied verbatim. The group's `n_molecules` attribute is rewritten to the kept count |
 | `/labels` | Rows whose `molecule_key` is in the selection |
+| `/labels/reject_log` | Rows whose `molecule_key` is in the selection, so each reject keeps its reason. Absent when the source has no log or no selected molecule has a row |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim |
 
 **What does not travel:**
@@ -370,8 +371,8 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
 **User names (`curator_alias`).** A project records a person's user name in
-the `labeler` of each `/labels` row, the `labeler` of each `/settings/condition_audit`
-row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
+the `labeler` of each `/labels/table` and `/labels/reject_log` row, the `labeler` of each
+`/settings/condition_audit` row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
 `/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
 `/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
 A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
@@ -385,7 +386,7 @@ Only that key changes, so the record keeps its shape.
 | `curator_alias` | Result |
 |---|---|
 | `None` (default) | The names are copied as they are. The output is the same as before the option existed |
-| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the `/settings` logs. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty name stays empty. The source project does not change |
+| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the selected `/labels/table` and `/labels/reject_log` rows in store order, followed by the `/settings` logs. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty name stays empty. The source project does not change |
 
 A path can name the user too, for example a model file in a home folder. With the option,
 each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today that is the
@@ -428,8 +429,8 @@ stored in the source, or leaves no alias that is free of every source user name.
 
 Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
-`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`. With
-`curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
+`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`, `n_reject_log_rows`.
+With `curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
 `n_aliased_names`. It never records the names.
 
 ## 4. Plot export (PDF + SVG + PNG)

@@ -433,8 +433,13 @@ the first one's data. So the output name follows one rule:
   `Movie_010.tether` and `movie_010.tether` are one file on Windows and macOS.
 
 The folders are those of the movie's full path, so the names do not depend on the folder
-you run the command from. If no folder tells two movies apart — `A.tif` and `a.tif` in one
-folder — the run stops before anything is written. `--dry-run` shows each name before
+you run the command from. The folders are read as you typed them, with one exception:
+after a link, `..` goes to the parent of the link's target. Say `work/link` is a link to
+`archive/sub`. Then `work/link/../m.tif` is the file `archive/m.tif`. Its folders are read
+from where it really is, so its name is `archive__m`. Windows reads `..` before it follows
+a link, so there the path is `work/m.tif` and the batch holds that movie once.
+
+If no folder tells two movies apart — `A.tif` and `a.tif` in one folder — the run stops before anything is written. `--dry-run` shows each name before
 the run, and the structured log records each movie and its output as an `input` event
 with status `mapped`.
 
@@ -464,10 +469,12 @@ tether batch data --recursive --into experiment.tether
 - **Correct and idealize run once, over the whole project,** after the last append. The
   dataset α and γ then come from every movie's molecules. A run that appends a movie runs
   both again, over every movie in the project. The idealization model is then fitted
-  again in place of the stored one. A run that appends nothing skips them. The exception
-  is an earlier `--into` run that left them unfinished, for example with idealization
-  deferred. A project that no `--into` run has written keeps its correction and model
-  when it gains no movie.
+  again in place of the stored one. A run that appends nothing skips them. The exceptions
+  are an earlier `--into` run that left them unfinished, for example with idealization
+  deferred, and a movie appended since from Python with
+  `tether.project.extract.add_movie_to_project`. Every append marks both stages
+  unfinished when it adds the movie. A project that has gained no movie keeps its correction and
+  model.
 - **The summary still has one line for each movie.** A movie's name is the one
   [the output name rule](#output-names-when-two-movies-have-the-same-file-name) would give
   its own project. So movies with one file name stay apart. Each movie in the project shows
@@ -483,7 +490,7 @@ tether batch data --recursive --into experiment.tether
 whether the movie is new to it. A `Project:` line for correct and idealize comes last:
 
 ```text
-Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project holds a movie of its size)
+Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project or an earlier movie of the run has its size)
   data/day1/movie_010.tif -> experiment.tether  [already in the project as movie 'a3f1c2d4e5b6': will be skipped]
   data/day1/movie_011.tif -> experiment.tether  [will be appended]
   data/day2/movie_010.tif -> experiment.tether  [will be appended]
@@ -491,7 +498,8 @@ Project: correct and idealize will run over every movie in the project after the
 ```
 
 A project that does not exist yet shows `new project: will be created with this movie` on
-the first movie's line.
+the first movie's line. A file that holds the same movie as an earlier one of the run shows
+`same content as <name>: will be skipped`, since the run skips it once the earlier one is in.
 
 ### Check a batch before it runs (`--dry-run`)
 
@@ -505,10 +513,18 @@ Batch plan (dry run): 3 movie(s) into projects; no movie was read and nothing wa
   data/day1/movie_010.tif -> projects/day1__movie_010.tether  [new]
   data/day1/movie_011.tif -> projects/movie_011.tether  [exists, complete: will be skipped]
   data/day2/movie_010.tif -> projects/day2__movie_010.tether  [exists: will resume at idealize]
-Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, max-restarts=3, sidecar-timeout=1800.0s, defer=on
+Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, channel-layout=none, donor-side=left, detection-mode=wavelet, detection-threshold=mode default, max-restarts=3, sidecar-timeout=1800.0s, defer=on
 Structured log: projects/batch-log.jsonl
 Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it starts before the first movie)
 ```
+
+The settings also name how each movie would be extracted. `channel-layout` gives the
+split. Without a layout, `donor-side` follows it. A half layout adds its `donor` half, and a
+`rectangles` layout adds `donor-rect` and `acceptor-rect`. With `--tmap` the split reads
+`from .tmap`, since the `.tmap` holds its own crops.
+
+Then come `detection-mode` and `detection-threshold`. The threshold reads `mode default`
+when the profile leaves it `null`. Both read `from .tdat` when `--tdat` supplies them.
 
 What a line says comes from the output project's checkpoint, which is opened read-only:
 
@@ -520,8 +536,9 @@ What a line says comes from the output project's checkpoint, which is opened rea
 | `exists, incomplete:` | holds no finished extraction, and only `--overwrite` replaces it |
 | `exists, over the gate:` | holds an extraction that `--policy fail` rejects |
 
-A refusal to start, such as a movie argument that gives no movie, is reported as
-it would be by the run, with exit code `2`. The dry run only looks for the sidecar
+A refusal to start is reported as it would be by the run, with exit code `2`. A movie
+argument that gives no movie is one. A profile `channel_layout` beside `--tmap` is another,
+because the `.tmap` splits each frame at its own crops. The dry run only looks for the sidecar
 interpreter. The real run also starts it once before the first movie.
 
 ### Progress while the batch runs
@@ -653,7 +670,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | a bead TIFF: one image, or a video of frames |
 | `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
-| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one) |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one). Tether holds the map file's writer lock for the replacement, so it refuses while another `tether map create` holds that lock |
 | `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
 | `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
 | `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
@@ -668,8 +685,14 @@ $ tether extract movie.tif -o movie.tether --map beads.npz
 A map over `--rms-gate` is still written and the command exits `0`, with a warning on
 stderr: the map is flagged low-confidence, and every molecule extracted with it is tagged
 `low-confidence-registration`. A bead file with too few beads in either half, a bad frame
-range, an output that exists without `--overwrite`, or an output name without `.npz`
-exits `1` with one line on stderr. Bad arguments exit `2`.
+range, an output that exists without `--overwrite`, an output whose writer lock another
+writer holds, or an output name without `.npz` exits `1` with one line on stderr. Bad arguments exit `2`.
+
+Without `--overwrite` the map is saved as a hard link to a finished temporary file, which
+never replaces a file. On a file system without hard links (a FAT drive, some network
+shares) the map is copied instead, under the map file's writer lock, so a copy that fails
+removes only its own file. The writer lock, whenever it is taken, leaves a
+`<file>.lock.guard` file beside the map, as it does beside a project.
 
 The map file has a `format_version` (now `1`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. The file holds only plain
@@ -1096,6 +1119,11 @@ These rules apply to all three forms:
   So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
   second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
   of a project you gave is refused in the same way.
+- **Two exports never share a file.** Two outputs or provenance files that are hard links to
+  one existing file stop the command with exit code `1` before the first export, even with
+  `--overwrite`: otherwise the second export would replace the first one's file. `subset`
+  replaces its `.tether` file with a new one, which breaks the link, so for `subset` only the
+  provenance files are compared.
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
@@ -1274,8 +1302,8 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` | `tether export` |
 |---|---|---|---|---|---|
 | `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change | every export was written |
-| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, two outputs or provenance files are one file (hard links), or the function refused the selection; or the output path could not be checked or its folder made |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, `--tmap` beside a profile `channel_layout`, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 
 `tether status` has a code `3` of its own, for a `--require` stage that is not ready. Its
