@@ -220,12 +220,16 @@ def test_tether_run_runs_each_step_as_a_stored_job_and_resume_skips_it(tmp_path,
     recipe = rc.read_recipe(path)
     (job,) = read_jobs(tmp_path / "m.tether")
     assert job.command == "extract" and job.state is JobState.DONE
-    assert job.parts == (rc.recipe_part(recipe, 1),)
-    assert json.loads(job.parts[0]) == {
+    part = json.loads(job.parts[0])
+    checkpoint = json.loads(rc._checkpoint_path(recipe).read_text(encoding="utf-8"))
+    assert part == {
         "recipe_sha256": recipe.sha256,
         "recipe_version": 1,
         "step": 1,
+        "run_id": checkpoint["run_id"],
+        "attempt_id": part["attempt_id"],
     }
+    assert part["run_id"] and part["attempt_id"]
     assert main(["run", str(path), "--resume"]) == 0
     assert "step 1/1 extract: skipped" in capsys.readouterr().out
     assert len(read_jobs(tmp_path / "m.tether")) == 1
@@ -291,16 +295,20 @@ def test_resume_skips_a_completed_map_before_a_project_exists(tmp_path, capsys) 
     assert project.is_file()
 
 
-def test_resume_skips_completed_steps_when_a_later_step_replaced_the_project(tmp_path, capsys):
+@pytest.mark.parametrize("destination", ["m.tether", "nested/../m.tether"])
+def test_resume_skips_completed_steps_when_a_later_step_replaced_the_project(
+    tmp_path, capsys, destination
+):
     _make_movie(tmp_path, name="m.tif")
     _make_movie(tmp_path, name="second.tif")
-    replace = _step("extract", movie="second.tif", output="m.tether", overwrite=True)
+    (tmp_path / "nested").mkdir()
+    replace = _step("extract", movie="second.tif", output=destination, overwrite=True)
     path = _write(tmp_path, _recipe(_step(), replace))
     assert main(["run", str(path)]) == 0
     capsys.readouterr()
 
     (job,) = read_jobs(tmp_path / "m.tether")
-    assert job.parts == (rc.recipe_part(rc.read_recipe(path), 2),)
+    assert json.loads(job.parts[0])["step"] == 2
     assert main(["run", str(path), "--resume"]) == 0
     output = capsys.readouterr().out
     assert "step 1/2 extract: skipped" in output and "step 2/2 extract: skipped" in output
@@ -400,13 +408,35 @@ def test_with_a_policy_the_store_records_approved_by_policy_and_the_policy_text(
 ):
     policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note 12"}
     policy["otherwise"] = "stop"
-    path = _write(tmp_path, _recipe(_calibrate_step(**policy)))
+    source = json.dumps(policy, indent=2).replace("\n", "\r\n")
+    recipe_text = _recipe(_calibrate_step(**policy)).replace(json.dumps(policy), source)
+    path = tmp_path / "recipe.json"
+    path.write_bytes(recipe_text.encode("utf-8"))
     assert main(["run", str(path)]) == 0
     (approval,) = approvals.read_approvals(tmp_path / "exp.tether")
     assert approval.by == "policy"
-    assert json.loads(approval.actor) == policy
+    assert approval.actor == source
     assert approval.recipe_sha256 == rc.read_recipe(path).sha256
+    assert (
+        approval.recipe_sha256
+        == hashlib.sha256(recipe_text.replace("\r\n", "\n").encode()).hexdigest()
+    )
     assert approval.step == "gamma.approve" and approval.subject == "cond-1"
+
+
+@pytest.mark.parametrize(
+    ("step", "subject"), [("alpha.confirm", "cond-1"), ("gamma.approve", "other")]
+)
+def test_ordinary_approval_does_not_inherit_an_unrelated_recipe(tmp_path, calibrate, step, subject):
+    path = _write(tmp_path, _recipe(_calibrate_step()))
+    project = tmp_path / "exp.tether"
+    assert main(["run", str(path)]) == EXIT_APPROVAL_NEEDED
+    assert (
+        main(["approve", str(project), step, "--subject", subject, "--report", str(calibrate)]) == 0
+    )
+
+    (approval,) = approvals.read_approvals(project)
+    assert (approval.recipe_sha256, approval.recipe_version) == ("", 0)
 
 
 def test_tether_approve_refuses_a_bad_report_or_step_before_any_write(tmp_path, capsys):
@@ -431,6 +461,18 @@ def test_run_refuses_non_string_policy_keys(tmp_path, capsys, calibrate, change)
     assert main(["run", str(path)]) == 2
     assert "step 1:" in capsys.readouterr().err
     assert approvals.read_approvals(tmp_path / "exp.tether") == []
+
+
+def test_approval_evidence_matches_the_literal_report_stem(tmp_path) -> None:
+    report = _write(tmp_path, "{}", "gamma[1].json")
+    for name in ("gamma[1].png", "gamma[1]-steps.png", "gamma1.png", "gamma[1]x.png"):
+        (tmp_path / name).write_bytes(b"\x89PNG evidence")
+
+    assert set(approvals.report_files(report)) == {
+        report.name,
+        "gamma[1].png",
+        "gamma[1]-steps.png",
+    }
 
 
 def test_tether_approve_refuses_unreadable_png_evidence(tmp_path, capsys, calibrate, monkeypatch):
@@ -614,6 +656,32 @@ def test_a_batch_recipe_preserves_a_parent_component_after_a_link(tmp_path) -> N
         (step,) = rc.read_recipe(path).steps
         assert isinstance(step.request, BatchRequest)
         assert plan(step.request) == expected
+
+
+def test_a_batch_recipe_glob_uses_its_literal_folder(tmp_path, monkeypatch) -> None:
+    from tether.project import batch
+
+    folder = tmp_path / "run[1]"
+    folder.mkdir()
+    sibling = tmp_path / "run1"
+    sibling.mkdir()
+    movie = _make_movie(folder, name="take-1.tif")
+    _make_movie(sibling, name="take-2.tif")
+    literal = _make_movie(folder, name="other[1].tif")
+    absolute = _make_movie(sibling, name="absolute-1.tif")
+    movies = ["take-*.tif", "other[1].tif", str(sibling / "absolute-*.tif")]
+    recipe = rc.read_recipe(
+        _write(folder, _recipe(_step("batch", movies=movies, out_dir="out", idealize=False)))
+    )
+    seen = []
+
+    def collect(jobs, **_kwargs):
+        seen.extend(job.movie_path for job in jobs)
+        return batch.BatchSummary(results=[], policy="warn", idealize_requested=False)
+
+    monkeypatch.setattr(batch, "run_batch", collect)
+    assert not rc.run_recipe(recipe).failed
+    assert sorted(seen) == sorted([movie, literal, absolute])
 
 
 def test_a_path_on_another_drive_stays_a_full_path(tmp_path, monkeypatch) -> None:
@@ -878,20 +946,36 @@ def test_a_relative_sidecar_interpreter_is_read_from_the_recipe_folder(tmp_path)
 def test_resume_uses_existing_project_jobs_when_no_local_checkpoint_exists(
     tmp_path, calibrate
 ) -> None:
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(_calibrate_step())))
+    assert "(done; skipped by --resume)" not in "\n".join(rc.plan_recipe(recipe, resume=True))
+    project = tmp_path / "exp.tether"
+    rc._record(str(project), recipe.steps[0].request, rc.recipe_part(recipe, 1), "done", "")
+    assert rc.run_recipe(recipe, resume=True).steps == (rc.StepOutcome(1, "calibrate", "skipped"),)
+    project.unlink()
+    assert "(done; skipped by --resume)" not in "\n".join(rc.plan_recipe(recipe, resume=True))
+
+
+def test_resume_without_local_state_cannot_infer_an_earlier_projectless_step(tmp_path, calibrate):
     step = _step("map", source="beads.tif", output="beads.npz")
     recipe = rc.read_recipe(_write(tmp_path, _recipe(step, _calibrate_step())))
     assert "(done; skipped by --resume)" not in "\n".join(rc.plan_recipe(recipe, resume=True))
-
     project = tmp_path / "exp.tether"
     rc._record(str(project), recipe.steps[1].request, rc.recipe_part(recipe, 2), "done", "")
-    assert rc.run_recipe(recipe, resume=True).steps == (
-        rc.StepOutcome(1, "map", "skipped"),
-        rc.StepOutcome(2, "calibrate", "skipped"),
+    with pytest.raises(rc.RecipeError, match="cannot recover step 1 without its local checkpoint"):
+        rc.run_recipe(recipe, resume=True)
+    assert not rc._checkpoint_path(recipe).exists()
+
+
+def test_resume_does_not_adopt_done_job_from_an_older_attempt(tmp_path, calibrate):
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(_calibrate_step())))
+    project = tmp_path / "exp.tether"
+    rc._record(
+        str(project), recipe.steps[0].request, rc.recipe_part(recipe, 1, "run", "old"), "done", ""
     )
-    project.unlink()
-    plan = "\n".join(rc.plan_recipe(recipe, resume=True))
-    assert "step 1/2: tether map (done; skipped by --resume)" in plan
-    assert "step 2/2: tether calibrate (done; skipped by --resume)" not in plan
+    checkpoint = rc._checkpoint_path(recipe)
+    checkpoint.parent.mkdir(parents=True)
+    rc._save_checkpoint(checkpoint, rc._Checkpoint(0, "run", "pending"))
+    assert "(done; skipped by --resume)" not in "\n".join(rc.plan_recipe(recipe, resume=True))
 
 
 @pytest.mark.parametrize("checkpoint", ["not JSON", '{"completed": true}'])
@@ -919,10 +1003,10 @@ def test_run_reports_checkpoint_write_failures(tmp_path, capsys, monkeypatch, fa
     path = _write(tmp_path, _recipe(_step()))
     save = rc._save_checkpoint
 
-    def fail_write(checkpoint: Path, completed: int) -> None:
-        if completed == fail_at:
+    def fail_write(checkpoint: Path, state: rc._Checkpoint) -> None:
+        if state.completed == fail_at:
             raise OSError("checkpoint storage is unavailable")
-        save(checkpoint, completed)
+        save(checkpoint, state)
 
     monkeypatch.setattr(rc, "_save_checkpoint", fail_write)
     assert main(["run", str(path)]) == (2 if fail_at == 0 else 1)
@@ -932,6 +1016,11 @@ def test_run_reports_checkpoint_write_failures(tmp_path, capsys, monkeypatch, fa
     else:
         assert "cannot record recipe progress" in result.out
     assert (tmp_path / "m.tether").exists() is bool(fail_at)
+    monkeypatch.setattr(rc, "_save_checkpoint", save)
+    assert main(["run", str(path), "--resume"]) == 0
+    expected = "skipped" if fail_at else "done"
+    assert f"step 1/1 extract: {expected}" in capsys.readouterr().out
+    assert len(read_jobs(tmp_path / "m.tether")) == 1
 
 
 def _fail_on(name: str):  # noqa: ANN202

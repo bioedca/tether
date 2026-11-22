@@ -81,15 +81,15 @@ def run(request: ApproveRequest) -> ApproveResult:
         raise RequestRefused("an approval needs the name of the person (--by)")
     try:
         project = Project.open(request.project)
-        recipe = stopped_recipe(project.path)
     except (OSError, ValueError) as exc:
         raise RequestRefused(f"cannot open {request.project}: {exc}") from exc
-    sha, version = recipe if recipe is not None else ("", 0)
     try:
         project.acquire_lock()
     except LockError as exc:
         raise CommandFailed(f"cannot take the lock of {request.project}: {exc}") from exc
     try:
+        recipe = stopped_recipe(project.path, step=request.step, subject=request.subject)
+        sha, version = recipe if recipe is not None else ("", 0)
         approval = record_approval(
             project,
             step=request.step,

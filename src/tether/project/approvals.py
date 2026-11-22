@@ -105,7 +105,7 @@ def report_files(report: str | Path) -> dict[str, str]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"the report {report} is not readable JSON: {exc}") from exc
     evidence = [path]
-    for image in sorted(path.parent.glob(f"{path.stem}*.png")):
+    for image in sorted(path.parent.glob("*.png")):
         if image.stem == path.stem or image.stem.startswith(f"{path.stem}-"):
             evidence.append(image)
     files = {}

@@ -87,3 +87,27 @@ def test_save_as_recipe_says_so_when_the_project_has_no_completed_job(shell, tmp
     assert shell.save_recipe(tmp_path / "saved.json") is None
     assert "no completed job" in shell.window.statusBar().currentMessage()
     assert not (tmp_path / "saved.json").exists()
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_bare_recipe_name_confirms_replacing_the_suffixed_file(
+    shell, tmp_path, monkeypatch, replace
+):
+    from pyqtgraph.Qt import QtWidgets
+
+    target = tmp_path / "saved.json"
+    target.write_text("original", encoding="utf-8")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", lambda *_: (str(tmp_path / "saved"), "")
+    )
+    buttons = QtWidgets.QMessageBox.StandardButton
+
+    def question(_parent, _title, message, _buttons, default):
+        assert target.name in message
+        assert default == buttons.No
+        return buttons.Yes if replace else buttons.No
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", question)
+    monkeypatch.setattr(shell, "save_recipe", lambda path: path.write_text("new", encoding="utf-8"))
+    shell._save_recipe_dialog()
+    assert target.read_text(encoding="utf-8") == ("new" if replace else "original")

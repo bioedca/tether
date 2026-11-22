@@ -3197,9 +3197,21 @@ class TetherShell:
         if not out_path:
             self._status("Save as recipe cancelled")
             return
-        if not out_path.lower().endswith(".json"):
-            out_path += ".json"
-        self.save_recipe(out_path)
+        add_suffix = not out_path.lower().endswith(".json")
+        recipe_path = Path(out_path + ".json" if add_suffix else out_path)
+        if add_suffix and recipe_path.exists():
+            buttons = QtWidgets.QMessageBox.StandardButton
+            answer = QtWidgets.QMessageBox.question(
+                self._window,
+                "Save as recipe",
+                f"{recipe_path.name} already exists. Do you want to replace it?",
+                buttons.Yes | buttons.No,
+                buttons.No,
+            )
+            if answer != buttons.Yes:
+                self._status("Save as recipe cancelled")
+                return
+        self.save_recipe(recipe_path)
 
     def _import_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""

@@ -644,7 +644,7 @@ leave `/patches` empty**, because they have no coordinates.
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
 datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
-`recorded_inputs`, `stale_marks` and `correction_transitions`, which are datasets.
+`recorded_inputs`, `stale_marks`, `correction_transitions` and `approvals`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -773,9 +773,9 @@ apparent-E analysis is never refused.
 
 ### Approvals
 
-`/settings/approvals` holds one row for each approval of a step that needs a person
-([ADR-0102](../adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)
-(section 4). Every field is a UTF-8 string: `step` (`map.accept`, `alpha.confirm`, `gamma.approve` or
+`/settings/approvals` is a resizable compound dataset with one row for each approval of a step
+that needs a person ([ADR-0102](../adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md),
+section 4). Every field is a UTF-8 string: `step` (`map.accept`, `alpha.confirm`, `gamma.approve` or
 `fit.select`), `subject` (the map, the condition or the analysis set), `by` (`person` or
 `policy`), `actor` (the person's name, or the policy text exactly as the recipe gives it),
 `recipe_sha256` and `recipe_version` (the identity of the recipe whose run asked for the
@@ -784,10 +784,14 @@ each evidence file name, the report's JSON and its PNG images, to its SHA-256), 
 (ISO-8601 UTC) and `app_version`. Only an approval writes a row: a policy whose rule does not
 approve writes none. The rows are append-only.
 
-A recipe run (`tether run`) stores each step's job in `/settings/jobs` of the project it writes.
-The job has one part, a JSON object with `recipe_sha256`, `recipe_version` and `step` (the step
-number). `--resume` checks project jobs against the recipe checkpoint in Tether's per-user state.
-A step that stopped at an approval step is stored `cancelled`.
+A recipe run (`tether run`) stores jobs for steps that write a project in its `/settings/jobs`
+while recording progress for steps that write no project in the per-user checkpoint.
+The job's single part is a JSON object with `recipe_sha256`, `recipe_version` and `step` (the
+step number). Jobs written by the current runner also store `run_id` and `attempt_id` to
+identify the run and step attempt.
+`--resume` checks project jobs against the recipe checkpoint in Tether's per-user state.
+A step that stopped at an approval step is stored `cancelled`, with the requested step and
+subject in the cancellation reason so a later approval can identify its recipe.
 
 ## `/idealization` — one subgroup per fitted model
 

@@ -33,7 +33,8 @@ import hashlib
 import json
 import math
 import os
-from collections.abc import Callable, Mapping, Sequence
+import re
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ from tether.services.base import (
     request_from_mapping,
     request_to_mapping,
 )
+from tether.services.batch import BatchRequest
 from tether.services.extract import ExtractRequest
 
 __all__ = [
@@ -195,8 +197,7 @@ _UNSCORED_FAMILIES = frozenset({"kmeans", "k-means"})
 class Policy:
     """A checked recipe policy for one approval step.
 
-    ``text`` is the policy as the recipe gives it, in the one-line JSON form; it is the
-    text the store records with an approval by this policy.
+    ``text`` is the policy as the recipe gives it; the store records it with an approval.
     """
 
     step: str
@@ -206,7 +207,7 @@ class Policy:
     text: str
 
 
-def check_policy(data: Any) -> Policy:
+def check_policy(data: Any, *, source: str | None = None) -> Policy:
     """Check a recipe ``policy`` object (ADR-0102 §3); raise [`RecipeError`][] if not valid."""
     if not isinstance(data, dict):
         raise RecipeError("a policy must be a JSON object")
@@ -240,7 +241,11 @@ def check_policy(data: Any) -> Policy:
         raise RecipeError(
             f"'best-score' cannot rank the family {data['family']!r}: it has no score"
         )
-    text = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    text = (
+        source
+        if source is not None
+        else json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    )
     values = {k: data[k] for k in needed}
     return Policy(step=step, rule=rule, otherwise=data["otherwise"], values=values, text=text)
 
@@ -250,11 +255,12 @@ def check_policy(data: Any) -> Policy:
 
 @dataclasses.dataclass(frozen=True)
 class RecipeStep:
-    """One step of a recipe: its number (from 1), its request and its policy, if any."""
+    """A numbered recipe request with an optional policy and original batch movie globs."""
 
     number: int
     request: Request
     policy: Policy | None = None
+    batch_movies: tuple[str, ...] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -310,7 +316,7 @@ def _with_paths(request: Request, change: Callable[[Any, Path], Any], folder: Pa
     return dataclasses.replace(request, **fields) if fields else request
 
 
-def _check_step(number: int, data: Any, folder: Path) -> RecipeStep:
+def _check_step(number: int, data: Any, folder: Path, policy_source: str | None) -> RecipeStep:
     where = f"step {number}"
     if not isinstance(data, dict):
         raise RecipeError(f"{where}: a step must be a JSON object")
@@ -346,7 +352,7 @@ def _check_step(number: int, data: Any, folder: Path) -> RecipeStep:
     policy = None
     if "policy" in data:
         try:
-            policy = check_policy(data["policy"])
+            policy = check_policy(data["policy"], source=policy_source)
         except RecipeError as exc:
             raise RecipeError(f"{where}: {exc}") from exc
         if policy.step not in entry.approval_steps:
@@ -355,7 +361,42 @@ def _check_step(number: int, data: Any, folder: Path) -> RecipeStep:
                 f"{where}: the {name!r} command reaches {reach}, so a policy for "
                 f"{policy.step!r} has nothing to apply to"
             )
-    return RecipeStep(number, _with_paths(request, _resolve, folder), policy)
+    batch_movies = request.movies if isinstance(request, BatchRequest) else None
+    return RecipeStep(number, _with_paths(request, _resolve, folder), policy, batch_movies)
+
+
+_JSON_SPACE = re.compile(r"[ \t\r\n]*")
+
+
+def _json_members(text: str, start: int) -> Iterator[tuple[str, int, int]]:
+    """Yield key and value bounds in a previously validated JSON object or array."""
+    decoder = json.JSONDecoder()
+    is_object = text[start] == "{"
+    offset = _JSON_SPACE.match(text, start + 1).end()
+    while text[offset] not in "}]":
+        key = ""
+        if is_object:
+            key, end = decoder.raw_decode(text, offset)
+            colon = _JSON_SPACE.match(text, end).end()
+            offset = _JSON_SPACE.match(text, colon + 1).end()
+        _, end = decoder.raw_decode(text, offset)
+        yield key, offset, end
+        offset = _JSON_SPACE.match(text, end).end()
+        if text[offset] == ",":
+            offset = _JSON_SPACE.match(text, offset + 1).end()
+
+
+def _policy_sources(text: str) -> Iterator[str | None]:
+    """Keep the original policy text for each step, including ordering and whitespace."""
+    start = _JSON_SPACE.match(text).end()
+    steps = {key: first for key, first, _ in _json_members(text, start)}["steps"]
+    for _, first, _ in _json_members(text, steps):
+        source = None
+        if text[first] == "{":
+            for key, begin, end in _json_members(text, first):
+                if key == "policy":
+                    source = text[begin:end]
+        yield source
 
 
 def recipe_from_text(text: str, *, folder: str | Path) -> Recipe:
@@ -380,7 +421,15 @@ def recipe_from_text(text: str, *, folder: str | Path) -> Recipe:
     steps = data.get("steps")
     if not isinstance(steps, list) or not steps:
         raise RecipeError("a recipe needs a non-empty 'steps' list")
-    checked = tuple(_check_step(i, step, folder) for i, step in enumerate(steps, start=1))
+    sources = (
+        _policy_sources(text)
+        if any(isinstance(s, dict) and "policy" in s for s in steps)
+        else (None for _ in steps)
+    )
+    checked = tuple(
+        _check_step(i, step, folder, source)
+        for i, (step, source) in enumerate(zip(steps, sources, strict=True), start=1)
+    )
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return Recipe(folder=folder, sha256=sha, version=version, steps=checked)
 
@@ -389,11 +438,20 @@ def read_recipe(path: str | Path) -> Recipe:
     """Read and check the recipe file at ``path``; raise [`RecipeError`][] if not valid."""
     path = Path(path)
     try:
-        text = path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as source:
+            text = source.read()
     except (OSError, UnicodeDecodeError) as exc:
         raise RecipeError(f"cannot read the recipe {path}: {exc}") from exc
     origin = path.resolve()
-    return dataclasses.replace(recipe_from_text(text, folder=origin.parent), path=origin)
+    recipe = recipe_from_text(text, folder=origin.parent)
+    # Keep the established checkpoint identity while recording the policy's original text.
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sha = (
+        hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        if text != normalized
+        else recipe.sha256
+    )
+    return dataclasses.replace(recipe, path=origin, sha256=sha)
 
 
 def recipe_to_text(requests: Sequence[Request], *, folder: str | Path) -> str:
@@ -415,13 +473,16 @@ def write_recipe(path: str | Path, requests: Sequence[Request]) -> Path:
 # --- jobs of a recipe run ---------------------------------------------------------------------
 
 
-def recipe_part(recipe: Recipe, number: int) -> str:
+def recipe_part(
+    recipe: Recipe, number: int, run_id: str | None = None, attempt_id: str | None = None
+) -> str:
     """Return the name of the one part of the job of step ``number`` (recipe and step)."""
-    return json.dumps(
-        {"recipe_sha256": recipe.sha256, "recipe_version": recipe.version, "step": number},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    data = {"recipe_sha256": recipe.sha256, "recipe_version": recipe.version, "step": number}
+    if run_id is not None:
+        data["run_id"] = run_id
+    if attempt_id is not None:
+        data["attempt_id"] = attempt_id
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
 
 def _parse_part(part: str) -> dict[str, Any] | None:
@@ -434,18 +495,27 @@ def _parse_part(part: str) -> dict[str, Any] | None:
     return None
 
 
-def stopped_recipe(path: str | Path) -> tuple[str, int] | None:
-    """Return the ``(sha256, version)`` of the recipe whose run stopped last here.
+def stopped_recipe(
+    path: str | Path, *, step: str | None = None, subject: str | None = None
+) -> tuple[str, int] | None:
+    """Return the ``(sha256, version)`` of the latest stopped recipe matching the approval.
 
-    It is read from the checkpoint of the stopped run: the latest recipe job that was
-    stopped (stored *cancelled*). ``None`` when no recipe run stopped in the project.
+    When given a step and subject, only a stopped job with that approval context can
+    identify the recipe. Older jobs without that context cannot establish the match.
     """
     from tether.project.jobs import JobState, read_jobs  # noqa: PLC0415
 
-    for job in reversed(read_jobs(path)):
+    for job in sorted(read_jobs(path), key=lambda row: row.ended_utc, reverse=True):
         if job.stored_state is not JobState.CANCELLED or len(job.parts) != 1:
             continue
         part = _parse_part(job.parts[0])
+        if step is not None or subject is not None:
+            try:
+                context = json.loads(job.error)
+            except json.JSONDecodeError:
+                continue
+            if context != {"approval_step": step, "approval_subject": subject}:
+                continue
         if part is not None:
             return str(part["recipe_sha256"]), int(part["recipe_version"])
     return None
@@ -459,20 +529,40 @@ def _project_of(request: Request) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _done_parts(path: str) -> set[str]:
-    """Return the recipe parts whose latest job in ``path`` is done.
-
-    A later run that failed or deferred a step stores a newer job for it, so an older
-    *done* job of the same step does not make it complete.
-    """
+def _project_runs(
+    recipe: Recipe, step: RecipeStep, project: str
+) -> Iterator[tuple[str | None, str | None, bool]]:
+    """Yield the step's recorded attempts and completion flags, newest first."""
     from tether.project.jobs import JobState, read_jobs  # noqa: PLC0415
 
-    latest = {job.parts[0]: job.stored_state for job in read_jobs(path) if len(job.parts) == 1}
-    return {part for part, state in latest.items() if state is JobState.DONE}
+    if not Path(project).is_file():
+        return
+    for job in reversed(read_jobs(project)):
+        part = _parse_part(job.parts[0]) if len(job.parts) == 1 else None
+        if (
+            part is not None
+            and part["recipe_sha256"] == recipe.sha256
+            and part["recipe_version"] == recipe.version
+            and part["step"] == step.number
+        ):
+            yield part.get("run_id"), part.get("attempt_id"), job.stored_state is JobState.DONE
 
 
-def _project_done(recipe: Recipe, step: RecipeStep, project: str) -> bool:
-    return Path(project).is_file() and recipe_part(recipe, step.number) in _done_parts(project)
+def _project_done(
+    recipe: Recipe,
+    step: RecipeStep,
+    project: str,
+    run_id: str | None,
+    attempt_id: str | None = None,
+) -> bool:
+    return next(
+        (
+            done
+            for run, attempt, done in _project_runs(recipe, step, project)
+            if run == run_id and (attempt_id is None or attempt == attempt_id)
+        ),
+        False,
+    )
 
 
 def _checkpoint_path(recipe: Recipe) -> Path:
@@ -483,60 +573,105 @@ def _checkpoint_path(recipe: Recipe) -> Path:
     return user_lock_dir().parent / "recipe-runs" / f"{key.hexdigest()}.json"
 
 
-def _legacy_checkpoint(recipe: Recipe) -> int:
-    """Find the last completed project job when no recipe checkpoint exists."""
-    for step in reversed(recipe.steps):
+@dataclasses.dataclass(frozen=True)
+class _Checkpoint:
+    completed: int
+    run_id: str | None = None
+    attempt_id: str | None = None
+
+
+def _recover_checkpoint(recipe: Recipe) -> _Checkpoint:
+    """Recover a contiguous prefix of one run from its project jobs."""
+    completed = 0
+    run_id = None
+    for step in recipe.steps:
         project = _project_of(step.request)
-        if project and _project_done(recipe, step, project):
-            return step.number
-    return 0
+        if not project:
+            for later in recipe.steps[step.number :]:
+                later_project = _project_of(later.request)
+                if later_project and any(
+                    done for _, _, done in _project_runs(recipe, later, later_project)
+                ):
+                    raise RecipeError(
+                        f"cannot recover step {step.number} without its local checkpoint"
+                    )
+            break
+        recorded_run, _, done = next(_project_runs(recipe, step, project), (None, None, False))
+        if not done or (completed and recorded_run != run_id):
+            break
+        completed, run_id = step.number, recorded_run
+    return _Checkpoint(completed, run_id)
 
 
-def _resume_prefix(recipe: Recipe, path: Path) -> int:
-    """Find the first unfinished step, including a project that lost its completed job."""
-    has_checkpoint = True
+def _resume_checkpoint(recipe: Recipe, path: Path) -> _Checkpoint:
+    """Find the first unfinished step and retain the run that owns the checkpoint."""
+    from tether.project.lock import file_identity  # noqa: PLC0415, PLC2701
+
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        completed = _legacy_checkpoint(recipe)
-        has_checkpoint = False
+        return _recover_checkpoint(recipe)
     except (OSError, UnicodeError) as exc:
         raise RecipeError(f"cannot read the recipe checkpoint: {exc}") from exc
-    else:
-        try:
-            completed = json.loads(text)["completed"]
-        except (ValueError, KeyError, TypeError) as exc:
-            raise RecipeError("the recipe checkpoint is invalid") from exc
-        if (
-            not isinstance(completed, int)
-            or isinstance(completed, bool)
-            or not 0 <= completed <= len(recipe.steps)
-        ):
-            raise RecipeError("the recipe checkpoint is invalid")
+    try:
+        data = json.loads(text)
+        saved = data["completed"]
+        run_id = data.get("run_id")
+        attempt_id = data.get("attempt_id")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RecipeError("the recipe checkpoint is invalid") from exc
+    if (
+        not isinstance(saved, int)
+        or isinstance(saved, bool)
+        or not 0 <= saved <= len(recipe.steps)
+        or (run_id is not None and (not isinstance(run_id, str) or not run_id))
+        or (attempt_id is not None and (not isinstance(attempt_id, str) or not attempt_id))
+    ):
+        raise RecipeError("the recipe checkpoint is invalid")
 
-    verified_projects: set[str] = set()
-    for step in reversed(recipe.steps[:completed]):
+    # A pending attempt can have a durable job if advancing the checkpoint failed.
+    if attempt_id is not None and saved < len(recipe.steps):
+        step = recipe.steps[saved]
         project = _project_of(step.request)
-        if project and project not in verified_projects:
-            if not _project_done(recipe, step, project):
-                completed = step.number - 1
-            elif has_checkpoint:
+        if project and _project_done(recipe, step, project, run_id, attempt_id):
+            saved += 1
+            attempt_id = None
+
+    completed = saved
+    verified_projects: set[tuple[int, int] | Path] = set()
+    for step in reversed(recipe.steps[:saved]):
+        project = _project_of(step.request)
+        if not project:
+            continue
+        identity = file_identity(project) or Path(project)
+        if identity not in verified_projects:
+            if _project_done(recipe, step, project, run_id):
                 # A later completed step may have replaced the project and its job table.
-                verified_projects.add(project)
-    return completed
+                verified_projects.add(identity)
+            else:
+                completed = step.number - 1
+
+    return _Checkpoint(completed, run_id, attempt_id if completed == saved else None)
 
 
-def _save_checkpoint(path: Path, completed: int) -> None:
+def _save_checkpoint(path: Path, state: _Checkpoint) -> None:
     from tether.project.lock import _atomic_write_json  # noqa: PLC0415, PLC2701
 
-    _atomic_write_json(path, {"completed": completed}, tag=uuid4().hex)
+    _atomic_write_json(path, dataclasses.asdict(state), tag=uuid4().hex)
 
 
 class _StepFailed(Exception):  # noqa: N818 - stored as the job's error text
     pass
 
 
-def _record(project_path: str, request: Request, part: str, outcome: str, message: str) -> None:
+def _record(
+    project_path: str,
+    request: Request,
+    part: str,
+    outcome: str,
+    message: str,
+    stop: ApprovalStop | None = None,
+) -> None:
     """Store the job of a step in ``project_path`` with its end state.
 
     The command holds the project's lock while it runs, so the job is written around it:
@@ -546,8 +681,10 @@ def _record(project_path: str, request: Request, part: str, outcome: str, messag
     from tether.project.core import Project  # noqa: PLC0415
 
     def work(_part: str, _cancel: object) -> None:
-        if outcome == "stopped":
-            raise jobs.JobCancelled
+        if stop is not None:
+            raise jobs.JobCancelled(
+                json.dumps({"approval_step": stop.step, "approval_subject": stop.subject})
+            )
         if outcome == "failed":
             raise _StepFailed(message)
 
@@ -688,11 +825,13 @@ def _result_outcome(result: Any) -> tuple[str, bool]:
     return (f"{failed} movie(s) had a failed stage" if failed else ""), deferred
 
 
-def _run_step(recipe: Recipe, step: RecipeStep) -> tuple[StepOutcome, ApprovalStop | None]:
+def _run_step(
+    recipe: Recipe, step: RecipeStep, state: _Checkpoint
+) -> tuple[StepOutcome, ApprovalStop | None]:
     registry = _registry()
     request = step.request
     entry = registry.command(request.COMMAND)
-    part = recipe_part(recipe, step.number)
+    part = recipe_part(recipe, step.number, state.run_id, state.attempt_id)
     project = _project_of(request)
     if project and Path(project).is_file():
         try:
@@ -704,7 +843,11 @@ def _run_step(recipe: Recipe, step: RecipeStep) -> tuple[StepOutcome, ApprovalSt
     stop: ApprovalStop | None = None
     deferred = False
     try:
-        result = registry.run(request, **observers)
+        if isinstance(request, BatchRequest) and step.batch_movies is not None:
+            batch_request = dataclasses.replace(request, movies=step.batch_movies)
+            result = registry.run(batch_request, movie_root=recipe.folder, **observers)
+        else:
+            result = registry.run(request, **observers)
     except ApprovalStop as exc:
         state, message, stop = "stopped", str(exc), exc
     except ServiceError as exc:
@@ -719,7 +862,7 @@ def _run_step(recipe: Recipe, step: RecipeStep) -> tuple[StepOutcome, ApprovalSt
     stored = "failed" if deferred else state
     if project and Path(project).is_file():
         try:
-            _record(project, request, part, stored, message)
+            _record(project, request, part, stored, message, stop)
         except _STORE_ERRORS as exc:
             # The command ran; without its job a later --resume would run it again.
             state, stop = "failed", None
@@ -752,29 +895,44 @@ def run_recipe(
         try:
             checkpoint.parent.mkdir(parents=True, exist_ok=True)
             stack.enter_context(_lifecycle_guard(checkpoint))
-            completed = _resume_prefix(recipe, checkpoint) if resume else 0
-            _save_checkpoint(checkpoint, completed)
+            state = _resume_checkpoint(recipe, checkpoint) if resume else _Checkpoint(0)
+            if state.run_id is None and state.completed == 0:
+                state = _Checkpoint(0, uuid4().hex)
+            _save_checkpoint(checkpoint, state)
         except OSError as exc:
             raise RecipeError(f"cannot start a recipe checkpoint: {exc}") from exc
-        return _run_from_checkpoint(recipe, checkpoint, completed, progress)
+        return _run_from_checkpoint(recipe, checkpoint, state, progress)
 
 
 def _run_from_checkpoint(
     recipe: Recipe,
     checkpoint: Path,
-    start: int,
+    state: _Checkpoint,
     progress: Callable[[StepOutcome], None] | None,
 ) -> RecipeRun:
     outcomes: list[StepOutcome] = []
     stop: ApprovalStop | None = None
     for step in recipe.steps:
-        if step.number <= start:
+        if step.number <= state.completed:
             outcome = StepOutcome(step.number, step.request.COMMAND, "skipped")
         else:
-            outcome, stop = _run_step(recipe, step)
+            try:
+                if state.attempt_id is None and _project_of(step.request):
+                    state = dataclasses.replace(state, attempt_id=uuid4().hex)
+                    _save_checkpoint(checkpoint, state)
+            except OSError as exc:
+                outcome = StepOutcome(
+                    step.number,
+                    step.request.COMMAND,
+                    "failed",
+                    f"cannot record step attempt: {exc}",
+                )
+            else:
+                outcome, stop = _run_step(recipe, step, state)
             if outcome.state == "done" and not outcome.deferred:
                 try:
-                    _save_checkpoint(checkpoint, step.number)
+                    state = _Checkpoint(step.number, state.run_id)
+                    _save_checkpoint(checkpoint, state)
                 except OSError as exc:
                     outcome = dataclasses.replace(
                         outcome, state="failed", message=f"cannot record recipe progress: {exc}"
@@ -793,7 +951,7 @@ def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:
     With ``resume``, it also reads the checkpoint and any relevant job records.
     """
     registry = _registry()
-    start = _resume_prefix(recipe, _checkpoint_path(recipe)) if resume else 0
+    start = _resume_checkpoint(recipe, _checkpoint_path(recipe)).completed if resume else 0
     total = len(recipe.steps)
     lines = [f"recipe {recipe.sha256[:12]} (version {recipe.version}), {total} step(s)"]
     for step in recipe.steps:
