@@ -839,12 +839,10 @@ def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _Curator
             src_group.file.copy(item, dst_group, name=member)  # type: ignore[attr-defined]
 
 
-def _subset_label_rows(rows: np.ndarray, selected_keys: set[str]) -> np.ndarray:
-    """The label or reject-log rows whose molecule is in the subset (store order)."""
-    if rows.shape[0] == 0:
-        return rows
+def _subset_label_rows(rows: np.ndarray, selected_keys: set[str]) -> tuple[np.ndarray, np.ndarray]:
+    """The source positions and rows of selected labels or reasons in store order."""
     mask = np.array([_to_str(k) in selected_keys for k in rows["molecule_key"]], dtype=bool)
-    return rows[mask]
+    return np.flatnonzero(mask), rows[mask]
 
 
 def _copy_labels(dst: object, kept: np.ndarray, aliases: _CuratorAliases | None) -> int:
@@ -871,7 +869,7 @@ def _kept_reject_log(src: object, selected_keys: set[str]) -> np.ndarray | None:
     from tether.project.labels import REJECT_LOG  # noqa: PLC0415
 
     log = src["labels"].get(REJECT_LOG)  # type: ignore[index]
-    return None if log is None else _subset_label_rows(log[()], selected_keys)
+    return None if log is None else _subset_label_rows(log[()], selected_keys)[1]
 
 
 def _copy_reject_log(dst: object, kept: np.ndarray | None, aliases: _CuratorAliases | None) -> int:
@@ -894,6 +892,21 @@ def _copy_reject_log(dst: object, kept: np.ndarray | None, aliases: _CuratorAlia
         REJECT_LOG, data=kept, dtype=kept.dtype, maxshape=(None,)
     )
     return int(kept.shape[0])
+
+
+def _copy_label_reviews(
+    src: object, dst: object, selected_ids: set[str], kept_indices: np.ndarray
+) -> None:
+    """Carry review state with the label indexes of the copied rows."""
+    from tether.io import generations  # noqa: PLC0415
+
+    event_indices = {old: new for new, old in enumerate(kept_indices)}
+    review_events = {
+        mid: event_indices.get(event, generations.PENDING_LABEL_REVIEW)
+        for mid, event in generations.label_reviews_in(src).items()
+        if mid in selected_ids
+    }
+    generations.append_label_reviews(dst, review_events)
 
 
 def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | None) -> None:
@@ -1088,20 +1101,21 @@ def export_subset_tether(
         # to a temp sibling and atomically moved into place — os.replace always clobbers.
         raise FileExistsError(f"{out_path} already exists; pass overwrite=True to replace it")
 
-    molecules = read_molecules(path)
-    rows = _selected_rows(molecules, molecule_keys, include_rejected)
-    if not rows:
-        raise ValueError(
-            "no molecules selected to export (empty selection, or every match rejected "
-            "with include_rejected=False)"
-        )
-    selected_keys = _selected_keys(molecules, rows)
-    selected_ids = _selected_ids(molecules, rows)
-
     created_utc = datetime.now(UTC).isoformat()
     with h5py.File(path, "r") as src:
+        # Select rows and copy their review state from one open file. A
+        # generation can replace the canonical path between separate opens.
+        molecules = src["molecules"][TABLE][()]
+        rows = _selected_rows(molecules, molecule_keys, include_rejected)
+        if not rows:
+            raise ValueError(
+                "no molecules selected to export (empty selection, or every match rejected "
+                "with include_rejected=False)"
+            )
+        selected_keys = _selected_keys(molecules, rows)
+        selected_ids = _selected_ids(molecules, rows)
         _preflight_source(src, int(molecules.shape[0]), include_raw)
-        kept_labels = _subset_label_rows(src["labels"][TABLE][()], selected_keys)
+        kept_indices, kept_labels = _subset_label_rows(src["labels"][TABLE][()], selected_keys)
         kept_reject_log = _kept_reject_log(src, selected_keys)
         aliases = (
             None
@@ -1130,6 +1144,7 @@ def export_subset_tether(
                 models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
                 n_labels = _copy_labels(dst, kept_labels, aliases)
                 n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
+                _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.

@@ -362,6 +362,81 @@ def test_guarded_write_refuses_a_canonical_file_replaced_meanwhile(tmp_path: Pat
     assert list(tmp_path.glob(".p.tether.*.test.tmp")) == []
 
 
+def _stamp_project(path: Path, version: int) -> None:
+    with h5py.File(path, "a") as project:
+        project.attrs["schema_version"] = version
+
+
+def test_failed_migration_backup_does_not_publish_a_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.project import _guarded_publish
+
+    canonical = tmp_path / "p.tether"
+    _stamp_project(canonical, 1)
+    original = canonical.read_bytes()
+    real_copy = _guarded_publish.copy2
+
+    def fail_backup(source: Path, target: Path) -> None:
+        if "backup" in target.name:
+            target.write_bytes(b"partial copy")
+            raise OSError("backup interrupted")
+        real_copy(source, target)
+
+    monkeypatch.setattr(_guarded_publish, "copy2", fail_backup)
+    with (
+        pytest.raises(OSError, match="backup interrupted"),
+        _guarded_publish.guarded_project_write(
+            canonical, write_guard=lambda: None, label="test"
+        ) as stage,
+    ):
+        _stamp_project(stage, 2)
+
+    assert canonical.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [canonical]
+
+
+@pytest.mark.parametrize("interruption", ["ownership", "canonical"])
+def test_refuses_migration_if_the_source_changes_during_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    from tether.project import _guarded_publish
+
+    canonical = tmp_path / "p.tether"
+    _stamp_project(canonical, 1)
+    original = canonical.read_bytes()
+    real_copy = _guarded_publish.copy2
+    ownership_lost = False
+    replacement = tmp_path / "replacement.tmp"
+    replacement_bytes = b"another writer's project"
+    if interruption == "canonical":
+        replacement.write_bytes(replacement_bytes)
+
+    def interrupt_backup(source: Path, target: Path) -> None:
+        nonlocal ownership_lost
+        real_copy(source, target)
+        if "backup" in target.name:
+            if interruption == "ownership":
+                ownership_lost = True
+            else:
+                replacement.replace(canonical)
+
+    def guard() -> None:
+        if ownership_lost:
+            raise lock.LockError("lock ownership changed before publish")
+
+    monkeypatch.setattr(_guarded_publish, "copy2", interrupt_backup)
+    with (
+        pytest.raises(lock.LockError, match="ownership changed|replaced by another writer"),
+        _guarded_publish.guarded_project_write(canonical, write_guard=guard, label="test") as stage,
+    ):
+        _stamp_project(stage, 2)
+
+    expected = original if interruption == "ownership" else replacement_bytes
+    assert canonical.read_bytes() == expected
+    assert list(tmp_path.iterdir()) == [canonical]
+
+
 # --- #258: one staged sibling spans the whole correct stage -------------------
 
 
@@ -430,10 +505,9 @@ def test_guarded_correct_stage_keeps_every_writer_guard_check(tmp_path: Path) ->
     run_correct_stage(path, write_guard=lambda: calls.append(None))
 
     # photobleach 2; leakage, gamma, corrected FRET 2 each in the sibling plus 2
-    # nested-stage checks each; the enclosing stage 3 (before the copy, after it,
-    # before the publish). 17 is also the count before #258, when each of the three
-    # staged writers made its own 3 stage checks.
-    assert len(calls) == 17
+    # nested-stage checks each; the enclosing stage 4 (before and after the
+    # copy, and before and after reading the migration stamps).
+    assert len(calls) == 18
 
 
 def test_guarded_correct_stage_failure_publishes_no_pass(
@@ -494,13 +568,13 @@ def test_guard_refusal_at_correct_stage_publish_keeps_canonical(
 def test_nested_guarded_write_reuses_the_enclosing_stage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from tether.io.schema import create_project  # noqa: PLC0415
     from tether.project import _guarded_publish  # noqa: PLC0415
     from tether.project._guarded_publish import guarded_project_write  # noqa: PLC0415
 
-    path = tmp_path / "x.tether"
-    path.write_bytes(b"canonical")
-    other = tmp_path / "other.tether"
-    other.write_bytes(b"other")
+    path = create_project(tmp_path / "x.tether")
+    other = create_project(tmp_path / "other.tether")
+    original = path.read_bytes()
     counts = _count_stage_io(monkeypatch)
     calls: list[None] = []
 
@@ -511,15 +585,82 @@ def test_nested_guarded_write_reuses_the_enclosing_stage(
         assert stage != path
         with guarded_project_write(stage, write_guard=guard, label="inner") as inner:
             assert inner == stage  # in place: no second copy, no second publish
-            inner.write_bytes(b"updated")
+            with h5py.File(inner, "r+") as f:
+                f.attrs["updated"] = True
         # A different project inside the same stage still gets a stage of its own.
         with guarded_project_write(other, write_guard=guard, label="inner") as own:
             assert own not in (other, stage)
-        assert path.read_bytes() == b"canonical"  # nothing published before the outer exit
+        assert path.read_bytes() == original  # nothing published before the outer exit
 
-    assert path.read_bytes() == b"updated"
+    with h5py.File(path, "r") as f:
+        assert bool(f.attrs["updated"])
     assert counts == {"copies": 2, "publishes": 2}
-    assert len(calls) == 3 + 2 + 3
+    assert len(calls) == 4 + 2 + 4
     # Once published, the old sibling path is not treated as staged any more.
     assert _guarded_publish._ACTIVE_STAGES.get() == frozenset()
     assert _no_stage_left(path)
+
+
+@pytest.mark.parametrize("failure_target", ["canonical", "stage"])
+def test_guarded_migration_requires_readable_schema_stamps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_target: str
+) -> None:
+    from tether.io.schema import create_project
+    from tether.project._guarded_publish import guarded_project_write  # noqa: PLC2701
+
+    project = create_project(tmp_path / "migration.tether")
+    with h5py.File(project, "r+") as f:
+        f.attrs["schema_version"] = 1
+    original = project.read_bytes()
+    open_file = h5py.File
+
+    with (
+        pytest.raises(OSError, match="stamp read failed"),
+        guarded_project_write(project, write_guard=lambda: None, label="generation") as stage,
+    ):
+        with open_file(stage, "r+") as f:
+            f.attrs["schema_version"] = 2
+        target = project if failure_target == "canonical" else stage
+
+        def fail_stamp(path, mode, *args, **kwargs):
+            if mode == "r" and path == target:
+                raise OSError("stamp read failed")
+            return open_file(path, mode, *args, **kwargs)
+
+        monkeypatch.setattr(h5py, "File", fail_stamp)
+
+    assert project.read_bytes() == original
+    assert not list(tmp_path.glob("*backup*"))
+
+
+def test_guarded_publish_rechecks_ownership_after_same_version_stamp_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.io.schema import create_project
+    from tether.project._guarded_publish import guarded_project_write  # noqa: PLC2701
+
+    project = create_project(tmp_path / "replaced.tether")
+    original = project.read_bytes()
+    open_file = h5py.File
+    lost_ownership = False
+
+    def guard() -> None:
+        if lost_ownership:
+            raise lock.LockError("writer lock lost while reading the stamp")
+
+    with (
+        pytest.raises(lock.LockError, match="writer lock lost"),
+        guarded_project_write(project, write_guard=guard, label="correction") as stage,
+    ):
+        with open_file(stage, "r+") as f:
+            f.attrs["staged_change"] = True
+
+        def note_stamp_read(path, mode, *args, **kwargs):
+            nonlocal lost_ownership
+            if mode == "r" and path == stage:
+                lost_ownership = True
+            return open_file(path, mode, *args, **kwargs)
+
+        monkeypatch.setattr(h5py, "File", note_stamp_read)
+
+    assert project.read_bytes() == original

@@ -11,11 +11,12 @@ retrain calls **before** it (re)fits, so the model always trains on current weig
 
 The decay ([`tether.ml.weighting`][])::
 
-    weight = 1.0                    for a human label   (source == "human")
+    weight = 0                      while a carried label awaits confirmation
+    weight = 1.0                    for an eligible human label  (source == "human")
     weight = w₀ / (1 + n_human)     for a provisional/seed prior
 
 ``n_human`` is **the number of molecules in the label's condition that currently carry a human
-accept/reject** — i.e. ``/molecules.curation_label != UNCURATED`` grouped by ``condition_id``. That
+accept/reject eligible to train** — grouped by ``condition_id``. That
 count is exactly the trusted evidence the ranker trains on for the condition (a provisional source
 never sets ``curation_label``; [`tether.project.labels`][]), so tying the decay to it means a
 seed's influence shrinks in lockstep with the real ground truth that supersedes it. Reading the
@@ -35,12 +36,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tether.io.generations import pending_label_ids_in
 from tether.io.schema import TABLE
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT, effective_weights
 from tether.project.labels import HUMAN_WEIGHT, LABEL_SOURCE_HUMAN, CurationLabel
 
 if TYPE_CHECKING:
     from os import PathLike
+
+    import numpy as np
 
     from tether.project.core import Project
 
@@ -64,6 +68,23 @@ def _to_str(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+def training_curation_codes(
+    molecule_ids: np.ndarray, curation_labels: np.ndarray, pending: frozenset[str]
+) -> np.ndarray:
+    """Project the curation codes used in training, with pending carry-overs held out."""
+    if not pending:
+        return curation_labels
+    import numpy as np  # noqa: PLC0415
+
+    return np.array(
+        [
+            _UNCURATED if _to_str(mid) in pending else label
+            for mid, label in zip(molecule_ids, curation_labels, strict=True)
+        ],
+        dtype=curation_labels.dtype,
+    )
 
 
 def human_counts_by_condition(condition_ids: object, curation_labels: object) -> dict[str, int]:
@@ -122,12 +143,12 @@ def human_counts_by_condition(condition_ids: object, curation_labels: object) ->
 def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> int:
     """Recompute every ``/labels`` row's ``weight`` from the current label set and rewrite it.
 
-    Applies the cold-start decay ([`tether.ml.weighting`][]): a human label becomes full weight
+    Pending carried labels get zero weight. For eligible labels, apply the cold-start
+    decay ([`tether.ml.weighting`][]): a human label becomes full weight
     ([`tether.project.labels.HUMAN_WEIGHT`][]); a provisional/seed prior becomes
     ``w₀ / (1 + n_human)`` where ``n_human`` is its condition's count of human-curated molecules.
     The whole ``/labels/table`` ``weight`` column is rewritten in place (``r+``); no other field is
-    touched. Idempotent — human weights resolve to the same ``1.0`` and a fixed label set yields the
-    same weights on every call. Call it at the start of each retrain so the fit sees current
+    touched. Calling it again with the same label and confirmation state yields the same
     weights.
 
     Parameters
@@ -166,13 +187,11 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
         if n == 0:
             return 0
 
-        # n_human per condition = molecules currently carrying a human accept/reject
-        # (curation_label != UNCURATED) grouped by condition_id — the authoritative human state
-        # (provisional sources never touch curation_label), robust to a molecule being re-curated.
-        # Shared with the ranker training-fold so both use one n_human definition.
-        n_human_by_condition = human_counts_by_condition(
-            mol_table["condition_id"][:], mol_table["curation_label"][:]
-        )
+        # Share the eligible human-label count with the ranker training fold.
+        pending = pending_label_ids_in(f)
+        ids, keys = mol_table["molecule_id"][:], mol_table["molecule_key"][:]
+        eligible = training_curation_codes(ids, mol_table["curation_label"][:], pending)
+        n_human_by_condition = human_counts_by_condition(mol_table["condition_id"][:], eligible)
 
         rows = labels_table[:]
         is_human = np.array([_to_str(s) == LABEL_SOURCE_HUMAN for s in rows["source"]], dtype=bool)
@@ -183,5 +202,10 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
         rows["weight"] = effective_weights(
             is_human, n_human_per_row, w0=w0, human_weight=HUMAN_WEIGHT
         )
+        pending_keys = {
+            _to_str(key) for mid, key in zip(ids, keys, strict=True) if _to_str(mid) in pending
+        }
+        if pending_keys:
+            rows["weight"][[_to_str(key) in pending_keys for key in rows["molecule_key"]]] = 0.0
         labels_table[:] = rows
         return n
