@@ -140,9 +140,10 @@ exported figure is the figure the user saw. Option (ii) is **not** a fallback: a
 preview beside a Matplotlib export is two drawings of the same data, and labelling the preview
 as a preview does not make the export the figure that was seen, so shipping it would ship a
 builder that breaks the requirement. Blocked means the builder says why it cannot export and
-writes no figure, rather than writing one that was never on screen. On the three platforms CI
-runs, the spike test above is what notices first: a lock bump that drops the Qt backends turns
-it red on the pull request that makes the bump. (Amended 2026-11-17 by
+writes no figure, rather than writing one that was never on screen. On the three CI platforms,
+the spike test imports `FigureCanvasQTAgg` and checks that it selects PySide6. A missing Qt
+backend fails the test when PySide6 is present. Without PySide6, the test skips. A canvas that
+imports but cannot draw can still pass this test. (Amended 2026-11-17 by
 [#1192](https://github.com/bioedca/tether/issues/1192): as first accepted, this paragraph
 named (ii) as the fallback, with the preview labelled, while also saying (ii) breaks "what is
 exported is what was seen".)
