@@ -19,10 +19,17 @@ evidence and replaces none.
 * **Viterbi agreement** -- the fraction of frames whose fitted level, mapped to the nearest
   stored level of the same trace, is the stored level.
 
+The fit uses tMAVEN's default clip, which replaces each frame outside [-1, 2] or NaN with a
+random draw before the fit; vbFRET_nov12 replaced none. The report counts those frames for each
+set and names them by trace and frame (#1001). It also names the frames whose donor-plus-acceptor
+total is zero: tMAVEN reads FRET 0 there, which is inside its range, so the clip keeps them.
+
 No tolerance is frozen: the maintainer accepts one first (#797). So the test asserts only that
-the fit covers every frame of every trace and that each measure is defined, and it prints the
-values. ``docs/validation.md`` (oracle (b)) records the values of the run on the pinned build;
-set ``TETHER_MARZANO_REPORT`` to a path to write them as JSON.
+the fit covers every frame of every trace, that each measure is defined, and that the clip
+changed exactly the frames that are outside tMAVEN's range. It prints the JSON report with
+pytest's capture turned off, so a passing run shows it too (#1001). ``docs/validation.md``
+(oracle (b)) records the values of the run on the pinned build; set ``TETHER_MARZANO_REPORT`` to
+a path to also write them to a file.
 """
 
 from __future__ import annotations
@@ -80,6 +87,37 @@ def _fit(set_id: str, tmp: Path) -> tuple[list, dict]:
         return traces, {key: npz[key] for key in npz.files}
 
 
+def _frames(traces: list, masks: list) -> list[dict]:
+    return [
+        {"trace": t.name, "frames": t.frame[mask].tolist()}
+        for t, mask in zip(traces, masks, strict=True)
+        if mask.any()
+    ]
+
+
+def _clip_record(traces: list, fit: dict) -> tuple[list[dict], list[dict]]:
+    """The frames that tMAVEN's clip changed, and the frames with a zero D + A total.
+
+    Both are lists of ``{"trace", "frames"}`` with the ``.dat`` frame numbers. tMAVEN computes
+    FRET as ``A / (D + A + 1e-300)`` (``maven.calc_relative``), so a zero total gives 0, not NaN,
+    and its clip leaves that frame alone: the fit reads FRET 0 there.
+    """
+    settings = json.loads(str(fit["settings"]))
+    low, high = settings["modeler.clip_min"], settings["modeler.clip_max"]
+    clipped, zero_total = [], []
+    for i, t in enumerate(traces):
+        mask = fit["clipped"][i, : t.frame.size]
+        assert not fit["clipped"][i, t.frame.size :].any(), f"{t.name}: clip outside the window"
+        total = t.donor + t.acceptor
+        if settings["modeler.clip"]:
+            fret = t.acceptor / (total + 1e-300)
+            outside = np.isnan(fret) | (fret < low) | (fret > high)
+            np.testing.assert_array_equal(mask, outside, err_msg=f"{t.name}: clipped frames")
+        clipped.append(mask)
+        zero_total.append(total == 0)
+    return _frames(traces, clipped), _frames(traces, zero_total)
+
+
 def _measures(traces: list, fit: dict) -> dict:
     same, deltas, agree, frames = 0, [], 0, 0
     for i, t in enumerate(traces):
@@ -94,9 +132,14 @@ def _measures(traces: list, fit: dict) -> dict:
         nearest = ref_levels[np.argmin(np.abs(fitted[:, None] - ref_levels[None, :]), axis=1)]
         agree += int(np.count_nonzero(nearest == stored))
         frames += stored.size
+    clipped, zero_total = _clip_record(traces, fit)
     return {
         "traces": len(traces),
         "frames": frames,
+        "clipped_frame_count": sum(len(c["frames"]) for c in clipped),
+        "clipped_frames": clipped,
+        "zero_total_frame_count": sum(len(z["frames"]) for z in zero_total),
+        "zero_total_frames": zero_total,
         "state_count_fraction": same / len(traces),
         "state_mean_abs_delta_max": max(deltas) if deltas else None,
         "state_mean_abs_delta_median": float(np.median(deltas)) if deltas else None,
@@ -110,7 +153,9 @@ def _measures(traces: list, fit: dict) -> dict:
 
 
 @requires_sidecar
-def test_tmaven_per_trace_vbhmm_is_measured_against_the_stored_vbfret_paths(tmp_path) -> None:
+def test_tmaven_per_trace_vbhmm_is_measured_against_the_stored_vbfret_paths(
+    tmp_path, capsys
+) -> None:
     report = {}
     for set_id in sorted(SETS):
         traces, fit = _fit(set_id, tmp_path)
@@ -119,6 +164,10 @@ def test_tmaven_per_trace_vbhmm_is_measured_against_the_stored_vbfret_paths(tmp_
         assert 0.0 <= measures["viterbi_agreement"] <= 1.0
         assert measures["state_mean_abs_delta_max"] is not None, "no trace has the same count"
         report[set_id] = measures
-    print(json.dumps(report, indent=2, sort_keys=True))
+    text = json.dumps(report, indent=2, sort_keys=True)
+    # Capture off: pytest shows captured output only for a failing test, and this measurement
+    # has no threshold, so a passing run would otherwise leave no record of it (#1001).
+    with capsys.disabled():
+        print(f"\n{Path(__file__).name}: tMAVEN per-trace vbHMM vs stored vbFRET paths\n{text}")
     if os.environ.get(REPORT_ENV):
-        Path(os.environ[REPORT_ENV]).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        Path(os.environ[REPORT_ENV]).write_text(text + "\n")

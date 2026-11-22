@@ -157,6 +157,19 @@ def test_a_second_close_ignores_a_lock_another_shell_took_since(qtbot, tmp_path)
     shells.close_all()
 
 
+def test_closing_a_reader_ignores_the_lock_the_writer_holds(qtbot, tmp_path) -> None:
+    # A second shell on a file another shell holds writable opens it read-only and never
+    # takes its lock, so its close is not charged with the writer's lock (#1238).
+    shells = SectionShells(qtbot, tmp_path, lock_timeout_ms=50)
+    writer = shells("curate")
+    reader = shells(project=writer.project_path)
+    assert writer.holds_project_claim
+    assert not reader.holds_project_claim
+    shells.close(reader)
+    assert writer.holds_project_claim
+    shells.close_all()
+
+
 def test_the_lock_check_fails_while_the_lock_is_held(qtbot, tmp_path) -> None:
     shells = SectionShells(qtbot, tmp_path, lock_timeout_ms=50)
     shell = shells("curate")
