@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1877,6 +1877,38 @@ def test_a_file_without_identity_keeps_the_beside_lock_alone(tmp_path: Path, mon
     assert lock.read_lock(project) == held
     assert lock.release(project, held)
     assert not lock.user_lock_dir().exists()
+
+
+@pytest.mark.parametrize("failure_at", ["write", "close"])
+def test_a_failed_initial_sidecar_write_rolls_back_the_claim(
+    tmp_path: Path, monkeypatch, failure_at: str
+) -> None:
+    project = tmp_path / "new.tether"
+    sidecar = lock.lock_path(project)
+    fdopen = lock.os.fdopen
+    disk_full = OSError(28, "No space left on device")
+
+    @contextmanager
+    def incomplete_record(fd, *args, **kwargs):
+        with fdopen(fd, *args, **kwargs) as stream:
+            assert sidecar.exists()
+
+            class PartialRecord:
+                def write(self, _text):
+                    stream.write("{")
+                    if failure_at == "write":
+                        raise disk_full
+
+            yield PartialRecord()
+        raise disk_full
+
+    with monkeypatch.context() as m:
+        m.setattr(lock.os, "fdopen", incomplete_record)
+        with pytest.raises(OSError, match="No space left on device"), lock.publish_lock(project):
+            pytest.fail("an incomplete sidecar must not grant the lock")
+    assert not sidecar.exists()
+    with lock.publish_lock(project) as guard:
+        guard()
 
 
 def test_a_failed_identity_record_write_rolls_back_the_claim(tmp_path: Path, monkeypatch) -> None:

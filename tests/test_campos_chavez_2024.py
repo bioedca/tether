@@ -6,12 +6,15 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
 ``campos2024-source-data`` entry of the reference-data manifest (CC BY-NC-ND 4.0, ADR-0083).
 
 * Required matrix: the method of ``_campos_chavez_2024`` on data built here — the rounding bound,
-  the window search and the survival-curve inversion.
+  the window search, the survival-curve inversion, and the smoothed transition density beside
+  the committed ``checkTDP.py`` with a deliberate error it must catch (#1130).
 * Weekly ``reference-data`` job (``reference_download``): the archive is downloaded and verified,
   and each published efficiency, histogram, survival curve, exponential fit, transition density
   count and smoothed transition density array is compared with Tether's. The limits in
   :data:`LIMITS` were measured on Linux, macOS and Windows (ADR-0097 has the numbers) and are
-  frozen; the smoothed-array limit (#1029) is measured on three systems by #1130.
+  frozen; the smoothed-array limit (#1029) was measured on the three by #1130.
+  The mean dwell time of each fitted double exponential (#1129) is held to the ``.out`` file's
+  ``tau``, and its error to the published formula with each error paired with its own parameter.
 
 * Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
   fraction of the closed state that the archive's notebook printed, in all five columns. Three of
@@ -38,6 +41,7 @@ from _campos_chavez_2024 import (
     SURVIVAL,
     TDPS,
     TRACE_SHEETS,
+    built_tdp_columns,
     column,
     compare_closed_fraction,
     compare_histogram,
@@ -45,11 +49,13 @@ from _campos_chavez_2024 import (
     compare_survival,
     compare_tdp,
     compare_tdp_view,
+    compare_tdp_view_columns,
     compare_trace_sheet,
     dwells_from_survival,
     find_windows,
     intrafret_efficiencies,
     read_book,
+    read_double_out,
     read_double_params,
     read_fig5c,
     read_notebook_fractions,
@@ -71,6 +77,13 @@ LIMITS = {
     "model_rel": 2e-5,
     "params_rel": 5e-5,
     "errors_rel": 1e-2,
+    # The mean dwell time of the fitted double exponential (#1129): Tether's tau beside the tau of
+    # the published parameters, and the error of Tether's fit beside the published parameters'
+    # error with each error paired with its own parameter. ``tau_out_abs`` is half a unit of the
+    # second decimal, which is all the .out file keeps.
+    "tau_rel": 5e-5,
+    "tau_out_abs": 5e-3,
+    "tau_err_rel": 1e-2,
     # Fig. 5c and the notebook print each fraction and error with four decimals, so a value equal
     # to the unrounded one is within half a unit of the fourth decimal (ADR-0120).
     "fraction_abs": 5e-5,
@@ -153,6 +166,12 @@ def test_find_windows_finds_each_window_and_a_value_the_matrix_lost() -> None:
     assert windows == [(3, 10, 50), (1, 0, 300), (-1, -1, 1), (0, 5, 4)]
 
 
+def test_find_windows_finds_a_value_whose_candidate_is_exactly_at_the_upper_reach() -> None:
+    # The bound is inclusive, so 0.5 matches 0.375 within 0.125 and must be searched (#1125).
+    e = np.array([[0.5]])
+    assert find_windows(e, np.array([[0.125]]), np.array([0.375])) == [(0, 0, 1)]
+
+
 def test_dwells_from_survival_give_back_the_survival_curve() -> None:
     lengths = np.array([1, 1, 2, 3, 3, 3, 7, 12, 12, 40])
     _, surv = survival_curve(lengths)
@@ -183,6 +202,29 @@ def test_every_double_exponential_panel_has_a_committed_parameter_file() -> None
         member = f"ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/{name}.txt"
         assert member in files, name
         assert SURVIVAL[next(k for k, v in DOUBLE_PARAMS.items() if v == name)] == "double"
+
+
+def test_smoothed_transition_density_of_built_counts_equals_checktdp() -> None:
+    # The weekly comparison (#1029) on counts built here (#1130): the committed checkTDP.py is
+    # run on the built columns, so the method is checked on every push without the archive.
+    initial, final = built_tdp_columns()
+    got = compare_tdp_view_columns(initial, final)
+    assert got["shape_equal"], got
+    assert got["grid_equal"], got
+    assert got["max_abs"] <= LIMITS["tdp_view_abs"], got
+
+
+@pytest.mark.parametrize(
+    "error",
+    [{"smooth": (1.1, 1.1)}, {"smooth": (1.0, 1.1)}, {"smooth": (1.1, 1.0)}, {"normalize": False}],
+    ids=["filter-1.1-bins", "final-axis-filter-1.1", "initial-axis-filter-1.1", "not-normalized"],
+)
+def test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison(error: dict) -> None:
+    # A filter of 1.1 bins, on both axes or on one, or a view left unnormalized, must exceed the
+    # frozen limit by orders of magnitude (#1130); otherwise the comparison above proves nothing.
+    initial, final = built_tdp_columns()
+    got = compare_tdp_view_columns(initial, final, **error)
+    assert got["max_abs"] > 1e6 * LIMITS["tdp_view_abs"], got
 
 
 # --- weekly: Tether beside the published numbers ------------------------------------------------
@@ -292,6 +334,28 @@ def test_double_exponential_parameters_and_errors(panel: tuple) -> None:
     # sorted: Tether's error of each parameter is the published error of the other one.
     assert got["errors_swapped_max_rel"] <= LIMITS["errors_rel"], got
     assert got["errors_as_labelled_max_rel"] > 1.0, got
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("panel", sorted(DOUBLE_PARAMS))
+def test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau(panel: tuple) -> None:
+    name = DOUBLE_PARAMS[panel]
+    got = compare_survival(
+        _book()[panel[0]],
+        panel[1],
+        "double",
+        read_double_params(_archive(), name),
+        read_double_out(_archive(), name),
+    )
+    assert got["tau_rel"] <= LIMITS["tau_rel"], got
+    assert got["tau_out_abs"] <= LIMITS["tau_out_abs"], got
+    # The error this checks is the re-paired one: the published formula with each tMAVEN error
+    # paired with its own parameter, which is what Tether's fit gives. The published .out error
+    # pairs each error with the other parameter (#756 finding 1), so it is 15 to 45 times larger;
+    # it is reported in ``got`` and only held to being far from Tether's.
+    assert got["tau_err_repaired_rel"] <= LIMITS["tau_err_rel"], got
+    assert got["tau_err_published_ratio"] > 10.0, got
+    assert got["tau_err_as_labelled_out_abs"] <= LIMITS["tau_out_abs"], got
 
 
 @pytest.mark.reference_download

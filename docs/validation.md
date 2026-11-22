@@ -995,6 +995,15 @@ tests.
 - **Leakage.** From MASH-FRET's background-subtracted intensities and its leakage coefficient,
   Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
   the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
+- **Leakage at a non-zero coefficient** ([#870](https://github.com/bioedca/tether/issues/870)).
+  A second reference is a test project of the MASH-FRET repository (`2chan2exc.mash` at commit
+  `b577928`, GPL-3.0), which MASH-FRET "1.3.2 (prev. commit: 3471fdf3)" wrote with a leakage
+  coefficient of 0.0775. That project also has a direct-excitation coefficient of 0.0176, and
+  MASH-FRET subtracts that term after the leakage term. So under the acceptor's laser the test
+  compares directly, and under the donor's laser it adds MASH-FRET's own direct-excitation term
+  back first. Tether's corrected acceptor equals MASH-FRET's on 10 molecules and both lasers
+  (relative limit 1e-15; worst 1.1e-16, and 1.7e-16 on all 30 molecules of the project). The
+  traces of this project are MASH-FRET test data, not a published measurement.
 - **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
   state, and MASH-FRET sets that value to the mean of its γ-corrected FRET over the frames of the
   state. With MASH-FRET's γ, the mean of Tether's corrected FRET over the same frames equals each
@@ -1002,16 +1011,18 @@ tests.
   6.3e-14 on the 4442 states of the eight readable files of the archive). MASH-FRET's
   `1 / (1 + γ·I_D/I_A)` is Tether's `I_A / (I_A + γ·I_D)` with the same γ; no conversion factor is
   needed.
-- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
+- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail. A sign error in the
+  leakage correction (`I_A + α·I_D`) makes the non-zero leakage test fail: its worst difference
+  is then 0.25.
 
-**What it does not check.** Every file of the record has a leakage coefficient of 0, so the
-leakage test cannot catch a sign error in the correction;
-[#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
-coefficient. The comparison is per state, not per frame. Background
+**What it does not check.** Every file of the group IIB intron record has a leakage coefficient of
+0, so the sign of the correction is checked only on the MASH-FRET test project. The comparison is
+per state, not per frame. Background
 subtraction is not compared, because the files hold no video. The leakage comparison uses both
 lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
 MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
-be 0.
+be 0 in the record, and in the test project, where it is not 0, the test removes MASH-FRET's own
+term instead of comparing it.
 
 **Where it runs.** The required matrix reads a committed extract of the smallest project file (18
 molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
@@ -1155,7 +1166,10 @@ method, the limits and the measurements.
 | Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
+| Mean dwell time, the six parameter files (Supplementary Table 6) | `Double-*.txt` and `Double-*.out` | `mean_dwell_time` | `tau` and its error equal to the two decimals of each `.out` |
+| Mean dwell time of the fitted panels, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `DwellFit.mean_dwell_time` | `tau` 9.3e-6 relative, within the `.out`'s two decimals; error 1.8e-3 relative to the re-paired error (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0, limit 1e-12) |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
 calculated from them can differ from a published one by the rounding of the two intensities. The
@@ -1169,26 +1183,34 @@ so each test finds the windows in the trace matrix when it runs.
 
 1. tMAVEN's `optimize_double_surv` sorts the two rates and amplitudes of a double-exponential fit
    but not their errors: in the three panels that can be checked, each published error belongs to
-   the other parameter. Tether's errors are paired correctly.
+   the other parameter. Tether's errors are paired correctly. The published error of the mean dwell
+   time (the `.out` files) inherits the swap: with each error paired with its own parameter the
+   same formula gives 0.08 s, 0.09 s and 0.05 s, not 3.08 s, 1.37 s and 2.33 s. Its `tau` is
+   unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
    Fig. 5b has no trace data.
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
 
-**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
-time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
-fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), and the
+two-Gaussian fit of Fig. 5c. #1030 adds the function, and #1131 compares it.
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
-`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
-`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
+`test_dwells_from_survival_give_back_the_survival_curve`,
+`tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`,
+`test_smoothed_transition_density_of_built_counts_equals_checktdp` and
+`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`. Weekly
+(`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
-`test_double_exponential_parameters_and_errors` and
-`test_transition_density_counts_equal_checktdp`.
+`test_double_exponential_parameters_and_errors`,
+`test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau`,
+`test_transition_density_counts_equal_checktdp` and
+`test_smoothed_transition_density_equals_checktdp`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
