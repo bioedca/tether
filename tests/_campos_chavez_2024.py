@@ -603,21 +603,50 @@ def checktdp_array(initial: np.ndarray, final: np.ndarray) -> tuple[np.ndarray, 
 
 def compare_tdp_view(rows: list[tuple]) -> dict:
     """Tether's smoothed transition density beside ``checkTDP.py``'s array of one sheet."""
-    initial = column(rows, "Initial E_FRET", 0)
-    final = column(rows, "Final E_FRET", 1)
+    return compare_tdp_view_columns(
+        column(rows, "Initial E_FRET", 0), column(rows, "Final E_FRET", 1)
+    )
+
+
+def compare_tdp_view_columns(initial: np.ndarray, final: np.ndarray, **settings) -> dict:
+    """Tether's smoothed transition density beside ``checkTDP.py``'s array of two columns.
+
+    Each ``initial[i], final[i]`` pair is one transition, as in a TDP sheet. ``settings`` go to
+    :func:`~tether.analysis.tdp.smooth_transition_density` and default to its own defaults, which
+    are ``checkTDP.py``'s settings; a test passes a different one to show the comparison sees it.
+    """
     tdp = transition_density(
         [np.array([a, b]) for a, b in zip(initial, final, strict=True)],
         nskip=1,
         signal_bins=TDP_BINS,
         signal_range=TDP_RANGE,
     )
-    view = smooth_transition_density(tdp)  # the defaults are checkTDP.py's settings
+    view = smooth_transition_density(tdp, **settings)
     ref, ref_grid = checktdp_array(initial, final)
     return {
         "shape_equal": view.values.shape == ref.shape,
         "grid_equal": bool(np.array_equal(view.grid, ref_grid)),
         "max_abs": float(np.max(np.abs(view.values - ref))),
     }
+
+
+def built_tdp_columns(seed: int = 1130) -> tuple[np.ndarray, np.ndarray]:
+    """``(initial, final)`` efficiencies of a TDP sheet built without the archive.
+
+    600 transitions among three states (0.15, 0.5, 0.85) with a spread of 0.05, so the peaks sit
+    off the diagonal as in a published TDP, plus pairs the grid must treat as ``histogram2d``
+    does: on each edge of :data:`TDP_RANGE`, on an interior bin edge, and outside the range.
+    """
+    rng = np.random.default_rng(seed)
+    states = np.array([0.15, 0.5, 0.85])
+    first = rng.integers(0, 3, 600)
+    second = (first + rng.integers(1, 3, 600)) % 3  # a transition changes the state
+    initial = states[first] + rng.normal(0.0, 0.05, 600)
+    final = states[second] + rng.normal(0.0, 0.05, 600)
+    edges = np.linspace(TDP_RANGE[0], TDP_RANGE[1], TDP_BINS + 1)
+    extra_initial = [edges[0], edges[-1], edges[17], -0.3, 0.5, 1.3]
+    extra_final = [edges[-1], edges[0], edges[33], 0.5, 1.3, -0.3]
+    return np.concatenate([initial, extra_initial]), np.concatenate([final, extra_final])
 
 
 def measure(archive: Path) -> dict:
