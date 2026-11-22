@@ -929,18 +929,33 @@ def test_a_step_with_a_deferred_stage_is_not_complete_and_resume_runs_it_again(
     assert ran == []
 
 
-def test_a_relative_sidecar_interpreter_is_read_from_the_recipe_folder(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "step", [_step("idealize", project="m.tether"), _step("batch", movies=["a.tif"], out_dir="out")]
+)
+def test_a_recipe_uses_local_sidecar_selection(tmp_path, monkeypatch, capsys, step) -> None:
+    from tether.idealize.driver import resolve_sidecar_python
     from tether.services import BatchRequest
 
-    idealize = _step("idealize", project="m.tether", sidecar_python="env/bin/python")
-    batch = _step("batch", movies=["a.tif"], sidecar_python="env/bin/python")
-    steps = rc.read_recipe(_write(tmp_path, _recipe(idealize, batch))).steps
-    for step in steps:
-        assert step.request.sidecar_python == str(tmp_path / "env" / "bin" / "python")
-    assert isinstance(steps[1].request, BatchRequest)
-    saved = rc.write_recipe(tmp_path / "saved.json", [s.request for s in steps])
-    for step in json.loads(saved.read_text(encoding="utf-8"))["steps"]:
-        assert step["fields"]["sidecar_python"] == "env/bin/python"
+    monkeypatch.setenv("TETHER_SIDECAR_PYTHON", sys.executable)
+    # Earlier writers included null for an unset interpreter.
+    fields = {**step["fields"], "sidecar_python": None}
+    (read,) = rc.recipe_from_text(_recipe({**step, "fields": fields}), folder=tmp_path).steps
+    assert isinstance(read.request, (IdealizeRequest, BatchRequest))
+    assert read.request.sidecar_python is None
+    assert resolve_sidecar_python(read.request.sidecar_python) == Path(sys.executable)
+
+    direct = dataclasses.replace(read.request, sidecar_python=sys.executable)
+    saved = rc.write_recipe(tmp_path / "saved.json", [direct])
+    (saved_step,) = json.loads(saved.read_text(encoding="utf-8"))["steps"]
+    assert "sidecar_python" not in saved_step["fields"]
+    assert rc.read_recipe(saved).steps[0].request == read.request
+
+    supplied = {**step, "fields": {**fields, "sidecar_python": "local-runtime"}}
+    supplied_path = _write(tmp_path, _recipe(supplied))
+    assert main(["run", str(supplied_path), "--dry-run"]) == 2
+    assert "select the sidecar interpreter locally with TETHER_SIDECAR_PYTHON" in (
+        capsys.readouterr().err
+    )
 
 
 def test_resume_uses_existing_project_jobs_when_no_local_checkpoint_exists(

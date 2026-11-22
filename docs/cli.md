@@ -741,6 +741,9 @@ or version, a value of the wrong type, a policy with a missing value, a **publis
 `approve` step (a recipe approves only with a policy), or a field that names an account
 secret.
 
+For recipe idealization, select the sidecar interpreter locally with `TETHER_SIDECAR_PYTHON`
+or use the installed sidecar. A recipe cannot select the interpreter.
+
 At a step that needs a person, a policy that the recipe names for the step decides
 (ADR-0102). With no policy and no approval recorded, the run stops with exit code `4` and
 prints the command that approves the step and the one that continues:

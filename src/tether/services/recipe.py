@@ -333,6 +333,11 @@ def _check_step(number: int, data: Any, folder: Path, policy_source: str | None)
         )
     fields = data.get("fields")
     if isinstance(fields, dict):
+        if fields.get("sidecar_python") is not None:
+            raise RecipeError(
+                f"{where}: select the sidecar interpreter locally with TETHER_SIDECAR_PYTHON; "
+                "remove 'sidecar_python' from the recipe"
+            )
         for key in fields:
             if any(word in key.lower() for word in _SECRET_WORDS):
                 raise RecipeError(f"{where}: a recipe holds no account secret; field {key!r}")
@@ -455,9 +460,11 @@ def read_recipe(path: str | Path) -> Recipe:
 
 
 def recipe_to_text(requests: Sequence[Request], *, folder: str | Path) -> str:
-    """Return the recipe text of ``requests``, with paths relative to ``folder`` if possible."""
+    """Write requests as recipe text with relative paths where possible and no runtime selection."""
     folder = Path(folder)
     steps = [request_to_mapping(_with_paths(r, _relative, folder)) for r in requests]
+    for step in steps:
+        step["fields"].pop("sidecar_python", None)
     data = {"format": RECIPE_FORMAT, "version": RECIPE_VERSION, "steps": steps}
     return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n"
 

@@ -46,9 +46,13 @@ A recipe is a JSON file. This one extracts a movie and then fits the project:
 
 Each step is one request, as the [command-line reference](../cli.md#service-commands) shows
 it. It names the command, the version of its request, and its fields. A field that a step
-leaves out takes its default. A recipe that Tether writes states every field, so a new default
-never changes it. A relative path starts at the folder of the recipe file. Here,
+leaves out takes its default. Tether writes the analysis settings and leaves runtime selection
+to the computer that runs the recipe. A relative path starts at the folder of the recipe file. Here,
 `movies/m01.tif` is in the `movies` folder beside the recipe.
+
+For idealization, Tether uses the local sidecar installation or the interpreter you select
+with `TETHER_SIDECAR_PYTHON`. Remove any `sidecar_python` path from an older recipe before
+running it.
 
 ## 2. Check it before it runs
 
@@ -104,9 +108,9 @@ in the copy.
 ## 6. Check what a recipe holds before you share it
 
 A recipe holds the requests and nothing else: no movie data, no traces, no account secret.
-Tether refuses a recipe with a field that names a secret. A recipe does hold every path and
-every value it ran with. A path outside the recipe's folder stays a full path. It can show a
-user name or a folder layout, so read the file before you send it.
+Tether refuses a recipe with a field that names a secret. A recipe includes input and output
+paths and analysis settings. Paths can reveal a user name or folder layout.
+Read the file before you share it.
 
 A recipe never publishes.
 It can make and upload a deposit draft, and publishing is a separate command.
