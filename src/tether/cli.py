@@ -430,6 +430,7 @@ def _run_extract(args: argparse.Namespace) -> int:
             imported_map=summary.registration_source != "native",
             # A --map run names its map file, never the .tmap it did not use.
             map_file=None if request.map_path is None else os.path.basename(request.map_path),
+            channel_layout=summary.channel_layout,
         )
         if check.swapped:
             print(f"  warning: {note}.", file=sys.stderr)

@@ -517,6 +517,18 @@ that measure maps each fitted level onto a stored one, so it does not count the 
 The difference in state number is the open finding of this comparison; a frozen tolerance needs
 the maintainer's decision first.
 
+The comparison uses tMAVEN's default clip (`modeler.clip` on, range -1 to 2), as a tMAVEN user
+gets it ([#1001](https://github.com/bioedca/tether/issues/1001)). Before the fit, the clip
+replaces each frame outside that range, or NaN, with a random value from the range.
+vbFRET_nov12 replaced none.
+
+On these fixtures tMAVEN changes 1 PPR frame (frame 962 of
+`079_PATH_D041322_T1157.dat`) and no chaperone frame. Two chaperone frames have a
+donor-plus-acceptor total of zero. tMAVEN computes FRET there as 0, not NaN, so the clip keeps
+them and the fit reads FRET 0. The test prints its report, with these frames named, on every
+run that completes the comparison, a passing run included. A failing assertion stops the test
+before the report is printed.
+
 ### ebFRET against stored ebFRET sessions (report only)
 
 The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
@@ -1155,12 +1167,14 @@ method, the limits and the measurements.
 | Representative traces, Figs. 2b, 3g, 4a, 4e | `Fig2b`, `Fig3g`, `Fig4a`, `Fig4e` | `apparent_fret` | 12,000 values, 9.8e-15 relative |
 | FRET histograms, Figs. 2c, 3b, 3h, 4b, 4f, 6b, 7b | the seven sheets and their trace matrix | `apparent_fret`, `apparent_e_histogram` | 1,016,781 values in 1,440 recovered windows, each within the rounding bound (largest ratio 0.91); every bin count equal |
 | intraFRET histograms, Fig. 5b (4 of 5 columns) | `Fig5b` and the `intraFRET_*` matrices | `apparent_fret` | 282,800 values, first 400 frames, within the rounding bound (0.91) |
+| Closed-state fraction, Fig. 5c (5 columns) | `Fig5c` and the notebook `ErrorFractionOfClosedState.ipynb` | `fit_gaussians` (`area="bin_sum"`) | fraction and error within 5e-5 of what the notebook printed (largest 4.7e-5, the same on the three systems to 1.2e-9); Fig. 5c itself has two fractions that are not the notebook's, 5 uM WT tRNA and 5 uM tRNA-ΔNCCA (ADR-0120); 5 uM WT tRNA is fitted from the published efficiencies |
 | Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
 | Mean dwell time, the six parameter files (Supplementary Table 6) | `Double-*.txt` and `Double-*.out` | `mean_dwell_time` | `tau` and its error equal to the two decimals of each `.out` |
 | Mean dwell time of the fitted panels, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `DwellFit.mean_dwell_time` | `tau` 9.3e-6 relative, within the `.out`'s two decimals; error 1.8e-3 relative to the re-paired error (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0, limit 1e-12) |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
 calculated from them can differ from a published one by the rounding of the two intensities. The
@@ -1184,22 +1198,29 @@ so each test finds the windows in the trace matrix when it runs.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
 
-**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the TDP
-smoothing and spline, and the two-Gaussian fit of Fig. 5c. Tether has no function for the last
-two: #1029 and #1030.
+**Not compared.** The HMM population fits (#757) and the rates and their bounds (#758).
+
+The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
+([ADR-0120](adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
 `test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
-`test_dwells_from_survival_give_back_the_survival_curve` and
-`tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`. Weekly
-(`reference_download`):
+`test_dwells_from_survival_give_back_the_survival_curve`,
+`tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`,
+`test_smoothed_transition_density_of_built_counts_equals_checktdp`,
+`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`, and
+`test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians`. Weekly (`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
 `test_double_exponential_parameters_and_errors`,
-`test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau` and
-`test_transition_density_counts_equal_checktdp`.
+`test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau`,
+`test_transition_density_counts_equal_checktdp`,
+`test_smoothed_transition_density_equals_checktdp`, and for Fig. 5c
+`test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
+`test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
+`test_a_198_bin_histogram_fails_the_fig5c_comparison`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
