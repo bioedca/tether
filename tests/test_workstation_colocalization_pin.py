@@ -38,12 +38,14 @@ _NAMED_BINDINGS = (*_SCOPES, ast.ClassDef, ast.ExceptHandler, ast.MatchAs, ast.M
 
 
 def _own_nodes(scope: ast.AST):
-    """The nodes of *scope* that belong to it and not to a function nested inside it."""
+    """Yield local nodes and nested nonlocal declarations."""
     todo = list(ast.iter_child_nodes(scope))
     while todo:
         node = todo.pop()
         yield node
-        if not isinstance(node, _SCOPES):
+        if isinstance(node, _SCOPES):
+            yield from (child for child in ast.walk(node) if isinstance(child, ast.Nonlocal))
+        else:
             todo.extend(ast.iter_child_nodes(node))
 
 
@@ -103,11 +105,7 @@ def _extract_calls(tree: ast.AST) -> list[tuple[ast.Call, list[ast.AST]]]:
 
 
 def unpinned_calls(source: str) -> list[int]:
-    """The line of each ``extract_movie`` call in *source* that does not name the rule.
-
-    A name passed as ``options`` counts when its nearest binding scope contains only plain
-    assignments of donor-anchored ``ExtractOptions`` to that name.
-    """
+    """List extraction lines missing a literal or plainly assigned donor-anchored rule."""
     lines = []
     for call, scopes in _extract_calls(ast.parse(source)):
         options = next((kw.value for kw in call.keywords if kw.arg == "options"), None)
@@ -146,6 +144,8 @@ def test_every_workstation_extraction_names_the_donor_anchored_rule(path: str) -
         _PIN + "def run():\n    options = ExtractOptions()\n    " + _CALL,
         "for options in (None,):\n    extract_movie(m, o, options=options)",
         _PIN + "import pathlib as options\n" + _CALL,
+        "def run():\n    " + _PIN + "    def reset():\n        nonlocal options\n"
+        "        options = None\n    reset()\n    " + _CALL,
         _PIN + "try:\n    raise ValueError()\nexcept ValueError as options:\n    " + _CALL,
         _PIN + "match ExtractOptions():\n    case options:\n        " + _CALL,
     ],
@@ -162,9 +162,9 @@ def test_the_check_finds_a_call_that_does_not_name_the_rule(source: str) -> None
         "x.extract_movie(m, o, options=x.ExtractOptions(colocalization='donor-anchored'))",
         "def stage():\n"
         "    options = ExtractOptions(colocalization='donor-anchored')\n"
+        "    def unrelated():\n        options = None\n"
         "    def extract():\n"
-        "        return extract_movie(m, o, options=options)\n"
-        "    return extract",
+        "        return extract_movie(m, o, options=options)\n    return extract",
     ],
 )
 def test_the_check_accepts_a_call_that_names_the_rule(source: str) -> None:
