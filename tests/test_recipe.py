@@ -553,6 +553,23 @@ _UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f
 #: owns the complete list for the application-and-command-line comparison.
 _MAY_DIFFER = ("settings/jobs", "movies/table")
 
+#: The generation table (#921) also records when a generation was written and the path and
+#: file time of the copy it was read from; only those fields are set aside, so the rest of
+#: each row is still compared.
+_GENERATION_TABLE = "generations/table"
+
+
+def _generation_rows(table: np.ndarray) -> list[object]:
+    rows = []
+    for row in table.tolist():
+        fields = dict(zip(table.dtype.names, row, strict=True))
+        fields.pop("created_utc")
+        inputs = json.loads(fields["inputs"])
+        inputs["source"] = {k: v for k, v in inputs["source"].items() if k not in ("uri", "mtime")}
+        fields["inputs"] = inputs
+        rows.append(fields)
+    return rows
+
 
 def _datasets(path: Path) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
@@ -561,6 +578,8 @@ def _datasets(path: Path) -> list[tuple[str, str]]:
         def visit(name: str, obj: object) -> None:
             if isinstance(obj, h5py.Dataset) and name not in _MAY_DIFFER:
                 value = obj[()]
+                if name == _GENERATION_TABLE:
+                    value = _generation_rows(value)
                 text = _UUID.sub(
                     "<id>", repr(value.tolist() if isinstance(value, np.ndarray) else value)
                 )
