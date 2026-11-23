@@ -34,6 +34,7 @@ from tether import __version__  # noqa: E402
 from tether.imaging import (  # noqa: E402
     LOW_CONFIDENCE_TAG,
     ChannelGeometry,
+    OverGateRegistrationWarning,
     PolyTransform2D,
     TmapChannel,
     read_traces,
@@ -246,7 +247,7 @@ def test_stages_run_in_order_and_record_their_parameters() -> None:
 
 def test_over_gate_is_a_stage_outcome_not_a_swallowed_warning() -> None:
     with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+        warnings.simplefilter("always", OverGateRegistrationWarning)
         preview = preview_extraction(
             _movie_array(_OVER_GATE_ACCEPTOR), options=ExtractOptions(rms_gate=0.2)
         )
@@ -255,7 +256,9 @@ def test_over_gate_is_a_stage_outcome_not_a_swallowed_warning() -> None:
     assert "exceeds the 0.2 px gate" in register.message
     assert register.outputs["molecule_tags"] == (LOW_CONFIDENCE_TAG,)
     assert preview.completed and preview.molecules.n_molecules == 3  # flagged, not dropped
-    assert caught == []
+    # Only the over-gate warning is the preview's business; an unrelated dependency
+    # warning must not fail this test (#1137).
+    assert not [w for w in caught if issubclass(w.category, OverGateRegistrationWarning)]
 
 
 def test_too_few_pairs_ends_the_preview_with_a_failed_stage() -> None:

@@ -154,8 +154,13 @@ refuses to build without a signature on it that GitHub verified. That signature 
     - Each identifier is a number with no leading zero. Or it is a run of letters, digits and
       hyphens that holds at least one letter or hyphen.
 
-    So `-rc1`, `-rc.1`, `-0` and `-alpha-1` are accepted. `-01`, `-rc.01`, `-rc..1`, `-.rc1` and
+    So `-rc1`, `-rc.1` and `-alpha-1` are accepted. `-01`, `-rc.01`, `-rc..1`, `-.rc1` and
     `-rc1.` are rejected.
+
+    Hatch-vcs reads the tag with PEP 440 to set the package version. The release check rejects a
+    tag that PEP 440 cannot parse, and a tag that PEP 440 reads as a **post-release**. PEP 440
+    cannot parse `v1.0.0-foo`. It reads `v1.0.0-0` as `1.0.0.post0`, which sorts *after*
+    `1.0.0`. Use a prerelease form such as `-rc1`, `-a1`, `-b2` or `-dev`.
 
     A tag with a `-<prerelease>` component publishes as a GitHub **prerelease**. It does not
     repoint the documentation site. The pipeline reads that verdict from the prerelease

@@ -242,6 +242,21 @@ def test_a_window_role_that_is_not_the_export_fails(tmp_path, monkeypatch) -> No
         agree.window_export(mapping, "lab-90")
 
 
+def test_agreement_file_hashes_the_current_bytes_on_each_call(tmp_path, monkeypatch) -> None:
+    # A digest cached by path passed a file that changed content but not size (#1193).
+    data = tmp_path / "data"
+    data.mkdir()
+    path = data / "acquisition.mat"
+    path.write_bytes(b"the recorded export")
+    digest = agree.harness().sha256(path)
+    monkeypatch.setitem(agree.FILES, "lab-90", {"mat": (digest, path.stat().st_size)})
+    mapping = _Mapping(data, {"lab-90": {"mat": "acquisition.mat"}})
+    assert agree.agreement_file(mapping, "lab-90", "mat") == path
+    path.write_bytes(b"THE RECORDED EXPORT")  # the same size, other bytes
+    with pytest.raises(AssertionError, match="not the one the agreement check was recorded on"):
+        agree.agreement_file(mapping, "lab-90", "mat")
+
+
 def _runner():
     """``scripts/workstation/run_private_checks.py``, loaded by path: it is no package."""
     import importlib.util  # noqa: PLC0415

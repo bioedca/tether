@@ -21,8 +21,9 @@ The read is deliberately narrow:
   so a cloud placeholder movie is not downloaded. The one exception is opt-in:
   ``check_stale=True`` runs the idealization staleness recompute
   ([`tether.project.idealize.stale_row_ids`][]), which by its nature reads the
-  trace layers each model was fit on. Without it every model's ``stale`` is ``None``
-  ("not checked"), never ``0``.
+  trace layers each model was fit on; of the model it reads only the
+  [`tether.project.idealize.StalenessStamp`][] fields. Without it every model's
+  ``stale`` is ``None`` ("not checked"), never ``0``.
 
 [`ProjectSummary.to_dict`][] is the documented, versioned JSON layout
 ([`SUMMARY_FORMAT_VERSION`][]); ``docs/cli.md`` lists its keys.
@@ -405,11 +406,13 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
     for name, method, n_states, n_fit in idealization_rows:
         stale: int | None = None
         if check_stale:
-            from tether.project.idealize import read_idealization, stale_row_ids
+            from tether.project.idealize import read_staleness_stamp, stale_row_ids
 
             # Rows, not keys: two stale molecules may share one quantized key (§7.10).
+            # The stamp, not the whole model: the idealized and state_path arrays are
+            # not needed to count (#1079).
             try:
-                stale = len(stale_row_ids(path, read_idealization(path, name)))
+                stale = len(stale_row_ids(path, read_staleness_stamp(path, name)))
             # KeyError: the model was removed meanwhile; ValueError/TypeError: its
             # metadata is malformed (e.g. an unknown ``intensity_quantity``).
             except (KeyError, OSError, TypeError, ValueError) as exc:

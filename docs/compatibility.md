@@ -107,6 +107,11 @@ channels of the map. That is how a movie turned by 90 degrees against a map made
 frames is caught (#887). A square movie turned by 90 degrees has the same frame size as its map,
 so this check cannot see it.
 
+The donor-side check also works with a layout. When it finds swapped channels, its message names
+a change to the layout. It does not name `--donor-side`. For a half layout, give the other half as
+the donor. For a `rectangles` layout, exchange `donor_rect` and `acceptor_rect`. A layout with a recipe
+exchanges `donor_recipe` and `acceptor_recipe` as well.
+
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
 so every movie in a batch run uses the default **left** donor. If your acquisition puts the
@@ -126,7 +131,8 @@ So a turned movie gives the same molecules as an unturned movie of the same scen
 ([`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
 covers every rotation and flip, on either channel; #559). A `Rotation` or `Flip` that
 `processImage` could not have applied is refused with "could not use --tmap". That is an
-angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. Empty or all-zero
+angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. A `Crop` value is
+refused the same way unless it is a real, finite whole number (#1190). Empty or all-zero
 values, which the reference UCKOPSB map stores, split by the crop alone. This is tested
 on synthetic movies only, since the reference data holds no real `.tmap` with a rotation
 or a flip.

@@ -44,12 +44,22 @@ data is written. [`record_update_consent`][] and [`record_trace_colors`][] are t
 writers; each keeps the other's answer when it is one this version wrote, and drops
 anything else.
 
+**Writes take turns** (#1254). A write reads the file, sets its answer and replaces the
+file while it holds an operating-system lock on an empty file beside it,
+``settings.json.lock``: the lock of ``preferences.json`` (#1171, ADR-0122), the same code.
+So two Tether instances that write at the same moment cannot drop each other's answer. The
+lock belongs to the open handle, so it ends when an instance exits or crashes, and the file
+it leaves behind blocks nothing. A write that cannot take it within a few seconds fails with
+`OSError`. A write also fails with `OSError`, and leaves the file as it was, when the file
+exists but cannot be read: carrying on would replace it without the answer it could not
+read. Reading takes no lock.
+
 **Every failure is off.** A missing, empty, truncated or foreign file reads as *unset*,
 never as an error and never as consent. So does a path that is not a regular file (a
 folder, a FIFO or a device): it is opened without waiting and never read. An override
 file that exists but cannot be examined counts as present. Reading never creates a file
-or a folder. An unset trace color answer means the default, ``safe``. Writing the trace
-colors never writes a consent answer that was not already stored.
+or a folder, and never raises. An unset trace color answer means the default, ``safe``.
+Writing the trace colors never writes a consent answer that was not already stored.
 
 The module imports only the standard library, so a read at startup costs one small
 file read and no Qt, NumPy or HDF5 import.
@@ -202,22 +212,38 @@ def _override_present(path: Path) -> bool:
     return True
 
 
-def _stored(path: Path) -> dict[str, str]:
-    """Return the answers of a file this version wrote, each one valid; else ``{}``."""
+def _stored(path: Path, *, strict: bool = False) -> dict[str, str]:
+    """Return the answers of a file this version wrote, each one valid; else ``{}``.
+
+    A reader passes ``strict=False`` and never sees an error. A writer passes ``strict=True``
+    (#1254): then only a missing file reads as ``{}``, and a file that is there but cannot be
+    opened, examined or read raises its `OSError`, so the write stops before it can replace
+    the file and drop the answer it did not read. A file that reads but is not one this version
+    wrote is still ``{}`` either way.
+    """
     try:
         # A non-blocking open, then a check on the open descriptor: a FIFO opens at once
         # instead of waiting for a writer (#1116), and the file tested is the file read,
         # so nothing swapped in after the check can be read.
         fd = os.open(path, _READ_FLAGS)
+    except FileNotFoundError:
+        return {}
     except OSError:
+        if strict:
+            raise
         return {}
     try:
         handle = os.fdopen(fd, "rb") if stat.S_ISREG(os.fstat(fd).st_mode) else None
     except OSError:
-        handle = None
+        # The descriptor could not be examined or wrapped; it is still ours to close
+        # (os.fdopen does not close it on failure).
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        if strict:
+            raise
+        return {}
     if handle is None:
-        # Not a regular file, or the descriptor could not be examined or wrapped: the
-        # descriptor is still ours to close (os.fdopen does not close it on failure).
+        # Not a regular file: nothing this version wrote, and nothing to read.
         with contextlib.suppress(OSError):
             os.close(fd)
         return {}
@@ -225,6 +251,8 @@ def _stored(path: Path) -> dict[str, str]:
         with handle:
             raw = handle.read(_MAX_BYTES + 1)
     except OSError:
+        if strict:
+            raise
         return {}
     if len(raw) > _MAX_BYTES:
         return {}
@@ -280,7 +308,9 @@ def record_update_consent(allowed: bool, settings_file: Path | None = None) -> P
     The write is atomic: a temporary file in the same folder replaces the old one, so a
     crash mid-write leaves either the old answer or the new one, never a torn file. The
     answer is stored even when the administrator override is present; the override
-    still decides the effective state.
+    still decides the effective state. Writes from two instances take turns, and a file
+    that exists but cannot be read, or a lock another instance holds for more than a few
+    seconds, fails the write with `OSError` and leaves the file as it was (#1254).
     """
     if not isinstance(allowed, bool):
         raise TypeError(f"allowed must be a bool, not {type(allowed).__name__}")
@@ -311,9 +341,26 @@ def record_trace_colors(name: str, settings_file: Path | None = None) -> Path:
 
 
 def _write(path: Path, key: str, value: str) -> Path:
-    """Set ``key`` to ``value`` atomically, keeping the file's other valid answers."""
+    """Set ``key`` to ``value`` atomically, keeping the file's other valid answers.
+
+    The read and the replace hold the cross-process lock of
+    [`tether.gui.preferences`][tether.gui.preferences] on ``settings.json.lock`` (#1254, the
+    mechanism of #1171), so a write from another instance is never overwritten by one that
+    read the file before it landed. A file that exists but cannot be read fails the write
+    with `OSError` and is left as it was.
+    """
+    # Deferred, so that a read at startup imports nothing beyond this module; the
+    # preferences module is standard-library only as well.
+    from tether.gui.preferences import _locked  # noqa: PLC0415
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    answers = _stored(path)
+    with _locked(path):
+        _write_locked(path, key, value)
+    return path
+
+
+def _write_locked(path: Path, key: str, value: str) -> None:
+    answers = _stored(path, strict=True)
     answers[key] = value
     # A fixed key order, so the same answers always give the same bytes.
     payload = json.dumps(
@@ -331,4 +378,3 @@ def _write(path: Path, key: str, value: str) -> Path:
         with contextlib.suppress(OSError):
             os.unlink(tmp_name)
         raise
-    return path

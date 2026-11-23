@@ -93,6 +93,51 @@ class ExtractionFields:
     and the other three are the
     [`ChannelLayout`][tether.imaging.layout.ChannelLayout] fields ``donor``,
     ``donor_rect`` and ``acceptor_rect``, each ``[y1, x1, y2, x2]`` (1-based, inclusive).
+
+    Attributes
+    ----------
+    donor_side
+        Which horizontal half is the donor channel: ``left`` or ``right``.
+    channel_layout
+        The channel layout kind, or ``None`` for the split ``donor_side`` describes.
+    channel_layout_donor
+        The donor half of a half layout (``left`` or ``right``, ``top`` or ``bottom``), or
+        ``None`` for the first.
+    channel_layout_donor_rect, channel_layout_acceptor_rect
+        The donor and acceptor rectangles of a ``rectangles`` layout, each
+        ``[y1, x1, y2, x2]`` in px (1-based, inclusive), or ``None``.
+    detection_mode
+        Particle-detection method: ``wavelet``, ``intensity`` or ``bandpass``; ``None``
+        for no explicit choice.
+    detection_threshold
+        Detection threshold as a fraction of the detection-image maximum, in ``[0, 1)``
+        (dimensionless; intensity and bandpass modes only). ``None`` uses the mode's own.
+    detection_block
+        Moving-average block size for the detection image, in frames.
+    min_separation
+        Minimum spot separation, in px. ``None`` uses the detection mode's default.
+    prealign
+        Registration prealign degrees of freedom: ``translation`` or ``similarity``.
+    prealign_upsample
+        Sub-pixel upsampling factor of the prealign phase correlation (dimensionless).
+    prealign_low_sigma, prealign_high_sigma
+        Low and high Gaussian sigmas of the prealign band-pass filter, in px.
+    pair_tol
+        Control-point pairing tolerance, in px.
+    rms_gate
+        Registration RMS-residual gate, in px.
+    window
+        Aperture and crop-box side length, in px; odd.
+    coloc_distance
+        Acceptor colocalization distance, in px.
+    colocalization
+        The colocalization rule: ``partner-in-both`` or ``donor-anchored`` (ADR-0127).
+    disk_radius
+        Radius of the PSF integration disk, in px.
+    ring_inner, ring_outer
+        Inner and outer radii of the background ring, in px.
+    bg_window
+        Moving-average window of the background estimate, in frames.
     """
 
     donor_side: str = "left"

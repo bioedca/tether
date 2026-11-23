@@ -323,6 +323,44 @@ def test_names_do_not_depend_on_the_current_folder(
     assert output_stems(relative) == output_stems(absolute) == ("day1__m", "day2__m")
 
 
+def _link_to(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("this machine cannot make a symbolic link")
+
+
+def test_a_link_followed_by_dotdot_takes_the_real_parent_folders(tmp_path: Path) -> None:
+    # ``work/link/../m.tif`` with ``work/link`` -> ``archive/sub`` is ``archive/m.tif``:
+    # read as text it would take ``work``'s folders and collide with ``work/m.tif`` (#1215).
+    beside_link = _touch(tmp_path / "work" / "m.tif")
+    _touch(tmp_path / "archive" / "m.tif")
+    (tmp_path / "archive" / "sub").mkdir()
+    _link_to(tmp_path / "work" / "link", tmp_path / "archive" / "sub")
+    through_link = os.path.join(str(tmp_path / "work" / "link"), "..", "m.tif")
+    movies = expand_movie_arguments([str(beside_link), through_link])
+    if os.path.samefile(through_link, beside_link):
+        # Windows removes ``..`` as text before it follows a link, so there the path is
+        # the movie beside the link: one movie, with its own name.
+        assert output_stems(movies) == ("m",)
+        return
+    assert len(movies) == 2
+    by_movie = dict(zip((os.path.realpath(m) for m in movies), output_stems(movies), strict=True))
+    assert by_movie[os.path.realpath(tmp_path / "archive" / "m.tif")] == "archive__m"
+    assert by_movie[os.path.realpath(beside_link)] == "work__m"
+
+
+def test_a_path_through_a_link_without_dotdot_keeps_the_folders_it_names(
+    tmp_path: Path,
+) -> None:
+    # The path names the movie as typed, so the names stay those of the typed folders.
+    _touch(tmp_path / "real" / "day1" / "m.tif")
+    _touch(tmp_path / "day2" / "m.tif")
+    _link_to(tmp_path / "alias", tmp_path / "real" / "day1")
+    movies = [tmp_path / "alias" / "m.tif", tmp_path / "day2" / "m.tif"]
+    assert output_stems(movies) == ("alias__m", "day2__m")
+
+
 # --- The command line --------------------------------------------------------------------
 
 
@@ -415,6 +453,72 @@ def test_dry_run_refuses_what_the_run_refuses(tmp_path: Path, capsys) -> None:
     assert rc == 2
     assert capsys.readouterr().err.startswith("tether batch: ")
     assert not (tmp_path / "out").exists()
+
+
+def test_a_profile_layout_beside_tmap_is_refused_before_the_output_folder_exists(
+    tmp_path: Path, capsys
+) -> None:
+    # Extraction refuses this pair for every movie (#1218), so the batch refuses it first.
+    from tether.services.profile import ExtractionProfile, write_profile  # noqa: PLC0415
+
+    movie = str(_touch(tmp_path / "m.tif"))
+    out = tmp_path / "out"
+    request = services.BatchRequest(
+        movies=(movie,), out_dir=str(out), tmap="m.tmap", channel_layout="top-bottom"
+    )
+    for command in (services.batch.plan, services.batch.run):
+        with pytest.raises(services.RequestRefused, match="channel_layout and --tmap"):
+            command(request)
+    assert not out.exists()
+
+    profile = tmp_path / "p.json"
+    write_profile(ExtractionProfile(channel_layout="top-bottom"), profile)
+    argv = ["batch", movie, "-d", str(out), "--profile", str(profile), "--tmap", "m.tmap"]
+    assert main([*argv, "--dry-run"]) == 2
+    assert "channel_layout and --tmap" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("extra", [{"tmap": "m.tmap"}, {"channel_layout": "top-bottom"}])
+def test_a_layout_alone_or_a_tmap_alone_is_planned(tmp_path: Path, extra: dict) -> None:
+    movie = str(_touch(tmp_path / "m.tif"))
+    request = services.BatchRequest(
+        movies=(movie,), out_dir=str(tmp_path / "out"), idealize=False, **extra
+    )
+    assert len(services.batch.plan(request).movies) == 1
+
+
+def test_dry_run_settings_name_the_extraction_options(tmp_path: Path) -> None:
+    movie = str(_touch(tmp_path / "m.tif"))
+
+    def settings(**extra: object) -> str:
+        request = services.BatchRequest(
+            movies=(movie,), out_dir=str(tmp_path / "out"), idealize=False, **extra
+        )
+        return services.batch.plan(request).settings
+
+    assert settings().endswith(
+        ", channel-layout=none, donor-side=left, detection-mode=wavelet, "
+        "detection-threshold=mode default"
+    )
+    assert "donor-side=right" in settings(donor_side="right")
+    assert settings(donor_side="right") != settings()
+    bandpass = settings(detection_mode="bandpass", detection_threshold=0.9)
+    assert "detection-mode=bandpass, detection-threshold=0.9" in bandpass
+    layout = settings(channel_layout="top-bottom")
+    assert "channel-layout=top-bottom, donor=top," in layout and "donor-side" not in layout
+    assert "donor=bottom," in settings(channel_layout="top-bottom", channel_layout_donor="bottom")
+    rects = settings(
+        channel_layout="rectangles",
+        channel_layout_donor_rect=(1, 1, 10, 20),
+        channel_layout_acceptor_rect=(11, 1, 20, 20),
+    )
+    assert "donor-rect=[1 1 10 20], acceptor-rect=[11 1 20 20]," in rects
+    tmap = settings(tmap="m.tmap", donor_side="right")
+    assert "channel-layout=from .tmap, detection-mode=" in tmap and "donor" not in tmap
+    assert settings(tdat="run.tdat").endswith(
+        "detection-mode=from .tdat, detection-threshold=from .tdat"
+    )
 
 
 def test_dry_run_says_whether_the_sidecar_was_found(tmp_path: Path, monkeypatch) -> None:
