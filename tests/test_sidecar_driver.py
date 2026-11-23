@@ -214,13 +214,7 @@ print(runner.STATUS_PREFIX + json.dumps(status))
 """
 
 
-@requires_sidecar
-@pytest.mark.parametrize("loop", ["tether", "tmaven"])
-def test_vbgmm_loop_choice_reaches_the_fit(tmp_path, loop):
-    # The ``vbgmm`` key runs Tether's corrected loop; ``tmaven_vbgmm_loop=True`` keeps the
-    # pinned tMAVEN's own, for the check that reproduces a fit published with tMAVEN (ADR-0106).
-    # That loop's bound falls at every step and it ends at iteration 2 (#1337); the corrected
-    # one runs on and its bound never falls.
+def _fit_through_the_runner(tmp_path, loop):
     smd = tmp_path / "smd_4mol.hdf5"
     shutil.copyfile(FOUR_MOL, smd)
     out = tmp_path / f"vbgmm_{loop}.hdf5"
@@ -245,10 +239,24 @@ def test_vbgmm_loop_choice_reaches_the_fit(tmp_path, loop):
     with h5py.File(out, "r") as f:
         iteration = int(np.asarray(f["model/iteration"][()]))
         bound = np.asarray(f["model/likelihood"][()], dtype="float64")[:, 0]
-    steps = np.diff(bound)
-    if loop == "tmaven":
-        assert iteration == 2
-        assert np.all(steps < 0)
-    else:
-        assert iteration > 2
-        assert np.all(steps >= -1e-9 * np.abs(bound[1:]))
+    return iteration, bound
+
+
+# The ``vbgmm`` key runs Tether's corrected loop; ``tmaven_vbgmm_loop=True`` keeps the pinned
+# tMAVEN's own, for the check that reproduces a fit published with tMAVEN (ADR-0106). That loop's
+# bound falls at every step and it ends at iteration 2 (#1337); the corrected one runs on and its
+# bound never falls.
+
+
+@requires_sidecar
+def test_vbgmm_key_runs_the_corrected_loop(tmp_path):
+    iteration, bound = _fit_through_the_runner(tmp_path, "tether")
+    assert iteration > 2
+    assert np.all(np.diff(bound) >= -1e-9 * np.abs(bound[1:]))
+
+
+@requires_sidecar
+def test_vbgmm_key_can_still_run_tmavens_own_loop(tmp_path):
+    iteration, bound = _fit_through_the_runner(tmp_path, "tmaven")
+    assert iteration == 2
+    assert np.all(np.diff(bound) < 0)
