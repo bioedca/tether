@@ -72,6 +72,7 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", refuse)
 
 
+_COMPARE = r"/compare/(\w+)\.\.\.(\w+)\?per_page=1"
 BOT_USER = {"login": "github-actions[bot]", "type": "Bot"}  # the author on the drill issue #766
 
 
@@ -85,6 +86,8 @@ class FakeGitHub:
         self.jobs_status = 200
         self.now = NOW
         self.calls: list[tuple[str, str]] = []
+        #: The commits of the branch, oldest first, for the ``compare`` endpoint (#1283).
+        self.history: list[str] = [SHA]
         self.jobs = [
             {"id": 7, "name": "report / issue", "status": "in_progress", "conclusion": None},
             {
@@ -127,6 +130,14 @@ class FakeGitHub:
             return 200, b"{}", {}
         if re.fullmatch(r"/actions/runs/\d+/attempts/\d+/jobs\?per_page=100", path):
             return self.jobs_status, json.dumps({"jobs": self.jobs}).encode(), {}
+        if method == "GET" and (
+            found := re.fullmatch(r"/compare/(\w+)\.\.\.(\w+)\?per_page=1", path)
+        ):
+            if found[1] not in self.history or found[2] not in self.history:
+                return 404, b"", {}
+            base, head = self.history.index(found[1]), self.history.index(found[2])
+            status = "identical" if base == head else "ahead" if head > base else "behind"
+            return 200, json.dumps({"status": status}).encode(), {}
         if path == "/actions/jobs/8/logs":
             return (200, self.log.encode(), {}) if self.log is not None else (404, b"", {})
         raise AssertionError(f"unexpected call {method} {path}")
@@ -171,7 +182,7 @@ def test_a_failed_scheduled_run_opens_one_issue_with_the_run_url_and_the_failed_
     assert f"https://github.com/bioedca/tether/commit/{SHA}" in body
     assert "- Failed step: `Assert parity`" in body
     assert "##[error]Process completed with exit code 1." in body
-    assert body.startswith("<!-- tether-scheduled-failure:opened run=100/1 -->")
+    assert body.startswith(f"<!-- tether-scheduled-failure:opened run=100/1 sha={SHA} -->")
 
 
 def test_a_second_failure_comments_on_the_same_issue_and_opens_no_second_one() -> None:
@@ -218,7 +229,7 @@ def test_a_repeat_upstream_failure_names_its_own_commit_and_comparison() -> None
     (comment,) = gh.comments[1]
     body = comment["body"]
     assert body.startswith(
-        "<!-- tether-scheduled-failure:failed run=101/1 as=failed -->\nFailed again."
+        f"<!-- tether-scheduled-failure:failed run=101/1 as=failed sha={SHA} -->\nFailed again."
     )
     assert f"commit/{SHA}" in body, "the Tether commit is the same as in the issue"
     tail = body.rsplit("```text\n", 1)[1].split("\n```", 1)[0].splitlines()
@@ -321,6 +332,88 @@ def test_a_flapping_job_posts_two_comments_a_day_and_the_last_report_is_always_t
         assert f"runs/{101 + i}/attempts/1" in latest
     assert len(gh.comments[1]) == 2, "one new failure comment and one new pass comment a day"
     assert report(gh, NOW + dt.timedelta(days=1), run_id="200") == "commented on #1 (failed)"
+
+
+#: Two later commits on ``main``, in merge order after :data:`SHA` (#1283).
+SHA_B = "b" * 40
+SHA_C = "c" * 40
+
+
+def test_an_older_commit_that_passes_late_leaves_a_newer_failure_alone() -> None:
+    """A merges, then B; B's run fails first and A's slower run passes later (#1283).
+
+    Before #1283 the late pass from A posted "the next run passed" (or, past the daily limit,
+    edited B's failure report into a pass), so the issue said ``main`` had recovered while B was
+    still broken. Commit order on the branch decides, not the finish time.
+    """
+    gh = FakeGitHub()
+    gh.history = [SHA, SHA_B]
+    report(gh, sha=SHA)  # an earlier failure opened the issue
+    assert report(gh, run_id="102", sha=SHA_B) == "commented on #1 (failed)"
+    before = json.dumps(gh.comments[1])
+    writes = len(gh.writes())
+    outcome = report(gh, run_id="101", sha=SHA, result="success")
+    assert outcome == (
+        f"no report: commit {SHA[:7]} is older than {SHA_B[:7]}, the commit of the latest "
+        "report on #1"
+    )
+    assert len(gh.writes()) == writes, "no recovery comment and no edit"
+    assert json.dumps(gh.comments[1]) == before
+    # The same order past the daily limit, where a pass would have edited the failure report.
+    gh2 = FakeGitHub()
+    gh2.history = [SHA, SHA_B, SHA_C]
+    report(gh2, sha=SHA)
+    report(gh2, run_id="101", sha=SHA, result="success")
+    report(gh2, run_id="103", sha=SHA_B)  # newer commit fails: a new failure comment
+    assert report(gh2, run_id="102", sha=SHA, result="success").startswith("no report: commit")
+    assert gh2.comments[1][-1]["body"].startswith("<!-- tether-scheduled-failure:failed")
+    # A newer commit still reports: C passes, and that is the recovery.
+    assert report(gh2, run_id="104", sha=SHA_C, result="success") == (
+        "updated a comment on #1 (passed)"
+    )
+
+
+def test_a_newer_commit_reports_and_an_older_failure_does_not_undo_its_pass() -> None:
+    gh = FakeGitHub()
+    gh.history = [SHA, SHA_B]
+    report(gh, sha=SHA)
+    assert report(gh, run_id="102", sha=SHA_B, result="success") == "commented on #1 (passed)"
+    assert report(gh, run_id="101", sha=SHA).startswith("no report: commit")
+    assert gh.comments[1][-1]["body"].startswith("<!-- tether-scheduled-failure:passed")
+    assert any("/compare/" in url for _, url in gh.calls), "the order comes from the branch"
+
+
+def test_a_held_back_failure_on_a_newer_commit_moves_the_record_forward() -> None:
+    """A fails, C fails (held back by the limit), then B, between them, passes late (#1283)."""
+    gh = FakeGitHub()
+    gh.history = [SHA, SHA_B, SHA_C]
+    report(gh, sha=SHA)  # opened
+    report(gh, run_id="101", sha=SHA)  # today's failure comment
+    assert report(gh, run_id="103", sha=SHA_C) == "updated a comment on #1 (failed)"
+    latest = gh.comments[1][-1]["body"]
+    assert latest.startswith(
+        f"<!-- tether-scheduled-failure:failed run=103/1 as=failed sha={SHA_C}"
+    )
+    assert len(gh.comments[1]) == 1, "an edit, not a second failure comment"
+    assert report(gh, run_id="102", sha=SHA_B, result="success").startswith("no report: commit")
+    assert report(gh, run_id="104", sha=SHA_C).startswith("no report: #1 already has a failure")
+
+
+def test_a_report_from_before_the_commit_order_is_not_compared() -> None:
+    """A marker with no commit (written before #1283) leaves the next run to report as before."""
+    gh = FakeGitHub()
+    gh.history = [SHA, SHA_B]
+    gh.issues = [
+        {
+            "number": 1,
+            "state": "open",
+            "title": "ci(scheduled): sidecar / parity failed on main",
+            "body": "<!-- tether-scheduled-failure:opened run=99/1 -->\nold",
+            "user": BOT_USER,
+        }
+    ]
+    assert report(gh, run_id="101", sha=SHA, result="success") == "commented on #1 (passed)"
+    assert not any("/compare/" in url for _, url in gh.calls)
 
 
 def test_a_pass_with_no_open_issue_writes_nothing() -> None:

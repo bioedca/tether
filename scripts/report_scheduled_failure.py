@@ -18,9 +18,18 @@ What it does, by the watched job's result:
 * **the limit** -- one new failure comment and one new pass comment each day (UTC), so a gate
   that flaps (#311) cannot flood the issue. Past the limit, a run that changes the state edits
   the latest report in place instead, so the issue never says "passed" while the job fails.
+* **commit order** -- each report records its commit, and a run whose commit is older on the
+  branch than the commit of the latest report changes nothing (#1283): it posts no pass and edits
+  no newer failure. Runs on two ``main`` commits can finish in either order since #1265, so the
+  order is read from the branch (the ``compare`` API), never from the finish time. A repeat
+  failure on a newer commit that the daily limit holds back edits the latest failure report in
+  place instead, so a pass from a commit between the two is still older than the record. A report
+  written before #1283 records no commit, and the next run is then not compared.
 * **cancelled** -- the workflow calls this only while the run itself is not cancelled
   (``!cancelled()``), so a cancelled job here is a job that hit its own ``timeout-minutes``, and
-  that is a failure. A run that a newer run replaced never gets this far.
+  that is a failure. A run that a newer run replaced (a pull request, or a scheduled workflow's
+  own ``cancel-in-progress``) never gets this far; runs on ``main`` commits are not replaced
+  (#1265), which is why the commit order above is checked.
 * **skipped** -- nothing.
 
 It writes nothing for any event except ``schedule``, a ``push`` to the default branch, or a
@@ -58,9 +67,12 @@ REPORTABLE_EVENTS = ("schedule", "push", "workflow_dispatch")
 FAILED = ("failure", "timed_out", "cancelled")
 #: ``state`` is what the report says now; ``as`` is what its comment was posted as, which an edit
 #: keeps, so the one-a-day limit still counts the comment once.
-_MARKER = "<!-- tether-scheduled-failure:{state} run={run}{kind} -->"
+#: ``sha`` is the run's commit, so a later run can tell whether it is older (#1283); a report
+#: from before #1283 has none.
+_MARKER = "<!-- tether-scheduled-failure:{state} run={run}{kind} sha={sha} -->"
 _MARKER_RE = re.compile(
-    r"<!-- tether-scheduled-failure:(opened|failed|passed) run=\S+?(?: as=(failed|passed))? -->"
+    r"<!-- tether-scheduled-failure:(opened|failed|passed) run=\S+?(?: as=(failed|passed))?"
+    r"(?: sha=([0-9a-f]{40}))? -->"
 )
 #: The author of every issue and comment the job token writes (as on the drill issue #766). Only
 #: its markers count: anyone can comment on a public issue, and a copied marker must not change
@@ -212,7 +224,8 @@ class Run:
 
     def marker(self, state: str, kind: str = "") -> str:
         as_kind = f" as={kind}" if kind else ""
-        return _MARKER.format(state=state, run=f"{self.run_id}/{self.attempt}", kind=as_kind)
+        run = f"{self.run_id}/{self.attempt}"
+        return _MARKER.format(state=state, run=run, kind=as_kind, sha=self.sha)
 
 
 def run_from_env(env: Mapping[str, str]) -> Run:
@@ -327,6 +340,21 @@ def find_issue(run: Run, api: Api) -> dict | None:
     return min(issues, key=lambda i: i["number"]) if issues else None
 
 
+def commit_order(run: Run, api: Api, recorded: str | None) -> str | None:
+    """Where the run's commit is against ``recorded``, the commit of the latest report (#1283).
+
+    The ``status`` of ``compare/recorded...run.sha``: ``ahead`` (the run is newer), ``behind``
+    (older), ``identical`` or ``diverged``; ``None`` when no commit is recorded. The order of
+    the branch, not of the finish time: two runs on ``main`` can finish in either order.
+    """
+    if recorded is None:
+        return None
+    if recorded == run.sha:
+        return "identical"
+    found = api.call("GET", f"/compare/{recorded}...{run.sha}?per_page=1")
+    return str((found or {}).get("status"))
+
+
 def report(run: Run, api: Api, now: dt.datetime) -> str:
     """Do the one write this run calls for, and say what it was."""
     why = refusal(run)
@@ -349,28 +377,41 @@ def report(run: Run, api: Api, now: dt.datetime) -> str:
         return f"opened #{created['number']}"
     number = issue["number"]
     comments = api.pages(f"/issues/{number}/comments?per_page=100")
-    # (state now, posted as, item) for each report by the reporter, oldest first; the issue body
-    # says "opened". A marker from anyone else is not a report.
+    # (state now, posted as, item, commit) for each report by the reporter, oldest first; the
+    # issue body says "opened". A marker from anyone else is not a report.
     reports = [
-        (m.group(1), m.group(2) or m.group(1), item)
+        (m.group(1), m.group(2) or m.group(1), item, m.group(3))
         for item in [{"body": issue.get("body") or "", "user": issue.get("user")}, *comments]
         if (item.get("user") or {}).get("login") == REPORTER
         and (m := _MARKER_RE.match(item.get("body") or ""))
     ]
+    recorded = reports[-1][3] if reports else None
+    order = commit_order(run, api, recorded)
+    if order == "behind":
+        # An older commit that finishes late says nothing about the newer one (#1283).
+        return (
+            f"no report: commit {run.sha[:7]} is older than {str(recorded)[:7]}, "
+            f"the commit of the latest report on #{number}"
+        )
     failing = not reports or reports[-1][0] != "passed"  # an issue a person opened says "failed"
     if outcome == "passed" and not failing:
         return f"no report: #{number} already says the job passed"
     today = now.astimezone(dt.UTC).date().isoformat()
     posted_today = any(
         kind == outcome and str(item.get("created_at", "")).startswith(today)
-        for _, kind, item in reports
+        for _, kind, item, _ in reports
     )
-    if posted_today and outcome == "failed" and failing:
+    # A repeat failure the limit holds back writes nothing, unless its commit is newer: then it
+    # edits the latest report to its commit, so a pass from a commit between the two is still
+    # older than the record (#1283).
+    held_back = posted_today and outcome == "failed" and failing
+    if held_back and (order != "ahead" or "id" not in reports[-1][2]):
         return f"no report: #{number} already has a failure comment from {today}"
     if posted_today and "id" in reports[-1][2]:
-        # Over the limit but the state changed: edit the latest report in place, so the issue
-        # never says "passed" while the job fails (or the reverse), and nobody is notified.
-        _, kind, latest = reports[-1]
+        # Over the limit but the state changed (or a newer commit failed): edit the latest report
+        # in place, so the issue never says "passed" while the job fails (or the reverse), and
+        # nobody is notified.
+        _, kind, latest, _ = reports[-1]
         body = _comment_body(run, api, outcome, kind, updated=True)
         api.call("PATCH", f"/issues/comments/{latest['id']}", {"body": body})
         return f"updated a comment on #{number} ({outcome})"
