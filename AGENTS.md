@@ -221,7 +221,7 @@ validity turns on it being the right test — must satisfy both.
   one CodeRabbit review, then the Codex close (ADR-0099).
 - **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
   review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
-  inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
+  inline findings of its own, or a walkthrough verified as the first bullet says at the head it read; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
   review, bare status check, or a reply on someone else's thread is not one — and **no finding
   it raised is left outstanding**, with the thread resolved on each, then a **fresh Codex review of the final head** closes the gate in its place.
   **It must report nothing actionable, which is not the same as nothing *major*.** Codex's clean

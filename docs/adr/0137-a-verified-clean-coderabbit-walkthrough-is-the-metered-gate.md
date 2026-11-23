@@ -100,13 +100,20 @@ stage and next step, and the label was removed from it and from every closed pul
    "if a completed review came back clean … that review is the gate" applies, and the cap-spent close
    of ADR-0065 does not. A walkthrough that carries findings is not clean: dispose of them and close
    on Codex exactly as before.
-3. **Unchanged:** Codex first and uncapped; one completed review per metered provider (ADR-0069);
+3. **A walkthrough whose head a permitted push has moved is the completed review of the cap-spent
+   close.** A clean `main` merge, formatting, or a comment edit may move the head past the commit
+   the walkthrough read. The walkthrough then no longer names the head being merged, and asking
+   CodeRabbit again would break the one-review cap. So a walkthrough verified at the head it read
+   counts as the *completed* CodeRabbit review that the cap-spent close of ADR-0065 needs, as a
+   submitted review in state `COMMENTED` or `APPROVED` does, and a fresh Codex review of the final
+   head closes the gate. Greptile found this gap in the first draft of this record (PR #1319).
+4. **Unchanged:** Codex first and uncapped; one completed review per metered provider (ADR-0069);
    the queue and its guards (read the `CodeRabbit` check before every ask); the load-bearing Greptile
    route (ADR-0099); and a separate per-PR merge go-ahead pinned to the reviewed head.
-4. **The handoff pages are removed**, with their pointer in `AGENTS.md`. The repository copy of the
+5. **The handoff pages are removed**, with their pointer in `AGENTS.md`. The repository copy of the
    queue script (`.agents/bin/cr_next_free.py`) and its priority list stay: the script's own usage
    text is its documentation, and the project-folder queue rule is unchanged.
-5. **Two passages of `AGENTS.md` keep their rule and lose their reasoning** to make room under the
+6. **Two passages of `AGENTS.md` keep their rule and lose their reasoning** to make room under the
    byte budget. The Codex CLI bullet keeps "it would run under rules that have not merged" and cites
    ADR-0065, which records what was observed on codex-cli 0.147.0. The agent-layer sub-floor bullet
    drops its sentence on why it inverts the deferral rule; ADR-0064 records the loop it closes.
