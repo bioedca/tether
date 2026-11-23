@@ -134,6 +134,26 @@ def test_each_exception_states_its_reason() -> None:
     assert not missing, f"these places do not state the Qt-import exception: {missing}"
 
 
+def _wrong_xrefs(name: str, text: str, allowed: set[str]) -> list[str]:
+    """Each cross-reference in ``text`` that names a Qt binding outside ``allowed``.
+
+    One optional leading ``~`` is stripped from a target before it is classified, so
+    ``~qtpy.QtWidgets.QStackedWidget`` is read as ``qtpy`` and not skipped as an unknown
+    name (#1113). Returns ``"name:line: target"`` entries.
+    """
+    wrong = []
+    for match in _XREF.finditer(text):
+        target = (match.group(2) or match.group(1)).removeprefix("~")
+        if target.startswith(CONVENTION + "."):
+            continue  # the convention is allowed everywhere
+        if target.split(".")[0] not in BINDINGS:
+            continue  # not a Qt binding (a pyqtgraph plot class, a tether name)
+        if _binding(target) not in allowed:
+            line = text.count("\n", 0, match.start()) + 1
+            wrong.append(f"{name}:{line}: {target}")
+    return wrong
+
+
 def test_docstring_cross_references_name_an_imported_binding() -> None:
     """A docstring cross-reference to a Qt class names a binding the module uses.
 
@@ -144,14 +164,18 @@ def test_docstring_cross_references_name_an_imported_binding() -> None:
     wrong = []
     for path in _modules():
         allowed = {CONVENTION, EXCEPTIONS.get(path.stem, CONVENTION)}
-        text = path.read_text(encoding="utf-8")
-        for match in _XREF.finditer(text):
-            target = match.group(2) or match.group(1)
-            if target.startswith(CONVENTION + "."):
-                continue  # the convention is allowed everywhere
-            if target.split(".")[0] not in BINDINGS:
-                continue  # not a Qt binding (a pyqtgraph plot class, a tether name)
-            if _binding(target) not in allowed:
-                line = text.count("\n", 0, match.start()) + 1
-                wrong.append(f"{path.name}:{line}: {target}")
+        wrong += _wrong_xrefs(path.name, path.read_text(encoding="utf-8"), allowed)
     assert not wrong, f"these cross-references name a Qt binding the module does not use: {wrong}"
+
+
+def test_cross_reference_with_a_leading_tilde_is_still_checked() -> None:
+    """A target written ``[~qtpy...]`` is classified as ``qtpy``, not skipped (#1113).
+
+    A module that imports only the convention fails on it; the ``qtpy`` exception module
+    and a ``~``-prefixed convention target still pass.
+    """
+    text = '"""See [`QStackedWidget`][~qtpy.QtWidgets.QStackedWidget]."""\n'
+    assert _wrong_xrefs("m.py", text, {CONVENTION}) == ["m.py:1: qtpy.QtWidgets.QStackedWidget"]
+    assert _wrong_xrefs("movie_panel.py", text, {CONVENTION, "qtpy"}) == []
+    convention = '"""See [`QWidget`][~pyqtgraph.Qt.QtWidgets.QWidget]."""\n'
+    assert _wrong_xrefs("m.py", convention, {CONVENTION}) == []

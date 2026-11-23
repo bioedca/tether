@@ -21,9 +21,6 @@ rejected.
   change a project at a time, and a second application window opens it read-only. See
   [The project is locked by another user or
   machine](../troubleshooting.md#the-project-is-locked-by-another-user-or-machine).
-- Each movie file in the project once. A file extracted into the project twice gives both
-  copies the same molecule keys, and accepting or rejecting a molecule labels every copy that
-  carries its key. A project made by `tether extract` or `tether batch` holds one movie.
 
 ## 1. Open the project
 
@@ -49,6 +46,25 @@ Opened movie.tether — 412 molecule(s)
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
 
+The **Movie** box above the list names each movie of the project by its file name. The
+**Movie** panel on the right shows the chosen movie. A green dot marks each donor spot, and a
+red dot marks each acceptor spot. The ring around each dot is the integration aperture, at the
+radius the extraction used. To show another movie, choose it in the **Movie** box.
+
+Tether looks for each movie file at the path recorded when the traces were extracted. A
+relative path is looked up in the project's folder first. A movie whose file was moved or
+deleted shows grayed out, with `(file missing)`. A movie file whose size or modification time
+changed since extraction shows grayed out, with `(file changed since extraction)`. The status
+line then ends with, for example, `1 of 1 movie(s) not shown`.
+
+Tether does not download a movie that is only in the cloud, such as a OneDrive file. Such a
+movie shows `(file not on this disk)`. Make the file available on this computer, then open the
+project again. A project imported without spot coordinates has no movie panel.
+
+A [round-trip reconstruction](../io/legacy-import.md#round-trip-reconstruction) of a
+Deep-LASI export does not record where each channel sits in the frame. Its movie shows
+without dots, marked `(spot positions not recorded)`.
+
 A project you opened before on this computer opens at the molecule you last had selected in it.
 
 ## 2. Move from trace to trace
@@ -73,6 +89,8 @@ So does a trace with a missing value or a constant channel.
 3. Or click a name in the list.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+The keys on this page are the ones Tether starts with. To move one, see
+[Change a key](#change-a-key).
 
 The curation keys act only in the **Curate and correct** section. In **Prepare** and
 **Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
@@ -139,6 +157,50 @@ accept the molecule or jump to it. Click the molecule list to curate with the ke
 Nothing you do here deletes a molecule or a decision. Every accept, reject and un-reject is
 added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
 so the history survives a reversal.
+
+## Change a key
+
+You can move every curation key, for example to a key that is easier to reach. Choose
+**Curation → Edit keyboard shortcuts…**. The window lists each action with its key.
+
+1. Click the action, for example **Accept trace**.
+2. Click the **New key** field and press the key you want. You can hold Shift, Ctrl or Alt
+   with it.
+3. If the key is free, click **Assign**. The table shows the new key.
+4. Click **Save**. The new key works at once. **Curation → Keyboard shortcuts…** shows it.
+   Tether uses it again the next time it starts.
+
+**Cancel** closes the window and keeps the keys you had.
+
+The window tells you when it cannot use a key, and **Assign** stays off:
+
+- A key another action already has. Each key does one thing, so give that action another key
+  first.
+- **C** and **V**. They stay reserved and do nothing.
+- A key a menu command already uses, such as Ctrl+O for **File → Open project…**.
+- **Tab**, **Shift+Tab** and **Esc**. They move between the fields and close the window.
+
+A letter or digit you assign still types into the **Category name** field. There it never
+curates.
+
+An action you give a new key loses its old keys. **Reject trace**, for example, then has
+only the new key. To get an action's first keys back, click it and then **Restore default**.
+When another action now has one of those keys, the window names it and changes nothing.
+**Restore all defaults** gives every action its first keys.
+
+Tether keeps the keys in a file named `keymap.json`. The editor shows where, under the table:
+
+- Windows: `%LOCALAPPDATA%\MondragonLab\Tether\tether\`
+- macOS: `~/Library/Preferences/MondragonLab/Tether/tether/`
+- Linux: `~/.config/MondragonLab/Tether/tether/`, or under `$XDG_CONFIG_HOME` when that
+  variable is set
+
+Delete that file to start with the first keys again. Tether may not be able to use the file,
+for example after an edit by hand. It then starts with the first keys and says so once in the
+status bar. It does not change the file until you save new keys in the editor.
+
+A file from an older version of Tether keeps your keys. An action that version did not have
+gets its first key, unless you already use that key.
 
 ## What each label does downstream
 

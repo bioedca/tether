@@ -89,9 +89,28 @@ stacked and not rotated, with the donor `top` or `bottom`. A `rectangles` layout
 size, so a layout that gives two different sizes is refused. A rectangle outside the frame is
 refused too, and overlapping rectangles give a warning.
 
-Each movie's layout is stored as `/movies/layouts/<movie_id>` in the project. There is no
-command-line option for a layout yet, and no rotation or flip of a channel; a movie whose two
-channels are separate files is not supported yet either.
+A channel that the optics turn or mirror takes a recipe (#910,
+`tether.imaging.recipe.ChannelRecipe`): `ChannelLayout(donor_recipe=…, acceptor_recipe=…)`. A recipe is an ordered list of steps
+that run on the channel's cut: `rotate` by 90, 180 or 270 degrees clockwise, `flip` the rows
+(`v`), the columns (`h`) or both, `translate` by whole pixels, and `crop`. No step resamples a
+pixel. A `translate` leaves part of the channel empty, so a later `crop` must remove that part,
+or the recipe is refused. After the recipes the two channels must be the same size. With a
+recipe, two `rectangles` of different size are allowed when the recipes make the channels equal.
+
+Each movie's layout, with its recipes, is stored as `/movies/layouts/<movie_id>` in the project.
+There is no command-line option for a layout or a recipe yet, and an extraction profile cannot
+hold a recipe yet; a movie whose two channels are separate files is not supported yet either.
+
+A movie whose frames cannot hold the channel geometry of its `--tmap` or `--map` is refused
+before it is split, and the message names the movie's frame size and the geometry of both
+channels of the map. That is how a movie turned by 90 degrees against a map made on non-square
+frames is caught (#887). A square movie turned by 90 degrees has the same frame size as its map,
+so this check cannot see it.
+
+The donor-side check also works with a layout. When it finds swapped channels, its message names
+a change to the layout. It does not name `--donor-side`. For a half layout, give the other half as
+the donor. For a `rectangles` layout, exchange `donor_rect` and `acceptor_rect`. A layout with a recipe
+exchanges `donor_recipe` and `acceptor_recipe` as well.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,

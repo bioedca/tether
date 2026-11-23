@@ -253,7 +253,8 @@ class SavedSelection:
         Raises
         ------
         ValueError
-            The form is of another version, or a field is missing.
+            The form is of another version, a field is missing, or ``molecule_keys`` is a
+            bare string rather than a list of keys.
         """
         version = data.get("version")
         if version != SAVED_SELECTION_VERSION:
@@ -262,10 +263,18 @@ class SavedSelection:
                 f"(this Tether reads version {SAVED_SELECTION_VERSION})"
             )
         try:
+            keys = data["molecule_keys"]
+            # ``tuple("k0")`` would split one key into ("k", "0") before the constructor's
+            # own bare-string check could see it (#1191).
+            if isinstance(keys, str | bytes):
+                raise ValueError(
+                    "saved selection 'molecule_keys' must be a list of keys, "
+                    f"not a bare {type(keys).__name__}"
+                )
             return cls(
                 name=data["name"],
                 project_path=str(data["project_path"]),
-                molecule_keys=tuple(data["molecule_keys"]),
+                molecule_keys=tuple(keys),
                 filter=SelectionFilter.from_dict(data.get("filter") or {}),
             )
         except KeyError as exc:

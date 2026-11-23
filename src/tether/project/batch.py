@@ -118,6 +118,8 @@ _BATCH_SOURCE = "batch-runner"
 #: The ``/settings/batch`` attribute suffix naming the movies a stage covers (#1151).
 _COVERED_SUFFIX = "_movies"
 _EXTRACTION_SETTINGS = "extraction"
+#: The ``/settings/extraction`` subgroup holding each movie's own profile (ADR-0117).
+_MOVIE_SETTINGS = "movies"
 _CORRECTION_SETTINGS = "correction"
 
 _LOG = logging.getLogger("tether.batch")
@@ -199,8 +201,9 @@ class MovieResult:
 
     ``donor_side`` is the advisory donor-side check read back from the movie's stored
     extraction provenance (#646, ADR-0070): the check's record from
-    ``/settings/extraction`` plus the ``donor_side`` and ``registration_source`` it was
-    extracted with, or ``None`` when the movie has no readable record.
+    ``/settings/extraction`` plus the ``donor_side``, ``registration_source`` and
+    channel layout (#908, ``None`` when none was given) it was extracted with, or
+    ``None`` when the movie has no readable record.
     """
 
     job: MovieJob
@@ -321,12 +324,19 @@ class BatchSummary:
 
 def _describe_donor_side(record: dict[str, Any] | None) -> str:
     """The donor-side check's operator sentence for a stored record (#646)."""
+    from tether.imaging.layout import ChannelLayout  # noqa: PLC0415
     from tether.imaging.side_check import DonorSideCheck  # noqa: PLC0415
 
     record = dict(record or {})
     donor_side = str(record.pop("extracted_donor_side", "left"))
     imported = record.pop("registration_source", "native") == "imported"
-    return DonorSideCheck.from_dict(record).describe(donor_side=donor_side, imported_map=imported)
+    # The layout the movie was extracted with (#908), stored as its to_dict() form; it
+    # names its own donor, so the remedy changes the layout, not --donor-side (#1157).
+    raw_layout = record.pop("extracted_channel_layout", None)
+    layout = ChannelLayout.from_dict(raw_layout) if isinstance(raw_layout, dict) else None
+    return DonorSideCheck.from_dict(record).describe(
+        donor_side=donor_side, imported_map=imported, channel_layout=layout
+    )
 
 
 # --- Structured log ----------------------------------------------------------
@@ -581,13 +591,25 @@ def _is_extracted(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}")
 
 
-def _stored_extraction_is_over_gate(path: Path) -> bool:
-    """Recompute an existing extraction's over-gate verdict from its saved profile.
+def _active_movie_profile_attribute(f: Any, movie_id: str | None = None) -> object:
+    """Read a movie's saved profile from an open file, defaulting to its sole movie."""
+    records = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS].get(_MOVIE_SETTINGS)
+    if records is None:
+        return None
+    if movie_id is None:
+        table = f.get("movies/table")
+        if table is None or len(table) != 1:
+            return None
+        movie_id = _as_text(table["movie_id"][0])
+    return records.attrs.get(movie_id)
 
-    ``extract_movie`` persists both the measured ``registration_rms_px`` and the
-    effective ``rms_gate`` in ``/settings/extraction.profile_json``.  A ``fail`` resume
-    must consult those values before treating the provenance group as a satisfied
-    checkpoint; otherwise the first run's policy rejection disappears on the next run.
+
+def _stored_extraction_is_over_gate(path: Path) -> bool:
+    """Recompute the gate verdict using the active profile of a batch output's movie.
+
+    The profile records both the measured ``registration_rms_px`` and effective
+    ``rms_gate``. For older checkpoints without a per-movie profile, read the
+    first-extraction stamp.
 
     Missing, unreadable, or malformed profile data is not enough evidence to reject a
     checkpoint.  Those stores retain the historical checkpoint behavior and are skipped
@@ -599,7 +621,9 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         import h5py  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
-            raw_profile = f[f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}"].attrs.get("profile_json")
+            raw_profile = _active_movie_profile_attribute(f)
+            if raw_profile is None:
+                raw_profile = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS].attrs.get("profile_json")
         if isinstance(raw_profile, bytes):
             raw_profile = raw_profile.decode("utf-8")
         if not isinstance(raw_profile, str):
@@ -623,6 +647,22 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         return False
 
 
+def _checkpoint_has_review_or_generation_history(path: Path) -> bool:
+    """A strict batch replacement would discard these rows with the project."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(path, "r") as f:
+        generations = f.get("generations/table")
+        if generations is not None and (generations["generation"] > 1).any():
+            return True
+        for name in ("labels/table", "settings/molecule_audit"):
+            events = f.get(name)
+            if events is not None and len(events):
+                return True
+        molecules = f.get("molecules/table")
+        return molecules is not None and bool(molecules["curation_label"].any())
+
+
 def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
     """Read the advisory donor-side check back from a saved extraction profile (#646).
 
@@ -644,34 +684,101 @@ def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _stored_movie_donor_side_check(path: Path, movie_id: str) -> dict[str, Any] | None:
-    """The donor-side record of one movie of a several-movie project (#1151).
+def _stored_movie_donor_side_check(
+    path: Path, movie_id: str | None = None
+) -> dict[str, Any] | None:
+    """Read back a movie's active donor-side advisory (#921).
 
     Read from that movie's own settings record (``/settings/extraction/movies``,
-    ADR-0117), so each appended movie reports its own check. ``None`` as above.
+    ADR-0117), so each appended movie reports its own check; only that movie's record is
+    decoded, so a malformed record of another movie cannot hide it (#1243).
+    Ordinary batch has no movie ID. For a single-movie checkpoint it reads that
+    movie's profile, which can differ from the first stamp after re-extraction.
+    Without a per-movie record it keeps the stamp fallback for older checkpoints.
     """
     try:
-        from tether.imaging.extract import read_movie_settings  # noqa: PLC0415
+        import h5py  # noqa: PLC0415
 
-        return _donor_side_from_profile(read_movie_settings(path).get(movie_id))
+        from tether.io.schema import TABLE  # noqa: PLC0415
+
+        with h5py.File(path, "r") as f:
+            raw = _active_movie_profile_attribute(f, movie_id)
+            use_stamp = raw is None and (
+                movie_id is None
+                or [_as_text(v) for v in f["movies"][TABLE]["movie_id"]] == [movie_id]
+            )
+        if raw is None:
+            return _stored_donor_side_check(path) if use_stamp else None
+        return _donor_side_from_profile(json.loads(_as_text(raw)))
     except (KeyError, TypeError, ValueError, RecursionError, OSError):
         return None
 
 
 def _donor_side_from_profile(profile: Any) -> dict[str, Any] | None:
-    """The donor-side record of an extraction profile, or ``None`` when it has none."""
+    """The donor-side record of an extraction profile, or ``None`` when it has none.
+
+    The extraction's channel layout (#908) rides along as ``extracted_channel_layout``,
+    normalized through [`ChannelLayout`][tether.imaging.layout.ChannelLayout] so the
+    report can trust it; ``None`` when the extraction was given no layout. Both readers
+    suppress the advisory when the stored layout cannot be rebuilt (#1157).
+    """
+    from tether.imaging.layout import ChannelLayout  # noqa: PLC0415
+    from tether.imaging.recipe import ChannelRecipe  # noqa: PLC0415
+
     record = profile.get("donor_side_check") if isinstance(profile, dict) else None
     if not isinstance(record, dict):
+        return None
+    raw_layout = profile.get("channel_layout")
+    layout = None
+    if isinstance(raw_layout, dict):
+        # The profile stores asdict(ExtractOptions), with recipes as step lists.
+        # ChannelLayout.from_dict expects each recipe in text form.
+        layout_data = dict(raw_layout)
+        for name in ("donor_recipe", "acceptor_recipe"):
+            recipe = layout_data.get(name)
+            if isinstance(recipe, dict):
+                steps = recipe.get("steps")
+                if not isinstance(steps, list):
+                    return None
+                layout_data[name] = str(ChannelRecipe(tuple(steps)))
+        layout = ChannelLayout.from_dict(layout_data).to_dict()
+    elif raw_layout is not None:
         return None
     return {
         **record,
         "extracted_donor_side": profile.get("donor_side", "left"),
         "registration_source": profile.get("registration_source", "native"),
+        "extracted_channel_layout": layout,
     }
 
 
 def _is_corrected(path: Path) -> bool:
-    return _group_present(path, f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}")
+    """Recognize the correction stamp only when it covers the active extraction rows."""
+    import h5py  # noqa: PLC0415
+
+    try:
+        with h5py.File(path, "r") as f:
+            if f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}" not in f:
+                return False
+            generations = f.get("generations/table")
+            if generations is None:  # legacy checkpoints
+                return True
+            reextracted = {
+                movie_id
+                for movie_id, number in generations.fields(("movie_id", "generation"))[:]
+                if number > 1
+            }
+            if not reextracted:
+                return True
+            # Only analysable rows acquire a method in compute_corrected_fret. The
+            # active rows of a re-extraction start with the empty, uncomputed method.
+            rows = f["molecules/table"].fields(("movie_id", "frame_range", "correction_method"))[:]
+            return not any(
+                movie_id in reextracted and end > start and not method
+                for movie_id, (start, end), method in rows
+            )
+    except Exception:
+        return False  # same recovery contract as _group_present
 
 
 def _assert_output_not_newer(path: Path) -> None:
@@ -818,6 +925,12 @@ def run_correct_stage(
             parts.append(f"α={lk.alpha:.3f}")
             if gm.applied and gm.gamma is not None:
                 parts.append(f"γ={gm.gamma:.3f}")
+                if gm.few_clean_steps:
+                    # Most measured steps lack an acceptor bleach's shape (ADR-0134).
+                    parts.append(
+                        f"γ from few clean steps: {gm.n_step_clean} of "
+                        f"{gm.n_step_evaluated} {_FLAG_MARK}"
+                    )
             else:
                 parts.append("γ withheld")
         else:
@@ -995,6 +1108,8 @@ class _Recorder:
     log: BatchLog
     stages: dict[str, StageResult] = field(default_factory=dict)
     canonical_write_safe: bool = True
+    #: The movie's content hash when this run appended it or found it in the project.
+    movie_sha256: str | None = None
 
     def record(
         self, stage: str, status: str, *, detail: str = "", error: str | None = None
@@ -1265,7 +1380,7 @@ def run_batch(
                     # Advisory (#646): reading or reporting the check must never cost the
                     # movie its later stages, so any failure here is silence.
                     with contextlib.suppress(Exception):
-                        donor_side = _stored_donor_side_check(job.output_path)
+                        donor_side = _stored_movie_donor_side_check(job.output_path)
                         if donor_side is not None and donor_side.get("verdict") == "swapped":
                             _safe_event(
                                 log,
@@ -1413,6 +1528,16 @@ def _do_extract(
             ).ok
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
+        try:
+            if _checkpoint_has_review_or_generation_history(job.output_path):
+                raise ValueError(
+                    "active extraction exceeds the registration gate (policy=fail). "
+                    "This project has review or generation history. "
+                    "Run tether.project.extract.reextract_movie under the project writer lock."
+                )
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            rec.canonical_write_safe = False
+            return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     try:
         # Replacing an existing output needs its writer lock (#346, ADR-0112). The
         # job-level claim supplies it for a rejected checkpoint; any other overwrite of
@@ -1617,8 +1742,9 @@ def run_batch_into(
     Those two stages are logged once, under the run's own label. They run, and the
     project is stamped, under the project's writer lock: a project that another writer
     holds (an open app session) is not touched, and both stages report the lock. Each
-    append first marks both stages unfinished in ``/settings/batch``, so a run cut off
-    before its stamp leaves the next run knowing they no longer cover every movie.
+    append marks both stages unfinished in ``/settings/batch``, in the publish that adds
+    the movie (#1243), so a run cut off before its stamp, or an append by another route,
+    leaves the next run knowing they no longer cover every movie.
 
     Under ``policy="fail"`` a movie whose registration is over the gate is not written at
     all, so it never enters the project. ``overwrite`` has no meaning here: a movie
@@ -1634,7 +1760,8 @@ def run_batch_into(
         does not exist.
     policy, extract_options, idealize, idealize_kwargs, supervision, stamp_provenance, log
         As for [`run_batch`][]. The ``/settings/batch`` stamp is written once, to the
-        project.
+        project. Without ``stamp_provenance`` the run still records which movies the
+        project stages cover, so a later run does not redo them (#1243).
     progress
         As for [`run_batch`][]; ``movie_finished`` is told after the movie's extract
         stage, and the project's correct and idealize stages reach it as run events.
@@ -1747,7 +1874,8 @@ def run_batch_into(
             deferred=idealize_deferred,
             correct=_correct,
             run_idealize=_idealize,
-            stamp=stamp_provenance and stamp_safe,
+            stamp_provenance=stamp_provenance,
+            stamp_safe=stamp_safe,
         )
         results = [
             MovieResult(job=rec.job, stages=dict(rec.stages), donor_side=donor_side)
@@ -1771,7 +1899,8 @@ def _finish_project(
     deferred: bool,
     correct: Callable[..., str],
     run_idealize: Callable[..., Any],
-    stamp: bool,
+    stamp_provenance: bool,
+    stamp_safe: bool,
 ) -> None:
     """Run the project's correct and idealize stages and stamp it, under its writer lock.
 
@@ -1779,6 +1908,11 @@ def _finish_project(
     project that another writer (an open app session, another append) owns is never
     corrected, idealized or stamped: those stages fail, naming the owner, and the
     movies already appended stay in the project for a later run to finish.
+
+    ``stamp_safe`` is false when the run may have lost the project path to another
+    writer; nothing is then stamped. Otherwise the movies each stage covers are always
+    recorded, and the rest of the provenance stamp only with ``stamp_provenance``
+    (#1243).
     """
     from tether.project.lock import publish_lock  # noqa: PLC0415
 
@@ -1806,17 +1940,20 @@ def _finish_project(
                 run_idealize=run_idealize,
                 ownership_guard=guard,
             )
-            if outcome is not None and stamp and guard is not None:
+            if outcome is not None and stamp_safe and guard is not None:
                 project_stages, covered = outcome
                 try:
-                    _stamp_under_writer_lock(
-                        project,
-                        ownership_guard=guard,
-                        policy=policy,
-                        idealize_requested=idealize,
-                        stages=project_stages,
-                        covered=covered,
-                    )
+                    if stamp_provenance:
+                        _stamp_under_writer_lock(
+                            project,
+                            ownership_guard=guard,
+                            policy=policy,
+                            idealize_requested=idealize,
+                            stages=project_stages,
+                            covered=covered,
+                        )
+                    else:
+                        _record_coverage(project, covered, guard)
                 except Exception as exc:  # provenance must never fail a movie
                     _safe_event(
                         log,
@@ -1858,24 +1995,16 @@ def _do_append(
 
     ``None`` means the movie is not in the project (its extract stage failed).
     """
-    from tether.project.batch_inputs import movie_in_project  # noqa: PLC0415
-
     try:
         _assert_output_not_newer(project)
     except Exception as exc:
         rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc))
         return None
-    # An unreadable project or movie reads as "not in it": the append then reports why.
-    existing = None
-    with contextlib.suppress(Exception):
-        existing = movie_in_project(project, job.movie_path)
+    # A movie already in the project is skipped without the writer lock, so a resume
+    # does not wait on an open app session; the append reads it again under the lock.
+    existing = _read_movie_match(project, job.movie_path)
     if existing is not None:
-        rec.record(
-            STAGE_EXTRACT,
-            STATUS_SKIPPED,
-            detail=f"already in {project.name} as movie {existing!r}",
-        )
-        return existing
+        return _skip_present(rec, project, existing)
     refuse = policy == POLICY_FAIL
     creating = not os.path.lexists(project)
     try:
@@ -1894,11 +2023,14 @@ def _do_append(
             from tether.project.lock import publish_lock  # noqa: PLC0415
 
             with publish_lock(project) as guard:
-                # Mark the project stages unfinished before the append, so a run cut off
-                # after it still knows they no longer cover every movie; a refused
-                # append puts the marks back as they were.
-                earlier = _mark_stages_pending(project, guard)
-                try:
+                # Another writer may have replaced the project, or appended this movie,
+                # since the reads above; both are read again now that nobody else can.
+                # The append itself marks the project stages unfinished, in the publish
+                # that adds the movie (#1243).
+                guard()
+                _assert_output_not_newer(project)
+                existing = _read_movie_match(project, job.movie_path)
+                if existing is None:
                     summary = append(
                         project,
                         job.movie_path,
@@ -1908,10 +2040,8 @@ def _do_append(
                         publish_guard=guard,
                         refuse_over_gate=refuse,
                     )
-                except Exception:
-                    with contextlib.suppress(Exception):
-                        _restore_stage_marks(project, earlier, guard)
-                    raise
+            if existing is not None:
+                return _skip_present(rec, project, existing)
     except Exception as exc:  # ExtractionError, a lost lock, any lower-level failure
         if creating and os.path.lexists(project):
             # An unguarded creation may have lost a race to another writer whose project
@@ -1925,52 +2055,49 @@ def _do_append(
     )
     if getattr(summary, "low_confidence_registration", False):
         detail += f"; low-confidence registration {_FLAG_MARK}"
+    rec.movie_sha256 = getattr(summary, "movie_sha256", None)
     rec.record(STAGE_EXTRACT, STATUS_DONE, detail=detail)
     return str(getattr(summary, "movie_id", "")) or None
 
 
-_MARKED_STAGES = (STAGE_CORRECT, STAGE_IDEALIZE)
+def _read_movie_match(project: Path, movie: Path) -> tuple[str, str] | None:
+    """Return the existing movie ID and hash; let the append report any read failure."""
+    from tether.project.batch_inputs import _find_movie_in_project  # noqa: PLC0415
+
+    with contextlib.suppress(Exception):
+        return _find_movie_in_project(project, movie)
+    return None
 
 
-def _mark_stages_pending(project: Path, guard: Callable[[], None]) -> dict[str, str | None]:
-    """Stamp the project stages as covering no movie set yet; return the earlier marks.
+def _skip_present(rec: _Recorder, project: Path, match: tuple[str, str]) -> str:
+    """Record that this movie was already in the project and return its ID."""
+    movie_id, rec.movie_sha256 = match
+    rec.record(
+        STAGE_EXTRACT,
+        STATUS_SKIPPED,
+        detail=f"already in {project.name} as movie {movie_id!r}",
+    )
+    return movie_id
 
-    Written to ``/settings/batch`` as an empty ``{stage}_movies`` (the unfinished mark
-    ``_covered_movies`` reads), which the run's final stamp replaces (#1151).
+
+def _record_coverage(project: Path, covered: dict[str, str], guard: Callable[[], None]) -> None:
+    """Write only the ``{stage}_movies`` marks of ``covered`` to ``/settings/batch``.
+
+    A run without the provenance stamp still records which movies its project stages
+    cover; otherwise a stage that succeeded would leave an append's unfinished mark in
+    place, and every later run would do it again (#1243).
     """
+    if not covered:
+        return
     import h5py  # noqa: PLC0415
 
+    _assert_output_not_newer(project)
     guard()
     with h5py.File(project, "r+") as f:
         guard()
         grp = f[_SETTINGS_GROUP].require_group(_BATCH_SETTINGS)
-        earlier: dict[str, str | None] = {}
-        for stage in _MARKED_STAGES:
-            name = f"{stage}{_COVERED_SUFFIX}"
-            raw = grp.attrs.get(name)
-            earlier[name] = None if raw is None else _as_text(raw)
-            grp.attrs[name] = ""
-    return earlier
-
-
-def _restore_stage_marks(
-    project: Path, earlier: dict[str, str | None], guard: Callable[[], None]
-) -> None:
-    """Put back the marks ``_mark_stages_pending`` replaced (an append was refused)."""
-    import h5py  # noqa: PLC0415
-
-    guard()
-    with h5py.File(project, "r+") as f:
-        guard()
-        grp = f[_SETTINGS_GROUP][_BATCH_SETTINGS]
-        for name, value in earlier.items():
-            if value is None:
-                if name in grp.attrs:
-                    del grp.attrs[name]
-            else:
-                grp.attrs[name] = value
-        if not len(grp.attrs) and not len(grp):
-            del f[_SETTINGS_GROUP][_BATCH_SETTINGS]
+        for name, digest in covered.items():
+            grp.attrs[f"{name}{_COVERED_SUFFIX}"] = digest
 
 
 def _as_text(raw: Any) -> str:
@@ -1978,7 +2105,16 @@ def _as_text(raw: Any) -> str:
 
 
 def _movies_digest(project: Path) -> str:
-    """A digest of the content hashes of every movie in ``project`` (#1151)."""
+    """Return a digest of the content hashes of every movie in ``project`` (#1151)."""
+    return _project_movies(project)[1]
+
+
+def _project_movies(project: Path) -> tuple[frozenset[str], str]:
+    """Return the content ``sha256`` of every movie in ``project`` and the movies digest.
+
+    The digest hashes those values, in sorted order, so it names the set of movies
+    whatever their ids or row order (#1151).
+    """
     import hashlib  # noqa: PLC0415
 
     import h5py  # noqa: PLC0415
@@ -1987,14 +2123,12 @@ def _movies_digest(project: Path) -> str:
 
     with h5py.File(project, "r") as f:
         table = f["movies"][TABLE][:]
-    hashes = sorted(
-        (v.decode("utf-8") if isinstance(v, bytes) else str(v)).lower() for v in table["sha256"]
-    )
-    return hashlib.sha256("\n".join(hashes).encode("utf-8")).hexdigest()
+    hashes = sorted(_as_text(v).lower() for v in table["sha256"])
+    return frozenset(hashes), hashlib.sha256("\n".join(hashes).encode("utf-8")).hexdigest()
 
 
 def _covered_movies(project: Path, stage: str) -> str | None:
-    """The movies digest an earlier ``--into`` run stamped for ``stage``, if any.
+    """Return the movies digest an earlier ``--into`` run stamped for ``stage``, if any.
 
     An empty string means that run left the stage unfinished; ``None`` means no
     ``--into`` run stamped it (a project from ``tether extract``, the app or a
@@ -2008,9 +2142,7 @@ def _covered_movies(project: Path, stage: str) -> str | None:
             raw = None if grp is None else grp.attrs.get(f"{stage}{_COVERED_SUFFIX}")
     except Exception:
         return None
-    if raw is None:
-        return None
-    return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    return None if raw is None else _as_text(raw)
 
 
 def _project_stages(
@@ -2032,7 +2164,9 @@ def _project_stages(
     project: this run appended a movie, or the last ``--into`` stamp records the stage for
     another set of movies or as unfinished. A project that no ``--into`` run has stamped
     keeps the plain checkpoint, so a curated project that gains no movie is not
-    recomputed. A correction that ran makes the stored model stale too.
+    recomputed. A correction that ran makes the stored model stale too. A movie of the
+    run that the locked project no longer holds (another writer replaced the file) has
+    both stages ``blocked`` rather than the project's results (#1243).
 
     ``ownership_guard`` checks the project's writer lock, which the caller holds for
     the whole call; both runners carry it to their writes.
@@ -2044,11 +2178,30 @@ def _project_stages(
     digest, since that checkpoint may not cover every movie now in the project.
     ``None`` when no movie of the run is in the project (nothing ran).
     """
-    in_project = [r for r in recorders if (sr := r.stages.get(STAGE_EXTRACT)) and sr.ok]
+    extracted = [r for r in recorders if (sr := r.stages.get(STAGE_EXTRACT)) and sr.ok]
+    gone: set[int] = set()
+    current = ""
+    if extracted:
+        contents, current = _project_movies(project)
+        # A movie whose content the locked project no longer holds (another writer
+        # replaced the file since its extract stage) does not share the project's
+        # stages (#1243). Content, not id: a replacement may hold the movie under
+        # another ID. The extract stage carries the hash it appended or matched, even
+        # if another writer replaced the project before this stage began.
+        gone = {
+            id(r)
+            for r in extracted
+            if r.movie_sha256 is not None and r.movie_sha256 not in contents
+        }
+    in_project = [r for r in extracted if id(r) not in gone]
+    members = {id(r) for r in in_project}
     for rec in recorders:
-        if rec in in_project:
+        if id(rec) in members:
             continue
-        _do_correct(rec.job, rec, upstream_ok=False, runner=correct)
+        if id(rec) in gone:
+            rec.record(STAGE_CORRECT, STATUS_BLOCKED, detail=f"no longer in {project.name}")
+        else:
+            _do_correct(rec.job, rec, upstream_ok=False, runner=correct)
         _do_idealize(
             rec.job,
             rec,
@@ -2060,7 +2213,6 @@ def _project_stages(
     if not in_project:
         return None
     appended = any(r.stages[STAGE_EXTRACT].status == STATUS_DONE for r in in_project)
-    current = _movies_digest(project)
 
     def stale(stage: str) -> bool:
         covered = _covered_movies(project, stage)

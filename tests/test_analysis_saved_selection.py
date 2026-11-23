@@ -219,6 +219,15 @@ def test_from_dict_refuses_another_version_a_missing_field_or_an_unknown_group()
         SavedSelection.from_dict({**good, "filter": {**good["filter"], "group": ["tag", "blink"]}})
 
 
+@pytest.mark.parametrize("bare", ["k0", b"k0"], ids=["str", "bytes"])
+def test_from_dict_refuses_bare_string_keys_rather_than_splitting_them(bare: str | bytes) -> None:
+    # A hand-edited form storing one key as a bare string must not be read as one key
+    # per character: ``tuple("k0")`` is ``("k", "0")``, two molecules nobody named (#1191).
+    good = SavedSelection("x", "/p.tether", ("k0",)).to_dict()
+    with pytest.raises(ValueError, match="molecule_keys"):
+        SavedSelection.from_dict({**good, "molecule_keys": bare})
+
+
 # --- the MoleculeSelection seam (ADR-0109) ------------------------------------
 
 
