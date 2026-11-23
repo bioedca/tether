@@ -6,11 +6,16 @@ description: "Write the results of a project to a table, to Deep-LASI-compatible
 
 ## Who this page is for
 
-You have a `.tether` project you have curated, and probably corrected and idealized, and you
-want its results in a file someone or something else can read: a table for a spreadsheet or a
-plotting script, the traces for a Deep-LASI-compatible tool, or a smaller project to send a
-collaborator. Figures of the analysis plots are made on [Draw a FRET histogram, a TDP and
-dwell-time survival plots](analyze.md).
+You have a `.tether` project that you have curated, and probably corrected and idealized. You
+want its results in a file that a person or another program can read. That can be one of
+these:
+
+- A table for a spreadsheet or a plotting script.
+- The traces for a Deep-LASI-compatible tool.
+- A smaller project to send a collaborator.
+
+[Draw a FRET histogram, a TDP and dwell-time survival plots](analyze.md) makes the figures of
+the analysis plots.
 
 ## Before you start
 
@@ -20,11 +25,11 @@ dwell-time survival plots](analyze.md).
   launcher folder on your `PATH` first ([Command line](../cli.md#launching-tether-after-an-installer-install)).
   Every export on this page is one `tether export` command. The [Command
   line](../cli.md#tether-export) page lists all of its options.
-- Only for the Python way at the end of each section: the Python that came with Tether,
-  `~/tether/envs/tether/bin/python` on Linux, `~/Tether/envs/tether/bin/python` on macOS, or
-  `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
-  locations. Save the lines as a `.py` file beside the project and run it with that Python,
-  or type them at its `>>>` prompt.
+- Only for the Python way at the end of each section: the Python that came with Tether. At
+  the default install locations, it is `~/tether/envs/tether/bin/python` on Linux and
+  `~/Tether/envs/tether/bin/python` on macOS. On Windows, it is
+  `$env:USERPROFILE\Tether\envs\tether\python.exe`. Save the lines as a `.py` file beside
+  the project, and run it with that Python. Or type the lines at its `>>>` prompt.
 
 ## Choose what to export
 
@@ -38,8 +43,8 @@ dwell-time survival plots](analyze.md).
 Every one of them also writes a [provenance
 file](../reference/exports.md#provenance-file) beside the file, named after it with
 `.provenance.json` added. It records which Tether version, which project and which settings
-made the file. Keep it with the file when you move or share it: for the CSV and the trace
-matrix it is the only such record. To put these files in a public repository, follow
+made the file. Keep it with the file when you move or share it. For the CSV and the trace
+matrix, it is the only such record. To put these files in a public repository, follow
 [Share and deposit a dataset](share-a-dataset.md).
 
 ## Export the molecule table
@@ -52,10 +57,10 @@ This writes `molecules.csv` and `molecules.csv.provenance.json`. Rejected molecu
 **included**, with `reject` in the `curation_label` column, so filter on that column in your
 own tool. To leave them out of the file instead, add `--exclude-rejected`.
 
-To export the table of every project in a folder, for example after `tether batch`, give
-all the projects and a folder. Each table is named after its project, here
-`tables/movie_010.csv` and so on. Make the folder first: if the pattern matches only one
-project, `-o` names the file to write unless it is an existing folder.
+You can export the table of every project in a folder, for example after `tether batch`. To
+do this, give all the projects and a folder. Each table is named after its project, here
+`tables/movie_010.csv` and so on. Make the folder first. If the pattern matches only one
+project, `-o` names the file to write, unless it is an existing folder.
 
 ```bash
 mkdir tables
@@ -79,7 +84,8 @@ Two columns need care when you read the file:
 
 - A blank cell means *not set*, not zero. Read blanks as missing values.
 - `mean_apparent_e` and `median_apparent_e` are **apparent** efficiencies. The `alpha` and
-  `gamma` columns carry the correction factors so you can compute a corrected value yourself;
+  `gamma` columns carry the correction factors, so you can compute a corrected value
+  yourself.
   [Reading the exports elsewhere](../reference/exports.md#reading-the-exports-elsewhere) shows
   how.
 
@@ -89,9 +95,11 @@ Two columns need care when you read the file:
 tether export traces movie.tether -o traces
 ```
 
-This writes `traces/movie-donc-accc-w.txt`: the background-subtracted traces of every molecule
-you did not reject, one row per frame and a donor column then an acceptor column per
-molecule, with no header. `-o` names a folder, and the command names the file after the
+This writes `traces/movie-donc-accc-w.txt`. It holds the background-subtracted traces of every
+molecule that you did not reject. It has one row per frame and no header. Each molecule has a
+donor column, then an acceptor column.
+
+`-o` names a folder, and the command names the file after the
 project. To keep the rejected molecules, add `--include-rejected`. To export only some
 molecules, add `--molecule-key` once for each molecule.
 
@@ -106,11 +114,13 @@ print(f"{result.n_molecules} molecules -> {result.path}")
 
 Tether writes the `-donc-accc-w.txt` ending only if you name the file that way, as above.
 
-The file has no molecule names, so its column pairs line up with the rows of the molecule
-table only when both leave out the same molecules. This export leaves out rejected
-molecules and the molecule table keeps them, so if you will pair the two, for example to
-apply each molecule's γ to its trace, export the table with `include_rejected=False` as
-well (`--exclude-rejected`). The molecule table always covers the whole project and takes no
+The file has no molecule names. So its column pairs line up with the molecule-table rows only
+when both leave out the same molecules. This export leaves out rejected molecules,
+and the molecule table keeps them. You may want to pair the two, for example to apply the γ
+of each molecule to its trace. Then export the table with `include_rejected=False` as well
+(`--exclude-rejected`).
+
+The molecule table always covers the whole project and takes no
 `molecule_keys=`. So for a project of several movies, first make a subset of one movie and
 export both files from it. The table's `movie_id` column identifies each molecule's movie, and `source_filename`
 beside it names the movie's file. Two movies can share a file name, so pick the movie by its
@@ -148,8 +158,9 @@ tether export subset movie.tether -o subset.tether
 ```
 
 This writes `subset.tether` with every molecule you did not reject. To choose the molecules,
-add `--molecule-key` once for each one. To send only the molecules you accepted, and not the
-uncurated ones, the Python way is shorter, because it can read the curation labels first:
+add `--molecule-key` once for each one. You may want to send only the molecules
+that you accepted, and not the uncurated ones. Then the Python way is shorter, because it can
+read the curation labels first:
 
 ```python
 from tether.project.export import export_subset_tether
@@ -163,10 +174,12 @@ print(f"{result.n_molecules} molecules -> {result.path}")
 ```
 
 Leave out `molecule_keys=` to export every molecule you did not reject. The subset carries the
-molecules' background-subtracted traces, image crops, idealization models and curation
-history, so it needs neither the movie nor the original project. It leaves out the raw traces
-unless you add `--include-raw` (`include_raw=True` in Python), and with them any idealization
-model fitted on raw traces. The provenance file names a model left out that way under
+background-subtracted traces, image crops, idealization models and curation history of the
+molecules. So it needs neither the movie nor the original project. It leaves out the raw
+traces unless you add `--include-raw` (`include_raw=True` in Python). Without them, it also
+leaves out any idealization model fitted on raw traces.
+
+The provenance file names a model left out that way under
 `skipped_idealization_models`. It refuses to replace an existing file unless you add
 `--overwrite` (`overwrite=True`).
 
@@ -193,7 +206,7 @@ in it. A job record keeps the options of the command that ran. They can hold a f
 so read them too.
 
 A project imported for analysis only, from a Deep-LASI `.txt` or a tMAVEN SMD file, has no
-image crops, so it cannot be exported as a subset; the export stops with an error. Use the
+image crops. So it cannot be exported as a subset. The export stops with an error. Use the
 molecule table and the trace export for such a project instead
 ([Legacy Deep-LASI import](../io/legacy-import.md)).
 
@@ -201,7 +214,7 @@ molecule table and the trace export for such a project instead
 
 1. The number printed, `Exported 412 molecule(s) -> molecules.csv` for example, is the count
    of molecules that went into the file. Compare it with what you expect after curation.
-2. The `.provenance.json` file sits beside the export. Open it in a text editor: its
+2. The `.provenance.json` file sits beside the export. Open it in a text editor. Its
    `parameters` say what was included.
 3. Frame numbers in all three exports count frames, not seconds. To convert them, see
    [Frames to seconds](../reference/exports.md#frames-to-seconds).
