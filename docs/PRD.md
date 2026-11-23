@@ -2121,8 +2121,10 @@ CPU `deep.yml` leg, exercising the `device="cuda"` path.
 (never a moving tag); top-level `permissions: { contents: read }`, elevated per-job only where needed
 (`security-events: write` for CodeQL; `pages: write` + `id-token: write` for docs deploy; `contents: write` +
 `id-token: write` + `attestations: write` for the release; `issues: write` for the audit). `concurrency: { group:
-${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` cancels superseded runs — **except**
-`release.yml` (`cancel-in-progress: false`; never cancel a half-built installer).
+${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` cancels superseded runs, while each run on
+the literal `refs/heads/main` in `ci.yml`, `sidecar.yml` and `schema-guard.yml` has an independent group so a
+later run cannot cancel or replace it (#1265, with manual sidecar dispatch applying the rule at the parity
+job after a case-sensitive ref check), and `release.yml` disables cancellation to let installers finish.
 `setup-micromamba`'s `cache-environment` is keyed on the lock hash + OS + Python, with separate base/sidecar cache
 namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and a lock bump cleanly invalidates it.
 

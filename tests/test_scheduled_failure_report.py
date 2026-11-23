@@ -544,6 +544,13 @@ def test_every_scheduled_workflow_calls_the_report_with_the_documented_shape() -
         assert len(reports) == 1, f"{name}: a scheduled workflow needs one job using {REPORT_USES}"
         ((report_id, job),) = reports.items()
         watched = [k for k in workflow["jobs"] if k != report_id]
+        if name == "sidecar.yml":
+            classifier_id = "classify-dispatch"
+            assert workflow["jobs"][classifier_id]["if"] == (
+                "${{ github.event_name == 'workflow_dispatch' }}"
+            )
+            assert workflow["jobs"]["parity"]["needs"] == classifier_id
+            watched.remove(classifier_id)
         needs = job.get("needs")
         assert (needs if isinstance(needs, list) else [needs]) == watched, name
         assert job.get("if") == "${{ !cancelled() }}", f"{name}: `!cancelled()`, not always()"

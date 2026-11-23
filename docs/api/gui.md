@@ -45,6 +45,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.macos_app
 
+::: tether.gui.messages
+
 ::: tether.gui.movie_panel
 
 ::: tether.gui.overlap_dock

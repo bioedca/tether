@@ -124,10 +124,18 @@ def test_the_browser_dock_belongs_to_curate_and_shows_only_there(shell) -> None:
 
 
 def _dock_menu_titles(shell) -> list[str]:
-    """The dock items the window's own dock menu (a right click on the menu bar) offers."""
+    """The section dock items the window's own dock menu (a right click on the menu bar) offers.
+
+    The Messages dock (#627) belongs to the whole window, not to a section, so it is offered in
+    every section and left out here.
+    """
     menu = shell.window.createPopupMenu()
     try:
-        return [a.text() for a in menu.actions() if a.isVisible() and not a.isSeparator()]
+        return [
+            a.text()
+            for a in menu.actions()
+            if a.isVisible() and not a.isSeparator() and a.text() != "&Messages"
+        ]
     finally:
         menu.deleteLater()
 
