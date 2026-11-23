@@ -162,7 +162,8 @@ def _append_reject_log_rows(
     ambiguous = {key for key, n in n_labels_of.items() if n > 1}
     condition_of = {decision_key(row): _to_str(row["condition_id"]) for row in matched}
     owner_log = labels_group[REJECT_LOG][:] if REJECT_LOG in labels_group else []
-    existing = {_reject_event_key(row) for row in owner_log}
+    # Reason rows are counted as a multiset: two identical rows of one join are how an owner
+    # records a join a later pull made ambiguous (#1291), so a chained merge keeps both.
     held = Counter(_reject_event_key(row) for row in owner_log)
     attributed = {log_join(row) for row in owner_log}
     seen: Counter = Counter()
@@ -172,17 +173,14 @@ def _append_reject_log_rows(
         join = log_join(row)
         if join[-1] is None or join not in condition_of:
             continue
-        ev = _reject_event_key(row)
-        if join in ambiguous:
-            # #1291: copy only where an earlier pull already attributed a reason to this join,
-            # and only the rows the owner does not hold yet, counted as a multiset, so the owner
-            # then holds two reason rows of the join and reads none, as the source does.
-            seen[ev] += 1
-            if join not in attributed or seen[ev] <= held[ev]:
-                continue
-        elif ev in existing:
+        if join in ambiguous and join not in attributed:
+            # #1291: copy an ambiguous join's reasons only where an earlier pull already gave the
+            # join a reason, so the owner then holds two reason rows of it and reads none.
             continue
-        existing.add(ev)
+        ev = _reject_event_key(row)
+        seen[ev] += 1
+        if seen[ev] <= held[ev]:
+            continue  # the owner already holds this row (as many times as the source does)
         out = np.zeros(1, dtype=dtype)
         for name in dtype.names:
             if name in src_log.dtype.names:

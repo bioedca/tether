@@ -487,6 +487,12 @@ def test_a_join_made_ambiguous_by_a_later_pull_reads_no_reason(tmp_path, second_
     assert report.reject_log_appended == 1
     assert reject_record_of(owner, okeys[1]) is None
     assert merge_labels(owner, split).reject_log_appended == 0  # a re-pull appends nothing
+    # A chained merge of that owner keeps both reason rows, so the next owner reads none too.
+    upstream = tmp_path / "upstream.tether"
+    _store(upstream, n=2)
+    assert merge_labels(upstream, owner).reject_log_appended == 2
+    assert reject_record_of(upstream, okeys[1]) is None
+    assert merge_labels(upstream, owner).reject_log_appended == 0
 
 
 def test_an_accept_sharing_the_join_keeps_the_reject_reason(tmp_path) -> None:
