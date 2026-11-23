@@ -118,7 +118,25 @@ def test_the_pages_show_tether_commands() -> None:
     assert {argv[1] for _, argv in _tether_commands() if argv[0] == "tether"} == {
         "extract",
         "batch",
+        "idealize",
+        "export",
+        "info",
     }
+
+
+def _command_parser(argv: list[str]) -> tuple[argparse.ArgumentParser, int]:
+    """The parser that owns ``argv``'s options, and the index of its first argument.
+
+    ``tether export`` has forms of its own (#658), so ``tether export table …`` takes its
+    options from the ``table`` parser under ``export``; the others are one level deep.
+    """
+    parser, depth = build_parser(), 1
+    while depth < len(argv):
+        subs = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+        if not subs or argv[depth] not in subs[0].choices:
+            break
+        parser, depth = subs[0].choices[argv[depth]], depth + 1
+    return parser, depth
 
 
 @pytest.mark.parametrize(("name", "argv"), _tether_commands())
@@ -126,12 +144,13 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch"}, (name, argv)
+    assert argv[1] in {"extract", "batch", "idealize", "export", "info"}, (name, argv)
     parser = build_parser()
-    (sub,) = (a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
-    options = set(sub.choices[argv[1]]._option_string_actions)
+    command, first = _command_parser(argv)
+    assert command is not parser, (name, argv)
+    options = set(command._option_string_actions)
     # Exact spellings only: argparse would also accept an abbreviation a reader cannot grep.
-    for token in argv[2:]:
+    for token in argv[first:]:
         if token.startswith("-"):
             assert token.split("=", 1)[0] in options, (name, token)
     try:

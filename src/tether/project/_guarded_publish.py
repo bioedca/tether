@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from shutil import copy2
 from tempfile import mkstemp
@@ -18,6 +19,18 @@ from tether.project.lock import (
     publish_lock,
     replacement_identity,
 )
+
+# The staged siblings this context is writing into right now. A guarded writer asked to
+# update one of them writes in place: the enclosing ``guarded_project_write`` already
+# owns that sibling's copy and its publish (#258). A ContextVar, not a module global, so
+# two threads staging two projects never see each other's siblings.
+_ACTIVE_STAGES: ContextVar[frozenset[str]] = ContextVar(
+    "tether_guarded_publish_active_stages", default=frozenset()
+)
+
+
+def _stage_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(path))
 
 
 def require_publish_guard(
@@ -104,6 +117,56 @@ def _publish_over_reserved_name(stage: str | Path, destination: str | Path) -> N
             raise
 
 
+def migration_backup_path(project_path: str | Path, version: int) -> Path:
+    """Return the free name a project stamped ``version`` is backed up to before a migration.
+
+    ``<stem>.v<version>-backup<suffix>`` beside the project (``experiment.v1-backup.tether``),
+    or ``<stem>.v<version>-backup-<n><suffix>`` with the lowest free ``n`` from 2 when that
+    name is taken, so an earlier backup is never overwritten (PRD §5.4, ADR-0136).
+    """
+    path = Path(project_path)
+    candidate = path.with_name(f"{path.stem}.v{version}-backup{path.suffix}")
+    n = 2
+    while os.path.lexists(candidate):
+        candidate = path.with_name(f"{path.stem}.v{version}-backup-{n}{path.suffix}")
+        n += 1
+    return candidate
+
+
+def _back_up_before_migration(
+    canonical: Path, staged: Path, *, check_publish: Callable[[], None]
+) -> None:
+    """Copy ``canonical`` beside itself when the staged copy raised its ``schema_version``.
+
+    A same-directory temporary copy keeps a failed copy out of the backup name.
+    Check the source after that copy and publish the backup without replacing an
+    earlier one. An unreadable stamp prevents publication.
+    """
+    from tether.io.schema import read_schema_version  # noqa: PLC0415
+
+    before, after = read_schema_version(canonical), read_schema_version(staged)
+    if after <= before:
+        return
+
+    fd, raw_backup = mkstemp(
+        prefix=f".{canonical.name}.", suffix=".backup.tmp", dir=canonical.parent
+    )
+    os.close(fd)
+    backup_stage = Path(raw_backup)
+    try:
+        copy2(canonical, backup_stage)
+        while True:
+            backup = migration_backup_path(canonical, before)
+            check_publish()
+            try:
+                publish_staged_project(backup_stage, backup, publish_guard=None)
+            except (FileExistsError, PublishGuardRequiredError):
+                continue
+            break
+    finally:
+        backup_stage.unlink(missing_ok=True)
+
+
 def _is_placeholder(path: str | Path, placeholder: tuple[int, int] | None) -> bool:
     try:
         st = os.stat(path)
@@ -135,10 +198,27 @@ def guarded_project_write(
     so the publish is refused with [`LockError`][tether.project.lock.LockError] rather
     than overwriting the newer file. A filesystem with no inode numbers gives no
     identity, and there only the caller's ``write_guard`` protects the publish.
+
+    A publish that raises the project's ``schema_version`` (a migration, ADR-0136) first
+    copies the canonical file, as it was, to ``migration_backup_path`` beside it.
+
+    Stages nest. When ``project_path`` is a sibling an enclosing guarded write staged
+    and has not yet published, the path is yielded as it is: the caller writes into
+    that sibling in place, ``write_guard`` still runs on entry and on a clean exit, and
+    the enclosing write keeps the only copy, the only identity check and the only
+    publish. This lets one staged sibling span several dependent writers (the batch
+    correct stage) instead of each writer copying and publishing the whole project on
+    its own.
     """
     canonical_path = Path(project_path)
     if write_guard is None:
         yield canonical_path
+        return
+
+    if _stage_key(canonical_path) in _ACTIVE_STAGES.get():
+        write_guard()
+        yield canonical_path
+        write_guard()
         return
 
     write_guard()
@@ -153,12 +233,22 @@ def guarded_project_write(
     try:
         copy2(canonical_path, guarded_stage)
         write_guard()
-        yield guarded_stage
-        write_guard()
-        if source_identity is not None and file_identity(canonical_path) != source_identity:
-            raise LockError(
-                f"{canonical_path.name} was replaced by another writer during the {label} write"
-            )
+        token = _ACTIVE_STAGES.set(_ACTIVE_STAGES.get() | {_stage_key(guarded_stage)})
+        try:
+            yield guarded_stage
+        finally:
+            _ACTIVE_STAGES.reset(token)
+
+        def check_publish() -> None:
+            write_guard()
+            if source_identity is not None and file_identity(canonical_path) != source_identity:
+                raise LockError(
+                    f"{canonical_path.name} was replaced by another writer during the {label} write"
+                )
+
+        check_publish()
+        _back_up_before_migration(canonical_path, guarded_stage, check_publish=check_publish)
+        check_publish()
         with replacement_identity(guarded_stage, canonical_path):
             os.replace(guarded_stage, canonical_path)
         guarded_stage = None

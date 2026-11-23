@@ -388,6 +388,10 @@ def estimate_similarity_prealign(
     cos_term = np.cos(np.pi * freq)
     x_term = cos_term[:, None] * cos_term[None, :]
     emphasis = (1.0 - x_term) * (2.0 - x_term)  # Reddy & Chatterji (1996) high-pass
+    # Release the (side, side) float64 term now: it would otherwise stay alive until
+    # return (512 MiB for a 4096 x 2048 channel half). A working-resolution cap would
+    # change the estimator's output and is out of scope here (#889).
+    del x_term
 
     def _spectrum(image: np.ndarray) -> np.ndarray:
         filtered = difference_of_gaussians(image, low_sigma, high_sigma)
@@ -606,7 +610,7 @@ class TmapChannel:
         as ``imrotate(I, -Rotation)``, which [`tether.imaging.split.process_image`][]
         ports. An empty or all-zero field is ``0``. Any other value (several
         different values, a non-integer, or an angle outside the set) raises
-        [`ValueError`][], because the channel split would be undefined.
+        `ValueError`, because the channel split would be undefined.
         """
         rot = np.asarray(self.rotation, dtype=np.float64).ravel()
         if rot.size == 0 or bool(np.all(rot == 0)):
@@ -625,7 +629,7 @@ class TmapChannel:
         ``processImage`` reverses the rows when ``Flip(1) == 1`` (``flipud``) and the
         columns when ``Flip(2) == 1`` (``fliplr``), after the rotation; see
         [`tether.imaging.split.process_image`][]. An empty or all-zero field is
-        ``(0, 0)``. Any other shape or value raises [`ValueError`][].
+        ``(0, 0)``. Any other shape or value raises `ValueError`.
         """
         flip = np.asarray(self.flip, dtype=np.float64).ravel()
         if flip.size == 0 or bool(np.all(flip == 0)):
@@ -645,7 +649,7 @@ class TmapChannel:
         path applies both (#559), so this no longer gates extraction; it says
         whether the crop alone places the channel in the raw frame, which
         [`origin`][] and [`reference_to_channel_image`][] need. A stored value
-        that does not decode raises [`ValueError`][] (see [`rotation_deg`][]).
+        that does not decode raises `ValueError` (see [`rotation_deg`][]).
         """
         return self.rotation_deg == 0 and self.flip_vh == (0, 0)
 
@@ -661,7 +665,7 @@ class TmapChannel:
 
         That holds only when the crop is taken from the raw frame. For a channel
         with a rotation or flip the crop is in the rotated/flipped frame, so this
-        raises [`ValueError`][] rather than return a wrong raw-frame position.
+        raises `ValueError` rather than return a wrong raw-frame position.
         """
         if not self.has_simple_geometry:
             raise ValueError(

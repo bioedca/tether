@@ -5,7 +5,8 @@
 Takes ``-batch "addpath(...); tether_run_job('<job>')"`` like MATLAB, reads the job, reports the
 release ``R0000x`` and writes one small known output per task, so the tests can check what the
 harness records. ``params.fail = true`` makes it exit 1, like a MATLAB error under ``-batch``;
-``params.touch_inputs`` names inputs it changes during the "run".
+``params.touch_inputs`` names inputs it changes during the "run"; ``params.touch_clone`` names a
+file it writes into the tool's clone, as Deep-LASI writes its ``settings.mat`` (#715).
 """
 
 from __future__ import annotations
@@ -35,6 +36,11 @@ def main(argv: list[str]) -> int:
     for name in job["params"].get("touch_inputs", []):
         with open(job["inputs"][name], "a", encoding="utf-8") as fh:
             fh.write("changed while MATLAB ran\n")
+    if job["params"].get("touch_clone"):
+        # The name may sit under a folder of the clone, or name a file the clone ignores (#1193).
+        Path(job["tool_dir"], job["params"]["touch_clone"]).write_text(
+            "settings\n", encoding="utf-8"
+        )
     out = Path(job["output_dir"], f"{job['task']}.csv")
     out.write_text(f"entry,value\n{job['entry']},1\n", encoding="utf-8", newline="\n")
     # As tether_run_job.m: the release is reported only after the task ended without an error.

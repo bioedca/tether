@@ -61,7 +61,12 @@ the page and the source disagree, the source wins, because the source wrote the 
     first and the last bin, which collect the overflow, removed when ``overflow`` is 0.
     ``thm_res{2,1}`` is the Gaussian fit (``gauss_ana.m``): one row ``[A, σ(A), μ, σ(μ), FWHM,
     σ(FWHM), population, σ(population)]`` for each Gaussian, the mean and SD over the bootstrap
-    samples.
+    samples. ``thm_res{2,2}`` holds the ``[A, μ, FWHM, population]`` of each Gaussian for each
+    sample, and ``thm_res{2,3}`` the centres and the histogram of each sample (each sums to 1)
+    (#713). ``thm_start{1}`` is ``[method, bootstrap, molecules per sample, samples, weighted]``;
+    "weighted" makes each molecule's histogram sum to 1 before the molecules are added
+    (``getHist.m``). ``thm_start{3}`` holds, for each Gaussian, the lower bound, the start and the
+    upper bound of ``A``, ``μ`` and the FWHM, in that order.
 ``prmTDP{t+1, k}`` — the Transition-analysis results (#712)
     ``clst_res{3}`` is the number of clusters chosen and ``clst_res{1}.clusters{J}`` the dwell
     table of that choice (``clustTrans.m``): one row ``[dwell time in s, value before, value after,
@@ -72,6 +77,15 @@ the page and the source disagree, the source wins, because the source wrote the 
 Only the layout of that generation of MASH-FRET is read: ``fix`` and ``prmTT`` at the top level.
 A later layout (a ``TP`` structure, as in the MASH-FRET 1.3.4 file of the same record) raises
 :class:`UnsupportedProject`, so a test never reads a field from the wrong place.
+
+:func:`read_crosstalk_project` (#870) reads the cross-talk fields of one project in that later
+layout: ``2chan2exc.mash`` of the MASH-FRET repository, which "1.3.2 (prev. commit: 3471fdf3)"
+wrote with non-zero coefficients. There ``fix`` is ``TP.fix`` and the intensity arrays keep the
+meaning above. ``crossCorr.m`` at ``3471fdf3`` first subtracts ``fix{4}{1}(c,n)·I_bgCorr`` of
+channel ``c`` from the ``n``-th other channel on every laser, as above; then, for each channel
+``c`` with its own laser ``l0``, it subtracts ``fix{4}{2}(n,c)·I_corr(:,c,l0)`` from the same
+channel at the ``n``-th other laser, where ``I_corr`` is the trace after the first step. So under
+the acceptor's own laser the acceptor holds the leakage correction only.
 """
 
 from __future__ import annotations
@@ -84,9 +98,12 @@ import numpy as np
 import scipy.io as sio
 
 __all__ = [
+    "Bootstrap",
+    "CrosstalkProject",
     "MashProject",
     "TagAnalysis",
     "UnsupportedProject",
+    "read_crosstalk_project",
     "read_project",
     "read_tag_analysis",
     "stored_histogram_tags",
@@ -248,6 +265,91 @@ def read_project(path: Path | str) -> MashProject:
 
 
 @dataclass(frozen=True)
+class Bootstrap:
+    """MASH-FRET's bootstrap of one tag's Gaussian fit (``gauss_ana.m``, #713)."""
+
+    enabled: bool
+    molecules_per_sample: int  # drawn with replacement for each sample
+    weighted: bool  # each molecule's histogram sums to 1 before the molecules are added
+    fit_start: np.ndarray  # (J, 9): [A low, start, high, μ low, start, high, FWHM low, start, high]
+    samples: np.ndarray  # (S, 4*J): [A, μ, FWHM, population] of each Gaussian, μ ascending
+    histograms: np.ndarray  # (bins, S): each sample's histogram, each column sums to 1
+
+    @property
+    def populations(self) -> np.ndarray:
+        """``(S, J)``: the population of each Gaussian in each sample."""
+        return self.samples[:, 3::4]
+
+
+@dataclass(frozen=True)
+class CrosstalkProject:
+    """The cross-talk fields of a MASH-FRET project in the ``TP`` layout (#870)."""
+
+    version: str
+    commit: str | None
+    n_channels: int
+    excitations: np.ndarray  # (nL,) laser wavelengths, nm
+    chan_exc: np.ndarray  # (nC,) wavelength of each channel's direct laser, 0 for none
+    labels: tuple[str, ...]
+    fret_pairs: np.ndarray  # (nF, 2) donor, acceptor channel, 0-based
+    leakage: np.ndarray  # (nC, nC-1) TP.fix{4}{1}
+    direct_excitation: np.ndarray  # (nL-1, nC) TP.fix{4}{2}
+    background_corrected: np.ndarray  # (L, nC*M, nL)
+    crosstalk_corrected: np.ndarray  # (L, nC*M, nL)
+
+    @property
+    def n_molecules(self) -> int:
+        return self.background_corrected.shape[1] // self.n_channels
+
+    def laser_of(self, channel: int) -> int:
+        """The slice of the third axis that holds *channel*'s emitter under its own laser."""
+        hits = np.flatnonzero(self.excitations == self.chan_exc[channel])
+        if hits.size == 0:
+            raise ValueError(f"channel {channel} has no emitter-specific laser")
+        return int(hits[0])
+
+    def trace(self, array: np.ndarray, molecule: int, channel: int, laser: int) -> np.ndarray:
+        """One intensity trace of *array* (one of the two intensity arrays)."""
+        return array[:, molecule * self.n_channels + channel, laser]
+
+
+def read_crosstalk_project(path: Path | str) -> CrosstalkProject:
+    """Read the cross-talk fields of a MASH-FRET project whose settings sit in ``TP``."""
+    raw = sio.loadmat(str(path), squeeze_me=False, struct_as_record=False)
+    if "TP" not in raw or "fix" in raw:
+        raise UnsupportedProject(f"{Path(path).name}: no TP structure; use read_project")
+    version = _text(raw["MASH_version"])
+    commit = _COMMIT.search(version)
+    n_channels = int(_num(raw["nb_channel"]).ravel()[0])
+    excitations = _num(raw["excitations"]).ravel()
+    n_lasers = int(_num(raw["nb_excitations"]).ravel()[0])
+    if excitations.size != n_lasers:
+        raise UnsupportedProject(f"{excitations.size} excitations for {n_lasers} lasers")
+    factors = _cell(_cell(raw["TP"][0, 0].fix)[3])  # TP.fix{4} = {bleedthrough, direct exc.}
+    arrays = {
+        name: _intensity(raw, name, n_lasers)
+        for name in ("intensities_bgCorr", "intensities_crossCorr")
+    }
+    if arrays["intensities_bgCorr"].shape != arrays["intensities_crossCorr"].shape:
+        raise UnsupportedProject("bgCorr and crossCorr differ in shape")
+    if arrays["intensities_bgCorr"].shape[1] % n_channels:
+        raise UnsupportedProject("the intensity columns are not nC x the molecule count")
+    return CrosstalkProject(
+        version=version,
+        commit=commit.group(1) if commit else None,
+        n_channels=n_channels,
+        excitations=excitations,
+        chan_exc=_num(raw["chanExc"]).ravel()[:n_channels],
+        labels=tuple(_text(x) for x in _cell(raw["labels"])[:n_channels]),
+        fret_pairs=_num(raw["FRET"]).reshape(-1, 2).astype(int) - 1,
+        leakage=_num(factors[0]).reshape(n_channels, max(n_channels - 1, 0)),
+        direct_excitation=_num(factors[1]).reshape(max(n_lasers - 1, 0), n_channels),
+        background_corrected=arrays["intensities_bgCorr"],
+        crosstalk_corrected=arrays["intensities_crossCorr"],
+    )
+
+
+@dataclass(frozen=True)
 class TagAnalysis:
     """MASH-FRET's analysis of one molecule tag, and the traces it was made from (#712)."""
 
@@ -263,6 +365,7 @@ class TagAnalysis:
     counts: np.ndarray  # MASH-FRET's histogram counts
     gaussians: np.ndarray | None  # thm_res{2,1}: (J, 8), or None if no fit is stored
     dwells: np.ndarray | None  # clst_res{1}.clusters{J}: (n, 8), or None
+    bootstrap: Bootstrap | None = None  # thm_start and thm_res{2,2:3}, or None if no fit
 
 
 def _load(path: Path | str) -> dict:
@@ -302,8 +405,22 @@ def read_tag_analysis(path: Path | str, tag: int) -> TagAnalysis:
     if overflow:
         raise UnsupportedProject("a histogram that keeps its overflow bins")
     table = np.atleast_2d(np.asarray(cell.plot[1], dtype=np.float64))
-    fit = np.asarray(cell.thm_res, dtype=object)[1, 0]
+    results = np.asarray(cell.thm_res, dtype=object)
+    fit = results[1, 0]
     gaussians = np.atleast_2d(np.asarray(fit, dtype=np.float64)) if np.size(fit) else None
+    bootstrap = None
+    if gaussians is not None:
+        settings = np.asarray(cell.thm_start[0], dtype=np.float64).ravel()
+        n_gauss = gaussians.shape[0]
+        histograms = np.atleast_2d(np.asarray(results[1, 2], dtype=np.float64))
+        bootstrap = Bootstrap(
+            enabled=bool(settings[1]),
+            molecules_per_sample=int(settings[2]),
+            weighted=bool(settings[4]),
+            fit_start=np.atleast_2d(np.asarray(cell.thm_start[2], dtype=np.float64))[:, :9],
+            samples=np.asarray(results[1, 1], dtype=np.float64).reshape(-1, 4 * n_gauss),
+            histograms=histograms[:, 1:],
+        )
 
     dwells = None
     # prmTDP is absent where no Transition analysis was saved, and short of rows for tags made
@@ -358,4 +475,5 @@ def read_tag_analysis(path: Path | str, tag: int) -> TagAnalysis:
         counts=table[:, 1],
         gaussians=gaussians,
         dwells=dwells,
+        bootstrap=bootstrap,
     )

@@ -20,3 +20,16 @@ kind = "git"
 url = "https://github.com/RNA-FRETools/MASH-FRET"
 commit = "83fcadf3b7274f2eeb22591429202dda0328c05b"  # tag v1.3.6, 2025-11-14
 licence = "GPL-3.0"
+
+[fret-cloud-scripts]
+kind = "files"
+# FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished (#710, ADR-0105). They stay on
+# the workstation and are not redistributed; only the numbers they compute are committed.
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished"
+files = { "FRET_cloud_contours_centroids.m" = "67819f3ad186aaf39717b3ece83fd0ef8913744b9f82948b11f550a95dfa4d34" }
+
+[deep-lasi]
+kind = "git"
+url = "https://gitlab.com/simon71/deeplasi"
+commit = "d2d348cb44804f91555aec9c79413c26bf6de045"  # 2025-05-10, the default branch head
+licence = "none"  # the repository has no licence file: nothing of it is committed (#715)

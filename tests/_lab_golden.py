@@ -43,11 +43,13 @@ __all__ = [
     "MOVIE_ROLE",
     "QUANTITIES",
     "EXPORT_ROUTE_ROTATION",
+    "TURNED_AGAINST_MAP",
     "compare_export_routes",
     "dump_lab_golden",
     "extract_project",
     "lab_quantities",
     "load_lab_golden",
+    "map_turns",
     "movie_role",
     "rotate_movie",
     "validate_document",
@@ -68,6 +70,18 @@ EXPORT_ROUTES: dict[str, str] = {"lab-12": "lab-11"}
 #: ``numpy.rot90(direct_frame, k=EXPORT_ROUTE_ROTATION)`` (measured on all 1700 frames, #887).
 #: The export-route check turns the vendor frames back before it compares the two routes.
 EXPORT_ROUTE_ROTATION = 3
+#: The acquisitions whose movie is turned against the map of its series (#887). All acquisitions
+#: of the series of ``lab-12`` share one map file, and that map fits the direct orientation
+#: (``lab-11``, ``lab-13``; maintainer decision of 2026-11-14). The vendor-route TIFFs ``lab-10``
+#: and ``lab-12`` are that orientation turned :data:`EXPORT_ROUTE_ROTATION` quarter turns, so
+#: each one is turned back before it is registered with the map. Without the turn, each molecule
+#: pairs a donor spot with an acceptor position on the wrong side of the field of view. The
+#: third vendor-route TIFF of the series, ``lab-09``, is already in the map's orientation and is
+#: not turned: on the workstation (2026-11-15) the mean image of each movie, turned 0 to 3
+#: quarter turns, was correlated with the mean images of ``lab-11`` and ``lab-13``, and only
+#: ``k=1`` for ``lab-10`` and ``lab-12`` (r 0.997) and ``k=0`` for ``lab-09`` (r 0.79; every turn
+#: gives r below 0) agree.
+TURNED_AGAINST_MAP: frozenset[str] = frozenset({"lab-10", "lab-12"})
 #: The data acquisitions of the name table that have a golden file: every movie id except the
 #: direct route of :data:`EXPORT_ROUTES` (maintainer decisions D1-D3: the bead movie has no
 #: neutral id). The issue counted ten; the name table holds twelve (Q20: C, "ten or more").
@@ -102,6 +116,15 @@ QUANTITIES: dict[str, str] = {
 # --- the pipeline ------------------------------------------------------------------------
 
 
+def map_turns(neutral_id: str) -> int:
+    """The quarter turns (``numpy.rot90``) that put the movie of an id in its map's orientation.
+
+    ``0`` for every acquisition whose movie the map fits as it is; the turn that undoes
+    :data:`EXPORT_ROUTE_ROTATION` for the ids of :data:`TURNED_AGAINST_MAP`.
+    """
+    return -EXPORT_ROUTE_ROTATION if neutral_id in TURNED_AGAINST_MAP else 0
+
+
 def movie_role(roles: Iterable[str]) -> str:
     """The role that names the movie of an id: ``movie``, else the default role ``file``."""
     roles = set(roles)
@@ -118,6 +141,9 @@ def extract_project(movie: Path, tmap: Path | None, workdir: Path) -> tuple[int,
 
     out_dir = workdir / "batch"
     argv = ["batch", str(movie), "-d", str(out_dir), "--no-idealize"]
+    # The golden numbers were made with the donor-anchored rule; this names it, so the
+    # new partner-in-both default cannot move them (#920, ADR-0127).
+    argv += ["--colocalization", "donor-anchored"]
     if tmap is not None:
         argv += ["--tmap", str(tmap)]
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -146,8 +172,14 @@ def _median(values: list[float]) -> float:
     return float(np.median(values)) if values else 0.0
 
 
-def lab_quantities(movie: Path, tmap: Path | None, workdir: Path) -> dict[str, Any]:
+def lab_quantities(
+    movie: Path, tmap: Path | None, workdir: Path, *, turns: int = 0
+) -> dict[str, Any]:
     """The summary numbers of one acquisition, keyed by :data:`QUANTITIES`.
+
+    ``turns`` (from :func:`map_turns`) turns the frames that many quarter turns before the
+    extraction, in a copy under ``workdir`` that is deleted afterwards, so the movie is
+    registered in the orientation its map was built in (#887).
 
     * ``molecules.count``: molecules extracted; ``molecules.accepted``: those the default
       curation filter keeps (§7.5), which every population view reads.
@@ -161,7 +193,15 @@ def lab_quantities(movie: Path, tmap: Path | None, workdir: Path) -> dict[str, A
     from tether.project.labels import curation_filter_mask  # noqa: PLC0415
 
     workdir.mkdir(parents=True, exist_ok=True)
-    code, path = extract_project(movie, tmap, workdir)
+    turned: Path | None = None
+    if turns % 4:
+        (workdir / "turned").mkdir(exist_ok=True)
+        movie = turned = rotate_movie(movie, workdir / "turned", turns)
+    try:
+        code, path = extract_project(movie, tmap, workdir)
+    finally:
+        if turned is not None:
+            turned.unlink(missing_ok=True)  # a full movie; the project holds what is needed
     if code != 0:
         # A failed stage must never become a golden number, even when a project was written.
         raise RuntimeError(f"tether batch exited {code}; no golden quantities from a failed run")

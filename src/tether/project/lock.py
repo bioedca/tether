@@ -329,7 +329,7 @@ class LockInfo:
         return LockIdentity(self.host, self.user, self.pid)
 
     def acquired_at(self) -> datetime:
-        """Parse [`timestamp`][] into an offset-aware [`datetime`][]."""
+        """Parse [`timestamp`][] into an offset-aware `datetime`."""
         parsed = datetime.fromisoformat(self.timestamp)
         if parsed.tzinfo is None:  # defensive: we only ever write offset-aware stamps
             parsed = parsed.replace(tzinfo=UTC)
@@ -360,7 +360,7 @@ class LockInfo:
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
         """Reconstruct from a parsed JSON mapping.
 
-        Raises [`KeyError`][] on a missing field, ``TypeError`` on an ill-typed
+        Raises `KeyError` on a missing field, ``TypeError`` on an ill-typed
         one, and ``ValueError`` on an unparseable ``timestamp`` — callers map all of
         these to [`CorruptLockError`][], so a malformed record is treated as a
         corrupt lock up front rather than escaping as a valid-looking foreign lock or
@@ -736,8 +736,13 @@ def _exclusive_create(lp: Path, info: LockInfo) -> bool:
         fd = os.open(lp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     except FileExistsError:
         return False
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(info.to_dict(), indent=2))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(info.to_dict(), indent=2))
+    except BaseException:
+        # The caller still holds the lifecycle guard, so the failed claim is ours.
+        lp.unlink(missing_ok=True)
+        raise
     return True
 
 
@@ -1072,7 +1077,7 @@ def _identity_guard(project_path: str | Path, *, claim: bool) -> Iterator[Path |
     filesystem reports no inode number), so only ``<file>.lock`` protects it; cleanup
     still holds the guard then, so it can reap records. The guard is taken before
     any ``<file>.lock`` guard, always in that order. A claim fails closed with
-    [`OSError`][] when the per-user directory cannot be made; cleanup
+    `OSError` when the per-user directory cannot be made; cleanup
     (``claim=False``) then goes on with ``<file>.lock`` alone.
     """
     identity = file_identity(project_path)
@@ -1744,10 +1749,19 @@ def lock_recovery(
     A process-liveness probe is used only for a holder on this computer; across
     computers liveness stays a wall-clock judgment (PRD §5.4). This function reads
     and never writes; [`recover_lock`][] acts on its verdict.
+
+    When this name has no ``<file>.lock`` but another hard-link name of the same
+    file holds it (ADR-0112), the verdict is for that name's lock, whose holder is
+    the ``owner``: that is the lock that refuses the open (#1124).
     """
     identity = identity if identity is not None else local_identity()
     lp = lock_path(project_path)
     info, corrupt = _read_tolerant(lp)
+    if not corrupt and info is None:
+        record = _blocking_identity_record(project_path)
+        if record is not None:
+            lp = lock_path(record.project)
+            info, corrupt = _read_tolerant(lp)
     return _classify_recovery(
         lp,
         info,
@@ -1774,10 +1788,18 @@ def recover_lock(
     record (the same nonce and timestamp, or still corrupt). A holder that refreshed,
     released or was replaced since the user looked therefore raises
     [`LockedError`][] and nothing is written. A process-local reservation held by
-    another execution context also raises it, and so does a live lock that another
-    hard-link name of the same file holds. The file's identity record moves to the
-    new lock, as for any claim (ADR-0112), so no other name can claim the file
+    another execution context also raises it. The file's identity record moves to
+    the new lock, as for any claim (ADR-0112), so no other name can claim the file
     while the recovered lock is held.
+
+    When another hard-link name of the same file holds it, the lock judged and
+    re-checked is that name's, as [`lock_recovery`][] judged it (#1124). The
+    takeover then writes the new lock into every name the identity record holds and
+    into this one, as a steal through an alias does, so all of them carry the new
+    nonce. It raises [`LockedError`][] instead when this name has a lock of its own
+    that the record does not account for. Both names' lifecycle guards are held from
+    that check to the writes, so a claim of this name by another user cannot land in
+    between.
 
     Each successful call is reported at WARNING on the ``tether.project.lock``
     logger with the ousted holder, the new holder and the action. The durable record
@@ -1796,17 +1818,30 @@ def recover_lock(
         _identity_guard(project_path, claim=True) as rp,
     ):
         record = _read_identity_record(rp) if rp is not None else None
-        if (
+        alias = (
             record is not None
             and not _same_spelling(record.project, project_path)
             and _identity_record_is_live(record)
-        ):
-            # Another name of this file holds it; the verdict judged only this name.
-            raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
-        with _lifecycle_guard(lp):
-            current, corrupt = _read_tolerant(lp)
+        )
+        judged = lock_path(record.project) if alias and record is not None else lp
+        with ExitStack() as guards:
+            # Through an alias both sidecar guards are held from the check to the
+            # writes: another OS user's claim of this name takes only its own
+            # identity guard, so this name's guard is what keeps that claim out.
+            # A fixed order means two recoveries cannot wait on each other.
+            order = {os.path.normcase(os.path.abspath(path)): path for path in (lp, judged)}
+            for key in sorted(order):
+                guards.enter_context(_lifecycle_guard(order[key]))
+            if alias:
+                assert record is not None
+                # Judge the holder's lock, unless this name carries a lock of its
+                # own outside the record.
+                own, own_corrupt = _read_tolerant(lp)
+                if own_corrupt or (own is not None and own.nonce != record.info.nonce):
+                    raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
+            current, corrupt = _read_tolerant(judged)
             verdict = _classify_recovery(
-                lp,
+                judged,
                 current,
                 corrupt,
                 identity=identity,
@@ -1819,13 +1854,19 @@ def recover_lock(
                 or verdict.owner != expected.owner
             ):
                 stale = current is not None and current.is_stale(timeout_s=timeout_s, now=now)
-                raise LockedError(current, stale=stale, corrupt=corrupt, path=lp)
+                raise LockedError(current, stale=stale, corrupt=corrupt, path=judged)
             info = _new_info(identity, now=now)
-            _atomic_write(lp, info)
+            _atomic_write(judged, info)
+            if alias:
+                try:
+                    _atomic_write(lp, info)
+                except BaseException:
+                    _release_sidecar_unguarded(judged, info)
+                    raise
         # Carry the file's identity record over to the new nonce, as a claim does,
         # so a hard-link alias cannot claim the file while this lock is held.
         sources: list[_IdentityRecord] = []
-        if record is not None and _same_spelling(record.project, project_path):
+        if record is not None and (alias or _same_spelling(record.project, project_path)):
             sources = [record]
         elif current is not None:
             sources = _records_with_nonce(current.nonce)
@@ -1833,12 +1874,17 @@ def recover_lock(
             spelling for source in sources for spelling in (source.project, *source.also)
         )
         try:
+            # Through an alias the holder's name and this one were both written
+            # above; the record names the holder's name beside the others.
+            taken: list[str] = []
+            if alias:
+                assert record is not None
+                taken.append(record.project)
+            for source in sources:
+                taken.extend(_take_over_spellings(source, info))
             also = tuple(
                 dict.fromkeys(
-                    spelling
-                    for source in sources
-                    for spelling in _take_over_spellings(source, info)
-                    if not _same_spelling(spelling, project_path)
+                    spelling for spelling in taken if not _same_spelling(spelling, project_path)
                 )
             )
             if rp is not None:
@@ -1893,14 +1939,19 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
 
 def _release_sidecar(lp: Path, info: LockInfo) -> bool:
     with _lifecycle_guard(lp):
-        current, corrupt = _read_tolerant(lp)
-        if corrupt or current is None or current.nonce != info.nonce:
-            return False
-        try:
-            lp.unlink()
-        except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
-            return False
-        return True
+        return _release_sidecar_unguarded(lp, info)
+
+
+def _release_sidecar_unguarded(lp: Path, info: LockInfo) -> bool:
+    """Remove ``lp`` when it carries ``info.nonce``; the caller holds its guard."""
+    current, corrupt = _read_tolerant(lp)
+    if corrupt or current is None or current.nonce != info.nonce:
+        return False
+    try:
+        lp.unlink()
+    except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
+        return False
+    return True
 
 
 @contextmanager
@@ -1959,7 +2010,7 @@ def writing(
     The per-user directory is created first if it is missing, as a claim does, so that a
     claim through a hard link that creates it meanwhile still waits for the identity guard.
     If it cannot be created for a file that has an identity, the write fails closed with
-    [`OSError`][] before the block runs, as a claim does.
+    `OSError` before the block runs, as a claim does.
 
     Keep the block short, as for [`holding`][]: another process's lifecycle call waits
     for the guard for at most a few seconds before it fails with ``TimeoutError``.

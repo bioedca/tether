@@ -30,8 +30,8 @@ walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes fr
 stdlib only (``re``, ``html.parser``, ``pathlib``), like ``tests/test_adr_index.py``:
 ``python-markdown`` is not in the base conda-lock, so it cannot be imported on the 3-OS
 ``test`` matrix. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
-``tables``, ``fenced_code``). What this module promises is narrower than "the renderer's
-verdict on any page". It promises this:
+``tables``, ``fenced_code``), and a test below fails if it names any. What this module
+promises is narrower than "the renderer's verdict on any page". It promises this:
 
 * the forms listed below are modelled, most of them with Python-Markdown's own regular
   expressions and procedures, copied and named. Each is pinned here by a test whose page
@@ -44,7 +44,7 @@ verdict on any page". It promises this:
   extending the model with a test checked against a real render — never by guessing;
 * any other form is not guaranteed. The checker may misread it either way.
 
-Known gaps are tracked in #515. A form not listed here is out of scope until it is listed.
+Known gaps are tracked in #1013. A form not listed here is out of scope until it is listed.
 
 The modelled forms:
 
@@ -57,6 +57,9 @@ The modelled forms:
   ``HtmlBlockPreprocessor``. Raw HTML blocks as its ``HTMLExtractor`` cuts them, whose
   Markdown is not parsed;
 * blockquotes, lazy continuation lines included;
+* indented code blocks that open after a blank line at the root, where the block before
+  them is certainly not a list (``_code_blocks``): their lines are code, read as a fenced
+  block is, and the first line after them opens a paragraph that is read (#1013);
 * the block boundaries that hold in every context: blank lines, ATX headings
   (``HashHeaderProcessor.RE``, at column zero inside any blockquotes), horizontal rules
   (``HRProcessor.SEARCH_RE``), and the first line of a blockquote;
@@ -74,7 +77,10 @@ The modelled forms:
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
-  an image gives none, and an undefined reference stays as written.
+  an image gives none, and an undefined reference stays as written. The de-duplication
+  starts empty. ``toc`` seeds it only from ids that are already elements when it runs,
+  and with mkdocs' default extensions no element has one: raw HTML, ``<a id>`` included,
+  is stashed before ``toc`` runs (#515).
 
 These forms are refused, because how the renderer reads them depends on context that the
 model does not track:
@@ -84,21 +90,23 @@ model does not track:
   an indented block;
 * a heading, rule or definition line inside a table-like block, which is a row if the
   block is a table and structure if it is not;
-* an HTML ``id`` or ``name`` on a line of an indented block, which is code after a
-  paragraph and prose inside a list;
+* an HTML ``id`` or ``name`` on a line of an indented block that is not certainly code,
+  which is code after a paragraph and prose inside a list;
 * an ``<a>`` tag that ``html.parser`` cannot read as one start tag.
 
 Some forms are read *short* on purpose. A heading or definition that the model cannot
 place is not counted, for example one in a list item's indented continuation or a
 definition inside a blockquote. Leaving one out can only make a link to it fail. For the
-same reason the lines of an indented block are read as prose, so a ``[a][b]`` inside a
-real indented code block is reported. None exists in ``docs/`` today.
+same reason ambiguous indentation is read as prose, including inside a blockquote or
+immediately after a fence without a blank line.
 """
 
 from __future__ import annotations
 
+import ast
 import bisect
 import html
+import importlib.util
 import re
 import sys
 import unicodedata
@@ -110,9 +118,20 @@ from pathlib import Path
 import pytest
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
+_MKDOCS_YML = DOCS.parent / "mkdocs.yml"
 
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
+
+# Files the site serves that are not under docs/: ``scripts/mkdocs_hooks.py`` adds each one to the
+# build from its repository path (#612). A link to one resolves when that source file exists.
+_hooks_spec = importlib.util.spec_from_file_location(
+    "mkdocs_hooks_links", DOCS.parent / "scripts" / "mkdocs_hooks.py"
+)
+assert _hooks_spec is not None and _hooks_spec.loader is not None
+_hooks = importlib.util.module_from_spec(_hooks_spec)
+_hooks_spec.loader.exec_module(_hooks)
+_GENERATED = {(DOCS / site).resolve(): source for site, source in _hooks.PUBLISHED_FILES.items()}
 
 _UNSUPPORTED = "unsupported Markdown form, the checker cannot vouch for it"
 
@@ -156,6 +175,9 @@ _LIST_ITEM_RE = re.compile(r"[ ]*(?:\d+\.|[*+-])[ ]+")
 # A definition four or more spaces in: `ReferenceProcessor.RE` accepts it only once a list
 # item's indentation has been stripped, which the model does not do.
 _DEF_INDENTED_RE = re.compile(r"[ ]{4,}\[[^\[\]]*\]:")
+# Anything that may be a definition, at any indentation and with a label over several
+# lines, as `ReferenceProcessor.RE`'s label allows.
+_DEF_ANY_RE = re.compile(r"\[[^\[\]]*\]:")
 # blockprocessors.ReferenceProcessor.RE
 _REF_DEF_RE = re.compile(
     r"^[ ]{0,3}\[([^\[\]]*)\]:[ ]*(?:\n[ ]*)?([^\s]+)[ ]*(?:\n[ ]*)?"
@@ -214,11 +236,6 @@ _SCHEME_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
 _CODE = "\x00"
 _ESC = "\x01"
 _ESC_SHIFT = 0xE000
-
-
-def _blank(match: re.Match[str]) -> str:
-    """Replace a match with spaces, keeping its newlines so line numbers survive."""
-    return re.sub(r"[^\n]", " ", match.group(0))
 
 
 def _blank_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
@@ -457,7 +474,73 @@ def _mark_code(lines: list[_Line], units: list[_Unit]) -> None:
                 unit.soft.add(k)
 
 
-def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], problem) -> list[_Def]:
+def _code_blocks(
+    lines: list[_Line], units: list[_Unit], source: list[str], masked: str, fence_ends: set[int]
+) -> set[int]:
+    """Find root code blocks whose preceding sibling cannot be a list.
+
+    Across source blanks, skip indented runs and reference-only blocks that can leave
+    the same list in place. A fence or a standalone line comment ends a preceding list.
+    """
+    masked_lines = masked.split("\n")
+
+    def plain(k: int) -> bool:  # an unaltered line at the root
+        return lines[k].depth == 0 and lines[k].body == source[k]
+
+    def after_no_list(first: int) -> bool:
+        k = first - 1
+        if k >= 0 and source[k]:
+            return False  # no blank line: a lazy line, or a block the model split itself
+        while True:
+            while k >= 0 and not source[k]:
+                k -= 1
+            if k < 0 or k in fence_ends:
+                return True
+            start = k
+            while start > 0 and source[start - 1]:
+                start -= 1
+            block = source[start : k + 1]
+            if block != masked_lines[start : k + 1]:
+                comment = re.fullmatch(r" {0,3}<!--(?:(?!--!?>).)*--!?> *", block[0])
+                return len(block) == 1 and not masked_lines[k].strip() and comment is not None
+            text = "\n".join(block)
+            if not _REF_DEF_RE.sub("", text).strip() and not any(map(_LIST_START_RE.match, block)):
+                k = start - 1  # standalone definitions do not add a sibling
+                continue
+            if not block[0].startswith(" " * _TAB):
+                if _LIST_START_RE.match(block[0]) or _DEF_ANY_RE.search(text):
+                    return False
+                # A later item marker is lazy text unless a heading or rule can split it off.
+                return not (
+                    any(_LIST_START_RE.match(row) for row in block[1:])
+                    and any(
+                        _HASH_HEADER_RE.fullmatch(row)
+                        or _HR_RE.fullmatch(row)
+                        or _SETEXT_UNDERLINE_RE.fullmatch(row)
+                        for row in block
+                    )
+                )
+            if not all(row.startswith(" " * _TAB) for row in block):
+                return False
+            k = start - 1
+
+    out: set[int] = set()
+    for unit in units:
+        first = unit.first
+        if unit.heading is not None or not lines[first].body.startswith(" " * _TAB):
+            continue
+        if not plain(first) or not after_no_list(first):
+            continue
+        k = first
+        while k <= unit.last and lines[k].body.startswith(" " * _TAB) and plain(k):
+            out.add(k)
+            k += 1
+    return out
+
+
+def _definitions(
+    lines: list[_Line], units: list[_Unit], tables: set[int], code: set[int], problem
+) -> list[_Def]:
     """The reference definitions the renderer certainly registers, read inside blockquotes.
 
     ``ReferenceProcessor`` reads each block, so this reads each unit, whose lines lie in one
@@ -472,7 +555,7 @@ def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], probl
         if unit.heading is not None:
             continue
         rows = range(unit.first, unit.last + 1)
-        text = "\n".join(lines[k].body for k in rows)
+        text = "\n".join("" if k in code else lines[k].body for k in rows)
         starts = _line_starts(text.split("\n"))
         placed: set[int] = set()
         for m in _REF_DEF_RE.finditer(text):
@@ -506,7 +589,7 @@ def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], probl
                     )
                 )
         for k in rows:
-            if k not in placed and _DEF_INDENTED_RE.match(lines[k].body):
+            if k not in placed and k not in code and _DEF_INDENTED_RE.match(lines[k].body):
                 problem(
                     lines[k].start,
                     "a reference definition indented four spaces or more, "
@@ -781,7 +864,13 @@ def _doc(path: Path) -> _Doc:
         line = bisect.bisect_right(starts, offset)
         problems.append(f"{_rel(path)}:{line}: {_UNSUPPORTED}: {what}")
 
-    fenced = _FENCED_BLOCK_RE.sub(_blank, text)
+    fence_ends: set[int] = set()
+
+    def blank_fence(match: re.Match[str]) -> str:
+        fence_ends.add(bisect.bisect_right(starts, match.end()) - 1)
+        return re.sub(r"[^\n]", " ", match.group())
+
+    fenced = _FENCED_BLOCK_RE.sub(blank_fence, text)
     comments = _comments(fenced)
     raw = _raw_html_blocks(_blank_spans(fenced, comments))
     blocks = _blank_spans(
@@ -796,7 +885,8 @@ def _doc(path: Path) -> _Doc:
     lines = _lines(md)
     tables = _table_lines(lines)
     units = _units(lines, tables, problem)
-    defs = _definitions(lines, units, tables, problem)
+    code = _code_blocks(lines, units, lines_, md, fence_ends)
+    defs = _definitions(lines, units, tables, code, problem)
     _mark_code(lines, units)
     definitions = frozenset(d.key for d in defs)
 
@@ -829,6 +919,10 @@ def _doc(path: Path) -> _Doc:
                 problem(a + start, f"{what} that runs onto a line which may start a new block")
 
         chunk = blocks[a:b]
+        for k in sorted(code):
+            if unit.first <= k <= unit.last:  # code is not inline text: blank it as a fence
+                s_ = lines[k].start - a
+                chunk = chunk[:s_] + " " * len(lines_[k]) + chunk[s_ + len(lines_[k]) :]
         for d in defs:
             if unit.first <= d.first <= unit.last:  # a definition is not inline text
                 s_, e_ = lines[d.first].start - a, lines[d.last].start + len(lines_[d.last]) - a
@@ -1002,7 +1096,48 @@ def _anchors(path: Path) -> frozenset[str]:
             ids.add(attrs["id"])
         if name == "a" and attrs.get("name"):
             ids.add(attrs["name"])
+    ids |= _api_anchors(path)
     return frozenset(ids)
+
+
+#: A mkdocstrings block (#179): ``::: tether.analysis.histogram`` at column zero.
+_API_BLOCK_RE = re.compile(r"^::: (tether(?:\.\w+)*)[ \t]*$", re.MULTILINE)
+#: A block the generator does not run: an HTML comment, or a fenced block at the root.
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.DOTALL | re.MULTILINE)
+_SRC = DOCS.parent / "src"
+
+
+def _api_anchors(path: Path) -> set[str]:
+    """The anchors a generated API page serves for its modules and their ``__all__`` names.
+
+    mkdocstrings writes one heading for each rendered object, with the object's dotted path as
+    its ``id``. This reads the module's ``__all__`` with ``ast``, as the generator does, and
+    gives the module path and ``<module>.<name>`` for each listed name that the module itself
+    defines. Members of a class and re-exported names are not modelled, so a link to one of
+    them fails here; ``mkdocs build --strict`` checks the rendered anchors in full.
+    """
+    anchors: set[str] = set()
+    text = _FENCE_RE.sub("", _COMMENT_RE.sub("", path.read_text(encoding="utf-8")))
+    for dotted in _API_BLOCK_RE.findall(text):
+        base = _SRC.joinpath(*dotted.split("."))
+        source = base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+        if not source.is_file():
+            continue
+        anchors.add(dotted)
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+            ):
+                names = ast.literal_eval(node.value)
+                anchors.update(f"{dotted}.{n}" for n in names if n in defined)
+    return anchors
 
 
 def _target_problem(source: Path, target: str) -> str | None:
@@ -1023,6 +1158,8 @@ def _target_problem(source: Path, target: str) -> str | None:
             return "target is outside docs/, so it is not part of the published site"
         if resolved in _EXCLUDED:
             return "target is excluded from the site by mkdocs.yml exclude_docs"
+        if resolved in _GENERATED:
+            return None if _GENERATED[resolved].is_file() else "the hook's source file is missing"
         if not resolved.exists():
             return "no such file"
         if resolved.is_dir():
@@ -1228,6 +1365,27 @@ def test_a_directory_link_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "'bare/'" in out[1] and "no index page" in out[1]
 
 
+def test_an_api_page_serves_the_anchors_of_its_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` block serves its module and the ``__all__`` names the module defines (#179)."""
+    api = "# API\n\n::: tether.fret.gamma\n    options:\n      heading_level: 2\n"
+    good = "# A\n\n[g](api.md#tether.fret.gamma) and [f](api.md#tether.fret.gamma.estimate_gamma)\n"
+    bad = "# B\n\n[x](api.md#tether.fret.gamma.not_a_name) and [y](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "good.md": good, "bad.md": bad})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/bad.md:3", "docs/bad.md:3"], out
+
+
+def test_a_fenced_or_commented_api_block_serves_no_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` line in a fence or an HTML comment is not run, so it makes no heading."""
+    api = "# API\n\n```\n::: tether.fret.gamma\n```\n\n<!--\n::: tether.fret.leakage\n-->\n"
+    page = "# A\n\n[g](api.md#tether.fret.gamma) and [l](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "page.md": page})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/page.md:3", "docs/page.md:3"], out
+
+
 def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """MkDocs never rewrites a raw ``<a href>``: a fragment is checked, a path is refused."""
     body = (
@@ -1385,7 +1543,7 @@ def test_an_undefined_reference_stays_in_its_heading_slug(
     [
         ("Text `code\n- item` more\n", 3, "a code span that runs onto a line"),
         ("| a | b |\n|---|---|\n# c\n", 5, "a heading or rule line inside a table-like"),
-        ('Para\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
+        ('- item\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
         ("See <a href='x.md>y</a> here.\n", 3, "an <a> tag html.parser cannot read"),
         ("- item\n\n        [k]: #a\n", 5, "a reference definition indented four spaces"),
     ],
@@ -1397,6 +1555,111 @@ def test_a_form_outside_the_model_fails_loudly(
     """A form whose rendering turns on context the model does not track is refused by name."""
     out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
     assert out[0].startswith(f"docs/a.md:{line}: {_UNSUPPORTED}: {what}"), out
+
+
+# These fixtures were rendered with Python-Markdown 3.11.3 (`toc`, `tables`, `fenced_code`).
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("    x[a][b]\n", id="start-of-page"),
+        pytest.param("Text.\n\n    x[a][b] = 1\n", id="after-paragraph"),
+        pytest.param("# A\n\n[k]: #a\n\n    x[a][b] = 1\n", id="after-definition"),
+        pytest.param("# A\n\n[k\n]: #a\n\n    x[a][b]\n", id="after-two-line-definition"),
+        pytest.param("- item\n\n<!-- separator -->\n\n    x[a][b]\n", id="after-comment"),
+        pytest.param("***\n\n    x[a][b]\n", id="after-rule"),
+        pytest.param("Title\n=====\n\n    x[a][b]\n", id="after-setext"),
+        pytest.param("a | b\n--|--\n1 | 2\n\n    x[a][b]\n", id="after-table"),
+        pytest.param("Para\n\n    a\n\n    b[a][b]\n", id="after-code"),
+        # The list is a child of the quote, so the code is still at the root.
+        pytest.param("> - item\n\n    x[a][b]\n", id="after-quote"),
+        pytest.param("Text\n* item\n\n    x[a][b]\n", id="after-lazy-item-marker"),
+        # The fence separates the list from the indented code.
+        pytest.param("- item\n```\nc\n```\n\n    x[a][b]\n", id="after-fence-and-blank"),
+    ],
+)
+def test_an_indented_code_block_after_a_blank_line_is_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """The renderer emits ``<pre><code>`` for each indented root block (#1013)."""
+    assert _check(tmp_path, monkeypatch, {"a.md": body}) == []
+
+
+def test_indentation_after_a_fence_without_a_blank_is_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model requires a source blank line, although the fence adds one in the renderer."""
+    body = "# A\n\n```\nc\n```\n    x[a][b]\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and "reference-style link [a][b] has no [b]:" in out[0], out
+
+
+def test_an_indented_code_block_holds_no_anchors_or_definitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code is not Markdown: an ``id`` there serves nothing, and ``[k]:`` defines nothing.
+
+    Python-Markdown 3.11.3 renders the two code lines as ``<pre><code>&lt;a id="x"&gt;…``
+    and ``<pre><code>[k]: #a``, so ``#x`` has no target and ``[t][k]`` stays literal.
+    """
+    body = '# A\n\nPara.\n\n    <a id="x"></a>\n\nPara.\n\n    [k]: #a\n\nSee [x](#x) and [t][k].\n'
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:11: reference-style link [t][k] has no [k]:"), out
+    assert out[1].startswith("docs/a.md:11: link to '#x': no heading or HTML anchor"), out
+
+
+def test_text_after_an_indented_code_block_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first line out of the code opens a paragraph, which is checked.
+
+    Python-Markdown 3.11.3: ``<pre><code>a[a][b]`` then ``<p>next [t][nokey]</p>``.
+    """
+    body = "# A\n\nPara\n\n    a[a][b]\nnext [t][nokey]\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and out[0].startswith("docs/a.md:6: reference-style link [t][nokey]"), out
+
+
+@pytest.mark.parametrize(
+    ("body", "line"),
+    [
+        # <ul><li><p>item</p><p>cont [t][nokey]</p></li></ul>
+        ("- item\n\n    cont [t][nokey]\n", 5),
+        # <ol><li><p>item</p><p>cont [t][nokey]</p></li></ol>
+        ("1. item\n\n    cont [t][nokey]\n", 5),
+        # <ul><li>…<p>cont</p><p>more [t][nokey]</p></li></ul>: still the same item
+        ("- item\n\n    cont\n\n    more [t][nokey]\n", 7),
+        # <h1>H</h1><ul><li><p>item</p><p>x[t][nokey]</p></li></ul>: the heading splits
+        ("## H\n- item\n\n    x[t][nokey]\n", 6),
+        # <ul><li><p>item</p><p>x[t][nokey]</p></li></ul>: a definition leaves no block
+        ("- item\n\n[k]: #a\n\n    x[t][nokey]\n", 7),
+        # the same, with a label that runs over two lines, which the renderer allows
+        ("- item\n\n[k\n]: #a\n\n    x[t][nokey]\n", 8),
+        ("- item\n\n    <!-- separator -->\n\n    x[t][nokey]\n", 7),
+        ("<!-- separator -->- item\n\n    x[t][nokey]\n", 5),
+        # A quote without a separating blank stays inside the root list.
+        ("- item\n>\n> q\n\n    x[t][nokey]\n", 7),
+        # Definitions and setext headings can split a block before an item line.
+        ("Text\n[k]: #a\n- item\n\n    x[t][nokey]\n", 7),
+        ("Text\n=====\n- item\n\n    x[t][nokey]\n", 7),
+    ],
+    ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"]
+    + [
+        "after-two-line-definition",
+        "indented-comment",
+        "comment-with-item",
+        "quote-inside-list",
+        "definition-before-item",
+        "setext-before-item",
+    ],
+)
+def test_an_indented_list_continuation_is_still_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int
+) -> None:
+    """An indented block whose list the model cannot rule out is read as prose (#1013)."""
+    out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
+    assert len(out) == 1, out
+    assert out[0].startswith(f"docs/a.md:{line}: reference-style link [t][nokey]"), out
 
 
 def test_a_heading_slug_reads_links_as_the_renderer_does(
@@ -1448,3 +1711,59 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
         "docs/a.md:3: link to 'missing.md': no such file",
         "docs/a.md:3: link to 'gone.md': no such file",
     ], out
+
+
+# --- heading-id de-duplication is not seeded (#515) -------------------------------------
+# Python-Markdown's ``toc`` seeds its ``used_ids`` from the ids of elements already in the
+# tree. Raw HTML is stashed before ``toc`` runs, so an ``<a id>`` never seeds it. Only an
+# extension such as ``attr_list`` (``{#foo}``) or ``md_in_html`` could, and ``mkdocs.yml``
+# enables neither.
+
+
+def test_raw_html_ids_do_not_seed_heading_deduplication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``<a id="foo">`` plus two ``## Foo`` gives ``foo`` and ``foo_1``, as the site does.
+
+    Checked with a real ``mkdocs build`` of this repository's ``mkdocs.yml`` (mkdocs 1.6.1,
+    mkdocs-material 9.8.1, Python-Markdown 3.11.3): the page rendered ``<h2 id="foo">``,
+    ``<h2 id="foo_1">``, ``<h2 id="bar">`` and ``<h2 id="baz-baz">``. Seeded ids would have
+    made the headings ``foo_1``, ``foo_2`` and ``bar_1``. With ``attr_list`` off, ``{#baz}``
+    is heading text.
+    """
+    body = (
+        "# A\n\n"
+        '<a id="foo"></a>\n\n'
+        "## Foo\n\n## Foo\n\n"
+        'Inline <span id="bar">x</span>.\n\n'
+        "## Bar\n\n"
+        "## Baz {#baz}\n\n"
+        "[ok](#foo) [ok](#foo_1) [ok](#bar) [ok](#baz-baz)\n"
+        "[bad](#foo_2)\n[bad](#bar_1)\n[bad](#baz)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert [o.split(":", 2)[1] for o in out] == ["16", "17", "18"], out
+    assert "'#foo_2'" in out[0] and "'#bar_1'" in out[1] and "'#baz'" in out[2]
+
+
+def test_mkdocs_yml_names_no_markdown_extension() -> None:
+    """The model above assumes mkdocs' default extensions; adding one must re-check it.
+
+    The literal word ``markdown_extensions`` fails anywhere in the file, comments included,
+    so the plain, quoted, explicit ``? key`` and flow-mapping spellings of the key all
+    fail, wherever a ``#`` sits on the line. A key spelled with an escape sequence, such
+    as ``"markdown_\\x65xtensions"``, is not caught: the module stays stdlib only, so the
+    file is not parsed as YAML. A stray use of the word in a value or comment fails too,
+    which errs loud.
+    """
+    named = [
+        line
+        for line in _MKDOCS_YML.read_text(encoding="utf-8").splitlines()
+        if "markdown_extensions" in line
+    ]
+    assert not named, (
+        "mkdocs.yml now sets markdown_extensions. An extension such as attr_list or "
+        "md_in_html puts ids in the tree before toc runs, so they seed the heading "
+        "de-duplication that _anchors() models as empty (#515). Check _anchors() against "
+        "a real mkdocs build before enabling one."
+    )

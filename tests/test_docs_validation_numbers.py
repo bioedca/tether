@@ -881,10 +881,11 @@ def live_tmaven_commit(sidecar_workflow: str, release_workflow: str) -> str:
 def live_sidecar_python(lock: str, spec: str) -> str:
     """The CPython ``sidecar/conda-lock.yml`` resolves on every platform it declares.
 
-    Fails rather than choosing when the platforms disagree, when one lacks ``python``, or
-    when the resolved version is not one ``spec`` — ``sidecar/environment.yml``'s
-    ``python=`` — admits: a lock that no longer answers its own environment file states
-    no live interpreter.
+    Fails, naming the lockfile and showing what it parsed, when a ``python`` entry lacks
+    a ``version:`` or ``platform:`` line (#525). Fails rather than choosing when the
+    platforms disagree, when one lacks ``python``, or when the resolved version is not one
+    ``spec`` — ``sidecar/environment.yml``'s ``python=`` — admits: a lock that no longer
+    answers its own environment file states no live interpreter.
     """
     declared = _LOCK_PLATFORMS_RE.findall(lock)
     assert len(declared) == 1, "sidecar/conda-lock.yml must declare one metadata platforms list"
@@ -894,6 +895,10 @@ def live_sidecar_python(lock: str, spec: str) -> str:
         if name != "python":
             continue
         fields = dict(re.findall(r"^  (version|platform): (\S+)$", entry, re.MULTILINE))
+        assert {"version", "platform"} <= fields.keys(), (
+            "sidecar/conda-lock.yml has a python entry without a plain `version:` and "
+            f"`platform:` line; parsed {fields}"
+        )
         versions[fields["platform"]] = fields["version"].strip("'\"")
     assert sorted(versions) == sorted(platforms), (
         f"sidecar/conda-lock.yml resolves python on {sorted(versions)}, not on every "
@@ -1016,6 +1021,9 @@ def commit_cell(column: str, pointer: str, commit: object) -> Cell:
 _NO_GAP_RE = re.compile(r"\bthe ebFRET block has no such gap\b", re.IGNORECASE)
 _NO_GAP_REGIONS = ((_PARITY_SECTION, _GAP_QUOTE_ANCHOR), (_SCOPE_SECTION, _SCOPE_ANCHOR))
 _LIVE_BUILD_ROW = "Same tMAVEN commit and CPython as the live gate?"
+#: (b)'s transition-matrix table (#545, ADR-0110): its ceiling column names the table.
+_TM_COLUMN = "Frozen `transition_matrix_abs_delta_max`"
+_TM_METHODS = ("vbconhmm", "ebhmm")
 
 
 def no_gap_claims(text: str) -> list[str]:
@@ -1387,6 +1395,32 @@ def _registry() -> list[Pin]:
         )
         for metric in _METRICS
     ]
+
+    # (b) — the transition-matrix table (#545, ADR-0110): each method's pooled worst case
+    # at full precision and its frozen ceiling.
+    tm = "$.transition_matrix"
+    for method in _TM_METHODS:
+        pins += [
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                "Pooled worst",
+                f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                at(
+                    PARITY,
+                    f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                ),
+            ),
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                _TM_COLUMN,
+                f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max",
+                at(PARITY, f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max"),
+            ),
+        ]
 
     # (b) — the ebFRET pooled-worst block, printed in a sentence instead of a table.
     ebhmm = "$.measured_by_method.ebhmm"
@@ -1868,8 +1902,16 @@ def test_documented_value_matches_its_source_artifact(pin: Pin) -> None:
 
 
 def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
-    """A bound added to either tolerance block may not go undocumented."""
-    for pointer in ("$.tolerance", "$.tolerance_by_method.ebhmm"):
+    """A bound added to either tolerance block, or a transition-matrix ceiling, may not go
+    undocumented (#545)."""
+    tm_rows = at(PARITY, "$.transition_matrix.tolerance_by_method")
+    assert isinstance(tm_rows, dict)
+    assert set(tm_rows) == set(_TM_METHODS), "a transition-matrix row is not on the page"
+    for pointer in (
+        "$.tolerance",
+        "$.tolerance_by_method.ebhmm",
+        *(f"$.transition_matrix.tolerance_by_method.{m}" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         pinned = {p.source for p in REGISTRY}
@@ -1879,7 +1921,11 @@ def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
 
 def test_every_pooled_worst_metric_in_both_blocks_is_pinned() -> None:
     pinned = {p.source for p in REGISTRY}
-    for pointer in ("$.pooled_worst", "$.measured_by_method.ebhmm.pooled_worst"):
+    for pointer in (
+        "$.pooled_worst",
+        "$.measured_by_method.ebhmm.pooled_worst",
+        *(f"$.transition_matrix.measured_by_method.{m}.pooled_worst" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         missing = sorted(k for k in block if f"{pointer}.{k}" not in pinned)
@@ -3157,6 +3203,22 @@ def test_the_live_interpreter_is_the_one_the_lock_resolves_everywhere() -> None:
     with pytest.raises(AssertionError, match="not on every"):
         live_sidecar_python(missing, "3.12.*")
     assert live_sidecar_python_spec("dependencies:\n  - python=3.12.*\n") == "3.12.*"
+
+
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [("  version: 3.12.13\n", "platform"), ("  platform: win-64\n", "version")],
+    ids=["no-version", "no-platform"],
+)
+def test_a_python_lock_entry_without_version_or_platform_names_the_lockfile(
+    line: str, kept: str
+) -> None:
+    """A lost ``version:`` or ``platform:`` line names the lock, not a bare ``KeyError`` (#525)."""
+    entry = "- name: python\n  version: 3.12.13\n  manager: conda\n  platform: win-64\n"
+    assert _LOCK_SAMPLE.count(entry) == 1
+    broken = _LOCK_SAMPLE.replace(entry, entry.replace(line, ""))
+    with pytest.raises(AssertionError, match=r"sidecar/conda-lock\.yml .*parsed \{'" + kept):
+        live_sidecar_python(broken, "3.12.*")
 
 
 def test_the_ebfret_block_was_measured_on_the_live_build() -> None:

@@ -99,20 +99,27 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   cloud QC view
   (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
   Gaussian-KDE surface and highest-density-region percentile contours (the
-  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017].
+  numerical-grid density-quantile method) [Hyndman1996], [Haselsteiner2017].
 - [`alpha_shape`][tether.analysis.cloud.alpha_shape] /
   [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape] —
   the raw FRET cloud's
   **α-shape support boundary** (PR-5b): the concave hull of the pooled ``(time, E)`` cloud
   from its Delaunay triangulation (circumradius ``<= alpha`` in axis-normalized
-  coordinates), tracing where the population's signal lives [Edelsbrunner1983][PateiroLopez2010].
+  coordinates), tracing where the population's signal lives [Edelsbrunner1983], [PateiroLopez2010].
 - [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] /
   [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow]
   — the
   **k-vs-RMSE elbow** state-count *hint* (PR-5b): k-means over the pooled apparent-E
-  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
+  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011], [Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
-  [Schubert2022][McKinney2006].
+  [Schubert2022], [McKinney2006].
+- [`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud] /
+  [`population_successive_frame_cloud`][tether.analysis.successive.population_successive_frame_cloud]
+  — the **successive-frame FRET cloud** (#710, ADR-0105): E at frame ``i`` against E at frame
+  ``i + 1`` within each molecule, never across a masked frame, with a fixed-bandwidth
+  Gaussian density, its highest-density-region contour levels and optional k-means
+  centroids — the plot of the laboratory's FRET_cloud scripts. It is a different plot from
+  the time–FRET cloud above ([`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud]).
 - [`find_anticorrelation_events`][tether.analysis.anticorrelation.find_anticorrelation_events] /
   [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events]
   — the
@@ -122,7 +129,7 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   threshold, which rejects white shot-noise anticorrelation) into time-localized events —
   the model-free lens that says *when* within a trace the donor and acceptor
   anticorrelate, subordinate to the HMM/TDP transition count
-  [Felekyan2012][Torres2007][Chung2010][McKinney2006].
+  [Felekyan2012], [Torres2007], [Chung2010], [McKinney2006].
 
 Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
 
@@ -167,6 +174,13 @@ Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
   HMM's un-normalized transition count matrix with their Dirichlet lower and upper
   bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
   stored idealization model (the result carries its provenance stamp).
+
+Added at M17 (FR-ANALYZE, PRD §7.7; #1030, ADR-0120):
+
+- [`fit_gaussians`][tether.analysis.gaussian_fit.fit_gaussians] — a sum of ``n`` Gaussians
+  fitted to a 1-D histogram by least squares, with each Gaussian's mean, width, area and
+  fraction of the total area, and their errors propagated from the full covariance
+  [Gopich2010]; the fit behind Fig. 5c of [CamposChavez2024].
 
 Exposed lazily (FR-EXPORT, PRD §7.9; #372):
 
@@ -235,6 +249,14 @@ from tether.analysis.dwell import (
     population_dwell_times,
     state_dwells,
     survival_curve,
+)
+from tether.analysis.gaussian_fit import (
+    AREA_METHODS,
+    DEFAULT_AREA_METHOD,
+    DEFAULT_INITIAL_WIDTH,
+    GaussianFit,
+    fit_gaussians,
+    gaussian_sum,
 )
 from tether.analysis.histogram import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -306,6 +328,21 @@ from tether.analysis.state_number import (
     population_state_number,
     state_number_counts,
 )
+from tether.analysis.successive import (
+    DEFAULT_SUCCESSIVE_BANDWIDTH,
+    DEFAULT_SUCCESSIVE_GRID_POINTS,
+    DEFAULT_SUCCESSIVE_HDR_COVERAGES,
+    DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER,
+    DEFAULT_SUCCESSIVE_KMEANS_RESTARTS,
+    DEFAULT_SUCCESSIVE_N_CENTROIDS,
+    DEFAULT_SUCCESSIVE_RANGE,
+    DEFAULT_SUCCESSIVE_SEED,
+    SuccessiveFrameCloud,
+    SuccessiveFramePairs,
+    population_successive_frame_cloud,
+    successive_frame_cloud,
+    successive_frame_pairs,
+)
 from tether.analysis.tdp import (
     DEFAULT_TDP_INTERP_RES,
     DEFAULT_TDP_NORMALIZE,
@@ -337,8 +374,12 @@ if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them l
         DEFAULT_FIGSIZE,
         DEFAULT_PLOT_FORMATS,
         DEFAULT_TDP_COLOR_SCALE,
+        SERIES_COLOR_CYCLE,
+        SERIES_COLORS,
+        SERIES_LINESTYLES,
         TDP_COLOR_SCALES,
         PlotExportResult,
+        SeriesStyle,
         export_figure,
         render_alpha_shape,
         render_cross_correlation,
@@ -353,14 +394,17 @@ if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them l
         render_transition_density,
         render_transition_prob,
         render_transition_sync_histogram2d,
+        series_style,
     )
 
 __all__ = [
+    "AREA_METHODS",
     "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_ANTICORR_MIN_MAGNITUDE",
     "DEFAULT_ANTICORR_MIN_WINDOWS",
     "DEFAULT_ANTICORR_STEP",
     "DEFAULT_ANTICORR_WINDOW",
+    "DEFAULT_AREA_METHOD",
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_CLOUD_BW_METHOD",
@@ -378,6 +422,7 @@ __all__ = [
     "DEFAULT_HMM_MAX_ITER",
     "DEFAULT_HMM_TOL",
     "DEFAULT_HMM_VAR_FLOOR",
+    "DEFAULT_INITIAL_WIDTH",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -385,6 +430,14 @@ __all__ = [
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_STATE_NUMBER_LOW",
+    "DEFAULT_SUCCESSIVE_BANDWIDTH",
+    "DEFAULT_SUCCESSIVE_GRID_POINTS",
+    "DEFAULT_SUCCESSIVE_HDR_COVERAGES",
+    "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",
+    "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",
+    "DEFAULT_SUCCESSIVE_N_CENTROIDS",
+    "DEFAULT_SUCCESSIVE_RANGE",
+    "DEFAULT_SUCCESSIVE_SEED",
     "DEFAULT_SYNC_PREFRAME",
     "DEFAULT_TDP_INTERP_RES",
     "DEFAULT_TDP_NORMALIZE",
@@ -406,16 +459,17 @@ __all__ = [
     "CrossCorrelation",
     "DwellFit",
     "DwellTimeAnalysis",
+    "GaussianFit",
     "GaussianHMM",
     "Histogram1D",
     "Histogram2D",
     "HistogramBootstrapCI",
     "KinsoftKineticsResult",
     "KinsoftReference",
-    "MoleculeSelection",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
+    "MoleculeSelection",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RateBounds",
@@ -427,6 +481,8 @@ __all__ = [
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
+    "SuccessiveFrameCloud",
+    "SuccessiveFramePairs",
     "TransitionDensityPlot",
     "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
@@ -440,7 +496,9 @@ __all__ = [
     "evaluate_kinsoft_level",
     "find_anticorrelation_events",
     "fit_gaussian_hmm",
+    "fit_gaussians",
     "fit_survival",
+    "gaussian_sum",
     "k_rmse_elbow",
     "load_kinsoft_reference",
     "mean_dwell_time",
@@ -459,6 +517,7 @@ __all__ = [
     "population_model_gaussian_overlay",
     "population_raw_fret_cloud",
     "population_state_number",
+    "population_successive_frame_cloud",
     "population_time_signal_histogram2d",
     "population_transition_density",
     "population_transition_prob_histogram",
@@ -471,6 +530,8 @@ __all__ = [
     "smooth_transition_density",
     "state_dwells",
     "state_number_counts",
+    "successive_frame_cloud",
+    "successive_frame_pairs",
     "survival_curve",
     "time_signal_histogram2d",
     "transition_density",
@@ -492,8 +553,12 @@ _LAZY_PLOT_EXPORT_NAMES = frozenset(
         "DEFAULT_FIGSIZE",
         "DEFAULT_PLOT_FORMATS",
         "DEFAULT_TDP_COLOR_SCALE",
+        "SERIES_COLOR_CYCLE",
+        "SERIES_COLORS",
+        "SERIES_LINESTYLES",
         "TDP_COLOR_SCALES",
         "PlotExportResult",
+        "SeriesStyle",
         "export_figure",
         "render_alpha_shape",
         "render_cross_correlation",
@@ -508,6 +573,7 @@ _LAZY_PLOT_EXPORT_NAMES = frozenset(
         "render_transition_density",
         "render_transition_prob",
         "render_transition_sync_histogram2d",
+        "series_style",
     }
 )
 

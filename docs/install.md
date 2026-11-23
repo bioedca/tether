@@ -291,6 +291,19 @@ the version, the commit, the two licenses, the citation with the DOI, and links 
 documentation and the source code. Its **Copy** button copies this text for a bug report. The
 [Command line](cli.md) reference covers what `tether` itself can do.
 
+From the next release, a double-click on a `.tether` project opens it in Tether
+([#664](https://github.com/bioedca/tether/issues/664)). This works in Explorer, in Finder and in
+your Linux file manager.
+
+- On Windows and Linux, each double-click starts a new Tether window.
+- On macOS, a running Tether opens the project in its own window, as **File → Open project…**
+  does. It closes the project that was open first. If a dialog is open, the project opens when
+  you close the dialog.
+- If another Tether window has the project open, the project opens read-only. A
+  **Read-only project** banner tells you why.
+- On Windows, the installer leaves `.tether` files with a program that already opens them.
+  Tether is then in the **Open with** list of the file.
+
 ## What gets installed, and where
 
 Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether` on macOS,
@@ -312,7 +325,17 @@ folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `5
 and `tether.svg` in `scalable/apps`. On macOS, from the next release, it is the
 application `Tether.app` in `~/Applications`, or in `/Applications` when you installed into a
 folder outside your home folder. `Tether.app` is a small launcher: it starts the application
-in the install folder and holds no copy of it. Windows and macOS also
+in the install folder and holds no copy of it.
+
+From the next release the installer also registers the `.tether` file type:
+
+- On Windows, it writes the `.tether` and `Tether.Project` keys under `Software\Classes` in the
+  registry. They are for your user only, or for all users when you installed for all users.
+- On Linux, it writes the file `~/.local/share/mime/packages/tether.xml`. It then updates the
+  user MIME database in `~/.local/share/mime` with `update-mime-database`.
+- On macOS, `Tether.app` itself declares the file type.
+
+Windows and macOS also
 keep their usual record of an installed program: the **Installed apps** entry that the Windows
 uninstaller runs from, and the package receipt macOS records for every `.pkg`. Tether itself
 can also write the [settings file](#settings-tether-keeps-outside-the-install-folder) below,
@@ -323,12 +346,23 @@ not been measured yet.
 
 ## Settings Tether keeps outside the install folder
 
-Tether keeps one application setting outside any `.tether` project: your answer to the
-question whether Tether may check for a newer release. Tether does not ask this question yet,
-and makes no network connection. The setting exists now so that your answer, once you give it,
-is not lost when you install a newer release over the old one.
+Tether keeps two application settings outside any `.tether` project:
 
-The answer is in a small file in your own settings folder, **not** in the install folder. An
+- Your answer to the question whether Tether may check for a newer release.
+- Your selection in **View → Trace colors**: color-blind safe (the default) or classic. See
+  [Trace colors](reference/gui-theme.md#select-the-trace-colors).
+
+The first time the application starts, it asks in a bar at the top of the window: **Check
+for new releases** or **Don't check**. Until you answer yes, Tether makes no network
+connection. If you answer yes, Tether asks GitHub once at each start whether a newer release
+exists. If one does, a notice links to the
+[Releases page](https://github.com/bioedca/tether/releases). Tether downloads nothing.
+
+To change the answer, use **Help → Check for new releases at startup**. The
+[privacy policy](privacy.md) says exactly what the request sends.
+
+The settings are kept outside the install folder so that they are not lost when you install a
+newer release over the old one. They are in a small file in your own settings folder. An
 installer can replace or delete the install folder, so a file there could be lost on an update.
 
 | Your computer | Settings file |
@@ -337,10 +371,22 @@ installer can replace or delete the install folder, so a file there could be los
 | macOS | `~/Library/Application Support/MondragonLab/Tether/settings.json` |
 | Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME` to an absolute path) |
 
-The file holds only two values: a format number and your answer, `allowed` or `declined`. It
-holds no name, no computer name, no time, no file path and no project data. If the file is
-missing, empty or damaged, Tether reads it as *no answer yet*: it makes no network connection
-and the answer stays unset. Tether never reads a damaged file as *allowed*.
+The file holds at most three values. They are a format number, your answer (`allowed` or
+`declined`) and your trace colors (`safe` or `classic`). Each value is there only after you give
+it. The file holds no name, no computer name, no time, no file path and no project data.
+
+If the file is missing, empty or damaged (unreadable, not JSON, or another format number),
+Tether reads it as *no answer yet*. It makes no network connection, and the traces use the
+default colors. Tether never reads a damaged file as *allowed*.
+
+In a readable file, Tether reads each value on its own. An unknown trace-color value gives the
+default colors and keeps a valid answer to the update question. An unknown answer keeps the
+trace colors. A change of trace colors never writes an answer to the update question.
+
+Beside the file sits an empty file, `settings.json.lock`. It lets two open Tether windows take
+turns saving, so neither loses what the other saved. If the settings file is there but Tether
+cannot read it, for example because of its permissions, Tether does not save over it: a new
+answer or color applies until Tether closes, and the status bar says it was not saved.
 
 ### For a site administrator: turn the update check off for every user
 
@@ -354,7 +400,8 @@ computer, whatever each user answers. Create an empty file with this name:
 | Linux | `/etc/tether/disable-update-check` |
 
 The file can be empty; Tether does not read what is in it. While it is there, Tether makes no
-update request and does not ask the question. If Tether cannot examine the file, for example
+update request and does not ask the question. **Help → Check for new releases at startup**
+is greyed out. If Tether cannot examine the file, for example
 because a folder permission stops it, Tether also turns the check off. This file can only turn
 the check off. Nothing lets an administrator turn the check on for a user who did not agree.
 
@@ -425,7 +472,11 @@ optional PATH step in step 4, remove that PATH line too.
 rm -rf ~/tether ~/.local/share/applications/tether.desktop
 rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x256,512x512}/apps/tether.png
 rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
+rm -f ~/.local/share/mime/packages/tether.xml
+command -v update-mime-database >/dev/null && update-mime-database ~/.local/share/mime
 ```
+
+The last two lines remove the `.tether` file type, which installers from the next release add.
 
 If you did the optional PATH step, delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
 from `~/.bashrc`.
@@ -455,8 +506,8 @@ macOS keeps its package receipt for the install; it is a small record and does n
 in place.
 
 **Windows.** Open **Settings → Apps → Installed apps**, find **Tether**, and choose
-**Uninstall**. The uninstaller removes the Start menu shortcuts as well (**Tether**, and from
-the next release **Tether Command Prompt**). An installer from
+**Uninstall**. The uninstaller removes the Start menu shortcuts (**Tether**, and from the
+next release **Tether Command Prompt**) and the `.tether` file type as well. An installer from
 1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
 delete it. If you did the optional PATH step, remove
 `C:\Users\<you>\Tether\bin` (`C:\Users\<you>\Tether\launchers` from the next release) from your

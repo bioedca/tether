@@ -205,7 +205,9 @@ def _molecule_quantities(path: Path, q: dict[str, Any]) -> None:
     q["molecules.mean_corrected_e"] = _plain(mean_ce)
 
 
-def _analysis_quantities(path: Path, q: dict[str, Any]) -> None:
+def _analysis_quantities(
+    path: Path, q: dict[str, Any], *, include_histogram_edges: bool = False
+) -> None:
     """The pre-idealization population views: histogram, cross-correlation, FRET cloud."""
     from tether.analysis.cloud import population_raw_fret_cloud  # noqa: PLC0415
     from tether.analysis.crosscorr import population_cross_correlation  # noqa: PLC0415
@@ -213,6 +215,8 @@ def _analysis_quantities(path: Path, q: dict[str, Any]) -> None:
 
     h = population_apparent_e_histogram(path, density=False)
     q["histogram.counts"] = _plain(np.asarray(h.counts, dtype="int64"))
+    if include_histogram_edges:
+        q["histogram.edges"] = _plain(np.asarray(h.bin_edges, dtype="float64"))
     q["histogram.n_samples"] = int(h.n_samples)
     q["histogram.n_molecules"] = int(h.n_molecules or 0)
     c = population_cross_correlation(path)
@@ -374,7 +378,7 @@ def run_synthetic_traces(workdir: Path) -> dict[str, Any]:
     q: dict[str, Any] = {}
     path = synthetic_traces_store(workdir, q)
     _molecule_quantities(path, q)
-    _analysis_quantities(path, q)
+    _analysis_quantities(path, q, include_histogram_edges=True)
     q.update(_idealize_natively(path, "golden", 2))
     _idealized_quantities(path, "golden", q)
     _export_quantities(path, workdir, q)
@@ -399,7 +403,11 @@ def run_synthetic_movie(workdir: Path) -> dict[str, Any]:
     )
     out_dir = workdir / "batch"
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        q["cli.batch.exit_code"] = main(["batch", str(movie), "-d", str(out_dir), "--no-idealize"])
+        # The golden numbers were made with the donor-anchored rule; this names it, so
+        # the new partner-in-both default cannot move them (#920, ADR-0127).
+        argv = ["batch", str(movie), "-d", str(out_dir), "--no-idealize"]
+        argv += ["--colocalization", "donor-anchored"]
+        q["cli.batch.exit_code"] = main(argv)
     projects = sorted(out_dir.glob("*.tether"))
     q["cli.batch.projects"] = len(projects)
     path = projects[0]
@@ -503,8 +511,19 @@ def _shape(value: Any) -> Any:
     return type(value).__name__ if not isinstance(value, bool | int | float) else "num"
 
 
+def _nan(value: Any) -> bool:
+    return isinstance(value, float) and math.isnan(value)
+
+
+def _non_finite(value: Any) -> bool:
+    return isinstance(value, float) and not math.isfinite(value)
+
+
 def _relative(old: Any, new: Any) -> float | None:
-    """Largest elementwise relative change between two equally shaped numeric values."""
+    """Largest elementwise relative change between two equally shaped numeric values.
+
+    ``inf`` when one side holds NaN or an infinity and the other a different value.
+    """
     a, b = _flatten(old), _flatten(new)
     if len(a) != len(b):
         return None
@@ -516,8 +535,10 @@ def _relative(old: Any, new: Any) -> float | None:
             continue
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
             return None
-        if x == y:
+        if x == y or (_nan(x) and _nan(y)):
             continue
+        if _non_finite(x) or _non_finite(y):
+            return math.inf  # NaN or an infinity on one side, a different value on the other
         scale = max(abs(x), abs(y))
         worst = max(worst, abs(x - y) / scale)
     return worst
@@ -535,7 +556,13 @@ def _equal(old: Any, new: Any, rtol: float) -> bool:
                 return False
             if isinstance(x, int) != isinstance(y, int):
                 return False
-            if x != y and abs(x - y) > rtol * max(abs(x), abs(y)):
+            if x == y or (_nan(x) and _nan(y)):
+                continue
+            # A NaN or an infinity makes the relative test below false whatever the other
+            # side holds, so a non-finite float equals only the same non-finite value (#1197).
+            if _non_finite(x) or _non_finite(y):
+                return False
+            if abs(x - y) > rtol * max(abs(x), abs(y)):
                 return False
         elif x != y or type(x) is not type(y):
             return False

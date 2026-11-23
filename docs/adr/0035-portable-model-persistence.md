@@ -32,6 +32,17 @@ Three tensions:
 3. **Cross-version portability.** The artifact outlives a single environment; an in-range
    scikit-learn bump must not brick a saved model.
 
+## Considered options
+
+- **Refit on the accumulated labels at each video boundary, saved as a zip with a plaintext
+  manifest that is validated before the pickle is read** (chosen).
+- **scikit-learn `warm_start=True`** (append trees).
+- **A single joblib or pickle blob with no manifest.**
+- **`skops.io` safe loading** (deferred rather than rejected).
+- **Store the model inside the `.tether` file.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **"Warm-start-retrain" = refit on the accumulated label set at the video boundary.** Each boundary
@@ -103,4 +114,4 @@ not a sandbox.
 - [Li2020] Li, Zhang, Johnson-Buck & Walter. "Automatic classification and segmentation of
   single-molecule fluorescence time traces with deep learning." *Nature Communications* (2020).
 - [sklearn-persistence] scikit-learn, "Model persistence."
-  https://scikit-learn.org/stable/model_persistence.html
+  <https://scikit-learn.org/stable/model_persistence.html>

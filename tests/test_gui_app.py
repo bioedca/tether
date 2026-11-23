@@ -141,6 +141,35 @@ def test_valid_project_argument_opens_the_store(qtbot, tmp_path) -> None:
     shell.close()
 
 
+@pytest.mark.gui
+@_needs_qt
+def test_invalid_keymap_notice_survives_opening_a_startup_project(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.gui import curation
+    from tether.gui.app import create_shell
+
+    project = _three_molecule_store(tmp_path)
+    keymap_path = tmp_path / "keymap.json"
+    contents = b"{invalid json"
+    keymap_path.write_bytes(contents)
+    monkeypatch.setattr(curation, "default_keymap_path", lambda: keymap_path)
+
+    _app, shell = create_shell([str(project.path)], splash=False)
+    qtbot.addWidget(shell.window)
+    try:
+        assert shell.molecule_list.count() == 3
+        assert shell.keymap.bindings == curation.Keymap.default().bindings
+        notice = shell.keymap_error
+        assert notice is not None
+        assert str(keymap_path) in notice
+        assert shell.status_message.count(notice) == 1
+        assert f"Opened {project.path.name}" in shell.status_message
+        assert keymap_path.read_bytes() == contents
+    finally:
+        shell.close()
+
+
 def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) -> None:
     """``main`` takes the PATH step first, then builds the shell (issue #579, ADR-0076).
 
@@ -169,3 +198,210 @@ def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) ->
     monkeypatch.setattr(gui_app, "create_shell", _create_shell)
     assert gui_app.main(["x.tether"]) == 3
     assert calls == ["path", "create_shell ['x.tether']", "show", "exec"]
+
+
+# --- opening a project by a double-click (issue #664, ADR-0118) ----------------
+
+
+def _three_molecule_store(tmp_path, name: str = "start.tether"):
+    import numpy as np
+
+    from _analysis_store import build_store_with_channels
+
+    rng = np.random.default_rng(664)
+    donor = rng.uniform(400.0, 800.0, size=(3, 12))
+    acceptor = rng.uniform(200.0, 600.0, size=(3, 12))
+    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name)
+    return project
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_path_with_spaces_and_non_ascii_letters_opens(qtbot, tmp_path) -> None:
+    """Windows and Linux pass the double-clicked file as the argument, in any spelling."""
+    from tether.gui.app import create_shell
+
+    folder = tmp_path / "Mondragón lab data"
+    folder.mkdir()
+    project = _three_molecule_store(folder, name="día 1 — run.tether")
+    _app, shell = create_shell([str(project.path)])
+    qtbot.addWidget(shell.window)
+    assert shell.project_path is not None
+    assert shell.project_path.name == "día 1 — run.tether"
+    assert shell.molecule_list.count() == 3
+    shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_file_open_event_opens_the_project_in_the_running_shell(qtbot, tmp_path) -> None:
+    """macOS sends the file as an event, to a Tether that is running; it opens there."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+
+    project = _three_molecule_store(tmp_path, name="sent by finder.tether")
+    app, shell = create_shell([], file_open_events=True)
+    qtbot.addWidget(shell.window)
+    assert shell.project_path is None
+    assert QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(str(project.path)))
+    assert shell.project_path == project.path
+    assert shell.molecule_list.count() == 3
+    shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_file_open_event_before_the_shell_exists_waits_for_it(qtbot, tmp_path) -> None:
+    """An event that comes while the application starts is kept, and the newest one opens."""
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    from tether.gui.app import install_file_open_handler
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    handler = install_file_open_handler(app, filter_events=True)
+    opened: list[str] = []
+    try:
+        for name in ("older.tether", "newer.tether"):
+            event = QtGui.QFileOpenEvent(str(tmp_path / name))
+            assert QtCore.QCoreApplication.sendEvent(app, event)
+        assert opened == []
+        handler.attach(opened.append)
+        assert opened == [str(tmp_path / "newer.tether")]
+        event = QtGui.QFileOpenEvent(str(tmp_path / "later.tether"))
+        assert QtCore.QCoreApplication.sendEvent(app, event)
+        assert opened[-1] == str(tmp_path / "later.tether")
+    finally:
+        app.removeEventFilter(handler)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_file_open_event_waits_until_a_modal_dialog_closes(qtbot, tmp_path) -> None:
+    """A dialog's caller continues on the open project, so the project changes only after it."""
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    from tether.gui.app import install_file_open_handler
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    handler = install_file_open_handler(app, filter_events=True)
+    opened: list[str] = []
+    handler.attach(opened.append)
+    path = str(tmp_path / "sent during a dialog.tether")
+    dialog = QtWidgets.QDialog()
+    qtbot.addWidget(dialog)
+    inside: list[list[str]] = []
+
+    def send_while_the_dialog_is_open() -> None:
+        assert QtWidgets.QApplication.activeModalWidget() is dialog
+        assert QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(path))
+        inside.append(list(opened))
+        dialog.accept()
+
+    try:
+        QtCore.QTimer.singleShot(0, send_while_the_dialog_is_open)
+        dialog.exec()
+        assert inside == [[]]
+        assert opened == []
+        qtbot.waitUntil(lambda: opened == [path], timeout=2000)
+    finally:
+        app.removeEventFilter(handler)
+
+
+@pytest.mark.gui
+@_needs_qt
+@pytest.mark.parametrize(
+    ("platform", "installed"), [("darwin", True), ("linux", False), ("win32", False)]
+)
+def test_the_file_open_filter_is_installed_on_macos_only_by_default(
+    qtbot, tmp_path, monkeypatch, platform, installed
+) -> None:
+    """Only macOS sends a file-open event, so only there does the filter see every event."""
+    import sys
+
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    from tether.gui.app import install_file_open_handler
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr(sys, "platform", platform)
+    handler = install_file_open_handler(app)
+    monkeypatch.undo()
+    opened: list[str] = []
+    handler.attach(opened.append)
+    path = str(tmp_path / "sent by finder.tether")
+    try:
+        assert QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(path)) is installed
+        assert opened == ([path] if installed else [])
+    finally:
+        app.removeEventFilter(handler)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_with_the_filter_off_the_argument_still_opens_and_no_event_is_caught(
+    qtbot, tmp_path
+) -> None:
+    """Windows and Linux open the project from the argument; the application has no filter."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+
+    project = _three_molecule_store(tmp_path, name="double-clicked.tether")
+    other = _three_molecule_store(tmp_path, name="other.tether")
+    app, shell = create_shell([str(project.path)], file_open_events=False)
+    qtbot.addWidget(shell.window)
+    assert shell.project_path == project.path
+    assert shell.molecule_list.count() == 3
+    assert not QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(str(other.path)))
+    assert shell.project_path == project.path
+    shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_the_file_open_handler_goes_with_the_shell_window(qtbot, tmp_path) -> None:
+    """Once the window is gone, a file-open event reaches no closed shell."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+
+    app, shell = create_shell([], file_open_events=True)
+    window = shell.window
+    shell.close()
+    window.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    event = QtGui.QFileOpenEvent(str(tmp_path / "late.tether"))
+    assert not QtCore.QCoreApplication.sendEvent(app, event)
+
+
+@pytest.mark.gui
+@_needs_qt
+@pytest.mark.parametrize("route", ["argument", "event"])
+def test_a_locked_project_opened_by_double_click_shows_the_read_only_banner(
+    qtbot, tmp_path, route
+) -> None:
+    """A project another Tether holds opens read-only, by either route, with the banner."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project = _three_molecule_store(tmp_path, name="busy.tether")
+    held = lock.acquire(project.path, identity=LockIdentity(host="OTHER-HOST", user="o", pid=99))
+    try:
+        if route == "argument":
+            app, shell = create_shell([str(project.path)])
+        else:
+            app, shell = create_shell([], file_open_events=True)
+            QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(str(project.path)))
+        qtbot.addWidget(shell.window)
+        assert shell.project_path == project.path
+        assert shell.curation_project is None
+        assert shell.read_only_reason is not None
+        assert not shell.read_only_banner.isHidden()
+        assert shell.read_only_banner.text() == f"Read-only project: {shell.read_only_reason}"
+        shell.close()
+    finally:
+        assert lock.release(project.path, held)

@@ -303,3 +303,47 @@ def test_a_stage_imports_before_its_timer_starts() -> None:
     call = stage._stage("export", args)  # imports Tether; runs nothing yet
     assert callable(call)
     assert "tether.project.export" in sys.modules
+
+
+def test_a_valid_last_record_with_no_newline_gets_a_new_line_of_its_own(tmp_path) -> None:
+    """CodeRabbit on #878 (#1005): a hand edit, or a write that stopped before its newline, can
+    leave a valid last record with no newline; the next record must not join that line."""
+    history = tmp_path / "h.jsonl"
+    first = json.dumps(_record(0), ensure_ascii=False, sort_keys=True)
+    history.write_text(first, encoding="utf-8")  # valid JSON, no newline
+    assert len(ph.read_history(history)) == 1
+    ph.append(history, _record(1))
+    assert [r["commit"] for r in ph.read_history(history)] == [f"{0:040x}", f"{1:040x}"]
+    assert history.read_bytes().endswith(b"\n")
+
+
+def test_a_stage_a_record_did_not_measure_is_a_gap_and_not_zero(tmp_path) -> None:
+    """CodeRabbit on #878 (#1005): a missing stage drew as 0 s and 0 GiB, which reads as a
+    speed-up. A record without the stage, or with it on only some acquisitions, has no point."""
+    import math
+
+    pytest.importorskip("matplotlib")
+    plot = _load("plot_perf_history")
+    history = tmp_path / "h.jsonl"
+    partial = _record(1)
+    del partial["acquisitions"]["lab-12"]["export_s"]
+    del partial["acquisitions"]["lab-12"]["export_peak_bytes"]
+    none = _record(2)
+    for values in none["acquisitions"].values():
+        del values["save_s"], values["save_peak_bytes"]
+    for record in (_record(0), partial, none):
+        ph.append(history, record)
+    records = ph.read_history(history)
+
+    export_t, export_m = plot.stage_values(records, "export")
+    assert export_t[0] == 3 * 60.0 and math.isnan(export_t[1]) and export_t[2] == 3 * 60.0
+    assert export_m[0] == (106 << 20) / 2**30 and math.isnan(export_m[1])
+    save_t, save_m = plot.stage_values(records, "save")
+    assert math.isnan(save_t[2]) and math.isnan(save_m[2]) and save_t[1] == 3 * 50.0
+    empty_t, empty_m = plot.stage_values([{"acquisitions": {}}], "extract")
+    # One point per record, and that point a gap: `all()` over two empty series is vacuously
+    # true, so the length is what makes a dropped record fail here (#1227).
+    assert len(empty_t) == 1 and len(empty_m) == 1
+    assert math.isnan(empty_t[0]) and math.isnan(empty_m[0])
+    out = plot.plot(history, tmp_path / "history.png")
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

@@ -9,7 +9,10 @@ the ``tether metadata`` command that gives the same values and confirmation.
 
 from __future__ import annotations
 
+import doctest
+import inspect
 import json
+import tempfile
 
 import pytest
 
@@ -254,3 +257,106 @@ def test_one_update_applies_every_change_or_none(tmp_path) -> None:
     record = Project.open(out).update_movie_metadata(movie_id, frame_time=0.1, pixel_size_um=0.16)
     assert (record.frame_time_origin, record.pixel_size_origin) == ("user", "user")
     assert _only(out) == record
+
+
+def test_cli_warns_about_a_onedrive_conflict_copy_on_stderr(tmp_path, capsys) -> None:
+    # #560: tether metadata opens the project, so it names a sync-conflict sibling too.
+    out = tmp_path / "w.tether"
+    extract_movie(_make_movie(tmp_path), out, options=_OPTIONS)
+    copy = tmp_path / "w-DESKTOP-AB12.tether"
+    copy.write_bytes(b"copy")
+
+    assert main(["metadata", str(out), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)  # stdout is still the JSON document
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside w.tether: "
+        "w-DESKTOP-AB12.tether." in captured.err
+    )
+    assert copy.read_bytes() == b"copy"
+
+    copy.unlink()
+    assert main(["metadata", str(out)]) == 0
+    assert "conflict" not in capsys.readouterr().err
+
+
+# ------------------------------------------------- the docstring examples (#1173)
+
+_SECTIONS = ("Parameters", "Returns", "Raises", "Examples")
+_FUNCTIONS = (
+    mm.read_movie_metadata,
+    mm.update_movie_metadata,
+    mm.set_frame_time,
+    mm.confirm_frame_time,
+    mm.set_pixel_size,
+)
+_METHODS = (
+    Project.movie_metadata,
+    Project.set_frame_time,
+    Project.confirm_frame_time,
+    Project.update_movie_metadata,
+    Project.set_pixel_size,
+)
+
+
+def _sections(obj: object) -> list[str]:
+    """The section headings of ``obj``'s docstring, in the order the docstring has them."""
+    doc = inspect.getdoc(obj) or ""
+    at = {s: doc.find(f"\n{s}\n{'-' * len(s)}\n") for s in _SECTIONS}
+    return sorted((s for s in _SECTIONS if at[s] >= 0), key=at.__getitem__)
+
+
+def test_the_section_check_sees_a_wrong_order() -> None:
+    def misordered() -> None:
+        """Do nothing.
+
+        Examples
+        --------
+        >>> misordered()
+
+        Returns
+        -------
+        None
+        """
+
+    assert _sections(misordered) == ["Examples", "Returns"]
+
+
+@pytest.mark.parametrize("obj", _FUNCTIONS + _METHODS, ids=lambda o: o.__qualname__)
+def test_each_movie_metadata_call_documents_its_sections_in_order(obj) -> None:
+    """#1173: Rule 3 of the docstring standard, for each call a script makes."""
+    found = _sections(obj)
+    required = {"Returns", "Examples"}
+    if obj is not Project.movie_metadata:  # the one call that takes no argument
+        required.add("Parameters")
+    if obj not in (mm.read_movie_metadata, Project.movie_metadata):
+        required.add("Raises")  # every writer refuses an unknown movie and a bad value
+    assert required <= set(found), found
+    assert found == sorted(found, key=_SECTIONS.index), found
+    doc = inspect.getdoc(obj)
+    # Rule 4: every physical quantity a call takes or returns states its unit.
+    for quantity, unit in (
+        ("frame_time", "seconds per frame"),
+        ("seconds", "seconds per frame"),
+        ("pixel_size_um", "micrometers per pixel"),
+        ("micrometres", "micrometers per pixel"),
+    ):
+        if f"{quantity} :" in doc:
+            assert unit in doc, (quantity, unit)
+
+
+def _run_examples(obj: object) -> doctest.TestResults:
+    (test,) = doctest.DocTestFinder().find(obj, globs={})
+    assert test.examples, obj
+    runner = doctest.DocTestRunner()
+    runner.run(test)
+    return runner.summarize(verbose=False)
+
+
+@pytest.mark.parametrize("obj", _FUNCTIONS + _METHODS, ids=lambda o: o.__qualname__)
+def test_each_movie_metadata_example_runs(obj, tmp_path, monkeypatch) -> None:
+    """#1173: each Examples section runs, in a temporary folder, and shows its result."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    result = _run_examples(obj)
+    assert result.failed == 0

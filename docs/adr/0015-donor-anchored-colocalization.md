@@ -1,6 +1,8 @@
 # 0015 — Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain
 
-- **Status:** accepted
+- **Status:** accepted; molecule anchor superseded by [ADR-0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)
+  (partner in both is the default of a new extraction, donor-anchored an option; the
+  coordinate-domain map, the crop box and the strict gate stand)
 - **Date:** 2026-06-28
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1 (FR-EXTRACT; "Colocalization **shall** be donor-anchored"), Appendix E Stages 11–13, §9 M1, §11.2 (colocalization-distance row)
@@ -43,6 +45,7 @@ domain is the map applied, and when is a molecule dropped?*
 ## Considered options
 
 **What anchors a molecule.**
+
 - **A. Donor-anchored: every in-frame donor spot is a molecule; read the acceptor
   at the mapped donor position regardless of independent acceptor detection.**
   Chosen — the §7.1 mandate; retains dark/low-FRET acceptors. The independent
@@ -52,6 +55,7 @@ domain is the map applied, and when is a molecule dropped?*
   dark population, biasing E (the exact failure §7.1 calls out).
 
 **Which domain the map is applied in (Stage 12).**
+
 - **C. Coordinate domain — warp the donor *coordinates* into the acceptor frame
   (`apply_reference_to_moving`), keep sub-pixel precision, round only at the crop.**
   Chosen — no interpolation bias on the integrated intensities.
@@ -59,6 +63,7 @@ domain is the map applied, and when is a molecule dropped?*
   injects resampling/interpolation bias; Deep-LASI reserves the rewarp for QA only.
 
 **The crop-box guardrail (Stage 13).**
+
 - **E. Skip a molecule whose 21×21 window leaves *either* channel's frame**, using
   the shared `aperture_in_frame` predicate (extracted from the integrator so the
   two are one source of truth). Chosen — a FRET pair needs both apertures in-frame;
@@ -67,6 +72,7 @@ domain is the map applied, and when is a molecule dropped?*
   predicate and risks drift from the integrator's `valid` mask.
 
 **The `acceptor_detected` gate boundary.**
+
 - **G. Strict `< 3 px` (findColoc.m:58), evaluated explicitly in NumPy** on the
   true nearest neighbour, so it is independent of `cKDTree`'s `distance_upper_bound`
   convention (inclusive in current scipy). Chosen — faithful and version-stable;
