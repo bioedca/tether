@@ -47,9 +47,16 @@ from typing import TYPE_CHECKING, Protocol
 import numpy as np
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
-__all__ = ["MoleculeSite", "MoviePanelLike", "RoundTripIndex", "RoundTripNavigator"]
+__all__ = [
+    "MoleculeSite",
+    "MoviePanelLike",
+    "MovieSpots",
+    "RoundTripIndex",
+    "RoundTripNavigator",
+    "sites_for_molecules",
+]
 
 
 def _validate_spot(xy: object, name: str) -> np.ndarray:
@@ -102,6 +109,63 @@ class MoleculeSite:
             raise ValueError(f"movie_id must be a non-empty str, got {self.movie_id!r}")
         object.__setattr__(self, "donor_xy", _validate_spot(self.donor_xy, "donor_xy"))
         object.__setattr__(self, "acceptor_xy", _validate_spot(self.acceptor_xy, "acceptor_xy"))
+
+
+class MovieSpots(Protocol):
+    """One shown movie's spots, keyed by molecule — what [`sites_for_molecules`][] reads.
+
+    [`ProjectMovie`][tether.services.movies.ProjectMovie] satisfies it: ``donor_xy`` and
+    ``acceptor_xy`` are ``(N, 2)`` ``[x, y]`` spots in the displayed frame, and
+    ``molecule_keys`` names the molecule of each row.
+    """
+
+    @property
+    def movie_id(self) -> str: ...
+
+    @property
+    def molecule_keys(self) -> Sequence[str]: ...
+
+    @property
+    def donor_xy(self) -> np.ndarray: ...
+
+    @property
+    def acceptor_xy(self) -> np.ndarray: ...
+
+
+def sites_for_molecules(
+    molecule_keys: Sequence[str | None], movies: Iterable[MovieSpots]
+) -> tuple[list[MoleculeSite], list[int]]:
+    """The [`MoleculeSite`][] of each listed molecule that has a spot in ``movies`` (#357).
+
+    ``molecule_keys`` is the molecule list in its display order (``None`` for a molecule
+    with no store row). ``movies`` are the movies the panel shows. Returns the sites, and
+    for each site the position in ``molecule_keys`` it belongs to, so a resolved site maps
+    back to its list row. A molecule with no spot in a shown movie (its movie file is not
+    shown, or its movie records no spot positions) gets no site and so cannot be jumped
+    to or clicked. A key that appears in more than one movie keeps its first spot.
+    """
+    spots: dict[str, tuple[str, np.ndarray, np.ndarray]] = {}
+    for movie in movies:
+        donor = np.asarray(movie.donor_xy, dtype=np.float64).reshape(-1, 2)
+        acceptor = np.asarray(movie.acceptor_xy, dtype=np.float64).reshape(-1, 2)
+        keys = list(movie.molecule_keys)
+        if not len(keys) == len(donor) == len(acceptor):
+            raise ValueError(
+                f"movie {movie.movie_id!r} has {len(keys)} molecule key(s) for "
+                f"{len(donor)} donor and {len(acceptor)} acceptor spot(s)"
+            )
+        for key, d, a in zip(keys, donor, acceptor, strict=True):
+            spots.setdefault(key, (movie.movie_id, d, a))
+    sites: list[MoleculeSite] = []
+    rows: list[int] = []
+    for row, key in enumerate(molecule_keys):
+        hit = spots.get(key) if key is not None else None
+        if hit is None:
+            continue
+        movie_id, donor_xy, acceptor_xy = hit
+        sites.append(MoleculeSite(movie_id=movie_id, donor_xy=donor_xy, acceptor_xy=acceptor_xy))
+        rows.append(row)
+    return sites, rows
 
 
 class RoundTripIndex:

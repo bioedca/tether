@@ -1146,12 +1146,10 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
 
 
 #: Every curation key whose command is deferred (#345): the key, and the feature its
-#: status line names. Jump becomes real in #357 and the grid in #364. Each of those
-#: removes its rows here; the category and analysis-window keys write since #359
-#: (tests/test_shell_curation_edits.py).
+#: status line names. The grid becomes real in #364, which removes its row here. Jump is
+#: real since #357 (tests/test_shell_movie_panel.py), and the category and
+#: analysis-window keys write since #359 (tests/test_shell_curation_edits.py).
 _DEFERRED_KEYS = [
-    ("Key_Return", "Jump to movie spot"),
-    ("Key_Enter", "Jump to movie spot"),
     ("Key_G", "Grid toggle"),
 ]
 

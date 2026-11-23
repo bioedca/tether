@@ -316,6 +316,186 @@ def test_reopening_builds_one_new_panel(section_shell, tmp_path) -> None:
     assert len(shell._movie_readers) == 1
 
 
+# --- the trace↔movie round-trip (#357, PRD §7.3, §9 M2) ----------------------------------
+#
+# The two-movie store: rows 0-2 of the molecule list are mov-1's molecules and rows 3-5
+# mov-2's, in /molecules order. Both movies' donor spots sit at the same frame pixels, so a
+# click or a jump resolved in the wrong movie would land on the wrong molecule.
+
+
+class _MouseEvent:
+    """The napari mouse event a ``mouse_drag`` generator reads; ``type`` changes in place."""
+
+    def __init__(self, position: tuple[float, ...]) -> None:
+        self.position = position
+        self.type = "mouse_press"
+
+
+def _click(panel, row_col: np.ndarray) -> None:
+    """Press and release on the canvas at ``row_col`` with no move: a click, not a pan."""
+    (callback,) = panel._spot_click_callbacks
+    event = _MouseEvent((0.0, float(row_col[0]), float(row_col[1])))
+    gen = callback(panel.viewer, event)
+    next(gen)
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
+def _centre(panel) -> tuple[float, float]:
+    return tuple(float(v) for v in panel.viewer.camera.center[-2:])
+
+
+@needs_napari
+@needs_gl
+def test_selecting_a_molecule_shows_its_own_movie_centred_on_its_donor_spot(
+    section_shell, tmp_path
+) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    donor1, _ = _molecules(path, "mov-1")
+    donor2, _ = _molecules(path, "mov-2")
+    assert shell.roundtrip is not None
+    assert shell.molecule_list.count() == 6
+    # The first selection of the open already centres on molecule 0's donor spot.
+    assert panel.active_index == 0
+    assert _centre(panel) == tuple(_rowcol(donor1)[0])
+
+    shell.molecule_list.setCurrentRow(4)  # mov-2's second molecule
+
+    assert panel.active_index == 1
+    assert panel.movie_layer.data.shape == (5, 40, 48)
+    assert _centre(panel) == tuple(_rowcol(donor2)[1])
+    # The shell's switcher names the movie the jump showed.
+    assert shell.movie_switcher.currentIndex() == 1
+    # The selection keeps its own status line; the jump adds none.
+    assert shell.status_message == "Molecule mol-4 (5/6)"
+
+    shell.molecule_list.setCurrentRow(2)  # back to mov-1
+
+    assert panel.active_index == 0
+    assert _centre(panel) == tuple(_rowcol(donor1)[2])
+    assert shell.movie_switcher.currentIndex() == 0
+
+
+@needs_napari
+@needs_gl
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_Enter"])
+def test_enter_jumps_back_to_the_molecules_spot_and_writes_nothing(
+    section_shell, tmp_path, qtbot, key_name
+) -> None:
+    import hashlib
+
+    from pyqtgraph.Qt import QtCore
+
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    donor2, _ = _molecules(path, "mov-2")
+    shell.molecule_list.setCurrentRow(5)
+    # The user looks at the other movie, and pans away.
+    shell.movie_switcher.setCurrentIndex(0)
+    panel.center_on(1.0, 1.0)
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert shell.status_message == "Jumped to mol-5 in movie second_movie_011.tif"
+    assert panel.active_index == 1
+    assert shell.movie_switcher.currentIndex() == 1
+    assert _centre(panel) == tuple(_rowcol(donor2)[2])
+    assert shell.molecule_list.currentRow() == 5
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+@needs_napari
+@needs_gl
+def test_a_click_on_either_spot_selects_its_molecule_in_the_movie_shown(
+    section_shell, tmp_path
+) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    _, acceptor1 = _molecules(path, "mov-1")
+    donor2, acceptor2 = _molecules(path, "mov-2")
+
+    # Movie 1: a click on molecule 1's acceptor spot, in the acceptor half of the frame.
+    centre = _centre(panel)
+    _click(panel, _rowcol(acceptor1 + [64.0, 0.0])[1])
+    assert shell.molecule_list.currentRow() == 1
+    assert shell.status_message == "Molecule mol-1 (2/6)"
+    # Selecting by a click leaves the camera where the user clicked.
+    assert _centre(panel) == centre
+
+    # Movie 2: the same donor pixels belong to mov-2's molecules now.
+    shell.movie_switcher.setCurrentIndex(1)
+    _click(panel, _rowcol(donor2)[1])
+    assert shell.molecule_list.currentRow() == 4
+    _click(panel, _rowcol(acceptor2 + [24.0, 0.0])[2])
+    assert shell.molecule_list.currentRow() == 5
+    assert panel.active_index == 1
+
+    # A click on the background, outside every aperture ring, selects nothing.
+    _click(panel, np.array([38.0, 46.0]))
+    assert shell.molecule_list.currentRow() == 5
+
+
+@needs_napari
+@needs_gl
+def test_a_molecule_whose_movie_is_not_shown_cannot_be_jumped_to(
+    section_shell, tmp_path, qtbot
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    second = _second_movie(tmp_path)
+    path = _store(tmp_path, second=second)
+    second.unlink()  # mov-2 is listed (disabled) but not shown
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    centre = _centre(panel)
+
+    shell.molecule_list.setCurrentRow(4)
+    assert panel.active_index == 0
+    assert _centre(panel) == centre
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+    assert shell.status_message == (
+        "Jump to movie spot unavailable: mol-4 has no spot in a movie shown here"
+    )
+
+
+@needs_napari
+@needs_gl
+def test_listing_the_molecules_again_keeps_one_click_handler(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel = shell.movie_panel
+    n_callbacks = len(panel.viewer.mouse_drag_callbacks)
+    first = shell.roundtrip
+
+    shell.set_molecules(list(shell._traces))
+
+    assert shell.roundtrip is not None and shell.roundtrip is not first
+    assert len(panel._spot_click_callbacks) == 1
+    assert len(panel.viewer.mouse_drag_callbacks) == n_callbacks
+
+
+@needs_napari
+@needs_gl
+def test_closing_the_project_drops_the_round_trip(section_shell, tmp_path, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    shell = _open(section_shell, _store(tmp_path))
+    assert shell.roundtrip is not None
+
+    assert shell.close_project()
+
+    assert shell.roundtrip is None
+    shell.set_molecules([])
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+    assert "Jump to movie spot unavailable" in shell.status_message
+
+
 # --- when no panel is built -------------------------------------------------------------
 
 

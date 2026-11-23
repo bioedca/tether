@@ -88,6 +88,23 @@ So does a trace with a missing value or a constant channel.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
+### Go between a trace and its movie spot
+
+The **Movie** panel follows the list. When you select a molecule, the panel shows the
+molecule's own movie and puts its donor spot in the center. If the molecule is in another
+movie, the panel changes to that movie, and the **Movie** box names it.
+
+- To go back to the spot of the selected molecule, press **Enter**. Use this after you move
+  the view or choose another movie. The status bar then reads, for example,
+  `Jumped to mol-4 in movie movie_011.tif`.
+- To select a molecule from the movie, click its donor or acceptor spot in the panel. The
+  click must be inside the ring of the spot. The list then selects that molecule and the
+  view does not move. A click outside all rings selects nothing, and a drag moves the view.
+
+A molecule whose movie is not shown has no spot to go to. For such a molecule, **Enter**
+gives the reason, for example
+`Jump to movie spot unavailable: mol-4 has no spot in a movie shown here`.
+
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 The keys on this page are the ones Tether starts with. To move one, see
 [Change a key](#change-a-key).

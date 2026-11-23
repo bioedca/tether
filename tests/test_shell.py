@@ -75,15 +75,28 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
     assert "Accepted" not in shell.status_message
 
 
-@pytest.mark.parametrize("key_name", ["Key_Return", "Key_G"])
-def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
+def test_deferred_store_commands_report_unavailable(shell, qtbot) -> None:
     from pyqtgraph.Qt import QtCore
 
     shell.set_molecules(_traces(1))
 
-    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_G)
 
     assert "unavailable" in shell.status_message.lower()
+
+
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_Enter"])
+def test_enter_with_no_movie_shown_says_why(shell, qtbot, key_name) -> None:
+    # #357: Enter jumps to the movie spot. A shell with no movie panel (no project, or
+    # a project with no movie file here) has nowhere to jump, and says so.
+    from pyqtgraph.Qt import QtCore
+
+    shell.set_molecules(_traces(1))
+    assert shell.roundtrip is None
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert shell.status_message == "Jump to movie spot unavailable: no movie is shown"
 
 
 def test_category_field_keeps_text_semantics(shell) -> None:
@@ -189,11 +202,15 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
 
 
 def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None:
-    # #345: the ready line no longer offers "Enter jump", and the shipped cheat sheet
-    # agrees: every deferred command is marked unavailable, the working ones are not.
+    # #345: every deferred command is marked unavailable on the shipped cheat sheet, the
+    # working ones are not. Jump works since #357, so the ready line names its key again
+    # and the sheet offers it plainly; the grid is still deferred.
+    from tether.gui.curation import CurationAction
     from tether.gui.shell import DEFERRED_ACTIONS
 
-    assert "jump" not in shell.status_message.lower()
+    assert CurationAction.JUMP not in DEFERRED_ACTIONS
+    assert shell.status_message.endswith(" jump")
+    assert "grid" not in shell.status_message.lower()
     shown = _cheatsheet_cells(shell.cheatsheet)
     assert shown == shell.keymap.cheatsheet(unavailable=DEFERRED_ACTIONS)
     rows = dict(shown)
@@ -202,8 +219,8 @@ def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None
     assert rows.get("G") == "Toggle grid (unavailable)"
     # The category keys write the project since #359, so the sheet offers them plainly.
     assert rows.get("1") == "Assign category 1"
-    assert "Jump to movie spot (unavailable)" in rows.values()
-    assert "Jump to movie spot" not in rows.values()
+    assert "Jump to movie spot" in rows.values()
+    assert "Jump to movie spot (unavailable)" not in rows.values()
 
 
 def test_every_deferred_action_reports_unavailable(shell) -> None:

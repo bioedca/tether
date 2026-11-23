@@ -24,7 +24,7 @@ overlays, with a movie switcher for multi-movie experiments").
   movie switcher, so it never builds this one (#356).
 * [`center_on`][tether.gui.movie_panel.NapariMoviePanel.center_on] and
   [`connect_spot_click`][tether.gui.movie_panel.NapariMoviePanel.connect_spot_click] are the napari
-  half of the trace↔movie round-trip (PRD §7.3, §5.2; the shell wiring lands in #357):
+  half of the trace↔movie round-trip (PRD §7.3, §5.2; the shell wires it in #357):
   centre the camera on a spot (trace → movie) and receive a canvas click (movie → trace).
   The resolver that drives them lives in [`tether.gui.roundtrip`][].
 

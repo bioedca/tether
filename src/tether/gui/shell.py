@@ -10,8 +10,10 @@ the keymap, §7.6) — and installs the application-level
 [`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
 the movie switcher from ``/movies``, and the embedded napari movie panel
 ([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
-donor and acceptor spots as a dock of Curate and correct (#356). The real round-trip
-navigation between a trace and its spot (#357) is not wired in yet.
+donor and acceptor spots as a dock of Curate and correct (#356). The round-trip between a
+trace and its spot ([`tether.gui.roundtrip`][], #357) links the two: selecting a molecule,
+or pressing ``Enter``, shows its own movie centred on its donor spot, and clicking a spot
+selects its molecule.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -165,15 +167,11 @@ _APP_NAME = "Tether"
 
 #: The curation commands the shell does not implement yet (#345). Their keys stay
 #: bound, so a press reports ``… unavailable: …`` instead of a success it did not
-#: earn, and the cheat sheet marks them ``(unavailable)``. Jump becomes real in
-#: #357 and the grid in #364; each removes its entry here in the PR that implements
-#: it. The category, analysis-window and photobleach keys write the project (#359).
-DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset(
-    {
-        CurationAction.JUMP,
-        CurationAction.GRID,
-    }
-)
+#: earn, and the cheat sheet marks them ``(unavailable)``. The grid becomes real in
+#: #364, which removes its entry here. Jump is real since #357 (the trace↔movie
+#: round-trip), and the category, analysis-window and photobleach keys write the
+#: project (#359).
+DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset({CurationAction.GRID})
 
 #: How often (ms) the main thread polls the background idealize fit for completion.
 _IDEALIZE_POLL_MS = 25
@@ -702,6 +700,19 @@ class TetherShell:
         self._movie_readers: list[Any] = []
         self._project_movies: list[Any] = []
         self._movie_rows: dict[int, int] = {}
+        self._movie_aperture_radius: float | None = None
+        # The trace↔movie round-trip (#357, PRD §7.3): a RoundTripNavigator over the
+        # panel, rebuilt with the molecule list. ``_roundtrip_rows`` maps a navigator
+        # molecule index to its list row and ``_roundtrip_site_of_row`` the reverse; a
+        # molecule with no spot in a shown movie has no entry. ``_roundtrip_error`` says
+        # why there is no navigator when building one failed. ``_selecting_from_movie``
+        # is set while a canvas click selects a row, so that selection does not move
+        # the camera the user just clicked in.
+        self._roundtrip: Any | None = None
+        self._roundtrip_rows: list[int] = []
+        self._roundtrip_site_of_row: dict[int, int] = {}
+        self._roundtrip_error: str | None = None
+        self._selecting_from_movie = False
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -1625,11 +1636,16 @@ class TetherShell:
     # --- molecules -----------------------------------------------------------
 
     def set_molecules(self, traces: list[TraceView]) -> None:
-        """Populate the molecule list + dock from ``traces`` (select the first)."""
+        """Populate the molecule list + dock from ``traces`` (select the first).
+
+        With a [`movie_panel`][] shown, this also rebuilds the trace↔movie round-trip over
+        the new list (#357), so the first selection already moves the movie to its spot.
+        """
         self._traces = list(traces)
         self._molecule_list.clear()
         for i, trace in enumerate(self._traces):
             self._molecule_list.addItem(trace.name or f"mol-{i}")
+        self._wire_roundtrip()
         if self._traces:
             self._molecule_list.setCurrentRow(0)
         else:
@@ -1649,6 +1665,12 @@ class TetherShell:
             # the navigation status) rather than being clobbered by it; a successful
             # refresh sets no status, leaving the molecule message in place.
             self._refresh_overlap(trace)
+            # Trace → movie (#357): a list selection shows the molecule's own movie,
+            # centred on its donor spot. A selection made by clicking that spot leaves
+            # the camera where the user clicked. A failure is reported; success sets no
+            # status, so the molecule message stays.
+            if not self._selecting_from_movie:
+                self._focus_movie(row)
 
     @property
     def overlap_dock(self) -> Any | None:
@@ -1721,6 +1743,7 @@ class TetherShell:
         from pyqtgraph.Qt import QtCore
 
         self._project_movies = list(movies.movies)
+        self._movie_aperture_radius = float(movies.aperture_radius)
         switcher = self._movie_switcher
         switcher.blockSignals(True)
         try:
@@ -1847,11 +1870,131 @@ class TetherShell:
             return
         self._status(f"Movie {self._project_movies[row].name}")
 
+    # --- the trace↔movie round-trip (#357, PRD §7.3, §5.2) ----------------------
+
+    @property
+    def roundtrip(self) -> Any | None:
+        """The [`RoundTripNavigator`][tether.gui.roundtrip.RoundTripNavigator], or ``None``.
+
+        Built over the [`movie_panel`][] and the molecule list whenever both exist, so
+        ``None`` exactly when no movie panel is shown (or building it failed; ``Enter``
+        then says why). Selecting a molecule in the list, or pressing ``Enter``, shows
+        the molecule's own movie centred on its donor spot; clicking a donor or acceptor
+        spot in the panel selects that molecule's list row.
+        """
+        return self._roundtrip
+
+    def _wire_roundtrip(self) -> None:
+        """Build the round-trip navigator over the shown movies and the molecule list.
+
+        Each listed molecule whose ``molecule_key`` has a spot in a movie the panel shows
+        becomes a [`MoleculeSite`][tether.gui.roundtrip.MoleculeSite]
+        ([`sites_for_molecules`][tether.gui.roundtrip.sites_for_molecules]). The panel's
+        movies are passed in its registration order, so a molecule's ``movie_id`` maps to
+        the panel index to switch to. A click counts only inside the integration aperture
+        drawn round a spot (the stored radius), so a click on the background selects
+        nothing. A failure leaves no navigator and keeps the reason for ``Enter``.
+        """
+        self._roundtrip = None
+        self._roundtrip_rows = []
+        self._roundtrip_site_of_row = {}
+        self._roundtrip_error = None
+        panel = self._movie_panel
+        if panel is None:
+            return
+        from tether.gui.roundtrip import RoundTripIndex, RoundTripNavigator, sites_for_molecules
+
+        disconnect = getattr(panel, "disconnect_spot_clicks", None)
+        if disconnect is not None:
+            disconnect()  # a re-listed project must not fire the old navigator too
+        shown = [
+            self._project_movies[row]
+            for row, _ in sorted(self._movie_rows.items(), key=lambda item: item[1])
+        ]
+        try:
+            sites, rows = sites_for_molecules([t.molecule_key for t in self._traces], shown)
+            navigator = RoundTripNavigator(
+                RoundTripIndex(sites),
+                panel,
+                [movie.movie_id for movie in shown],
+                on_select=self._on_movie_spot_clicked,
+                on_focus=self._on_movie_focused,
+                max_click_distance=self._movie_aperture_radius,
+            )
+            navigator.connect()
+        except Exception as exc:  # noqa: BLE001 - no round-trip is not a failed open
+            self._roundtrip_error = str(exc) or type(exc).__name__
+            self._status(f"Movie round-trip unavailable: {self._roundtrip_error}")
+            return
+        self._roundtrip = navigator
+        self._roundtrip_rows = rows
+        self._roundtrip_site_of_row = {row: site for site, row in enumerate(rows)}
+
+    def _focus_movie(self, row: int) -> bool:
+        """Show list row ``row``'s molecule in the movie panel; ``False`` if it has no spot."""
+        navigator = self._roundtrip
+        site = self._roundtrip_site_of_row.get(row)
+        if navigator is None or site is None:
+            return False
+        try:
+            navigator.focus_molecule(site)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Movie jump failed: {exc}")
+            return False
+        return True
+
+    def _jump_to_movie(self) -> None:
+        """``Enter``: show the selected molecule's movie, centred on its donor spot (#357)."""
+        feature = "Jump to movie spot"
+        row = self._molecule_list.currentRow()
+        if not 0 <= row < len(self._traces):
+            self._unavailable(feature, "no molecule is selected")
+            return
+        label = self._molecule_list.item(row).text()
+        if self._roundtrip is None:
+            self._unavailable(feature, self._roundtrip_error or "no movie is shown")
+            return
+        if row not in self._roundtrip_site_of_row:
+            self._unavailable(feature, f"{label} has no spot in a movie shown here")
+            return
+        if not self._focus_movie(row):
+            return
+        if self._movie_dock_widget is not None:
+            self._movie_dock_widget.raise_()
+        movie_id = self._roundtrip.index.site(self._roundtrip_site_of_row[row]).movie_id
+        names = {m.movie_id: m.name for m in self._project_movies}
+        self._status(f"Jumped to {label} in movie {names.get(movie_id, movie_id)}")
+
+    def _on_movie_focused(self, _site: int) -> None:
+        """After a jump, make the switcher name the movie the panel now shows."""
+        panel = self._movie_panel
+        if panel is None:
+            return
+        rows = [row for row, index in self._movie_rows.items() if index == panel.active_index]
+        if rows and self._movie_switcher.currentIndex() != rows[0]:
+            self._movie_switcher.blockSignals(True)
+            self._movie_switcher.setCurrentIndex(rows[0])
+            self._movie_switcher.blockSignals(False)
+
+    def _on_movie_spot_clicked(self, site: int) -> None:
+        """Movie → trace: select the list row of the molecule whose spot was clicked."""
+        row = self._roundtrip_rows[site]
+        self._selecting_from_movie = True
+        try:
+            self._molecule_list.setCurrentRow(row)
+        finally:
+            self._selecting_from_movie = False
+
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
         panel, dock_widget = self._movie_panel, self._movie_dock_widget
         self._movie_panel = None
         self._movie_dock_widget = None
+        self._roundtrip = None
+        self._roundtrip_rows = []
+        self._roundtrip_site_of_row = {}
+        self._roundtrip_error = None
+        self._movie_aperture_radius = None
         if dock_widget is not None:
             self._event_filter.remove_scope_widget(dock_widget)
             self._detach_section_dock(dock_widget)
@@ -2172,9 +2315,10 @@ class TetherShell:
         can be opened are shown in the embedded napari movie panel, a dock of Curate and
         correct, with each movie's donor and acceptor spots at the stored aperture radius
         (#356; [`movie_panel`][]). An analysis-only import leaves the panel unbuilt and the
-        switcher empty. The curation category vocabulary and the trace↔movie round-trip
-        navigation are **not** re-wired here (the round-trip lands in #357, and the
-        per-condition category list is edited through the ``&Conditions`` dialog).
+        switcher empty. Selecting a molecule then shows its own movie centred on its donor
+        spot, and clicking a spot selects its molecule ([`roundtrip`][], #357). The curation
+        category vocabulary is **not** re-wired here (the per-condition category list is
+        edited through the ``&Conditions`` dialog).
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
@@ -3021,11 +3165,15 @@ class TetherShell:
         return chords
 
     def _ready_message(self) -> str:
-        """The start-up status line, naming the current accept and reject keys (#635)."""
+        """The start-up status line, naming the accept, reject and jump keys (#635, #357)."""
         from tether.gui.keymap_editor import chord_label
 
         parts = []
-        for action, verb in ((CurationAction.ACCEPT, "accept"), (CurationAction.REJECT, "reject")):
+        for action, verb in (
+            (CurationAction.ACCEPT, "accept"),
+            (CurationAction.REJECT, "reject"),
+            (CurationAction.JUMP, "jump"),
+        ):
             chords = sorted(self._keymap.chords_for(Command(action)), key=lambda c: (c[1], c[0]))
             if chords:
                 parts.append(f"{chord_label(*chords[0])} {verb}")
@@ -3440,9 +3588,7 @@ class TetherShell:
             accept=lambda: self._curate_current(CurationAction.ACCEPT),
             reject=lambda: self._curate_current(CurationAction.REJECT),
             unreject=lambda: self._curate_current(CurationAction.UNREJECT),
-            jump=lambda: self._unavailable(
-                "Jump to movie spot", "movie round-trip navigation is not implemented"
-            ),
+            jump=self._jump_to_movie,
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
