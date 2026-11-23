@@ -2295,13 +2295,15 @@ Governance is **established whole at M0** and then enforced continuously — no 
 | **M9** | `release.yml` produces the 3-OS bundled installers (unsigned — ADR-0059) + frozen `conda-lock`s + SBOM + attestations + auto changelog, and `docs.yml` deploys; the pipeline is exercised on pre-release tags (`v1.0.0-rc1`, `v1.0.0-rc2`); ADR-0010's deferred standalone-tMAVEN GUI leg is part of M9 acceptance (met under #543). The stable `v1.0.0` tag is not cut here. |
 | **M10** | Post-1.0 documentation and community work; it opens when release acceptance (M18) closes. |
 | **M11** | The agent coordination layer: the atomic claim-ref mutex and its reaper (`.agents/bin/claim.py`, `agent-reaper.yml`; ADR-0057) and the draft-first review lane (ADR-0062–ADR-0065). It coordinates writers, not reviews (ADR-0064). |
-| **M12** | Write safety on the project store and the multi-movie append (§9.6); the schema freeze holds — `schema-guard` green with `SCHEMA_VERSION` unchanged. |
+| **M12** | Write safety on the project store and the multi-movie append (§9.6); the schema freeze holds — `schema-guard` green, and `SCHEMA_VERSION` changes only through a versioned, ADR-recorded step with its migration test (§5.4, §9.2, §12.6; the first, to version 2, is ADR-0136). |
 | **M13** | The in-app updater verifies a download against its build-provenance attestation before handing off to the OS installer (ADR-0060). |
 | **M14–M17** | The unified GUI shell and its extraction, curation and analysis sections: durable coverage is committed `pytest-qt` tests run headless on the required 3-OS matrix. Each of M14–M17 discharges the §9.6 criteria it carries; §9.6 names the issue that carries each one. |
 | **M18** | Release acceptance: one evidence artifact per §9.5 oracle bound to the release commit, a forced full `sidecar` run on that commit, recorded clean-machine passes on three OSes, then SemVer **1.0.0** cut from a signed `v1.0.0` tag through `release.yml`. |
 
 The **schema-guard** gate persists from M0 through every later milestone, mechanically enforcing the §5/§9-M0
-invariant that later milestones add **DATA, not STRUCTURE**.
+invariant that the schema is **additive-only**: a later milestone adds data freely, and changes structure only
+through a versioned step that raises `SCHEMA_VERSION` with an ADR, the regenerated golden manifest and the
+backup-and-migrate test (§5.4, §9.2, §12.6).
 
 ---
 

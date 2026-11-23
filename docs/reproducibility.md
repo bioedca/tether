@@ -294,7 +294,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
 [/]
   app_version = <your version>
   format = tether-project
-  schema_version = 1
+  schema_version = 2
 [/settings/extraction]
   app_version = <your version>
   bg_window = 10
