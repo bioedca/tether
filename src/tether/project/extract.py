@@ -1340,10 +1340,12 @@ def reextract_movie(
     ([`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX] by default) keep
     its ``molecule_key``, curation label, category and analysis window, marked carried;
     fits and corrections of the movie are marked stale through the ``trace_generation``
-    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]), and an approved or
-    reviewed correction state becomes CALIBRATION_STALE
-    ([`mark_traces_replaced_in`][tether.project.correction_states.mark_traces_replaced_in]),
-    so corrected analysis waits for a new approval. The movie's frame time
+    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]).
+    [`mark_traces_replaced_in`][tether.project.correction_states.mark_traces_replaced_in]
+    then moves an ANALYSIS_READY or CORRECTED_REVIEW correction state to
+    CALIBRATION_STALE, and in CALIBRATION_APPROVED, where the state does not change, marks
+    the approved factor version stale; either way corrected analysis waits for a new
+    approval. The movie's frame time
     and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
 
     The update is written to a sibling copy of the project and published by one atomic

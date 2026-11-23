@@ -1216,21 +1216,31 @@ def refit_membership(project: Project | str | PathLike[str], model_name: str) ->
     reported in ``moved_keys``; it is never silently dropped. The rows are found
     whatever their curation label: a stored cohort keeps its rejected members.
     """
+    import h5py
+
     from tether.project.core import Project as _Project
 
     path = project.path if isinstance(project, _Project) else Path(project)
-    stored = read_idealization(path, model_name)
+    with h5py.File(path, "r") as f:  # only the two membership datasets, not the state paths
+        g = _model_group(f, model_name, path)
+        stored_ids = [_to_str(x) for x in g["molecule_id"][()]]
+        stored_keys = [_to_str(x) for x in g["molecule_key"][()]]
+    return _members_of(path, stored_ids, stored_keys)
+
+
+def _members_of(path: Path, stored_ids: list[str], stored_keys: list[str]) -> RefitMembers:
+    """[`refit_membership`][] over a model's stored ids and keys, already read."""
     molecules = read_molecules(path)
     ids = [_to_str(m) for m in molecules["molecule_id"]]
     keys = [_to_str(k) for k in molecules["molecule_key"]]
     row_by_id = {mid: row for row, mid in enumerate(ids)}
-    taken = {row_by_id[mid] for mid in stored.molecule_ids if mid in row_by_id}
+    taken = {row_by_id[mid] for mid in stored_ids if mid in row_by_id}
     rows_by_key: dict[str, list[int]] = {}
     for row, key in enumerate(keys):
         if row not in taken:
             rows_by_key.setdefault(key, []).append(row)
     moved: list[str] = []
-    for mid, key in zip(stored.molecule_ids, stored.molecule_keys, strict=True):
+    for mid, key in zip(stored_ids, stored_keys, strict=True):
         if mid in row_by_id:
             continue
         free = rows_by_key.get(key)
@@ -1292,8 +1302,11 @@ def reidealize(
     """
     import warnings  # noqa: PLC0415
 
+    from tether.project.core import Project as _Project
+
     stored = read_idealization(project, model_name)
-    members = refit_membership(project, model_name)
+    path = project.path if isinstance(project, _Project) else Path(project)
+    members = _members_of(path, list(stored.molecule_ids), list(stored.molecule_keys))
     if members.moved_keys:
         warnings.warn(
             f"{len(members.moved_keys)} member(s) of the model {model_name!r} moved in a "
