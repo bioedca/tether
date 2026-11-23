@@ -466,7 +466,7 @@ tMAVEN's vbGMM priors, on the same pooled and clipped FRET
 ([#1302](https://github.com/bioedca/tether/issues/1302),
 [ADR-0138](adr/0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md)). The
 numbers, their provenance and the tolerance are in
-`tests/reference_data/smd_4mol_vbgmm_sklearn.json`; the base test matrix fits them again, because
+`tests/reference_data/smd_4mol_vbgmm_sklearn.json`. The base test matrix fits them again, because
 the sidecar environment has no scikit-learn. The tolerance is 0.03 FRET on each state mean and
 0.01 on each state fraction, above the 0.0225 and 0.0065 by which tMAVEN's own updates, run to
 convergence, differ from the reference.
