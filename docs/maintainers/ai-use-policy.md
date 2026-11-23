@@ -95,7 +95,7 @@ Quote it exactly, in code formatting.
 
 A person checks each citation that a tool supplies against the source before it merges. A new
 citation also needs the human sign-off that the contributor guide gives in
-[Merging](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md#merging-prd-122-126).
+[What review to expect](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md#what-review-to-expect).
 This page does not change that rule.
 
 ### Rule 9. Claims about the standard
