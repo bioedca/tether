@@ -57,6 +57,9 @@ the `1.x` rows apply from then on. No release line is supported on both sides of
 The committed `conda-lock` files pin the dependencies of the base stack. The isolated
 `sidecar/conda-lock.yml` pins the tMAVEN sidecar, and the isolated `deep/conda-lock.yml` pins
 PyTorch. Dependabot updates `pip` and `github-actions`, but it **does not re-solve the conda lock
-files**. A scheduled dependency audit (`deps-audit.yml`, with `pip-audit` and `safety`) covers that
-gap. Secret scanning and push protection are on for the repository. `docs/PRD.md` §12.8 gives the
+files**. A scheduled dependency audit (`deps-audit.yml`, with `pip-audit` and `safety`) checks the
+locked PyPI packages only. It does not check the packages that come only from conda, so that part of
+the gap stays open.
+
+Secret scanning and push protection are on for the repository. `docs/PRD.md` §12.8 gives the
 full supply-chain posture.

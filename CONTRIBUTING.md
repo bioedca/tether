@@ -537,8 +537,9 @@ governs.
 5. Mark the PR ready for review.
 6. Ask CodeRabbit once with an `@coderabbitai full review` comment. The incremental command
    reviews nothing here. A refusal is not that one review. A load-bearing PR asks one Greptile
-   review instead (ADR-0099). If it has findings, treat them as step 7 says. Then ask CodeRabbit
-   once on the fixed head, and ask Codex for a closing review of the final head.
+   review instead (ADR-0099). A clean Greptile review completes the metered review. A Greptile
+   review with findings needs more. Treat the findings as step 7 says. Then ask CodeRabbit once on
+   the fixed head. Last, ask Codex for a closing review of the final head.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
