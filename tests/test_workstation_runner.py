@@ -112,6 +112,99 @@ def test_the_dry_run_writes_a_result_that_matches_the_format(passing_run) -> Non
     assert result["tools"]["python"] and "pytest" in result["tools"]
 
 
+def test_no_cuda_is_a_failed_result_check(tmp_path, monkeypatch) -> None:
+    data = _data_dir(tmp_path)
+    state = tmp_path / "state"
+    deep_python = tmp_path / "synthetic-deep-env" / "bin" / "python"
+    run_logged = runner._run_logged
+
+    def with_no_cuda(cmd, log, **kwargs):
+        if cmd[0] == str(deep_python):
+            assert cmd[1:3] == ["-I", "-c"]
+            assert "torch.cuda.is_available()" in cmd[3]
+            return runner.CUDA_UNAVAILABLE
+        return run_logged(cmd, log, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_logged", with_no_cuda)
+    code = runner.main(
+        ["run", "--dry-run", "--state", str(state), "--data", str(data),
+         "--deep-python", str(deep_python)]
+    )  # fmt: skip
+
+    assert code == runner.EXIT_FAILED
+    text, result = _only_result(tmp_path)
+    assert runner.validate_result(result) == []
+    assert result["status"] == "failed"
+    assert str(deep_python) not in text
+    checks = {c["check"]: c["outcome"] for c in result["checks"]}
+    assert checks == {
+        f"{runner.SELF_CHECK}::test_every_neutral_id_names_readable_files": "passed",
+        runner.CUDA_CHECK: "failed",
+    }
+
+
+@pytest.mark.parametrize(
+    "output, success",
+    [
+        ('{"training_seed": 7, "cpu_roc_auc": 0.75}', True),
+        ('{"training_seed": 6, "cpu_roc_auc": 0.75}', False),
+        ("broken", False),
+    ],
+)
+def test_deep_worker_returns_only_summary_numbers(tmp_path, monkeypatch, output, success) -> None:
+    deep_python = tmp_path / "env" / "bin" / "python"
+    data = _data_dir(tmp_path)
+
+    def child(cmd, log, *, check, cwd, env):
+        assert not check and cwd == _REPO
+        assert cmd[:3] == [str(deep_python), "-P", "-s"]
+        assert cmd[4] == str(data)
+        assert env["PYTHONPATH"].split(os.pathsep)[0] == str(_REPO / "src")
+        assert cmd[6] == "7"
+        Path(cmd[5]).write_text(output, encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged", child)
+    with (tmp_path / "deep.log").open("w", encoding="utf-8") as log:
+        check = runner.check_deep_workload(deep_python, _REPO, data, tmp_path, log, training_seed=7)
+    assert check["check"] == runner.DEEP_CHECK
+    if not success:
+        assert (check["outcome"], check["datasets"]) == ("error", {})
+    else:
+        assert check["outcome"] == "passed"
+        assert check["datasets"] == {
+            runner.DEEP_ARCHIVE_ID: {"training_seed": 7, "cpu_roc_auc": 0.75},
+        }
+
+
+@pytest.mark.parametrize("seed, expected", [("0", 0), ("9", 9), ("-1", None), ("10", None)])
+def test_calibration_accepts_only_the_approved_training_seeds(monkeypatch, seed, expected) -> None:
+    argv = [
+        "run", "--data", "data", "--deep-python", "python", "--commit", "a" * 40,
+        f"--deep-training-seed={seed}",
+    ]  # fmt: skip
+    monkeypatch.setattr(runner, "run", lambda args: args.deep_training_seed)
+    if expected is None:
+        with pytest.raises(SystemExit, match="2"):
+            runner.main(argv)
+    else:
+        assert runner.main(argv) == expected
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--deep-python", "python"],
+        ["--deep-python", "python", "--commit", "abc1234"],
+        ["--commit", "a" * 40],
+        ["--deep-python", "python", "--dry-run"],
+    ],
+)
+def test_calibration_requires_a_pinned_main_run_and_deep_interpreter(flags) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        runner.main(["run", "--data", "data", "--deep-training-seed", "7", *flags])
+
+
 def test_no_mapped_name_reaches_the_result_or_the_console(passing_run, failing_run) -> None:
     for root, proc in (passing_run, failing_run):
         text, _ = _only_result(root)

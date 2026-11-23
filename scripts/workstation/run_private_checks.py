@@ -20,6 +20,7 @@ pull request can run code on that computer (ADR-0071). ``run`` does these steps 
 
 After step 3 a scheduled run also runs the benchmark suite of #722 and appends one record to the
 speed history (``perf_history.py``, #723); the history adds two checks to the result file.
+When given a separate deep interpreter, the runner checks CUDA and runs the held-out deep check.
 
 ``run --dry-run`` skips steps 1 and 2 and runs only the self-check, with this interpreter, against
 the data directory it gets. ``run --dry-run --speed --history FILE`` also runs the speed test, the
@@ -72,6 +73,11 @@ SIDECAR_ENV = "TETHER_SIDECAR_PYTHON"
 MAPPING_FILE = "tether-private-data.json"
 SELF_CHECK = "tests/test_workstation_selfcheck.py"
 SPEED_CHECK = "tests/test_workstation_perf.py"
+CUDA_CHECK = "deep/cuda"
+CUDA_UNAVAILABLE = 86
+DEEP_CHECK = "deep/performance"
+DEEP_ARCHIVE_ID = "dlasi-760"
+DEEP_TRAINING_SEEDS = range(10)
 #: The benchmark groups of #722 that a run measures (``sidecar`` needs the sidecar environment).
 BENCH_GROUPS = ("default", "gui")
 RESULT_SCHEMA = "tether-workstation-result/1"
@@ -473,6 +479,74 @@ def tool_versions(python: Path, env: dict[str, str]) -> dict[str, str | None]:
     return json.loads(proc.stdout)
 
 
+def check_cuda(python: Path, source: Path, log) -> dict:
+    """Check an already provisioned deep interpreter using its own environment."""
+    prefix = python.parent
+    if prefix.name.lower() in ("bin", "scripts"):
+        prefix = prefix.parent
+    code = (
+        "import torch; "
+        "print('torch', torch.__version__, 'CUDA build', torch.version.cuda, flush=True); "
+        f"raise SystemExit(0 if torch.cuda.is_available() else {CUDA_UNAVAILABLE})"
+    )
+    start = time.perf_counter()
+    try:
+        status = _run_logged(
+            [str(python), "-I", "-c", code],
+            log,
+            check=False,
+            cwd=source,
+            env=activated_env(prefix),
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"could not run the CUDA check: {exc}", file=log, flush=True)
+        status = None
+    outcomes = {0: "passed", CUDA_UNAVAILABLE: "failed"}
+    return {
+        "check": CUDA_CHECK,
+        "outcome": outcomes.get(status, "error"),
+        "duration_s": round(time.perf_counter() - start, 3),
+        "datasets": {},
+    }
+
+
+def check_deep_workload(
+    python: Path, source: Path, data: Path, state: Path, log, training_seed: int
+) -> dict:
+    """Run the deep check in the given interpreter and retain only its aggregate metrics."""
+    script = source / "scripts" / "workstation" / "deep_check.py"
+    prefix = python.parent
+    if prefix.name.lower() in ("bin", "scripts"):
+        prefix = prefix.parent
+    env = activated_env(prefix)
+    env["PYTHONPATH"] = os.pathsep.join(map(str, (source / "src", source / "tests", script.parent)))
+    start = time.perf_counter()
+    datasets = {}
+    with tempfile.TemporaryDirectory(prefix="deep-check-", dir=state) as temp:
+        output = Path(temp) / "metrics.json"
+        status = _run_logged(
+            [str(python), "-P", "-s", str(script), str(data), str(output), str(training_seed)],
+            log, check=False, cwd=source, env=env,
+        )  # fmt: skip
+        if status == 0:
+            try:
+                metrics = json.loads(output.read_text(encoding="utf-8"))
+                seed = metrics.get("training_seed") if isinstance(metrics, dict) else None
+                if isinstance(seed, bool) or not isinstance(seed, int) or seed != training_seed:
+                    raise ValueError("the deep check returned an unexpected training seed")
+                datasets[DEEP_ARCHIVE_ID] = metrics
+            except (OSError, ValueError):
+                print("the deep check did not return readable metrics", file=log)
+                status = None
+    return {
+        "check": DEEP_CHECK,
+        "outcome": {0: "passed", CUDA_UNAVAILABLE: "failed"}.get(status, "error"),
+        "duration_s": round(time.perf_counter() - start, 3),
+        "datasets": datasets,
+    }
+
+
 def _cpu_name() -> str | None:
     if sys.platform == "win32":
         import winreg
@@ -698,6 +772,13 @@ def run(args: argparse.Namespace) -> int:
             cmd = [str(python), "-m", "pytest", "-m", "workstation", "-p", "no:cacheprovider"]
             code = _run_logged([*cmd, "-rA", *paths], log, check=False, cwd=source, env=env)
             checks = collect_checks(record)
+            if args.deep_python:
+                deep_python = Path(args.deep_python).expanduser().absolute()
+                cuda = check_cuda(deep_python, source, log)
+                checks.append(cuda)
+                seed = args.deep_training_seed
+                if cuda["outcome"] == "passed" and seed is not None:
+                    checks.append(check_deep_workload(deep_python, source, data, state, log, seed))
             tools = tool_versions(python, env)
             if speed and code in (0, 1):
                 bench = run_benchmarks(python, source, env, log)
@@ -853,6 +934,11 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--history", help="the speed history file (default: STATE/perf-history.jsonl)")
     go.add_argument("--sidecar-python", default=os.environ.get(SIDECAR_ENV),
                     help=f"the sidecar python (default: ${SIDECAR_ENV})")  # fmt: skip
+    go.add_argument("--deep-python", help="use this isolated interpreter for the deep checks")
+    go.add_argument(
+        "--deep-training-seed", type=int, choices=DEEP_TRAINING_SEEDS,
+        help="training seed for one paired calibration run",
+    )  # fmt: skip
     show = sub.add_parser("latest", help="print the newest result as JSON for an agent")
     show.add_argument("--results", required=True)
     args = parser.parse_args(argv)
@@ -863,6 +949,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"give --data or set ${DATA_ENV}")
     if args.dry_run and args.commit:
         parser.error("--commit needs a scheduled run; a dry run runs this checkout")
+    if args.deep_training_seed is not None and (
+        args.dry_run or not args.deep_python or not _matches(_HEX40, args.commit)
+    ):
+        parser.error("--deep-training-seed needs --deep-python and a full main --commit")
     if args.speed and not (args.dry_run and args.history):
         parser.error("--speed is for a dry run, and it needs --history: a copy, not the real file")
     try:
