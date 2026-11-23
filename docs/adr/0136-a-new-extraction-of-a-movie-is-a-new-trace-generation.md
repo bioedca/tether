@@ -159,10 +159,13 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
       contributor evidence changes* and CORRECTED_REVIEW *calibration evidence changes*, both
       to CALIBRATION_STALE, where `require_analysis_mode(..., CORRECTED)` refuses until the
       factors are approved again. The actor is the policy that names the movie, and the row
-      stores the `movie_id` and the `generation_id`. In the other states nothing is written:
-      G03 has no such edge out of them, and none of them allows corrected analysis. From
-      CALIBRATION_APPROVED the way to ANALYSIS_READY passes *finish review*, whose guard reads
-      the stale marks of item 6.
+      stores the `movie_id` and the `generation_id`. While an approval is in force
+      (CALIBRATION_APPROVED, CORRECTED_REVIEW, ANALYSIS_READY), the approved `factor_version`
+      and the applied `correction_version` are also marked stale through edges 7 and 8
+      (`mark_records_stale_in`), whether or not their inputs were recorded. G03 has no edge
+      out of CALIBRATION_APPROVED for changed evidence, so there the marks are what stop the
+      old approval: *finish review* reads them and refuses until the factors are approved
+      again. In the other states nothing is written.
 
 ### Consequences
 

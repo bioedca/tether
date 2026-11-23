@@ -46,6 +46,7 @@ from tether.project.idealize import (  # noqa: E402
     reidealize,
     stale_row_ids,
 )
+from tether.project.jobs import read_stale_marks  # noqa: E402
 from tether.services import idealize as idealize_service  # noqa: E402
 
 #: The molecules movie A holds (``test_trace_generations._DONOR_A``).
@@ -274,6 +275,7 @@ _PATH = {
     ),
 }
 _PATH[S.ANALYSIS_READY] = (*_PATH[S.CORRECTED_REVIEW], (E.FINISH_REVIEW, {}))
+_PATH[S.CALIBRATION_APPROVED] = _PATH[S.CORRECTED_REVIEW][:3]
 
 
 def _drive(project: Path, state: cs.CorrectionState) -> None:
@@ -323,6 +325,63 @@ def test_a_new_generation_refuses_corrected_analysis_until_approved_again(
     cs.require_analysis_mode(project, cs.AnalysisMode.CORRECTED)
 
 
+def _send(project: Path, *steps: tuple[cs.CorrectionEvent, dict]) -> None:
+    handle = Project.open(project)
+    handle.acquire_lock()
+    try:
+        for event, values in steps:
+            cs.send_event(handle, event, ME, **values)
+    finally:
+        handle.release_lock()
+
+
+def test_an_approval_with_no_recorded_inputs_is_stale_after_a_new_generation(
+    tmp_path: Path,
+) -> None:
+    # No caller recorded the inputs of fv1: the generation still marks it stale, so the
+    # approval made before the new traces cannot reach ANALYSIS_READY (#1284, Greptile).
+    project, movie_a, _ = _project_a_b(tmp_path)
+    movie_a_id, _ = _movie_ids(project)
+    _drive(project, S.CALIBRATION_APPROVED)
+    n_before = len(cs.read_correction_transitions(project))
+
+    _reextract(project, movie_a)
+
+    assert len(cs.read_correction_transitions(project)) == n_before  # G03 has no edge here
+    marks = {(m.node, m.instance, m.edge, m.upstream_instance) for m in read_stale_marks(project)}
+    assert ("factor_version", "fv1", 7, movie_a_id) in marks
+    _send(project, (E.APPLY_CORRECTION, {"correction_version": "cv1"}))
+    with pytest.raises(cs.CorrectionGuardError, match="fv1"):
+        _send(project, (E.FINISH_REVIEW, {}))
+    with pytest.raises(cs.CorrectedAnalysisRefused):
+        cs.require_analysis_mode(project, cs.AnalysisMode.CORRECTED)
+
+    # The way on is a new approval.
+    _send(
+        project,
+        (E.CALIBRATION_EVIDENCE_CHANGES, {}),
+        (E.RECALCULATE, {"alpha": 0.07}),
+        (E.APPROVE, {"gamma": 0.9, "factor_version": "fv2"}),
+        (E.APPLY_CORRECTION, {"correction_version": "cv2"}),
+        (E.FINISH_REVIEW, {}),
+    )
+    cs.require_analysis_mode(project, cs.AnalysisMode.CORRECTED)
+
+
+@pytest.mark.parametrize("state", [S.ANALYSIS_READY, S.CORRECTED_REVIEW])
+def test_a_new_generation_marks_the_approved_and_applied_versions_stale(
+    tmp_path: Path, state: cs.CorrectionState
+) -> None:
+    project, movie_a, _ = _project_a_b(tmp_path)
+    _drive(project, state)
+
+    _reextract(project, movie_a)
+    _reextract(project, movie_a)  # a second generation marks nothing twice
+
+    marks = [(m.node, m.instance) for m in read_stale_marks(project)]
+    assert sorted(marks) == [("correction_version", "cv1"), ("factor_version", "fv1")]
+
+
 def test_a_new_generation_before_approval_writes_no_transition(tmp_path: Path) -> None:
     project, movie_a, _ = _project_a_b(tmp_path)
     _reextract(project, movie_a)
@@ -344,3 +403,4 @@ def test_a_failed_generation_writes_no_transition(tmp_path: Path, monkeypatch) -
 
     assert len(cs.read_correction_transitions(project)) == n_before
     assert cs.read_correction_state(project).state is S.ANALYSIS_READY
+    assert read_stale_marks(project) == []

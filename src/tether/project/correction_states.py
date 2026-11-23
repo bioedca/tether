@@ -423,6 +423,15 @@ def _dependencies_current(
             {"node": m.node, "instance": m.instance, "event": m.event}
             for m in read_stale_marks(path)
         ]
+    wanted = _approved_versions(rows)
+    for mark in marks:
+        if wanted.get(mark["node"]) == mark["instance"]:
+            return False, f"{mark['node']} {mark['instance']!r} is stale ({mark['event']})"
+    return True, ""
+
+
+def _approved_versions(rows: Sequence[Mapping[str, str]]) -> dict[str, str]:
+    """Return the last approved ``factor_version`` and the last applied ``correction_version``."""
     wanted: dict[str, str] = {}
     for row in rows:
         detail = json.loads(row["detail"]) if row["detail"] else {}
@@ -430,10 +439,7 @@ def _dependencies_current(
             wanted["factor_version"] = str(detail.get("factor_version", ""))
         elif row["event"] == CorrectionEvent.APPLY_CORRECTION:
             wanted["correction_version"] = str(detail.get("correction_version", ""))
-    for mark in marks:
-        if wanted.get(mark["node"]) == mark["instance"]:
-            return False, f"{mark['node']} {mark['instance']!r} is stale ({mark['event']})"
-    return True, ""
+    return wanted
 
 
 def _stale_mark_rows(f: object) -> list[dict[str, str]]:
@@ -616,6 +622,18 @@ _TRACES_REPLACED: dict[CorrectionState, CorrectionEvent] = {
     CorrectionState.CORRECTED_REVIEW: CorrectionEvent.CALIBRATION_EVIDENCE_CHANGES,
 }
 
+#: The states in which an approval is in force; a new generation marks its versions stale.
+_APPROVAL_IN_FORCE = frozenset(
+    {
+        CorrectionState.CALIBRATION_APPROVED,
+        CorrectionState.CORRECTED_REVIEW,
+        CorrectionState.ANALYSIS_READY,
+    }
+)
+
+#: The ADR-0103 edge from ``trace_generation`` into each version a new generation marks.
+_GENERATION_EDGES = {"factor_version": 7, "correction_version": 8}
+
 
 def mark_traces_replaced_in(
     path: str | Path,
@@ -634,12 +652,44 @@ def mark_traces_replaced_in(
     factors and the reviewed corrected traces both change: ANALYSIS_READY takes *factor or
     contributor evidence changes* and CORRECTED_REVIEW *calibration evidence changes*, and
     both reach CALIBRATION_STALE, where corrected analysis is refused until the factors are
-    approved again. The actor is the policy that names the generation. In any other state
-    nothing is written and ``None`` is returned: G03 has no such edge out of it, and none
-    of those states allows corrected analysis.
+    approved again. The actor is the policy that names the generation.
+
+    While an approval is in force (CALIBRATION_APPROVED, CORRECTED_REVIEW, ANALYSIS_READY)
+    the approved ``factor_version`` and the applied ``correction_version`` are also marked
+    stale through edges 7 and 8 of ADR-0103
+    ([`mark_records_stale_in`][tether.project.jobs.mark_records_stale_in]), whether or not
+    their inputs were recorded. G03 has no edge out of CALIBRATION_APPROVED for changed
+    evidence, so there the marks are what stop the approval: *finish review* reads them and
+    refuses until the factors are approved again. In any other state nothing is written,
+    and ``None`` is returned when no transition is written.
     """
+    from tether.project.dependency_graph import EDGES  # noqa: PLC0415
+    from tether.project.jobs import StaleMark, mark_records_stale_in  # noqa: PLC0415
+
     _check_scope(scope)
     status, rows = _snapshot(path, scope)
+    if status.state in _APPROVAL_IN_FORCE:
+        stamp = datetime.now(UTC).isoformat(timespec="microseconds")
+        marks = []
+        for node, version in sorted(_approved_versions(rows).items()):
+            if not version:
+                continue
+            number = _GENERATION_EDGES[node]
+            (graph_edge,) = (e for e in EDGES if e.number == number)
+            marks.append(
+                StaleMark(
+                    node=node,
+                    instance=version,
+                    edge=number,
+                    upstream_node="trace_generation",
+                    upstream_instance=movie_id,
+                    edited_node="trace_generation",
+                    edited_instance=movie_id,
+                    event=graph_edge.event,
+                    timestamp=stamp,
+                )
+            )
+        mark_records_stale_in(path, marks)
     event = _TRACES_REPLACED.get(status.state)
     if event is None:
         return None

@@ -594,7 +594,11 @@ A new generation keeps the movie's `condition_id` when every molecule of the pre
 generation had one. When the previous generation has no molecule, the newest archived
 generation of the movie that has molecules gives it. A new generation of a project whose
 correction state is `ANALYSIS_READY` or `CORRECTED_REVIEW` also appends one row to
-`/settings/correction_transitions`, to `CALIBRATION_STALE`, with the actor `policy`
+`/settings/correction_transitions`, to `CALIBRATION_STALE`, with the actor `policy`. While
+an approval is in force (`CALIBRATION_APPROVED`, `CORRECTED_REVIEW`, `ANALYSIS_READY`), it
+also appends to `/settings/stale_marks` a mark for the approved `factor_version` (edge 7) and
+the applied `correction_version` (edge 8), so *finish review* refuses until the factors are
+approved again
 ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md), #1284).
 
 `/generations/label_reviews` is an optional append-only dataset. Each row stores the
