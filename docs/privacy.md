@@ -68,7 +68,8 @@ you allow it** (below).
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public. Export a subset with
-  `curator_alias` to replace user names in structured fields with aliases such as `curator-1`.
+  `curator_alias`, or `tether export subset --curator-alias curator` on the command line, to
+  replace user names in structured fields with aliases such as `curator-1`.
   The subset excludes the movie table and its paths. A model reference keeps its file name.
   The copy still has the file name of each source movie. Host names, job requests and errors,
   and other free text can contain names or full paths. Check those fields before sharing.

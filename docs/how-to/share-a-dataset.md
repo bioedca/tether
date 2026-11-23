@@ -143,6 +143,13 @@ export_subset_tether(
 show_identity("deposit/accepted.tether")
 ```
 
+On the command line, `--curator-alias` does the same. Give a `--molecule-key` for each
+accepted molecule, or leave it out to export every molecule that is not rejected:
+
+```bash
+tether export subset tutorial.tether -o deposit/accepted.tether --include-raw --curator-alias curator --overwrite
+```
+
 The curator check prints aliases such as `curator-1`. One person keeps the same alias
 in the labels and the condition change log.
 

@@ -1214,6 +1214,7 @@ traces are left out.
 ```text
 tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
                      [--include-raw] [--molecule-key KEY]
+                     [--curator-alias PREFIX]
                      projects [projects ...]
 ```
 
@@ -1225,9 +1226,18 @@ tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
 | `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
 | `--include-raw` | off | also embed the raw and background traces (`include_raw=True`) |
 | `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+| `--curator-alias PREFIX` | names are kept | replace each stored user name with `PREFIX-1`, `PREFIX-2` and so on (`curator_alias`); with several projects, each copy numbers its own names |
 
 ```bash
 tether export subset movie.tether -o accepted.tether
+```
+
+To share a copy without your user name, give a prefix. A blank prefix, or a prefix that
+contains a user name stored in the project, stops the export with exit code `1`, and no file
+is written:
+
+```bash
+tether export subset movie.tether -o shared.tether --curator-alias curator
 ```
 
 ## Sync-conflict copies beside a project
