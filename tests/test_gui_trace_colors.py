@@ -16,11 +16,14 @@ Three layers:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
 import sys
+import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -180,6 +183,106 @@ def test_only_a_palette_name_is_accepted(tmp_path: Path, bad: str) -> None:
     with pytest.raises(ValueError, match="trace colors"):
         record_trace_colors(bad, settings_file=path)
     assert not path.exists()
+
+
+# --- two writers, one file (#1254) ---------------------------------------------
+
+
+def _pause_after_each_read(monkeypatch: pytest.MonkeyPatch, wait_s: float) -> None:
+    """Make every read wait until a second read has happened too, or ``wait_s`` has passed.
+
+    Two writers that both get past their read before either replaces the file are the lost
+    answer of #1254. A writer that cannot read yet because the other holds the lock lets the
+    wait time out, which is the serialization the lock exists for.
+    """
+    barrier = threading.Barrier(2, timeout=wait_s)
+    real_stored = app_settings._stored
+
+    def stored_then_wait(*args: Any, **kwargs: Any) -> dict[str, str]:
+        answers = real_stored(*args, **kwargs)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait()
+        return answers
+
+    monkeypatch.setattr(app_settings, "_stored", stored_then_wait)
+
+
+def test_two_concurrent_writes_keep_both_answers(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    record_update_consent(True, settings_file=path)
+    # Its own patch context: undoing the test's monkeypatch would also undo the autouse
+    # fixture's theme patch.
+    with pytest.MonkeyPatch.context() as patch:
+        _pause_after_each_read(patch, wait_s=1.0)
+        writers = [
+            threading.Thread(target=record_update_consent, args=(False, path)),
+            threading.Thread(target=record_trace_colors, args=("classic", path)),
+        ]
+        for writer in writers:
+            writer.start()
+        for writer in writers:
+            writer.join(timeout=30)
+    assert not any(writer.is_alive() for writer in writers)
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "schema": 1,
+        "update_check": "declined",
+        "trace_colors": "classic",
+    }
+
+
+def _refuse_reading(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    """Make every read-only open of ``path`` fail as a permission error would."""
+    real_open = os.open
+
+    def open_or_refuse(file: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if Path(file) == path and not flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT):
+            raise PermissionError(13, "Permission denied", str(file))
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(app_settings.os, "open", open_or_refuse)
+
+
+@pytest.mark.parametrize("writer", ["trace", "consent"])
+def test_a_write_that_cannot_read_the_file_fails_and_keeps_both_answers(
+    tmp_path: Path, writer: str
+) -> None:
+    path = tmp_path / "settings.json"
+    record_update_consent(False, settings_file=path)
+    record_trace_colors("classic", settings_file=path)
+    before = path.read_bytes()
+    with pytest.MonkeyPatch.context() as patch:
+        _refuse_reading(patch, path)
+        # Reading still never raises: the unreadable file reads as unset.
+        assert stored_trace_colors(path) is None
+        with pytest.raises(OSError, match="settings.json"):
+            if writer == "trace":
+                record_trace_colors("safe", settings_file=path)
+            else:
+                record_update_consent(True, settings_file=path)
+    assert path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json", "settings.json.lock"]
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="needs POSIX permissions that bind this user (not root, not Windows)",
+)
+def test_a_write_to_a_file_without_read_permission_fails_and_keeps_both_answers(
+    tmp_path: Path,
+) -> None:
+    # The steps of #1254, case 2: the folder stays writable, the file is not readable.
+    path = tmp_path / "settings.json"
+    record_update_consent(False, settings_file=path)
+    record_trace_colors("classic", settings_file=path)
+    before = path.read_bytes()
+    path.chmod(0)
+    try:
+        with pytest.raises(OSError):
+            record_trace_colors("safe", settings_file=path)
+    finally:
+        path.chmod(0o600)
+    assert path.read_bytes() == before
+    assert _consent(path) is UpdateCheckState.DECLINED
 
 
 # --- the running window (pytest-qt, headless) --------------------------------

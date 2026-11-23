@@ -403,6 +403,34 @@ def test_extraction_is_silent_with_the_correct_side_and_warns_with_the_wrong_one
     assert stored == wrong.donor_side_check.to_dict()
 
 
+def test_batch_resume_reports_the_active_generation_layout(bleaching_movie, tmp_path) -> None:
+    """A batch checkpoint keeps the first stamp but reports the active generation."""
+    from tether.imaging.layout import ChannelLayout
+    from tether.project.batch import STAGE_EXTRACT, STATUS_SKIPPED, MovieJob, run_batch
+    from tether.project.extract import ExtractOptions, extract_movie, reextract_movie
+    from tether.project.lock import publish_lock
+
+    project = tmp_path / "movie.tether"
+    wrong = ExtractOptions(channel_layout=ChannelLayout(kind="side-by-side", donor="right"))
+    first = extract_movie(bleaching_movie, project, options=wrong)
+    assert first.donor_side_check.verdict == "swapped"
+
+    correct = ExtractOptions(channel_layout=ChannelLayout(kind="side-by-side", donor="left"))
+    with publish_lock(project) as guard:
+        second = reextract_movie(project, bleaching_movie, options=correct, publish_guard=guard)
+    assert second.generation.generation == 2
+    assert second.extraction.donor_side_check.verdict == "consistent"
+    assert _profile(project)["donor_side_check"]["verdict"] == "swapped"
+
+    job = MovieJob(movie_path=bleaching_movie, output_path=project)
+    resumed = run_batch([job], idealize=False, _correct=_ok_correct)
+    record = resumed.results[0]
+    assert record.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert record.donor_side["extracted_channel_layout"]["donor"] == "left"
+    assert record.donor_side["verdict"] == "consistent"
+    assert not resumed.donor_side_flagged
+
+
 def test_the_check_alters_no_stored_value(bleaching_movie, tmp_path, monkeypatch) -> None:
     from tether.imaging.extract import read_molecules, read_traces
     from tether.project import extract as extract_mod

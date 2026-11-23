@@ -42,7 +42,7 @@ from tether.imaging.calibrate import LOW_CONFIDENCE_TAG  # noqa: E402
 from tether.imaging.detect import ParticleDetectionMode  # noqa: E402
 from tether.imaging.extract import read_molecules, read_patches, read_traces  # noqa: E402
 from tether.imaging.register import PolyTransform2D, TmapChannel  # noqa: E402
-from tether.io.schema import assert_is_compatible_project  # noqa: E402
+from tether.io.schema import SCHEMA_VERSION, assert_is_compatible_project  # noqa: E402
 from tether.project.extract import ExtractionError, ExtractOptions, extract_movie  # noqa: E402
 
 _BG = 80.0
@@ -117,7 +117,7 @@ def test_extract_movie_creates_valid_project(tmp_path) -> None:
 
     # A valid, schema-compatible project was written.
     assert out.exists()
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
 
     # All three colocalized molecules survived the crop-box guardrail.
     assert summary.n_molecules == 3
@@ -198,7 +198,7 @@ def test_cli_main_extract_succeeds(tmp_path, capsys) -> None:
     rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
 
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert "Extracted 3 molecule(s)" in capsys.readouterr().out
 
 
@@ -248,7 +248,7 @@ def test_extract_refuses_existing_output_without_overwrite(tmp_path, capsys) -> 
     # --overwrite replaces it with a real project.
     rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW), "--overwrite"])
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
 
 
 def test_extract_missing_movie_reports_error(tmp_path, capsys) -> None:
@@ -472,7 +472,7 @@ def test_extract_imported_tmap_creates_valid_project(tmp_path, monkeypatch) -> N
 
     summary = ext.extract_movie(movie, out, tmap=tmap, options=ExtractOptions(window=_WINDOW))
 
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.registration_source == "imported"
     assert summary.n_molecules == 3
     # An imported bead map is trusted: no sample control points -> unknown residual,
@@ -553,7 +553,7 @@ def test_cli_extract_with_tmap_succeeds(tmp_path, monkeypatch, capsys) -> None:
     )
 
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     output = capsys.readouterr().out
     assert "Extracted 3 molecule(s)" in output
     assert "imported from" in output
@@ -584,6 +584,30 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
     rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
     assert rc == 1
     assert "could not use --tmap" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    "acceptor_rotation", [None, np.array([[90.0]])], ids=["unturned", "turned"]
+)
+@pytest.mark.parametrize("bad_value", [1.9, 1 + 0.5j], ids=["fraction", "complex"])
+def test_extract_non_integral_tmap_crop_errors(
+    tmp_path, monkeypatch, capsys, acceptor_rotation, bad_value
+) -> None:
+    import tether.project.extract as ext
+
+    channels = _synthetic_tmap_channels(acceptor_rotation=acceptor_rotation)
+    channels[1] = replace(channels[1], crop=np.array([[bad_value, 49.0], [64.0, 96.0]]))
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "could not use --tmap" in err
+    assert "channel 1 crop" in err
     assert not out.exists()
 
 
@@ -858,7 +882,7 @@ def test_extract_alternate_mode_is_recorded(tmp_path, mode) -> None:
         out,
         options=ExtractOptions(window=_WINDOW, detection_mode=mode, detection_threshold=0.4),
     )
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.n_molecules == 3
     profile = _extraction_profile(out)
     assert profile["detection_mode"] == mode
@@ -979,7 +1003,7 @@ def test_extract_tdat_applies_decoded_mode(tmp_path) -> None:
     tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)
     out = tmp_path / "tdat.tether"
     summary = extract_movie(movie, out, tdat=tdat, options=ExtractOptions(window=_WINDOW))
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.n_molecules == 3
     assert summary.detection_mode == "intensity"
     profile = _extraction_profile(out)

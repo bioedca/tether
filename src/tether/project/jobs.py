@@ -59,6 +59,7 @@ __all__ = [
     "JobState",
     "RecordedInput",
     "StaleMark",
+    "mark_stale_in",
     "read_job",
     "read_jobs",
     "read_recorded_inputs",
@@ -281,7 +282,7 @@ def _text(value: object) -> str:
 
 
 def _append(
-    path: Path, name: str, fields: Sequence[str], rows: Sequence[Mapping[str, str]]
+    path: str | Path, name: str, fields: Sequence[str], rows: Sequence[Mapping[str, str]]
 ) -> None:
     """Append ``rows`` to ``/settings/<name>``, creating it on first use (additive data).
 
@@ -762,13 +763,34 @@ def set_stale_marks(
     from tether.project import lock  # noqa: PLC0415
 
     project._assert_writable()
-    _input_key(node_key, instance)
 
     def lock_nonce() -> str | None:
         current = lock.read_lock(project.path)
         return None if current is None else current.nonce
 
     epoch = lock_nonce()
+
+    def check_lock() -> None:
+        project._assert_writable()
+        if lock_nonce() != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
+
+    return mark_stale_in(
+        project.path, node_key, instance, identity, guards_hold=guards_hold, write_guard=check_lock
+    )
+
+
+def mark_stale_in(
+    path: str | Path,
+    node_key: str,
+    instance: str,
+    identity: str,
+    *,
+    guards_hold: Iterable[int] | Callable[[int, str, str], bool] = (),
+    write_guard: Callable[[], None] | None = None,
+) -> list[StaleMark]:
+    """Apply [`set_stale_marks`][] to a staged copy under the caller's writer lock."""
+    _input_key(node_key, instance)
     if callable(guards_hold):
         judge = guards_hold
 
@@ -781,8 +803,8 @@ def set_stale_marks(
         def holds(edge: int, node: str, inst: str) -> bool:  # noqa: ARG001 - one answer
             return edge in numbers
 
-    recorded = read_recorded_inputs(project.path)
-    already = {(m.node, m.instance) for m in read_stale_marks(project.path)}
+    recorded = read_recorded_inputs(path)
+    already = {(m.node, m.instance) for m in read_stale_marks(path)}
     made_from: dict[tuple[str, str], list[RecordedInput]] = {}
     for r in recorded:
         made_from.setdefault((r.upstream_node, r.upstream_instance), []).append(r)
@@ -824,9 +846,7 @@ def set_stale_marks(
         }
         for m in new
     ]
-    if rows:  # the guards are the owners' code: the lock may have moved while they ran
-        project._assert_writable()
-        if lock_nonce() != epoch:
-            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
-    _append(project.path, _MARKS, _MARK_FIELDS, rows)
+    if rows and write_guard is not None:
+        write_guard()
+    _append(path, _MARKS, _MARK_FIELDS, rows)
     return new

@@ -205,7 +205,9 @@ def _molecule_quantities(path: Path, q: dict[str, Any]) -> None:
     q["molecules.mean_corrected_e"] = _plain(mean_ce)
 
 
-def _analysis_quantities(path: Path, q: dict[str, Any]) -> None:
+def _analysis_quantities(
+    path: Path, q: dict[str, Any], *, include_histogram_edges: bool = False
+) -> None:
     """The pre-idealization population views: histogram, cross-correlation, FRET cloud."""
     from tether.analysis.cloud import population_raw_fret_cloud  # noqa: PLC0415
     from tether.analysis.crosscorr import population_cross_correlation  # noqa: PLC0415
@@ -213,6 +215,8 @@ def _analysis_quantities(path: Path, q: dict[str, Any]) -> None:
 
     h = population_apparent_e_histogram(path, density=False)
     q["histogram.counts"] = _plain(np.asarray(h.counts, dtype="int64"))
+    if include_histogram_edges:
+        q["histogram.edges"] = _plain(np.asarray(h.bin_edges, dtype="float64"))
     q["histogram.n_samples"] = int(h.n_samples)
     q["histogram.n_molecules"] = int(h.n_molecules or 0)
     c = population_cross_correlation(path)
@@ -374,7 +378,7 @@ def run_synthetic_traces(workdir: Path) -> dict[str, Any]:
     q: dict[str, Any] = {}
     path = synthetic_traces_store(workdir, q)
     _molecule_quantities(path, q)
-    _analysis_quantities(path, q)
+    _analysis_quantities(path, q, include_histogram_edges=True)
     q.update(_idealize_natively(path, "golden", 2))
     _idealized_quantities(path, "golden", q)
     _export_quantities(path, workdir, q)

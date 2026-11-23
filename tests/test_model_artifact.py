@@ -481,7 +481,7 @@ def test_a_save_records_the_reference_under_models(tmp_path) -> None:
     assert ref.is_current()
 
     # Additive data in the frozen container group: the store is unchanged in structure.
-    assert assert_is_compatible_project(project) == SCHEMA_VERSION == 1
+    assert assert_is_compatible_project(project) == SCHEMA_VERSION
     with h5py.File(project, "r") as f:
         assert list(f["models"]) == [cid]
         assert isinstance(f["models"][cid], h5py.Group)

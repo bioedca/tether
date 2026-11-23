@@ -1146,20 +1146,13 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
 
 
 #: Every curation key whose command is deferred (#345): the key, and the feature its
-#: status line names. Jump becomes real in #357 and the grid in #364; category and
-#: analysis-window persistence land in #359. Each of those removes its rows here.
+#: status line names. Jump becomes real in #357 and the grid in #364. Each of those
+#: removes its rows here; the category and analysis-window keys write since #359
+#: (tests/test_shell_curation_edits.py).
 _DEFERRED_KEYS = [
     ("Key_Return", "Jump to movie spot"),
     ("Key_Enter", "Jump to movie spot"),
     ("Key_G", "Grid toggle"),
-    ("Key_1", "Category 1"),
-    ("Key_0", "Category clearing"),
-    ("Key_Minus", "Analysis-window editing"),
-    ("Key_Equal", "Analysis-window editing"),
-    ("Key_BracketLeft", "Analysis-window editing"),
-    ("Key_BracketRight", "Analysis-window editing"),
-    ("Key_R", "Analysis-window reset"),
-    ("Key_P", "Photobleach detection"),
 ]
 
 
