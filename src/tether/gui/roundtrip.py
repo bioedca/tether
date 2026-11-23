@@ -120,16 +120,24 @@ class MovieSpots(Protocol):
     """
 
     @property
-    def movie_id(self) -> str: ...
+    def movie_id(self) -> str:
+        """The movie's ``movie_id``, as the panel's movie list names it."""
+        ...
 
     @property
-    def molecule_keys(self) -> Sequence[str]: ...
+    def molecule_keys(self) -> Sequence[str]:
+        """The ``molecule_key`` of each spot row of ``donor_xy`` / ``acceptor_xy``."""
+        ...
 
     @property
-    def donor_xy(self) -> np.ndarray: ...
+    def donor_xy(self) -> np.ndarray:
+        """``(N, 2)`` ``[x, y]`` donor spots in the displayed frame."""
+        ...
 
     @property
-    def acceptor_xy(self) -> np.ndarray: ...
+    def acceptor_xy(self) -> np.ndarray:
+        """``(N, 2)`` ``[x, y]`` acceptor spots in the displayed frame."""
+        ...
 
 
 def sites_for_molecules(
