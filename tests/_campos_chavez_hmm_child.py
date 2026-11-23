@@ -9,7 +9,8 @@ Runs under a sidecar interpreter only, never in the test process. Usage::
 ``RUNNER`` is Tether's ``_sidecar_runner.py``. With the pinned tMAVEN the fit *is* that runner's
 ``run``: the only change is that each new ``maven_class`` also takes ``PREFS_JSON`` (the priors
 the Methods give), which the runner has no argument for (ADR-0106). ``KEY`` is one of the
-runner's own keys; tMAVEN's plain vbGMM is its ``vbgmm`` key (#1076).
+runner's own keys; tMAVEN's plain vbGMM is its ``vbgmm`` key (#1076), run here with tMAVEN's own
+loop rather than the runner's corrected one (ADR-0139).
 
 Older tMAVEN (0.2.x) has no ``run_vbconhmm``; its routines are ``run_fret_*(nstates)``. The same
 SMD, prefs and seeding then drive that API, so the version comparison of the limits file differs
@@ -57,7 +58,11 @@ def main(argv: list[str]) -> int:
                     self.prefs[name] = value  # prefs_object wraps each value; no dict.update
 
         tm.maven_class = WithPrefs
-        status = runner.run(smd, group, key, int(nstates), out, None, int(seed))
+        # The published fits were made with tMAVEN, so the pinned tMAVEN's own vbGMM loop runs
+        # here, early stop included, and not the runner's corrected one (#1337, ADR-0139).
+        status = runner.run(
+            smd, group, key, int(nstates), out, None, int(seed), tmaven_vbgmm_loop=True
+        )
     else:
         maven = tm.maven_class()
         maven.io.load_smdtmaven_hdf5(smd, group)
