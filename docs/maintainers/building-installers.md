@@ -5,27 +5,34 @@ description: "For maintainers: build the Tether desktop installers from source a
 # Building the installers
 
 **Who this page is for.** Tether maintainers with write access to `bioedca/tether`, who build
-and smoke-test the desktop installers; users do not need this page. To download, verify and
-install a published installer, follow [Install Tether](../install.md); for what an installer
-contains, see [Installers & offline bundle](../packaging.md).
+and smoke-test the desktop installers. It assumes that you know `constructor` and GitHub Actions.
+Users do not need this page. To download, verify and install a published installer, follow
+[Install Tether](../install.md). For what an installer contains, see
+[Installers & offline bundle](../packaging.md).
 
 ## Building from source
 
-Maintainers build the installers with the recipe under `packaging/` — see the
-`packaging/README.md` in the source tree for the full build contract. In continuous
-integration the build runs on all three operating systems in an advisory,
-manually-triggered workflow, which also **install-smokes** each installer: it installs
-into a clean prefix with networking neutralized, launches `tether --version` through the
-same shims a user has on `PATH`, and drives the sidecar's real headless entry point
-offline — constructing the tMAVEN driver, not merely importing the package, since that
-is where an environment problem actually surfaces. It also runs the bundled `gh` update
-verifier from the installed prefix and checks its version. Before `constructor` runs, both
-workflows stage that `gh` with `packaging/scripts/stage_gh.py`, which refuses an archive whose
-SHA-256 is not the one in `packaging/gh-verifier.toml`. To move to a new `gh` release, follow the
-steps at the top of that file. The release pipeline (`release.yml`)
-runs the same checked-in script — `packaging/scripts/install_smoke.sh` — on each
-installer it is about to publish, so a release build that cannot install or launch never
-reaches a GitHub Release. [Releasing](../release.md) covers that pipeline end to end.
+Maintainers build the installers with the recipe under `packaging/`. The `packaging/README.md` in
+the source tree gives the full build contract.
+
+In continuous integration, an advisory workflow builds the installers on all three operating
+systems. A maintainer starts it by hand. The workflow also **install-smokes** each installer:
+
+1. It installs the installer into a clean prefix with networking neutralized.
+2. It launches `tether --version` through the same shims that a user has on `PATH`.
+3. It drives the real headless entry point of the sidecar offline. It constructs the tMAVEN
+   driver and does not merely import the package, because that is where an environment problem
+   actually surfaces.
+4. It runs the bundled `gh` update verifier from the installed prefix and checks its version.
+
+Before `constructor` runs, both workflows stage that `gh` with `packaging/scripts/stage_gh.py`.
+The script refuses an archive whose SHA-256 is not the one in `packaging/gh-verifier.toml`. To move
+to a new `gh` release, follow the steps at the top of that file.
+
+The release pipeline (`release.yml`) runs the same checked-in script,
+`packaging/scripts/install_smoke.sh`, on each installer that it is about to publish. So a release
+build that cannot install or launch never reaches a GitHub Release. [Releasing](../release.md)
+covers that pipeline from end to end.
 
 ## Installer images and texts
 
