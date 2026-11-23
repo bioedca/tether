@@ -55,7 +55,7 @@ data tMAVEN fits: with it, tMAVEN's own `vb_em_gmm` gives the sidecar result to 
 
 - **Independent means no shared code**: the comparator is maintained apart from tMAVEN and fits
   the same model with the same priors.
-- **The sidecar lock does not grow** (ADR-0003 isolation): scikit-learn is in the base lock only.
+- **The sidecar lock does not grow** ([ADR-0004](0004-pin-and-hold-dual-lock-isolation.md) isolation): scikit-learn is in the base lock only.
 - **No limit is chosen to make a test pass**; a limit records a measurement, and the maintainer
   accepts it (§11.2).
 - **The pinned tMAVEN does not change in this issue** (out of scope).
