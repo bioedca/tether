@@ -166,7 +166,8 @@ def private_tokens(
             path = PurePosixPath(rel)
             tokens.update({rel, rel.replace("/", "\\"), path.name, path.stem, *path.parent.parts})
     tokens = {t for t in tokens if len(t) >= MIN_TOKEN} - set(mapping) - public
-    return frozenset(tokens | {t.encode("unicode_escape").decode("ascii") for t in tokens})
+    escaped = {t.encode("unicode_escape").decode("ascii") for t in tokens}
+    return frozenset(tokens | (escaped - public))
 
 
 def public_names(checkout: Path, commit: str, names: frozenset[str]) -> frozenset[str]:
@@ -180,7 +181,9 @@ def public_names(checkout: Path, commit: str, names: frozenset[str]) -> frozense
     if not names:
         return frozenset()
     patterns = "".join(f"{name}\n" for name in sorted(names)).encode("utf-8")
-    cmd = ["grep", "-F", "-I", "-o", "-h", "--no-color", "-f", "-", commit]
+    # No line or column numbers whatever the git config says: a match must be the name alone.
+    cmd = ["grep", "-F", "-I", "-o", "-h", "--no-color", "--no-line-number", "--no-column"]
+    cmd += ["-f", "-", commit]
     proc = _git(checkout, *cmd, stdin=patterns, timeout=GREP_TIMEOUT_S)
     if proc.returncode != 0:  # 1: no name occurs; anything else: an error
         return frozenset()

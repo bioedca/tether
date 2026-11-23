@@ -248,6 +248,32 @@ def test_only_the_commit_counts_and_a_failed_search_keeps_every_name_private(
     assert runner.public_names(repo, "0" * 40, names) == frozenset()
 
 
+def test_a_line_or_column_number_from_git_config_never_makes_a_name_public(tmp_path) -> None:
+    """``grep.lineNumber`` and ``grep.column`` would prefix each match with numbers; a private
+    name made of digits must not count as public because of such a prefix (#1198, review)."""
+    repo, _ = _published(tmp_path, "")
+    (repo / "tests" / "test_x.py").write_text("\n" * 9999 + "widget\n", encoding="utf-8")
+    _git(repo, "commit", "--quiet", "-am", "two")
+    sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "config", "grep.lineNumber", "true")
+    _git(repo, "config", "grep.column", "true")
+    assert runner.public_names(repo, sha, frozenset({"widget", "10000"})) == {"widget"}
+
+
+def test_an_escaped_name_that_main_publishes_is_not_private(tmp_path) -> None:
+    """The node-id form of a name is dropped when main publishes it, even if the plain form is
+    not published: the escaped tokens are made from the plain ones (#1198, review)."""
+    mapping = {"lab-01": {"file": "acquisition-\u00e9clair.tif"}}
+    strict = runner.private_tokens(mapping)
+    escaped = "acquisition-\\xe9clair"
+    assert escaped in strict and "acquisition-\u00e9clair" in strict
+    repo, sha = _published(tmp_path, f"# {escaped}\n")
+    public = runner.public_names(repo, sha, strict)
+    assert escaped in public and "acquisition-\u00e9clair" not in public
+    tokens = runner.private_tokens(mapping, public)
+    assert escaped not in tokens and "acquisition-\u00e9clair" in tokens
+
+
 def test_a_scheduled_run_asks_the_verified_commit_for_its_public_names(
     tmp_path, origin, monkeypatch
 ) -> None:
