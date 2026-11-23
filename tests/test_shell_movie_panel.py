@@ -32,6 +32,11 @@ pytestmark = [pytest.mark.gui, needs_qt]
 #: the default instead of the stored value would fail.
 _STORED_RADIUS = 2.5
 
+#: Movie 1's channel crops (``[y1, x1, y2, x2]``, 1-based inclusive): the two halves of the
+#: 64×64 fixture, so every stored spot lands inside that frame.
+_MOVIE_1_DONOR_CROP = (1, 1, 64, 32)
+_MOVIE_1_ACCEPTOR_CROP = (1, 33, 64, 64)
+
 
 def _channels(seed: int, n: int = 3, t: int = 12) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
@@ -49,7 +54,11 @@ def _second_movie(tmp_path: Path) -> Path:
 
 
 def _store(tmp_path: Path, *, uri: str = str(MOVIE_FIXTURE), second: Path | None = None) -> Path:
-    """A round-trip ``.tether`` whose movie file is ``uri``; ``second`` appends a second movie."""
+    """A round-trip ``.tether`` whose movie file is ``uri``; ``second`` appends a second movie.
+
+    Movie 1 is the 64×64 fixture split side by side, so its crops are rewritten to fit that
+    frame: donor ``(1, 1, 64, 32)`` and acceptor ``(1, 33, 64, 64)`` (#1293).
+    """
     from _analysis_store import PARSED, _mols_traces_movie, build_store_with_channels, reg_map
     from tether.imaging.extract import write_extraction
     from tether.imaging.split import ChannelGeometry
@@ -77,6 +86,10 @@ def _store(tmp_path: Path, *, uri: str = str(MOVIE_FIXTURE), second: Path | None
             registration_map=reg_map(),
         )
     with h5py.File(path, "r+") as handle:
+        table = handle["movies"]["table"][:]
+        table["donor_crop"][0] = _MOVIE_1_DONOR_CROP
+        table["acceptor_crop"][0] = _MOVIE_1_ACCEPTOR_CROP
+        handle["movies"]["table"][:] = table
         handle["/settings/extraction"].attrs["disk_radius"] = _STORED_RADIUS
     return path
 
@@ -92,6 +105,14 @@ def _molecules(path: Path, movie_id: str) -> tuple[np.ndarray, np.ndarray]:
 
 def _rowcol(xy: np.ndarray) -> np.ndarray:
     return np.asarray(xy, dtype=np.float64)[:, ::-1]
+
+
+def _assert_inside(points: np.ndarray, frame_shape: tuple[int, int]) -> None:
+    """Every ``[row, col]`` of ``points`` is a position on a ``frame_shape`` frame."""
+    points = np.asarray(points, dtype=np.float64)
+    assert len(points)
+    assert (points >= 0).all()
+    assert (points < np.asarray(frame_shape, dtype=np.float64)).all()
 
 
 def _open(section_shell, path: Path):
@@ -188,16 +209,20 @@ def test_overlays_show_each_movies_spots_at_the_stored_radius(section_shell, tmp
     donor, acceptor = _molecules(path, "mov-1")
     assert panel.active_overlay.aperture_radius == _STORED_RADIUS
     np.testing.assert_allclose(panel.donor_layer.data, _rowcol(donor))
-    # The acceptor crop of movie 1 starts at column 65, so the spots sit 64 px right of the
+    # The acceptor crop of movie 1 starts at column 33, so the spots sit 32 px right of the
     # stored acceptor sub-image coordinates: in the acceptor half of the frame.
-    np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor + [64.0, 0.0]))
+    np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor + [32.0, 0.0]))
     np.testing.assert_allclose(panel.donor_aperture_layer.size, 2 * _STORED_RADIUS)
+    _assert_inside(panel.donor_layer.data, (64, 64))
+    _assert_inside(panel.acceptor_layer.data, (64, 64))
 
     shell.movie_switcher.setCurrentIndex(1)
     donor2, acceptor2 = _molecules(path, "mov-2")
     np.testing.assert_allclose(panel.donor_layer.data, _rowcol(donor2))
     np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor2 + [24.0, 0.0]))
     np.testing.assert_allclose(panel.acceptor_aperture_layer.size, 2 * _STORED_RADIUS)
+    _assert_inside(panel.donor_layer.data, (40, 48))
+    _assert_inside(panel.acceptor_layer.data, (40, 48))
 
 
 @needs_napari
