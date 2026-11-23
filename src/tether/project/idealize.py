@@ -69,7 +69,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from shutil import copy2, rmtree
 from tempfile import mkdtemp, mkstemp
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -97,6 +97,7 @@ __all__ = [
     "MODEL_TYPE_DEFAULT",
     "MODEL_TYPE_EBHMM",
     "NSTATES_GRID_DEFAULT",
+    "StalenessStamp",
     "StoredIdealization",
     "idealize_molecules",
     "input_provenance_hash",
@@ -104,6 +105,7 @@ __all__ = [
     "list_idealizations",
     "live_molecule_keys",
     "read_idealization",
+    "read_staleness_stamp",
     "reidealize",
     "stale_molecule_keys",
     "stale_row_ids",
@@ -194,6 +196,19 @@ class StoredIdealization:
     def n_molecules(self) -> int:
         """Number of per-molecule rows in this model (one per fitted molecule)."""
         return len(self.molecule_keys)
+
+
+@dataclass(frozen=True)
+class StalenessStamp:
+    """The three fields of a stored model that [`stale_row_ids`][] reads (#1079).
+
+    [`read_staleness_stamp`][] returns it without the ``(n_molecules, n_frames)``
+    ``idealized`` and ``state_path`` arrays that [`read_idealization`][] loads.
+    """
+
+    molecule_ids: list[str]
+    input_hashes: list[str]
+    intensity_quantity: str
 
 
 def input_trace_hash(donor: np.ndarray, acceptor: np.ndarray, quantity: str) -> str:
@@ -979,6 +994,38 @@ def list_idealizations(project: Project | str | PathLike[str]) -> list[str]:
         return sorted(k for k in f[IDEALIZATION_GROUP] if not k.endswith(_WRITING_SUFFIX))
 
 
+def _model_group(f: Any, model_name: str, path: str | PathLike[str]) -> Any:
+    """The open ``/idealization/{model_name}`` group, or ``KeyError`` if it is absent."""
+    if IDEALIZATION_GROUP not in f or model_name not in f[IDEALIZATION_GROUP]:
+        raise KeyError(f"no /idealization/{model_name} in {Path(path).name}")
+    return f[IDEALIZATION_GROUP][model_name]
+
+
+def _read_stamp(g: Any) -> StalenessStamp:
+    """The staleness fields of one open model group; both readers decode them here."""
+    return StalenessStamp(
+        molecule_ids=[_to_str(x) for x in g["molecule_id"][()]],
+        input_hashes=[_to_str(h) for h in g["input_hash"][()]],
+        intensity_quantity=_to_str(g.attrs.get("intensity_quantity", "corrected")),
+    )
+
+
+def read_staleness_stamp(project: Project | str | PathLike[str], model_name: str) -> StalenessStamp:
+    """Read only what [`stale_row_ids`][] needs from ``/idealization/{model_name}``.
+
+    The count of stale rows is the one a full [`read_idealization`][] gives, but the
+    model's ``idealized`` and ``state_path`` datasets are not read (#1079). The stale
+    check still reads the trace layers.
+    """
+    import h5py
+
+    from tether.project.core import Project as _Project
+
+    path = project.path if isinstance(project, _Project) else Path(project)
+    with h5py.File(path, "r") as f:
+        return _read_stamp(_model_group(f, model_name, path))
+
+
 def read_idealization(
     project: Project | str | PathLike[str], model_name: str
 ) -> StoredIdealization:
@@ -989,9 +1036,8 @@ def read_idealization(
 
     path = project.path if isinstance(project, _Project) else Path(project)
     with h5py.File(path, "r") as f:
-        if IDEALIZATION_GROUP not in f or model_name not in f[IDEALIZATION_GROUP]:
-            raise KeyError(f"no /idealization/{model_name} in {Path(path).name}")
-        g = f[IDEALIZATION_GROUP][model_name]
+        g = _model_group(f, model_name, path)
+        stamp = _read_stamp(g)
 
         def _opt(name: str) -> np.ndarray | None:
             return np.asarray(g[name][()], dtype="float64") if name in g else None
@@ -1028,9 +1074,9 @@ def read_idealization(
             idealized=_opt("idealized"),
             state_paths=np.asarray(g["state_path"][()], dtype="int64"),
             molecule_keys=[_to_str(k) for k in g["molecule_key"][()]],
-            molecule_ids=[_to_str(x) for x in g["molecule_id"][()]],
-            input_hashes=[_to_str(h) for h in g["input_hash"][()]],
-            intensity_quantity=_to_str(g.attrs.get("intensity_quantity", "corrected")),
+            molecule_ids=stamp.molecule_ids,
+            input_hashes=stamp.input_hashes,
+            intensity_quantity=stamp.intensity_quantity,
             nstates_selected_by=_to_str(g.attrs.get("nstates_selected_by", "fixed")),
             elbo_by_nstates=elbo_by_nstates,
             app_version=_to_str(g.attrs.get("app_version", "")),
@@ -1078,8 +1124,12 @@ def _stale_keys_for(
     return stale
 
 
-def stale_row_ids(project: Project | str | PathLike[str], stored: StoredIdealization) -> list[str]:
+def stale_row_ids(
+    project: Project | str | PathLike[str], stored: StoredIdealization | StalenessStamp
+) -> list[str]:
     """The ``molecule_id`` of every stale row of an already-loaded model, in model order.
+
+    ``stored`` is a full model or only its [`StalenessStamp`][]; the result is the same.
 
     Recomputes each row's [`input_provenance_hash`][] from the current ``/traces`` +
     ``/molecules`` (a row absent from the store, or a vanished trace layer, is stale).
