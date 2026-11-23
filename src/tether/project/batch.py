@@ -591,13 +591,25 @@ def _is_extracted(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}")
 
 
-def _stored_extraction_is_over_gate(path: Path) -> bool:
-    """Recompute an existing extraction's over-gate verdict from its saved profile.
+def _active_movie_profile_attribute(f: Any, movie_id: str | None = None) -> object:
+    """Read a movie's saved profile from an open file, defaulting to its sole movie."""
+    records = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS].get(_MOVIE_SETTINGS)
+    if records is None:
+        return None
+    if movie_id is None:
+        table = f.get("movies/table")
+        if table is None or len(table) != 1:
+            return None
+        movie_id = _as_text(table["movie_id"][0])
+    return records.attrs.get(movie_id)
 
-    ``extract_movie`` persists both the measured ``registration_rms_px`` and the
-    effective ``rms_gate`` in ``/settings/extraction.profile_json``.  A ``fail`` resume
-    must consult those values before treating the provenance group as a satisfied
-    checkpoint; otherwise the first run's policy rejection disappears on the next run.
+
+def _stored_extraction_is_over_gate(path: Path) -> bool:
+    """Recompute the gate verdict using the active profile of a batch output's movie.
+
+    The profile records both the measured ``registration_rms_px`` and effective
+    ``rms_gate``. For older checkpoints without a per-movie profile, read the
+    first-extraction stamp.
 
     Missing, unreadable, or malformed profile data is not enough evidence to reject a
     checkpoint.  Those stores retain the historical checkpoint behavior and are skipped
@@ -609,7 +621,9 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         import h5py  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
-            raw_profile = f[f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}"].attrs.get("profile_json")
+            raw_profile = _active_movie_profile_attribute(f)
+            if raw_profile is None:
+                raw_profile = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS].attrs.get("profile_json")
         if isinstance(raw_profile, bytes):
             raw_profile = raw_profile.decode("utf-8")
         if not isinstance(raw_profile, str):
@@ -633,6 +647,22 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         return False
 
 
+def _checkpoint_has_review_or_generation_history(path: Path) -> bool:
+    """A strict batch replacement would discard these rows with the project."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(path, "r") as f:
+        generations = f.get("generations/table")
+        if generations is not None and (generations["generation"] > 1).any():
+            return True
+        for name in ("labels/table", "settings/molecule_audit"):
+            events = f.get(name)
+            if events is not None and len(events):
+                return True
+        molecules = f.get("molecules/table")
+        return molecules is not None and bool(molecules["curation_label"].any())
+
+
 def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
     """Read the advisory donor-side check back from a saved extraction profile (#646).
 
@@ -654,15 +684,17 @@ def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _stored_movie_donor_side_check(path: Path, movie_id: str) -> dict[str, Any] | None:
-    """Read back the donor-side record of one movie of a several-movie project (#1151).
+def _stored_movie_donor_side_check(
+    path: Path, movie_id: str | None = None
+) -> dict[str, Any] | None:
+    """Read back a movie's active donor-side advisory (#921).
 
     Read from that movie's own settings record (``/settings/extraction/movies``,
     ADR-0117), so each appended movie reports its own check; only that movie's record is
-    decoded, so a malformed record of another movie cannot hide it (#1243). A project
-    written before per-movie records existed holds one movie, whose profile is the
-    stamp's own: that movie falls back to ``_stored_donor_side_check``. ``None`` as
-    above.
+    decoded, so a malformed record of another movie cannot hide it (#1243).
+    Ordinary batch has no movie ID. For a single-movie checkpoint it reads that
+    movie's profile, which can differ from the first stamp after re-extraction.
+    Without a per-movie record it keeps the stamp fallback for older checkpoints.
     """
     try:
         import h5py  # noqa: PLC0415
@@ -670,14 +702,13 @@ def _stored_movie_donor_side_check(path: Path, movie_id: str) -> dict[str, Any] 
         from tether.io.schema import TABLE  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
-            extraction = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
-            records = extraction.get(_MOVIE_SETTINGS)
-            raw = None if records is None else records.attrs.get(movie_id)
-            sole = raw is None and [_as_text(v) for v in f["movies"][TABLE]["movie_id"]] == [
-                movie_id
-            ]
+            raw = _active_movie_profile_attribute(f, movie_id)
+            use_stamp = raw is None and (
+                movie_id is None
+                or [_as_text(v) for v in f["movies"][TABLE]["movie_id"]] == [movie_id]
+            )
         if raw is None:
-            return _stored_donor_side_check(path) if sole else None
+            return _stored_donor_side_check(path) if use_stamp else None
         return _donor_side_from_profile(json.loads(_as_text(raw)))
     except (KeyError, TypeError, ValueError, RecursionError, OSError):
         return None
@@ -722,7 +753,32 @@ def _donor_side_from_profile(profile: Any) -> dict[str, Any] | None:
 
 
 def _is_corrected(path: Path) -> bool:
-    return _group_present(path, f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}")
+    """Recognize the correction stamp only when it covers the active extraction rows."""
+    import h5py  # noqa: PLC0415
+
+    try:
+        with h5py.File(path, "r") as f:
+            if f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}" not in f:
+                return False
+            generations = f.get("generations/table")
+            if generations is None:  # legacy checkpoints
+                return True
+            reextracted = {
+                movie_id
+                for movie_id, number in generations.fields(("movie_id", "generation"))[:]
+                if number > 1
+            }
+            if not reextracted:
+                return True
+            # Only analysable rows acquire a method in compute_corrected_fret. The
+            # active rows of a re-extraction start with the empty, uncomputed method.
+            rows = f["molecules/table"].fields(("movie_id", "frame_range", "correction_method"))[:]
+            return not any(
+                movie_id in reextracted and end > start and not method
+                for movie_id, (start, end), method in rows
+            )
+    except Exception:
+        return False  # same recovery contract as _group_present
 
 
 def _assert_output_not_newer(path: Path) -> None:
@@ -1324,7 +1380,7 @@ def run_batch(
                     # Advisory (#646): reading or reporting the check must never cost the
                     # movie its later stages, so any failure here is silence.
                     with contextlib.suppress(Exception):
-                        donor_side = _stored_donor_side_check(job.output_path)
+                        donor_side = _stored_movie_donor_side_check(job.output_path)
                         if donor_side is not None and donor_side.get("verdict") == "swapped":
                             _safe_event(
                                 log,
@@ -1472,6 +1528,16 @@ def _do_extract(
             ).ok
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
+        try:
+            if _checkpoint_has_review_or_generation_history(job.output_path):
+                raise ValueError(
+                    "active extraction exceeds the registration gate (policy=fail). "
+                    "This project has review or generation history. "
+                    "Run tether.project.extract.reextract_movie under the project writer lock."
+                )
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            rec.canonical_write_safe = False
+            return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     try:
         # Replacing an existing output needs its writer lock (#346, ADR-0112). The
         # job-level claim supplies it for a rejected checkpoint; any other overwrite of

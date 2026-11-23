@@ -15,11 +15,15 @@ and appends it to the GitHub job summary. ``--deep-scores`` is the file that
 ``tests/test_pysmacks_classifier_deep.py`` writes in ``deep / smoke``; when it is absent the table
 says the deep classifier did not run in this job.
 
-**This check has no limit.** It fails only when the ranker cannot train or score, or when the
-deep scores are not for the same ranges with the same labels.
+**This check has no limit.** It fails only when the ranker cannot train or score, when the
+deep scores are not for the same ranges with the same labels or do not hold one finite score per
+range, or when ``--require-deep-scores`` is given and the file is absent. The deep row is computed
+from the stored scores, never from the metrics stored beside them (#1226). ``deep.yml`` passes
+``--require-deep-scores`` when ``deep / smoke`` passed, so a lost artifact cannot leave a table
+with the ranker row only.
 
-Exit status: ``0`` when the table was written, ``1`` when the ranker failed or the deep scores
-are for another split, ``2`` when the data set is not here.
+Exit status: ``0`` when the table was written, ``1`` when the ranker failed, the deep scores
+are for another split or a required scores file is absent, ``2`` when the data set is not here.
 """
 
 from __future__ import annotations
@@ -74,8 +78,16 @@ def report(
     """The Markdown table of both models on the test part of *reference*."""
     train, test = _deep_reference.split(samples, reference["split"]["test_traces"])
     ranker = ranker_scores(train, test, int(reference["training"]["window_length"]))
-    if deep is not None and (deep.sample_ids, deep.y) != (ranker.sample_ids, ranker.y):
-        raise ValueError("the deep scores are not for the ranges of this split")
+    if deep is not None:
+        if (deep.sample_ids, deep.y) != (ranker.sample_ids, ranker.y):
+            raise ValueError("the deep scores are not for the ranges of this split")
+        values = np.asarray(deep.scores, dtype=np.float64)
+        if values.shape != (len(test),) or not np.all(np.isfinite(values)):
+            raise ValueError(
+                f"the deep scores file holds {values.size} scores for {len(test)} test ranges, "
+                "or a non-finite one"
+            )
+        deep = _deep_reference.score(test, values)
     return _deep_reference.summary_table(
         {DEEP: deep, RANKER: ranker}, floor=float(reference["accuracy"]["floor"])
     )
@@ -86,15 +98,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--deep-scores", type=Path, help="the scores that the deep test wrote (may be absent)"
     )
+    parser.add_argument(
+        "--require-deep-scores",
+        action="store_true",
+        help="exit 1 when the --deep-scores file is not here (deep / smoke passed)",
+    )
     args = parser.parse_args(argv)
 
+    present = args.deep_scores is not None and args.deep_scores.is_file()
+    if args.require_deep_scores and not present:
+        print("error: deep / smoke passed but its scores file is not here", file=sys.stderr)
+        return 1
     deep = None
-    if args.deep_scores is not None and args.deep_scores.is_file():
+    if present:
         doc = json.loads(args.deep_scores.read_text(encoding="utf-8"))
         deep = _deep_reference.scores_from_json(doc)
     reference = _deep_reference.load_reference()
     try:
-        samples = _deep_reference.load_samples()
+        samples = _deep_reference.load_samples(reference["dataset"]["id"])
     except BaseException as exc:  # pytest's Skipped is a BaseException
         if type(exc).__name__ != "Skipped":
             raise

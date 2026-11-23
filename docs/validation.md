@@ -517,6 +517,18 @@ that measure maps each fitted level onto a stored one, so it does not count the 
 The difference in state number is the open finding of this comparison; a frozen tolerance needs
 the maintainer's decision first.
 
+The comparison uses tMAVEN's default clip (`modeler.clip` on, range -1 to 2), as a tMAVEN user
+gets it ([#1001](https://github.com/bioedca/tether/issues/1001)). Before the fit, the clip
+replaces each frame outside that range, or NaN, with a random value from the range.
+vbFRET_nov12 replaced none.
+
+On these fixtures tMAVEN changes 1 PPR frame (frame 962 of
+`079_PATH_D041322_T1157.dat`) and no chaperone frame. Two chaperone frames have a
+donor-plus-acceptor total of zero. tMAVEN computes FRET there as 0, not NaN, so the clip keeps
+them and the fit reads FRET 0. The test prints its report, with these frames named, on every
+run that completes the comparison, a passing run included. A failing assertion stops the test
+before the report is printed.
+
 ### ebFRET against stored ebFRET sessions (report only)
 
 The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
@@ -810,16 +822,24 @@ tMAVEN's own loader in `tests/test_handoff_sidecar.py::test_tether_smd_opens_in_
 `test_coordinate_superset_intact_after_tmaven_open` — `sidecar`-marked, so they run in the
 required `sidecar / parity` job under its path filter rather than on the 3-OS matrix.
 
-**Schema migration is not part of (f) yet.** There is no migration machinery and no
-migration test, and none is needed: the freeze is additive-only by construction (ADR-0005)
-and `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
-A search for `migrate`/`migration` in `tests/`, `src/tether/io/` and the workflows returns
-nothing. The specification's project-lifecycle rules name the condition that changes this:
-the **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an
-ADR, carries the backup-and-migrate path and a test that exercises it, and that test joins
-(f) in the same pull request. The other half of those rules, that a file newer than the app
-is refused, is tested now (`test_assert_compatible_refuses_newer_file`). Maintainer decision
-of 2026-11-13 on [#547](https://github.com/bioedca/tether/issues/547).
+**Schema migration.** The specification's project-lifecycle rules say the **first
+schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR, carries
+the backup-and-migrate path and a test that exercises it, and that the test joins (f) in the
+same pull request (maintainer decision of 2026-11-13 on
+[#547](https://github.com/bioedca/tether/issues/547)). Version 2 is that step: it adds the
+`/generations` table ([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+A publish that raises a file's stamp first copies the file, as it was, to
+`<stem>.v<old>-backup.tether` beside it.
+
+The enforcing tests are in
+`tests/test_trace_generations.py` (unmarked, required matrix):
+`test_a_version_1_store_is_backed_up_before_it_is_migrated` (the backup is byte-identical to the
+version-1 file and still opens, the project is stamped 2, and a later write makes no second
+backup), `test_a_second_version_1_store_of_one_name_keeps_the_first_backup` and
+`test_a_refused_write_to_a_version_1_store_makes_no_backup`. A version-1 file that is only read
+is not migrated (`test_a_store_from_before_generations_reads_as_generation_1_unchanged`). The
+other half of those rules, that a file newer than the app is refused, is
+`test_assert_compatible_refuses_newer_file`.
 
 ## (g) Photobleaching detector
 
@@ -1155,6 +1175,7 @@ method, the limits and the measurements.
 | Representative traces, Figs. 2b, 3g, 4a, 4e | `Fig2b`, `Fig3g`, `Fig4a`, `Fig4e` | `apparent_fret` | 12,000 values, 9.8e-15 relative |
 | FRET histograms, Figs. 2c, 3b, 3h, 4b, 4f, 6b, 7b | the seven sheets and their trace matrix | `apparent_fret`, `apparent_e_histogram` | 1,016,781 values in 1,440 recovered windows, each within the rounding bound (largest ratio 0.91); every bin count equal |
 | intraFRET histograms, Fig. 5b (4 of 5 columns) | `Fig5b` and the `intraFRET_*` matrices | `apparent_fret` | 282,800 values, first 400 frames, within the rounding bound (0.91) |
+| Closed-state fraction, Fig. 5c (5 columns) | `Fig5c` and the notebook `ErrorFractionOfClosedState.ipynb` | `fit_gaussians` (`area="bin_sum"`) | fraction and error within 5e-5 of what the notebook printed (largest 4.7e-5, the same on the three systems to 1.2e-9); Fig. 5c itself has two fractions that are not the notebook's, 5 uM WT tRNA and 5 uM tRNA-ΔNCCA (ADR-0120); 5 uM WT tRNA is fitted from the published efficiencies |
 | Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
@@ -1185,24 +1206,29 @@ so each test finds the windows in the trace matrix when it runs.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
 
-**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), and the
-two-Gaussian fit of Fig. 5c. #1030 adds the function, and #1131 compares it.
+**Not compared.** The HMM population fits (#757) and the rates and their bounds (#758).
+
+The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
+([ADR-0120](adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
 `test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
 `test_dwells_from_survival_give_back_the_survival_curve`,
 `tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`,
-`test_smoothed_transition_density_of_built_counts_equals_checktdp` and
-`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`. Weekly
-(`reference_download`):
+`test_smoothed_transition_density_of_built_counts_equals_checktdp`,
+`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`, and
+`test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians`. Weekly (`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
 `test_double_exponential_parameters_and_errors`,
 `test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau`,
-`test_transition_density_counts_equal_checktdp` and
-`test_smoothed_transition_density_equals_checktdp`.
+`test_transition_density_counts_equal_checktdp`,
+`test_smoothed_transition_density_equals_checktdp`, and for Fig. 5c
+`test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
+`test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
+`test_a_198_bin_histogram_fails_the_fig5c_comparison`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
@@ -1655,8 +1681,7 @@ evidence about the size of the difference and not a tolerance.
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
   the workstation only. Each is stated in its own section above with the ADR that
-  deferred it. (f) has no migration tests, which is not a gap: the specification makes them
-  required only at the first schema-version step (see (f) above).
+  deferred it.
 - The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video project file, because the real fixtures do not carry the required

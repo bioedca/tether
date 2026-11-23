@@ -446,6 +446,10 @@ changes, on the computer that is the reference for speed (maintainer decision Q2
     {"lab-11": {"speed": "series-b/acquisition-11.tif", "tmap": "series-b/beads.tmap"}}
     ```
 
+    The extraction uses the donor-anchored colocalization rule (#1231). It is not the
+    partner-in-both default of ADR-0127. Thus each record compares with the earlier ones. The
+    oracle (a) check of `tests/test_deeplasi_agreement.py` uses the same rule.
+
     Each stage runs in its own process (`scripts/workstation/perf_stage.py`), so each stage has
     its own peak memory. Idealization uses the sidecar: add
     `--sidecar-python <the python of a sidecar environment>` to the arguments of the task, or

@@ -3862,6 +3862,83 @@ def test_release_of_an_absent_ref_cleans_labels_without_deleting(
     assert [c for c in fake.calls if c[0] == "POST" and "labels" in c[1]]
 
 
+def _label_writes(fake: Fake) -> list[tuple[str, str]]:
+    return [c for c in fake.calls if c[0] in ("POST", "DELETE") and "/labels" in c[1]]
+
+
+def test_release_on_a_closed_issue_removes_the_claim_labels_and_adds_no_status(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#1103: the release that runs after a merge must not requeue the work it just finished.
+
+    The pull request closed the issue and took the claim ref with its branch, so `release` reaches
+    the absent-ref path. It used to add `status:ready` there unconditionally, and 182 closed issues
+    carried it until a hand cleanup; reopening one made finished work claimable at once.
+    """
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(state="closed")),
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (404, None),
+            ("GET", "/repos/bioedca/tether/activity"): (200, []),
+        }
+    )
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_release(_args(issue=7, generation=42, vendor="claude"))
+    assert json.loads(capsys.readouterr().out)["released"] is True
+    assert _label_writes(fake) == [
+        ("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:claude"),
+        ("DELETE", "/repos/bioedca/tether/issues/7/labels/status:in-progress"),
+    ]
+
+
+def test_release_on_an_open_issue_still_requeues_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The abandon path keeps its behaviour: an open issue goes back to `status:ready`."""
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (404, None),
+            ("GET", "/repos/bioedca/tether/activity"): (200, []),
+        }
+    )
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_release(_args(issue=7, generation=42, vendor="claude"))
+    assert _label_writes(fake)[-1] == ("POST", "/repos/bioedca/tether/issues/7/labels")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [(404, None), (500, None), (200, None), (200, {"state": None}), "transport"],
+    ids=["404", "5xx", "no-body", "no-state", "transport-failure"],
+)
+def test_release_fails_closed_when_the_issue_state_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, answer: Any
+) -> None:
+    """Unknown state adds nothing: a missed requeue is visible, a wrong one is claimable work."""
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (404, None),
+            ("GET", "/repos/bioedca/tether/activity"): (200, []),
+        }
+    )
+    if answer != "transport":
+        routes[("GET", "/repos/bioedca/tether/issues/7")] = answer
+    fake = _install(monkeypatch, Fake(routes))
+    if answer == "transport":
+        inner = fake
+
+        def flaky(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+            if method == "GET" and path == "/repos/bioedca/tether/issues/7":
+                inner.calls.append((method, path))
+                raise claim.TransportError("no answer")
+            return inner(method, path, body)
+
+        monkeypatch.setattr(claim, "_request", flaky)
+    claim._cmd_release(_args(issue=7, generation=42, vendor="claude"))
+    assert _label_writes(fake) == [
+        ("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:claude"),
+        ("DELETE", "/repos/bioedca/tether/issues/7/labels/status:in-progress"),
+    ]
+
+
 def test_the_fence_filters_by_activity_type_so_pushes_cannot_evict_the_creation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

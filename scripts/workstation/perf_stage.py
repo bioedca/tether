@@ -140,18 +140,25 @@ def _stage(name: str, args: argparse.Namespace) -> Callable[[], object]:
 
         return hold
     if name == "extract":
-        from tether.project.extract import extract_movie
+        from tether.project.extract import ExtractOptions, extract_movie
         from tether.project.lock import publish_lock
+
+        # The speed history compares each night with the earlier ones, so the rule stays the
+        # one they measured: donor-anchored, not the partner-in-both default (#1231, ADR-0127).
+        options = ExtractOptions(colocalization="donor-anchored")
 
         def extract() -> object:
             # Replacing an existing store needs its writer lock (ADR-0112); the store is
             # kept until the new one is published, so a failed run never loses it.
             if not store.exists():
-                return extract_movie(args.movie, store, tmap=args.tmap, tdat=args.tdat)
+                return extract_movie(
+                    args.movie, store, options=options, tmap=args.tmap, tdat=args.tdat
+                )
             with publish_lock(store) as guard:
                 return extract_movie(
                     args.movie,
                     store,
+                    options=options,
                     tmap=args.tmap,
                     tdat=args.tdat,
                     overwrite=True,
