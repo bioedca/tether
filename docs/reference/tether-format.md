@@ -18,8 +18,8 @@ separate index file, and no compression scheme beyond stock gzip on the bulk arr
 
 The format has **two layers**, and they carry different guarantees:
 
-- The **frozen skeleton** — the 12 group paths (the root plus the 11 top-level
-  groups), the four compound `table` dtypes and the three root attributes — is
+- The **frozen skeleton** — the 13 group paths (the root plus the 12 top-level
+  groups), the five compound `table` dtypes and the three root attributes — is
   declared in exactly one place,
   `src/tether/io/schema.py`, and a machine-checked copy of it is committed as
   `schema/schema_frozen.json`. This site serves that file, unchanged, as
@@ -46,7 +46,7 @@ import h5py
 
 with h5py.File("experiment.tether", "r") as f:
     assert f.attrs["format"] == "tether-project"
-    print(int(f.attrs["schema_version"]))          # 1
+    print(int(f.attrs["schema_version"]))          # 2
     mols = f["/molecules/table"][:]                # a structured (compound) array
     print(mols["molecule_key"][0].decode("utf-8")) # vlen UTF-8 reads back as bytes
 ```
@@ -70,13 +70,13 @@ The entire group skeleton was forward-declared and version-stamped when the sche
 and is **additive-only** thereafter
 ([ADR-0005](../adr/0005-m0-schema-freeze.md)). Concretely, the freeze covers:
 
-- the 12 group paths listed on this page;
-- the four compound `table` datasets, including **field order** — a compound dtype's
+- the 13 group paths listed on this page;
+- the five compound `table` datasets, including **field order** — a compound dtype's
   on-disk layout is positional, so new fields may only be *appended*
   ([`_diff_compound`](https://github.com/bioedca/tether/blob/main/src/tether/io/schema.py) in `src/tether/io/schema.py` requires the golden field sequence
   to remain an exact prefix of the current one);
 - each field's dtype and sub-array shape;
-- each table's `maxshape` (all four are `(None,)` — 1-D and resizable);
+- each table's `maxshape` (all five are `(None,)` — 1-D and resizable);
 - the presence and type of the three root attributes, plus the *values* of `format`
   and `schema_version`.
 
@@ -96,10 +96,10 @@ What that means if you write your own reader:
 > never by positional index or a hard-coded record size, and ignore fields, datasets,
 > groups and attributes you do not know — a later Tether release may add them without
 > a `schema_version` bump. Conversely, you may rely on the **frozen skeleton** above —
-> the group paths, the four tables' field names, dtypes and order, and the three root
+> the group paths, the five tables' field names, dtypes and order, and the three root
 > attributes (`app_version` only in a file whose writer stamped it — see the
 > root-group section below) — continuing to exist unchanged for as long as
-> `schema_version` stays `1`. That is exactly the set `schema-guard` mechanically
+> `schema_version` stays `2`. That is exactly the set `schema-guard` mechanically
 > enforces against the writer.
 
 The additive payloads described further down (`/traces/*`, `/patches/*`,
@@ -117,8 +117,11 @@ carries its own independent `feature_schema_version` precisely so its columns ca
 change without touching the store's `schema_version`. Pin your reader to the writer
 module named in each section, and treat a missing or unfamiliar payload as normal.
 
-`schema_version` is currently **`1`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`)
-and has never been bumped. What a bump would mean for a file you already hold, and
+`schema_version` is currently **`2`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
+Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+A store stamped `1` has no such table. It is still a complete project, and it reads as
+generation 1 of each of its movies. The first write that adds the table keeps the file as it
+was beside it, as `<stem>.v1-backup.tether`. What a bump would mean for a file you already hold, and
 what a non-additive change has to carry before one is allowed, are set out under
 [Project file compatibility](../stability.md#project-file-compatibility); how a
 covered name is retired is the
@@ -138,7 +141,7 @@ Two properties worth knowing before you build on the format:
 ## A freshly created project is nearly empty
 
 `tether.io.schema.create_project(path)` writes the whole skeleton and nothing else:
-11 top-level groups, four **zero-row** compound tables, and three root attributes.
+12 top-level groups, five **zero-row** compound tables, and three root attributes.
 Everything else on this page is *data* written later by a specific pipeline stage.
 (Do not treat the file's *size* as a format property — the same skeleton measures
 12,950 bytes under HDF5 2.0.0 and 13,164 under 1.14.x. Only the structure is fixed.)
@@ -151,10 +154,11 @@ guaranteed to be there.
 
 | Path | In a fresh store | First written by |
 |---|---|---|
-| `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
+| `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table`, `/generations/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
-| `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction`, `/generations` rows | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/generations/archive/<movie_id>/<generation>` | absent | `write_generation` (`src/tether/imaging/extract.py`), run by `reextract_movie` (`src/tether/project/extract.py`) |
 | `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
@@ -206,7 +210,7 @@ third is stamped **by default but optional** (see below):
 | Attribute | Type | Value | Frozen |
 |---|---|---|---|
 | `format` | `str` | `tether-project` (`FORMAT_TAG`) | name, type **and value** |
-| `schema_version` | `int` | `1` (`SCHEMA_VERSION`) | name, type **and value**, monotonic |
+| `schema_version` | `int` | `2` (`SCHEMA_VERSION`) | name, type **and value**, monotonic |
 | `app_version` | `str` | the writing Tether version, e.g. `0.8.1.dev16+g…` | name and type only |
 
 `app_version` is provenance, not structure, and what is frozen is the **writer's**
@@ -226,9 +230,19 @@ additive rule in practice: your reader should expect unknown root attributes.
 ## `/movies` — one row per source movie
 
 Group holding `/movies/table`, a resizable 1-D compound dataset (`MOVIES_DTYPE`,
-20 fields). Rows are appended by `write_extraction`; re-appending an existing
-`movie_id` is refused. `file_size` + `mtime` + `offline_flag` are the
-**metadata-only fast signature**: a relocation/staleness check that reads zero bytes
+20 fields). `write_extraction` appends one row per movie. `extract_movie` writes the first row
+of a new project, and `add_movie_to_project` (`src/tether/project/extract.py`) appends each
+later movie. A Deep-LASI acquisition goes in through `reconstruct_project` and
+`add_reconstruction_to_project` (`src/tether/project/reconstruct.py`).
+
+Re-appending an existing `movie_id` is refused. `add_movie_to_project` also refuses a movie
+whose `sha256` is already in a row, and `write_extraction` refuses any molecule whose
+`molecule_key` is already in `/molecules`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
+For a new trace generation, `write_generation` updates the movie's row in place
+with the new inputs and keeps its `frame_time`. The previous row stays in
+[the generation archive](#generations-the-trace-generations-of-each-movie).
+`file_size` + `mtime` + `offline_flag` are the **metadata-only fast signature**: a relocation/staleness check that reads zero bytes
 of the movie and therefore never hydrates a cloud placeholder.
 
 | Field | Type | Shape | Meaning / units |
@@ -309,7 +323,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `molecule_id` | `str:utf-8` | scalar | Stable per-row identity, `mol-<uuid4 hex>`. **Unique**, so this is the correct join key for per-row data. |
-| `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. Two derivations exist (see below); the extraction one is **not** guaranteed unique. |
+| `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. See the derivations below. |
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, the donor position mapped through the registration map, in **movie pixels**. |
@@ -389,7 +403,7 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 
 **`molecule_key`.** It is the cross-file join key everything downstream depends on,
 and it is a pure content hash — no salt, no run state
-([ADR-0016](../adr/0016-extraction-trace-store-layout.md)). The **extraction**
+([ADR-0016](../adr/0016-extraction-trace-store-layout.md)). The **first extraction**
 derivation, from `molecule_key()` in `src/tether/imaging/extract.py`, is:
 
 ```python
@@ -398,18 +412,22 @@ payload = f"{movie_sha256}|{int(q[0])}|{int(q[1])}"
 key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 ```
 
-The 0.1 px quantum absorbs float-representation jitter so the same molecule
-re-extracted, or carried into a split/subset file, hashes identically. Because two
-molecules can in principle quantize to the same coordinate, this key is a *content*
-key, not a row identity: join per-row data on `molecule_id`.
+The 0.1 px quantum absorbs float-representation jitter. A split or subset keeps the
+stored key. Two molecules can in principle quantize to the same coordinate. Join per-row
+data on `molecule_id`.
 
 An **analysis-only import** has no movie and no coordinates — `molecule_key()` would
 in fact raise on its `NaN` `donor_xy` — so it uses a second derivation,
 [`_analysis_only_molecule_key`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) (`src/tether/project/analysis_import.py`), hashing the
 source identity, the molecule's row index and the raw donor/acceptor trace bytes.
-That variant *is* unique by construction. The upshot for a downstream reader: **read
-the stored key, do not recompute it** — the recipe above will not reproduce the keys
-of an analysis-only store.
+That variant *is* unique by construction.
+
+A later extraction keeps the keys of carried
+molecules ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+An unmatched site uses quantized raw camera coordinates and appends `|camera` to the hash
+payload. It can join a newly found site in another copy across crops and generation numbers.
+If the project's history already holds the camera key, the new payload also ends in `|g<n>`.
+First-to-later joins use an earlier key carried by the recorded match. Read the stored key.
 
 ## `/conditions` — the structured experimental conditions
 
@@ -508,6 +526,13 @@ no row. `reject_record_of` returns the `reject` row that joins the molecule's
 latest human `/labels` event when that event is a reject, or `None` (also for a store
 written before this log existed).
 
+The rows travel with their `/labels` rows. A subset export copies the rows of the exported
+molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
+appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
+the owner already holds them. A second pull of the same file appends nothing. A join that names
+two pulled rejects (or two restores) copies no reason, since it cannot say which one the reason
+belongs to.
+
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
@@ -531,6 +556,46 @@ The reasons are a fixed list, defined once in `REJECT_REASONS`
 | `low-signal` | The signal is too low or too noisy to use. |
 | `threshold` | Rejected by a score threshold. The row must carry the threshold in `value`. |
 | `other` | Another reason. The row must carry a `note` that says which. |
+
+## `/generations` — the trace generations of each movie
+
+Group holding `/generations/table` (`GENERATIONS_DTYPE`, 9 fields), new in
+`schema_version` 2 ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
+Each extraction of a movie appends one row, **append-only**: `write_extraction` writes
+generation 1 of a new movie, and `write_generation` (run by `reextract_movie`,
+`src/tether/project/extract.py`) a later one. The newest generation of a movie is its
+**active** generation: its molecules are the movie's rows of `/molecules`, `/traces` and
+`/patches`, so every reader of those arrays reads it. A movie with no row (every movie of
+a store stamped `1`) reads as its generation 1, and reading writes nothing. The readers
+are in `src/tether/io/generations.py`: `read_generations`, `active_generation`,
+`read_generation`.
+
+| Field | Type | Shape | Meaning / units |
+|---|---|---|---|
+| `movie_id` | `str:utf-8` | scalar | Join key into `/movies.movie_id`. |
+| `generation` | `i4` | scalar | The generation's number among the movie's, from `1`. |
+| `generation_id` | `str:utf-8` | scalar | `gen-<uuid4 hex>`, unique in the project. It is the identity of the movie's `trace_generation` instance in `/settings/recorded_inputs` (ADR-0103). |
+| `created_utc` | `str:utf-8` | scalar | ISO-8601 UTC, e.g. `2026-11-19T18:02:11Z`. It is `""` for the generation 1 of a store stamped `1`, which is recorded when that store first takes a new generation. |
+| `inputs` | `str:utf-8` | scalar | JSON: `source` (`sha256`, `uri`, `file_size`, `mtime`), `geometry` (the crop, rotation and flip fields of `/movies`), `layout` (the `/movies/layouts` record or `null`), `map` (`calibration_id`), `colocalization` and `options` (the movie's settings profile). |
+| `n_molecules` | `i4` | scalar | The generation's molecule count. |
+| `carried_keys` | `str:utf-8` | scalar | JSON list of the `molecule_key` of each molecule whose curation label, category and analysis window were carried from the previous generation. It is `[]` for a first generation. |
+| `match_px` | `f8` | scalar | The donor distance, **pixels**, that decided "did not move" for the carried molecules (`GENERATION_MATCH_PX`, `0.5`). It is `NaN` for a first generation. |
+| `app_version` | `str:utf-8` | scalar | The writing Tether version. |
+
+When a movie gains a generation, the one that was active is first copied, unchanged, to
+`/generations/archive/<movie_id>/<generation>`: `movie` (its `/movies` row), `molecules`,
+`acceptor_detected`, `traces/<layer>` (cut to the movie's frame count), `patches/<layer>`
+and, if the movie had one, `layout` (its `/movies/layouts` record). Its rows then leave the
+row-aligned arrays and the new generation's are appended **at the end**, so the rows of
+other movies move up but are not changed. An archive is written once and never changed or
+removed by an extraction.
+
+`/generations/label_reviews` is an optional append-only dataset. Each row stores the
+current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
+row index of a human accept or reject in `/labels/table`. A value of `-1` marks a
+carried label that is pending review after a clear or in an exported subset. The
+last review row for a molecule applies. A carry-over in `carried_keys` starts pending
+and stays out of supervised training until confirmed on the current extraction.
 
 ## `/traces` — the integrated intensity arrays
 
@@ -926,7 +991,7 @@ folder.
   [ADR-0024](../adr/0024-idealization-store-layout-staleness-and-nstates.md)
   (idealization layout).
 - [`tether-schema.json`](tether-schema.json) (`schema/schema_frozen.json` in the repository) — the machine-checked manifest of the
-  frozen skeleton (12 group paths, four compound tables, three root attributes), and
+  frozen skeleton (13 group paths, five compound tables, three root attributes), and
   the tiebreaker if this page ever disagrees with it *about those*. It says nothing
   about the additive payloads; for those, the writer module named in each section is
   the authority.

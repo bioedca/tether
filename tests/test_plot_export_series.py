@@ -400,11 +400,20 @@ def test_alpha_shapes_with_clouds_of_two_frame_times_are_refused(results):
 
 def test_elbow_series_may_probe_different_k(results):
     wt, mut = results["elbow"]
-    short = replace(
-        mut, k_values=np.asarray(mut.k_values)[:3], rmse=np.asarray(mut.rmse)[:3], elbow_k=None
+    # The first series probes only the low k and the second only the high k, so the
+    # second probes k the first never does: ticks taken from either series alone fail.
+    low = replace(
+        wt, k_values=np.asarray(wt.k_values)[:3], rmse=np.asarray(wt.rmse)[:3], elbow_k=None
     )
-    ax = pe.render_state_number_elbow([("WT", wt), ("short", short)]).axes[0]
-    assert list(ax.get_xticks()) == sorted(set(np.asarray(wt.k_values).tolist()))
+    high = replace(
+        mut, k_values=np.asarray(mut.k_values)[2:], rmse=np.asarray(mut.rmse)[2:], elbow_k=None
+    )
+    low_k = set(np.asarray(low.k_values).tolist())
+    high_k = set(np.asarray(high.k_values).tolist())
+    assert high_k - low_k, "the second series must probe a k the first does not"
+    assert low_k - high_k, "the first series must probe a k the second does not"
+    ax = pe.render_state_number_elbow([("low", low), ("high", high)]).axes[0]
+    assert list(ax.get_xticks()) == sorted(low_k | high_k)
 
 
 # ------------------------------------------------ AC 5: parameters travel per series

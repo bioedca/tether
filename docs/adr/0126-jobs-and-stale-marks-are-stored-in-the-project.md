@@ -76,7 +76,10 @@ reader must walk; a table is read in one call and follows the `/settings/conditi
    `set_stale_marks` is the one function that sets marks: it marks each record that recorded the
    edited instance with another identity, through the edge between them, and then each record made
    from a marked record, with the stop of `CONTENT_COMPARED` (ADR-0103, decision 2). A guarded edge
-   is crossed only when the caller, the owner of the downstream record, says the guard holds. Marks
+   is crossed only when the caller, the owner of the downstream record, says the guard holds for
+   that record: `guards_hold` is a callable `(edge, downstream node, downstream instance) -> bool`,
+   asked for each record a guarded edge would mark, or the edge numbers whose guard holds for every
+   record (#1170). Two records made from one upstream instance can so differ on a guarded edge. Marks
    are append-only and never removed (ADR-0103, decision 3).
 
 **Schema version: no change.** The three datasets are absent from a fresh project, so

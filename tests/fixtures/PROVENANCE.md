@@ -923,6 +923,46 @@ larger than the 200 MB download limit, so it is a `workstation` entry: the weekl
 reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes both extracts again and
 compares them byte for byte with the committed files.
 
+## MASH-FRET test project with a non-zero leakage coefficient (#870) — **GPL-3.0-only**
+
+External third-party data under a different licence: the test project
+`MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash` of the MASH-FRET repository,
+[RNA-FRETools/MASH-FRET](https://github.com/RNA-FRETools/MASH-FRET), at commit
+`b577928ecf2bd9040dda6f66ad0035567785e5e1` (2021-11-24, the commit that added it; the file is
+unchanged up to `2877992d`, the head on 2026-11-15). The same bytes are also
+`routines/mod_transition_analysis/assets/2chan2exc.mash`. MASH-FRET "1.3.2 (prev. commit:
+3471fdf3)" wrote it: 30 molecules of 2000 frames, two channels ("don", "acc") and two lasers,
+with a bleedthrough coefficient `TP.fix{4}{1}(1,1)` = 0.0775344654974015 and a direct-excitation
+coefficient `TP.fix{4}{2}(1,2)` = 0.0175978433518244. These are MASH-FRET test data, not a
+published measurement. The repository gives the GPL version 3 text and no "or later" statement,
+so the extract is annotated GPL-3.0-only in `REUSE.toml` (an `override` entry) and attributed in
+`NOTICE`.
+
+- `tests/fixtures/mashfret_2chan2exc_leakage_extract.mat` (277,650 B · plain git) — made by
+  `scripts/make_mashfret_leakage_fixture.py` from the project file. It keeps the first 10 of the
+  30 molecules with every frame and both lasers: their `intensities_bgCorr` and
+  `intensities_crossCorr`, and the project fields `MASH_version`, `nb_channel`, `nb_excitations`,
+  `excitations`, `chanExc`, `labels`, `FRET` and `TP.fix`, all unchanged. It leaves out the raw
+  intensities and every other field, among them the paths `proj_file` and `folderRoot`. The
+  116-byte MATLAB header text is fixed, so the same source gives the same bytes.
+  `tests/test_mashfret_reference.py` reads it through `tests/_mashfret.py`.
+
+| Source | Size | SHA-256 |
+|---|---|---|
+| `2chan2exc.mash` at `b577928` | 2,008,685 B | `adac4b599652fb264caae52613eb81bb66cc40915ea137d648931ccacfa913c6` |
+
+**Accessed:** 2026-11-15 (git clone of the repository over HTTPS). **License:** GPL-3.0-only.
+Regenerate with:
+
+```sh
+python scripts/make_mashfret_leakage_fixture.py <path>/2chan2exc.mash
+```
+
+Both files have entries in `tests/reference_data/manifest.toml` (ids `mashfret-2chan2exc-project`,
+a `download` entry, and `mashfret-2chan2exc-leakage-extract`; ADR-0073). The weekly
+`reference-data` job downloads the project, verifies the checksum above, makes the extract again
+and compares it byte for byte with the committed file.
+
 ## Weninger laboratory hairpin movie (second `.traces` variant, #798) — **CC0-1.0**
 
 External third-party data under a different licence: the data of Xu *et al.*, J. Mol. Biol.

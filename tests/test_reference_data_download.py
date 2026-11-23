@@ -77,3 +77,22 @@ def test_the_ebfret_sessions_fixture_equals_a_fresh_extraction() -> None:
                 np.testing.assert_array_equal(group[name][()], entry["arrays"][name], err_msg=key)
             for name, value in entry["attrs"].items():
                 assert group.attrs[name] == value, (key, name)
+
+
+def test_the_nonzero_mashfret_leakage_extract_equals_a_fresh_extraction() -> None:
+    """The committed extract of ``2chan2exc.mash`` is what its script makes now (#870), and the
+    leakage test holds on all 30 molecules of the downloaded project."""
+    from _mashfret import read_crosstalk_project
+    from test_mashfret_reference import LEAKAGE_NONZERO_REL_LIMIT, nonzero_leakage_rel_error
+
+    extract = MANIFEST["mashfret-2chan2exc-leakage-extract"]
+    script = REPO / extract.extract_script
+    spec = importlib.util.spec_from_file_location("make_mashfret_leakage_fixture", script)
+    maker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maker)
+
+    source = fetch.path_for("mashfret-2chan2exc-project")
+    assert maker.extract(source.read_bytes()) == fetch.path_for(extract.id).read_bytes()
+    project = read_crosstalk_project(source)
+    assert project.n_molecules == 30
+    assert nonzero_leakage_rel_error(project) <= LEAKAGE_NONZERO_REL_LIMIT
