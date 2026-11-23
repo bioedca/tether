@@ -719,9 +719,6 @@ class TetherShell:
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
         # file of tether.gui.preferences. Nothing of it is written into a project.
         self._preferences_file = preferences_file
-        # A failed preferences write, kept until the next status message carries it, so a
-        # success message of the same action does not hide it (#628).
-        self._preferences_error: str | None = None
         # The curator name set for new labels, or None: then the project writes the
         # operating-system user, exactly as before #628.
         self._curator_name: str | None = (
@@ -1932,8 +1929,9 @@ class TetherShell:
         except (OSError, ValueError) as exc:
             from tether.gui.messages import Level
 
-            self._preferences_error = f"Could not save preferences: {exc}"
-            self._messages.post(self._preferences_error, Level.ERROR)
+            # An error stays in the status bar until dismissed, so a success message of the
+            # same action does not hide it (#628) and nothing needs to carry it along.
+            self._messages.post(f"Could not save preferences: {exc}", Level.ERROR)
             return False
         return True
 
@@ -3954,9 +3952,6 @@ class TetherShell:
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str, level: Any = None) -> None:
-        if self._preferences_error is not None:
-            message = f"{message} ({self._preferences_error})"
-            self._preferences_error = None
         self._messages.post(message, level)
 
     # --- lifecycle -----------------------------------------------------------

@@ -194,6 +194,30 @@ def test_the_messages_go_to_a_rotating_log_file(shell, monkeypatch) -> None:
     assert log.stat().st_size <= 400
 
 
+def test_a_message_with_a_line_break_is_one_line_in_the_log_and_the_copy(shell) -> None:
+    log = shell.messages.log_file
+    assert log is not None
+    shell._status("Idealize failed for m0: sidecar said\nTraceback (most recent call last)")
+    line = shell.messages.latest.as_text()
+    assert "\n" not in line
+    assert line.endswith(
+        " ERROR Idealize failed for m0: sidecar said Traceback (most recent call last)"
+    )
+    assert log.read_text(encoding="utf-8").splitlines()[-1] == line
+
+
+def test_a_path_the_file_system_cannot_decode_is_escaped_and_the_log_stays_on(shell) -> None:
+    log = shell.messages.log_file
+    assert log is not None
+    # os.fsdecode gives a byte that does not decode a lone surrogate (Linux, macOS).
+    shell._status("Opened /data/data\udce9.tether — 1 molecule(s)")
+    shell._status("Closed a.tether")
+    assert shell.messages.log_file == log
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert lines[-2].endswith(" INFO Opened /data/data\\udce9.tether — 1 molecule(s)")
+    assert lines[-1].endswith(" INFO Closed a.tether")
+
+
 def test_a_log_that_cannot_be_written_does_not_stop_the_messages(qapp, qtbot, tmp_path) -> None:
     from pyqtgraph.Qt import QtWidgets
 

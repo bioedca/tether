@@ -92,9 +92,14 @@ class Message:
     text: str
 
     def as_text(self) -> str:
-        """One line for the clipboard and the log file: time, level, text."""
+        """One line for the clipboard and the log file: time, level, text.
+
+        A line break in the text (an exception's message may hold one) becomes a space, so
+        every line of the log and of a copy starts with its time and level.
+        """
         stamp = self.time.isoformat(timespec="seconds")
-        return f"{stamp} {self.level.value.upper()} {self.text}"
+        text = " ".join(self.text.splitlines())
+        return f"{stamp} {self.level.value.upper()} {text}"
 
 
 def classify(text: str) -> Level:
@@ -317,6 +322,9 @@ class MessageCenter:
                     maxBytes=_LOG_MAX_BYTES,
                     backupCount=_LOG_BACKUPS,
                     encoding="utf-8",
+                    # A path holding a byte the file system's encoding cannot decode reaches
+                    # Python as a lone surrogate; it is written escaped, not as a log failure.
+                    errors="backslashreplace",
                 )
             except OSError:
                 self._log_folder = None
