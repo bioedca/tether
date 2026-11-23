@@ -3144,10 +3144,11 @@ class TetherShell:
             return None
         summary = _applied_summary(applied)
         if store_session and applied.windows_applied:
-            # The accepted windows are stored now; show them, as the curation keys do.
             assert self._session_project is not None  # store_session
             try:
-                self._show_stored_windows(self._session_project.path, applied.windows_applied)
+                keys_by_id = {trace.molecule_id: trace.molecule_key for trace in report.matched}
+                keys = (keys_by_id[molecule_id] for molecule_id in applied.windows_applied)
+                self._show_stored_windows(self._session_project.path, keys)
             except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
                 summary = f"{summary}; the trace view could not reread the windows: {exc}"
         self._status(summary)

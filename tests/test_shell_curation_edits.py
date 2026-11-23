@@ -441,36 +441,36 @@ def test_p_refuses_to_save_after_the_lock_changed_hands_during_detection(
 
 
 def test_a_return_leg_import_redraws_the_imported_windows(shell, tmp_path, monkeypatch) -> None:
-    # The dock's window bounds come from the store at load; a window the return leg
-    # accepts is stored by the import, so the listed traces and the dock follow it.
-    from tether.gui import reconcile as reconcile_mod
-    from tether.gui.reconcile import ReconcileDecision
-    from tether.project.handoff import AppliedReconcile
+    from tether.gui.reconcile import ReconcileDialog
+    from tether.idealize.smd import read_smd, write_smd
 
     project, keys = _loaded(shell, tmp_path, windows=[(10, 50)] * 3)
-    monkeypatch.setattr(
-        reconcile_mod.ReconcileDialog,
-        "exec",
-        lambda self: ReconcileDecision(accept_windows=(keys[0], keys[1])),
+    outbound, returned = tmp_path / "outbound.hdf5", tmp_path / "return.hdf5"
+    manifest = shell.hand_off_to_tmaven(outbound)
+    assert manifest is not None, shell.status_message
+    smd = read_smd(outbound)
+    write_smd(
+        returned,
+        smd.raw,
+        source_names=smd.source_names,
+        source_index=smd.source_index,
+        classes=smd.classes,
+        pre_list=[5, 12, 10],
+        post_list=[30, 44, 50],
     )
 
-    class _Handoff:
-        def preview(self, smd_path, *, model_path=None):
-            return None
+    def accept_changes(dialog):
+        dialog.select_all()
+        return dialog.decision()
 
-        def apply(self, smd_path, decision, *, model_path=None):
-            session = shell._session_project
-            session.set_analysis_window(keys[0], 5, 30)
-            session.set_analysis_window(keys[1], 12, 44)
-            return AppliedReconcile(windows_applied=[keys[0], keys[1]])
-
-    monkeypatch.setattr(reconcile_mod.ReconcileDialog, "__init__", lambda self, *a, **k: None)
-    shell._handoff = _Handoff()
-
-    assert shell.import_return_leg(tmp_path / "return.hdf5") is not None
-
-    assert shell.trace_dock.analysis_window == (5, 30)
-    assert [t.analysis_window for t in shell._traces] == [(5, 30), (12, 44), (10, 50)]
+    monkeypatch.setattr(ReconcileDialog, "exec", accept_changes)
+    applied = shell.import_return_leg(returned)
+    assert applied is not None, shell.status_message
+    assert sorted(applied.windows_applied) == sorted(manifest.molecule_ids[:2])
+    expected = [(5, 30), (12, 44), (10, 50)]
+    assert [_window(project, key) for key in keys] == expected
+    assert shell.trace_dock.analysis_window == (5, 30), shell.status_message
+    assert [t.analysis_window for t in shell._traces] == expected
     shell.molecule_list.setCurrentRow(1)
     assert shell.trace_dock.analysis_window == (12, 44)
 
