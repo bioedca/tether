@@ -1108,6 +1108,7 @@ class Project:
         import_idealization: bool = False,
         overwrite: bool = False,
         require_held_lock: bool = False,
+        previewed: ReconcileReport | None = None,
     ) -> AppliedReconcile:
         """Commit accepted return-leg changes, non-destructively
         ([`handoff.apply_reconcile`][tether.project.handoff.apply_reconcile]).
@@ -1122,6 +1123,11 @@ class Project:
         the retained-session contract used by the GUI — it binds every write to the
         exact ownership epoch validated here, so a stolen-then-released lock is still
         refused; the default identity-only guard is the batch/CLI boundary (§5.4).
+
+        ``previewed`` is the report a prior
+        [`read_return_leg`][tether.project.handoff.read_return_leg] returned; with it, an
+        accepted class change whose category no longer matches that preview is not
+        written (see [`handoff.apply_reconcile`][tether.project.handoff.apply_reconcile]).
         """
         from tether.project import handoff
 
@@ -1146,4 +1152,5 @@ class Project:
             import_idealization=import_idealization,
             overwrite=overwrite,
             writer_guard=writer_guard,
+            previewed=previewed,
         )
