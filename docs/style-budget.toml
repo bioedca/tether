@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The style budget of each nav page and README.md, checked by tests/test_docs_style_budget.py
+# The style budget of each nav page and top-level page, checked by tests/test_docs_style_budget.py
 # (#592). A budget may go down; raising one is a reviewed decision. The rules and how to read a
 # failure: docs/maintainers/writing-style.md, "The style budget".
 
@@ -54,6 +54,20 @@ long_share = 12.2
 semicolons = 6
 long_paragraphs = 0
 retired = 1
+
+[pages."CONTRIBUTING.md"]
+kind = "procedure"
+long_share = 2.5
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."SECURITY.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/index.md"]
 kind = "descriptive"
@@ -127,7 +141,7 @@ retired = 0
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 32.2
+long_share = 29.7
 semicolons = 7
 long_paragraphs = 1
 retired = 0
@@ -142,6 +156,13 @@ retired = 0
 [pages."docs/how-to/share-a-dataset.md"]
 kind = "procedure"
 long_share = 8.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/how-to/run-a-recipe.md"]
+kind = "procedure"
+long_share = 0.0
 semicolons = 0
 long_paragraphs = 0
 retired = 0
@@ -197,7 +218,7 @@ retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 18.8
+long_share = 16.4
 semicolons = 22
 long_paragraphs = 1
 retired = 1
@@ -365,28 +386,28 @@ retired = 0
 
 [pages."docs/release.md"]
 kind = "procedure"
-long_share = 33.8
-semicolons = 16
+long_share = 2.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/maintainers/building-installers.md"]
 kind = "procedure"
-long_share = 16.7
-semicolons = 2
-long_paragraphs = 1
+long_share = 2.8
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/maintainers/standalone-tmaven-cross-os-record.md"]
 kind = "descriptive"
-long_share = 32.1
-semicolons = 6
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 17.2
+long_share = 15.0
 semicolons = 3
 long_paragraphs = 2
 retired = 0

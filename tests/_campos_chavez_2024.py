@@ -67,6 +67,7 @@ INTRAFRET = {
     8: "intraFRET_WT+NCCA_13uM",
 }
 INTRAFRET_FRAMES = 400  # Methods, "IntraFRET data analysis"
+WT_5UM_COLUMN = 2  # Fig. 5b column with no matrix in the archive (#1128)
 #: Fig. 5c (#1030, ADR-0120): the notebook bins the intraFRET efficiencies with
 #: ``np.linspace(-0.2, 1.2, 200)`` (199 bins, density) and starts its two-Gaussian fit at the means
 #: 0 and 0.33. Gaussian 2, the higher mean, is the closed state.
@@ -412,6 +413,60 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         "start_groups": groups,
         "max_bound_ratio": ratio,
         "unbounded_values": unbounded,
+    }
+
+
+def read_run(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """``(donor, acceptor)`` of one movie's file, read as the notebook does (``skiprows=1``)."""
+    m = np.loadtxt(path, skiprows=1, ndmin=2)
+    return m[:, 0::2], m[:, 1::2]
+
+
+def _found(block: np.ndarray, e: np.ndarray, tol: float) -> bool:
+    """Whether ``block`` is a run of ``e`` (frames, molecules) at any start frame within ``tol``."""
+    if e.shape[0] < block.size:
+        return False
+    windows = np.lib.stride_tricks.sliding_window_view(e, block.size, axis=0)
+    starts, mols = np.nonzero(np.abs(windows[..., 0] - block[0]) <= tol)
+    pairs = zip(starts, mols, strict=True)
+    return any(np.max(np.abs(windows[s, m] - block)) <= tol for s, m in pairs)
+
+
+def locate_blocks(
+    values: np.ndarray,
+    runs: list[tuple[np.ndarray, np.ndarray]],
+    others: list[tuple[np.ndarray, np.ndarray]] = (),
+    *,
+    join_tol: float = 1e-6,
+    search_tol: float = 1e-4,
+) -> dict:
+    """The blocks of a Fig. 5b column beside per-run trace files joined in order (#1128).
+
+    Block ``i`` is held to molecule ``i`` of the joined runs, first 400 frames, within ``join_tol``;
+    ``leading_equal`` counts the blocks that agree from the first on. Each block after those is
+    searched in every molecule of every run and of ``others`` (files that are searched but never
+    joined) at every start frame, within ``search_tol``, and ``unmatched`` lists (0-based) the
+    blocks that agree with none.
+    """
+    blocks = values.reshape(-1, INTRAFRET_FRAMES)
+    effs = [apparent_fret(d, a) for d, a in runs]
+    joined = np.concatenate([e[:INTRAFRET_FRAMES] for e in effs], axis=1).T
+    n = min(joined.shape[0], blocks.shape[0])
+    dev = np.max(np.abs(blocks[:n] - joined[:n]), axis=1)
+    equal = dev <= join_tol  # NaN is never equal
+    leading = n if equal.all() else int(np.argmin(equal))
+    pool = effs + [apparent_fret(d, a) for d, a in others]
+    unmatched = [
+        i
+        for i in range(leading, blocks.shape[0])
+        if not any(_found(blocks[i], e, search_tol) for e in pool)
+    ]
+    return {
+        "column_molecules": int(blocks.shape[0]),
+        "run_molecules": [int(e.shape[1]) for e in effs],
+        "leading_equal": leading,
+        "max_abs_deviation": float(np.max(dev[:leading])) if leading else 0.0,
+        "unmatched": unmatched,
     }
 
 
