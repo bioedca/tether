@@ -139,9 +139,11 @@ def _append_reject_log_rows(
     writes completes on the next one. Where that join names more than one matched label row of the
     same decision, no reason can say which of them it belongs to (for two rejects the source's
     [`tether.project.labels.reject_record_of`][] returns ``None``), so its reasons are not copied:
-    the label dedup could collapse those rows into one and attach a reason to it. The owner's log is
-    created on the first row, as [`tether.project.labels.reject`][] creates it. Returns the number
-    of rows appended.
+    the label dedup could collapse those rows into one and attach a reason to it. The exception is
+    a join an earlier pull already gave a reason (#1291): its other reason rows are then copied
+    too, so the owner's log holds two rows of the join and ``reject_record_of`` reads no reason,
+    as it does in the source. The owner's log is created on the first row, as
+    [`tether.project.labels.reject`][] creates it. Returns the number of rows appended.
     """
     from collections import Counter  # noqa: PLC0415
 
@@ -153,26 +155,32 @@ def _append_reject_log_rows(
     def decision_key(row: np.ndarray) -> tuple:
         return (*_join_key(row), int(row["label_value"]))
 
+    def log_join(row: np.ndarray) -> tuple:
+        return (*_join_key(row), _LABEL_VALUE_OF_EVENT.get(_to_str(row["event"])))
+
     n_labels_of = Counter(decision_key(row) for row in matched)
-    condition_of = {
-        decision_key(row): _to_str(row["condition_id"])
-        for row in matched
-        if n_labels_of[decision_key(row)] == 1
-    }
-    existing = (
-        {_reject_event_key(row) for row in labels_group[REJECT_LOG][:]}
-        if REJECT_LOG in labels_group
-        else set()
-    )
+    ambiguous = {key for key, n in n_labels_of.items() if n > 1}
+    condition_of = {decision_key(row): _to_str(row["condition_id"]) for row in matched}
+    owner_log = labels_group[REJECT_LOG][:] if REJECT_LOG in labels_group else []
+    existing = {_reject_event_key(row) for row in owner_log}
+    held = Counter(_reject_event_key(row) for row in owner_log)
+    attributed = {log_join(row) for row in owner_log}
+    seen: Counter = Counter()
     dtype = labels_group[REJECT_LOG].dtype if REJECT_LOG in labels_group else _reject_log_dtype()
     new_rows: list[np.ndarray] = []
     for row in src_log:
-        label_value = _LABEL_VALUE_OF_EVENT.get(_to_str(row["event"]))
-        join = (*_join_key(row), label_value)
-        if label_value is None or join not in condition_of:
+        join = log_join(row)
+        if join[-1] is None or join not in condition_of:
             continue
         ev = _reject_event_key(row)
-        if ev in existing:
+        if join in ambiguous:
+            # #1291: copy only where an earlier pull already attributed a reason to this join,
+            # and only the rows the owner does not hold yet, counted as a multiset, so the owner
+            # then holds two reason rows of the join and reads none, as the source does.
+            seen[ev] += 1
+            if join not in attributed or seen[ev] <= held[ev]:
+                continue
+        elif ev in existing:
             continue
         existing.add(ev)
         out = np.zeros(1, dtype=dtype)

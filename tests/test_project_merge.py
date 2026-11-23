@@ -465,6 +465,30 @@ def test_a_join_that_names_two_rejects_copies_no_reason(tmp_path) -> None:
     assert reject_record_of(owner, okeys[1]) is None
 
 
+@pytest.mark.parametrize("second_reason", ["no-anticorrelation", "multiple-molecules"])
+def test_a_join_made_ambiguous_by_a_later_pull_reads_no_reason(tmp_path, second_reason) -> None:
+    # #1291: the first pull attributes the reason; a second reject with the same labeler and
+    # timestamp then makes the join ambiguous in the split file. The owner must stop attributing
+    # the first reason, whether the second reason differs or repeats it.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=2)
+    _store(split, n=2)
+    when = "2026-11-19T12:00:00+00:00"
+    reject(split, okeys[1], labeler="bob", timestamp=when, reason="multiple-molecules")
+    assert merge_labels(owner, split).reject_log_appended == 1
+    assert _to_text(reject_record_of(owner, okeys[1])["reason"]) == "multiple-molecules"
+    reject(split, okeys[1], labeler="bob", timestamp=when, reason=second_reason)
+    assert reject_record_of(split, okeys[1]) is None
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 0  # the second label row dedups against the first
+    assert report.reject_log_appended == 1
+    assert reject_record_of(owner, okeys[1]) is None
+    assert merge_labels(owner, split).reject_log_appended == 0  # a re-pull appends nothing
+
+
 def test_an_accept_sharing_the_join_keeps_the_reject_reason(tmp_path) -> None:
     # An accept and a reject with the same labeler and timestamp are two decisions; the reject's
     # reason is still the one reject_record_of reads in the split file, so it travels.
