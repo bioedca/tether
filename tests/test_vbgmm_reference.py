@@ -31,8 +31,13 @@ def test_the_reference_names_the_committed_fixture():
 def test_the_pooled_data_is_the_recorded_data():
     x = ref.pooled_fret()
     assert x.size == REFERENCE["data"]["n_points"] == 6799  # 1699 + 3 x 1700 frames
-    assert ref.data_sha256(x) == REFERENCE["data"]["sha256_float64_le"]
     assert np.all((x >= ref.CLIP_LOW) & (x <= ref.CLIP_HIGH))
+    found = ref.data_fingerprint()
+    recorded = REFERENCE["data"]
+    for key in ("n_points", "n_clipped", "sha256_kept_float64_le", "sha256_clipped_mask"):
+        assert found[key] == recorded[key], key
+    # The clip draws may differ in the last bit between platforms (see data_fingerprint).
+    assert found["clipped_sum"] == pytest.approx(recorded["clipped_sum"], rel=0, abs=1e-9)
 
 
 def test_the_comparator_uses_tmavens_priors_in_sklearn_terms():

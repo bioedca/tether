@@ -84,8 +84,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def pooled_fret(path: Path = FIXTURE, group: str = GROUP) -> np.ndarray:
-    """The 1-D FRET data tMAVEN's ``run_vbgmm`` fits, built without tMAVEN (see the module doc)."""
+def _pooled(path: Path, group: str) -> tuple[np.ndarray, np.ndarray]:
     import h5py
 
     with h5py.File(path, "r") as f:
@@ -94,18 +93,39 @@ def pooled_fret(path: Path = FIXTURE, group: str = GROUP) -> np.ndarray:
         post = np.asarray(f[f"{group}/tMAVEN/post_list"][()]).astype("int64").reshape(-1)
     fret = raw[:, :, 1] / (raw.sum(axis=2) + 1e-300)
     rng = np.random.RandomState(CLIP_SEED)
-    pieces = []
+    pieces, masks = [], []
     for i in range(raw.shape[0]):
         y = fret[i, pre[i] : post[i]].copy()
         bad = (y < CLIP_LOW) | (y > CLIP_HIGH) | np.isnan(y)
         y[bad] = rng.uniform(low=CLIP_LOW, high=CLIP_HIGH, size=int(bad.sum()))
         pieces.append(y)
-    return np.concatenate(pieces)
+        masks.append(bad)
+    return np.concatenate(pieces), np.concatenate(masks)
 
 
-def data_sha256(x: np.ndarray) -> str:
-    """SHA-256 of the pooled data as little-endian float64, to pin the data preparation."""
-    return hashlib.sha256(np.ascontiguousarray(x, dtype="<f8").tobytes()).hexdigest()
+def pooled_fret(path: Path = FIXTURE, group: str = GROUP) -> np.ndarray:
+    """The 1-D FRET data tMAVEN's ``run_vbgmm`` fits, built without tMAVEN (see the module doc)."""
+    return _pooled(path, group)[0]
+
+
+def data_fingerprint(path: Path = FIXTURE, group: str = GROUP) -> dict:
+    """What pins the data preparation, in a form that is the same on every platform.
+
+    The values kept from the SMD are a correctly rounded division, so their bytes are hashed.
+    The clip draws are not hashed: NumPy's ``uniform`` computes ``low + (high - low) * u``, which
+    a compiler may fuse into one multiply-add on one platform and not on another. A hash of the
+    whole array matched on Linux and not on the macOS runner, while the fit agreed to 1e-6
+    there (#1302). Their count, positions and sum pin the draws instead.
+    """
+    x, clipped = _pooled(path, group)
+    kept = np.ascontiguousarray(x[~clipped], dtype="<f8")
+    return {
+        "n_points": int(x.size),
+        "n_clipped": int(clipped.sum()),
+        "sha256_kept_float64_le": hashlib.sha256(kept.tobytes()).hexdigest(),
+        "sha256_clipped_mask": hashlib.sha256(np.packbits(clipped).tobytes()).hexdigest(),
+        "clipped_sum": float(x[clipped].sum()),
+    }
 
 
 def fit_reference(x: np.ndarray, nstates: int = NSTATES) -> dict:
@@ -200,8 +220,7 @@ def build_reference() -> dict:
                 f"outside [{CLIP_LOW}, {CLIP_HIGH}] or NaN replaced by "
                 f"numpy.random.RandomState({CLIP_SEED}).uniform draws, molecule by molecule"
             ),
-            "n_points": int(x.size),
-            "sha256_float64_le": data_sha256(x),
+            **data_fingerprint(),
         },
         "tmaven": {
             "commit": "10f4230",

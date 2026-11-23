@@ -11,7 +11,10 @@
   "data": {
     "definition": "FRET = raw[:, :, 1] / (raw.sum(2) + 1e-300) in each molecule's tMAVEN pre_list:post_list window, molecules in SMD order, concatenated; values outside [-1.0, 2.0] or NaN replaced by numpy.random.RandomState(666).uniform draws, molecule by molecule",
     "n_points": 6799,
-    "sha256_float64_le": "6efad131e5ff25fcb08ba6a7f0fd0a3f5fecf0a81066590467feb1a5c54dfb9e"
+    "n_clipped": 858,
+    "sha256_kept_float64_le": "8809584173fd1d141747e8680a35f0c4e1bf61397a8cd8e0f9e40cabd8a00ff7",
+    "sha256_clipped_mask": "1511e98a969b227822537fba3dcb458705d799c99b32deb65e3cd8b0395272dc",
+    "clipped_sum": 412.62302116031333
   },
   "tmaven": {
     "commit": "10f4230",
