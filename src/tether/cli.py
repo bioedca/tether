@@ -9,15 +9,20 @@ version (NFR-REPRO: "the app version is derived from git"). ``tether extract`` a
 builds the command's request from its options, runs the command, and prints the result.
 ``tether extract`` runs the M1 native extraction pipeline (movie -> ``.tether``) — see
 [`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
-pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
+pipeline over many movies — see [`tether.services.batch`][]; ``tether idealize`` fits the
+molecules of one project, or refits its stale models — see [`tether.services.idealize`][];
+``tether map create`` makes a channel map file from a bead video or image for
+``tether extract --map`` — see [`tether.services.maps`][]. Their subcommands are made
 from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
 gives a project's movie metadata with its origin — see
 [`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
-trace text file or a subset project — see [`tether.cli_export`][].
+trace text file or a subset project — see [`tether.cli_export`][]. ``tether status`` prints
+the readiness of each stage of a project and its next step — see
+[`tether.project.readiness`][].
 
-The CLI deliberately uses the standard-library [`argparse`][] rather than a
+The CLI deliberately uses the standard-library `argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported only when a service command runs, so that
@@ -42,6 +47,7 @@ from tether.extract_choices import (
     DONOR_SIDES,
     PREALIGN_MODES,
 )
+from tether.idealize_choices import IDEALIZE_METHODS
 from tether.services import (
     COMMANDS,
     BatchRequest,
@@ -49,9 +55,14 @@ from tether.services import (
     CommandFailed,
     ExtractRequest,
     ExtractResult,
+    IdealizeRequest,
+    IdealizeResult,
+    MapCreateRequest,
+    MapCreateResult,
     Request,
     RequestError,
     RequestRefused,
+    SidecarUnavailable,
 )
 from tether.services import run as run_service
 from tether.services.profile import read_profile
@@ -59,6 +70,7 @@ from tether.services.profile import read_profile
 if TYPE_CHECKING:
     # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
     from tether.project.batch import BatchSummary
+    from tether.project.readiness import ProjectReadiness
     from tether.project.summary import CurationCounts, ProjectSummary
 
 
@@ -113,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
     add_export_parser(subparsers)
+    _add_status_parser(subparsers)
     return parser
 
 
@@ -258,7 +271,21 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         metavar="PATH",
         help=(
             "apply an imported Deep-LASI .tmap instead of a native fit; splits at "
-            "the .tmap's own channel geometry (--donor-side is then ignored)"
+            "the .tmap's own channel geometry (--donor-side is then ignored); "
+            "cannot be combined with --map"
+        ),
+    )
+    extract.add_argument(
+        "--map",
+        dest="map_path",
+        default=None,
+        metavar="PATH",
+        help=(
+            "apply a saved Tether .npz map file (from 'tether map create') instead "
+            "of a native fit; splits at the map's own channel geometry (--donor-side is "
+            "then ignored). Precedence: the native fit runs only when neither --tmap nor "
+            "--map is given, and the two cannot be combined; --tdat sets detection only "
+            "and composes with any of them"
         ),
     )
     extract.add_argument(
@@ -341,6 +368,7 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         overwrite=args.overwrite,
         tmap=args.tmap,
         tdat=args.tdat,
+        map_path=args.map_path,
         count_only=args.count_only,
         **values,  # type: ignore[arg-type]
     )
@@ -376,12 +404,16 @@ def _run_extract(args: argparse.Namespace) -> int:
     print(f"  colocalization: {_describe_rule_counts(summary.colocalization, result.rule_counts)}")
     if summary.registration_source == "imported":
         print(f"  registration: imported from {request.tmap}")
+    elif summary.registration_source == "map-file":
+        print(f"  registration: map file {request.map_path}")
     if request.tdat is not None:
         print(f"  detection: mode '{summary.detection_mode}' from {request.tdat}")
     if summary.low_confidence_registration:
+        # A map file is judged against its own gate, not --rms-gate (#353).
+        gate = request.rms_gate if summary.rms_gate is None else summary.rms_gate
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "
-            f"{request.rms_gate} px gate ({summary.n_control_points} control points); "
+            f"{gate:g} px gate ({summary.n_control_points} control points); "
             "molecules tagged 'low-confidence-registration'.",
             file=sys.stderr,
         )
@@ -391,7 +423,11 @@ def _run_extract(args: argparse.Namespace) -> int:
     if check is not None:
         note = check.describe(
             donor_side=request.donor_side,
-            imported_map=summary.registration_source == "imported",
+            # A .tmap or a map file sets the channel split, not --donor-side.
+            imported_map=summary.registration_source != "native",
+            # A --map run names its map file, never the .tmap it did not use.
+            map_file=None if request.map_path is None else os.path.basename(request.map_path),
+            channel_layout=summary.channel_layout,
         )
         if check.swapped:
             print(f"  warning: {note}.", file=sys.stderr)
@@ -450,9 +486,10 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Headless batch runner (FR-BATCH): process each movie into its own\n"
-            ".tether under --out-dir, isolating failures (continue-on-error) and\n"
-            "checkpointing per stage so a re-run resumes only the incomplete stages.\n"
-            "Prints an end-of-run summary and writes a JSONL structured log."
+            ".tether under --out-dir, or every movie into one project with --into,\n"
+            "isolating failures (continue-on-error) and checkpointing per stage so a\n"
+            "re-run resumes only the incomplete stages. Prints an end-of-run summary\n"
+            "and writes a JSONL structured log."
         ),
         epilog=_batch_exit_code_epilog(),
     )
@@ -474,14 +511,25 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         action="store_true",
         help=(
             "print each movie, its output and what the run would do, then exit 0; "
-            "no movie is read and nothing is written"
+            "nothing is written, and no movie is read except to hash it under --into"
         ),
     )
-    batch.add_argument(
+    destination = batch.add_mutually_exclusive_group(required=True)
+    destination.add_argument(
         "-d",
         "--out-dir",
-        required=True,
+        default=None,
         help="directory for the per-movie .tether projects (created if absent)",
+    )
+    destination.add_argument(
+        "--into",
+        default=None,
+        metavar="PROJECT.tether",
+        help=(
+            "append every movie to this one project (created by the first movie if "
+            "absent); a movie already in it is skipped, and correct and idealize run "
+            "once over the whole project"
+        ),
     )
     batch.add_argument(
         "--tmap",
@@ -542,7 +590,10 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         "--log",
         default=None,
         metavar="PATH",
-        help="write a JSONL structured log here (default: <out-dir>/batch-log.jsonl)",
+        help=(
+            "write a JSONL structured log here (default: <out-dir>/batch-log.jsonl, or "
+            "<project>-batch-log.jsonl beside the --into project)"
+        ),
     )
     # --- Sidecar supervision (FR-BATCH PR7-B) --------------------------------
     batch.add_argument(
@@ -602,6 +653,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
     return BatchRequest(
         movies=tuple(args.movies),
         out_dir=args.out_dir,
+        into=args.into,
         tmap=args.tmap,
         tdat=args.tdat,
         policy=args.policy,
@@ -656,6 +708,277 @@ def _run_batch(args: argparse.Namespace) -> int:
     return code
 
 
+#: ``tether idealize`` exit code when the sidecar cannot start (#657); 1 and 2 are the
+#: shared "failed" and "usage" codes.
+EXIT_SIDECAR_UNAVAILABLE = 3
+
+
+def _add_idealize_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``idealize`` subcommand (fit a project, or refit its stale models)."""
+    idealize = subparsers.add_parser(
+        "idealize",
+        help=summary,
+        description=(
+            "Fit a hidden Markov model to the molecules of a .tether project (FR-IDEALIZE) "
+            "and store it under /idealization/<model>. Rejected molecules are left out. "
+            "With --stale-only, refit each stored model that has a molecule whose inputs "
+            "changed since its fit. The fit runs in the tMAVEN sidecar; the command holds "
+            "the project's lock while it runs. Exit codes: 0 fitted (or nothing stale), "
+            "1 failed, 2 usage, 3 the sidecar was not available (nothing written)."
+        ),
+    )
+    idealize.add_argument("project", help="the .tether project to fit")
+    idealize.add_argument(
+        "--method",
+        default=None,
+        choices=IDEALIZE_METHODS,
+        help=f"the fit: consensus VB-HMM or ebFRET (default {IDEALIZE_METHODS[0]})",
+    )
+    states = idealize.add_mutually_exclusive_group()
+    states.add_argument(
+        "--nstates",
+        type=int,
+        default=None,
+        metavar="N",
+        help="fit exactly N states (default: choose the state count by the largest ELBO)",
+    )
+    states.add_argument(
+        "--nstates-grid",
+        default=None,
+        metavar="LIST",
+        help="the state counts the ELBO choice tries, comma-separated (default 1,2,3,4)",
+    )
+    idealize.add_argument(
+        "--model-name",
+        default=None,
+        metavar="NAME",
+        help=(
+            "store the fit as /idealization/NAME (default: the method); with --stale-only, "
+            "refit only this model"
+        ),
+    )
+    idealize.add_argument(
+        "--condition",
+        action="append",
+        default=None,
+        dest="conditions",
+        metavar="ID",
+        help="fit only the molecules of this condition ID (repeat for more; default: all)",
+    )
+    idealize.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="also fit the molecules marked rejected",
+    )
+    idealize.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace a model of the same name (default: refuse)",
+    )
+    idealize.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        metavar="N",
+        help="seed every fit, so the same inputs and seed give the same model (default: unseeded)",
+    )
+    idealize.add_argument(
+        "--stale-only",
+        action="store_true",
+        help=(
+            "refit, with its stored settings, each model that has a stale molecule, and "
+            "report how many molecules were stale and how many current"
+        ),
+    )
+    # --- Sidecar supervision: the options tether batch has -------------------
+    idealize.add_argument(
+        "--max-restarts",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "restart a fit up to N times on a sidecar crash or timeout; default 3 (§11.2). "
+            "0 disables restarts"
+        ),
+    )
+    idealize.add_argument(
+        "--sidecar-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="per-fit sidecar timeout in seconds (default 1800)",
+    )
+    idealize.add_argument(
+        "--sidecar-python",
+        default=None,
+        metavar="PATH",
+        help="sidecar interpreter (default: $TETHER_SIDECAR_PYTHON)",
+    )
+
+
+def _idealize_request(args: argparse.Namespace) -> IdealizeRequest:
+    """Build the ``idealize`` request from the parsed options."""
+    return IdealizeRequest(
+        project=args.project,
+        method=args.method,
+        nstates=args.nstates,
+        nstates_grid=args.nstates_grid,
+        model_name=args.model_name,
+        conditions=tuple(args.conditions or ()),
+        include_rejected=args.include_rejected,
+        overwrite=args.overwrite,
+        seed=args.seed,
+        stale_only=args.stale_only,
+        max_restarts=args.max_restarts,
+        sidecar_timeout=args.sidecar_timeout,
+        sidecar_python=args.sidecar_python,
+    )
+
+
+def _format_elbo(value: float | None) -> str:
+    return "not recorded" if value is None else f"{value:.6g}"
+
+
+def _format_idealize(result: IdealizeResult) -> str:
+    """The text report of an ``idealize`` result."""
+    lines = [str(result.project)]
+    fitted = result.fitted
+    if fitted is not None:
+        lines.append(f"  model: {fitted.model_name}")
+        lines.append(f"  method: {fitted.model_type}")
+        how = "largest ELBO" if fitted.nstates_selected_by == "max-elbo" else "fixed"
+        lines.append(f"  states: {fitted.nstates} ({how})")
+        if fitted.elbo_by_nstates:
+            lines.append("  ELBO by state count:")
+            for k in sorted(fitted.elbo_by_nstates):
+                lines.append(f"    {k}: {_format_elbo(fitted.elbo_by_nstates[k])}")
+        else:
+            lines.append(f"  ELBO: {_format_elbo(fitted.elbo)}")
+        lines.append(f"  molecules fitted: {fitted.n_molecules}")
+        return "\n".join(lines)
+    if not result.refits:
+        lines.append("  no idealization model to check")
+    for refit in result.refits:
+        if refit.imported:
+            verdict = "imported from tMAVEN, not refitted"
+        elif refit.refit is not None:
+            verdict = "refitted"
+        else:
+            verdict = "current, not refitted"
+        lines.append(
+            f"  {refit.model_name}: {refit.n_stale} stale, {refit.n_current} current; {verdict}"
+        )
+    return "\n".join(lines)
+
+
+def _run_idealize(args: argparse.Namespace) -> int:
+    """Handle ``tether idealize``; exit 2 on a refused request, 3 without a sidecar."""
+    try:
+        result: IdealizeResult = run_service(_idealize_request(args))
+    except RequestRefused as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return 2
+    except SidecarUnavailable as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return EXIT_SIDECAR_UNAVAILABLE
+    except CommandFailed as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return 1
+    print(_format_idealize(result))
+    return 0
+
+
+def _add_map_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``map`` subcommand and its one action, ``map create`` (#353)."""
+    map_parser = subparsers.add_parser(
+        "map",
+        help=summary,
+        description=(
+            "Channel map files: the saved donor<->acceptor registration that "
+            "'tether extract --map' applies to a later movie."
+        ),
+    )
+    actions = map_parser.add_subparsers(dest="map_action", metavar="<action>", required=True)
+    create = actions.add_parser(
+        "create",
+        help="make a map file from a bead video or one bead image",
+        description=(
+            "Detect the beads of both halves, pair them and fit the degree-2 map "
+            "(Stages 6-9), then save it as a .npz map file with its source id, its "
+            "projection settings and its quality record. A map over --rms-gate is still "
+            "saved, flagged low-confidence; the command then exits 0 and warns."
+        ),
+    )
+    create.add_argument("source", help="a bead TIFF: one image, or a video of frames")
+    create.add_argument(
+        "-o", "--output", required=True, help="the .npz map file to write (must end in .npz)"
+    )
+    create.add_argument("--overwrite", action="store_true", help="replace an existing map file")
+    create.add_argument(
+        "--frames",
+        nargs=2,
+        type=int,
+        default=None,
+        metavar=("START", "STOP"),
+        help="for a video: the 0-based half-open frame range to project (default: all)",
+    )
+    create.add_argument(
+        "--projection",
+        default="max",
+        choices=("max", "mean"),
+        help="for a video: how the frames are reduced to one image (default: max)",
+    )
+    create.add_argument(
+        "--donor-side",
+        default="left",
+        choices=DONOR_SIDES,
+        help="which half of the frame is the donor channel (default: left)",
+    )
+    create.add_argument(
+        "--rms-gate",
+        type=float,
+        default=0.5,
+        help="registration RMS-residual gate in px (default: 0.5)",
+    )
+
+
+def _map_request(args: argparse.Namespace) -> MapCreateRequest:
+    """Build the ``map`` request from the parsed options."""
+    start, stop = args.frames if args.frames is not None else (None, None)
+    return MapCreateRequest(
+        source=args.source,
+        output=args.output,
+        overwrite=args.overwrite,
+        frame_start=start,
+        frame_stop=stop,
+        projection=args.projection,
+        donor_side=args.donor_side,
+        rms_gate=args.rms_gate,
+    )
+
+
+def _run_map(args: argparse.Namespace) -> int:
+    """Handle ``tether map create``; a failed map is exit code 1."""
+    request = _map_request(args)
+    try:
+        result: MapCreateResult = run_service(request)
+    except CommandFailed as exc:
+        print(f"tether map create: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"Map -> {result.path}: RMS {result.rms_residual:.3f} px over {result.n_pairs} "
+        f"bead pair(s), {result.coverage:.0%} of the field covered"
+    )
+    if result.low_confidence:
+        print(
+            f"  warning: the RMS residual exceeds the {request.rms_gate} px gate; the map is "
+            "flagged low-confidence and its molecules will be tagged "
+            "'low-confidence-registration'.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 @dataclasses.dataclass(frozen=True)
 class _Route:
     """The command-line route of one service command."""
@@ -668,6 +991,8 @@ class _Route:
 _ROUTES: dict[str, _Route] = {
     "extract": _Route(_add_extract_parser, _extract_request, _run_extract),
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
+    "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
+    "map": _Route(_add_map_parser, _map_request, _run_map),
 }
 
 
@@ -889,6 +1214,119 @@ def _run_metadata(args: argparse.Namespace) -> int:
     return 0
 
 
+#: The stages ``tether status --require`` accepts; ``tether.project.readiness.STAGES`` keys.
+#: A literal, so ``build_parser`` stays off the HDF5 stack; a test pins the two equal.
+_STATUS_STAGES = (
+    "sources",
+    "map",
+    "traces",
+    "curation",
+    "corrections",
+    "analysis_sets",
+    "fits",
+    "results",
+    "deposit",
+)
+
+#: ``tether status`` exits with this code when a ``--require`` stage is not ready.
+STATUS_NOT_READY_EXIT = 3
+
+
+def _add_status_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``status`` subcommand (the readiness of each stage, #896)."""
+    status = subparsers.add_parser(
+        "status",
+        help="print the readiness of each stage of a .tether project and the next step",
+        description=(
+            "Print each stage of the project in workflow order with its state, each stale "
+            "item with the reason, the stored jobs, and the next step. The project is opened "
+            "read-only and no lock is taken, as for tether info. Exit codes: 0 read, 1 the "
+            f"project could not be read, 2 bad arguments, {STATUS_NOT_READY_EXIT} a --require "
+            "stage is not ready."
+        ),
+    )
+    status.add_argument("project", help="the .tether project")
+    status.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON document (a documented, versioned layout) instead of text",
+    )
+    status.add_argument(
+        "--require",
+        action="append",
+        choices=_STATUS_STAGES,
+        metavar="STAGE",
+        help=(
+            f"exit {STATUS_NOT_READY_EXIT} unless STAGE is ready (or not needed); give it "
+            f"again for more stages. One of: {', '.join(_STATUS_STAGES)}"
+        ),
+    )
+
+
+def _format_readiness(r: ProjectReadiness) -> str:
+    """The text form of one [`ProjectReadiness`][tether.project.readiness.ProjectReadiness]."""
+    from tether.project.readiness import SECTIONS  # noqa: PLC0415
+
+    lines = [r.path]
+    for section, title in SECTIONS:
+        lines.append(f"  {title}")
+        for stage in (s for s in r.stages if s.section == section):
+            detail = f" ({stage.detail})" if stage.detail else ""
+            lines.append(f"    {stage.name}: {stage.state.text}{detail}")
+    if r.stale:
+        lines.append(f"  stale: {len(r.stale)}")
+        lines.extend(f"    {s.item}: {s.reason}" for s in r.stale)
+    else:
+        lines.append("  stale: none")
+    if r.jobs:
+        lines.append(f"  jobs: {len(r.jobs)}")
+        for j in r.jobs:
+            error = f"; {j.error}" if j.error else ""
+            lines.append(
+                f"    {j.job_id[:8]} {j.command}: {j.state}, "
+                f"{j.n_completed} of {j.n_parts} parts complete{error}"
+            )
+    else:
+        lines.append("  jobs: none")
+    lines.append(f"  next step: {r.next_step.action}")
+    return "\n".join(lines)
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    """Handle ``tether status``: 0 read, 1 unreadable, 3 a ``--require`` stage not ready."""
+    import json  # noqa: PLC0415
+
+    from tether.project.readiness import (  # noqa: PLC0415
+        READINESS_FORMAT_VERSION,
+        ProjectReadinessError,
+    )
+    from tether.services.status import project_status  # noqa: PLC0415
+
+    try:
+        readiness = project_status(args.project)
+    except ProjectReadinessError as exc:
+        print(f"tether status: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        document = {
+            "format": "tether-status",
+            "format_version": READINESS_FORMAT_VERSION,
+            "tether_version": __version__,
+            **readiness.to_dict(),
+        }
+        print(json.dumps(document, indent=2))
+    else:
+        print(_format_readiness(readiness))
+    _warn_conflict_copies(args.project)
+    code = 0
+    for key in args.require or ():
+        stage = readiness.stage(key)
+        if not stage.state.done:
+            print(f"tether status: {key} is {stage.state.text}", file=sys.stderr)
+            code = STATUS_NOT_READY_EXIT
+    return code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -910,6 +1348,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_metadata(args)
     if command == "export":
         return run_export(args)
+    if command == "status":
+        return _run_status(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

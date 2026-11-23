@@ -235,7 +235,8 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
     # A name passed on through two modules, relative and renamed on the way.
     assert of("from pkg import NAME\n") == {"pkg", "pkg.sub", "pkg.deep", "pkg.deep.leaf"}
     assert of("def t():\n    from pkg.deep import leaf\n") == {"pkg", "pkg.deep", "pkg.deep.leaf"}
-    assert of("from pkg import *\n") == {"pkg"}
+    # A wildcard binds the public names of ``pkg`` (no ``__all__`` here), so it follows them.
+    assert of("from pkg import *\n") == {"pkg", "pkg.sub", "pkg.deep", "pkg.deep.leaf", "pkg.loop"}
     assert of("from pkg import loop\n") == {"pkg", "pkg.loop"}, "a cycle ends"
     # A module-scope binding (here inside ``try``) counts; a function's local import does not.
     assert of("from pkg.shadow import X\n") == {"pkg", "pkg.shadow", "pkg.mod"}
@@ -250,6 +251,151 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
     assert of("from . import x\nimport numpy\n") == {"numpy"}
     assert rm.module_name("src/pkg/deep/__init__.py") == "pkg.deep"
     assert rm.module_name("src/pkg/deep/leaf.py") == "pkg.deep.leaf"
+
+
+def test_wildcard_imports_and_module_aliases_name_the_modules_that_made_the_value(
+    tmp_path: Path,
+) -> None:
+    # #1007: ``from pkg import *`` and ``from pkg import backend`` (``import pkg.mod as backend``
+    # in the package) read values that submodules made.
+    _tree(
+        tmp_path,
+        {
+            # No ``__all__``: the public names it binds, a wildcard of its own followed.
+            "src/wa/__init__.py": "from .c import *\nfrom wa._priv import _X\n",
+            "src/wa/c.py": "import wd.impl as eng\nA = 1\n_HIDDEN = 2\n",
+            "src/wa/_priv.py": "_X = 1\n",
+            # ``__all__`` decides, and a submodule it names is loaded.
+            "src/wb/__init__.py": (
+                "from wb.c import C\nfrom wb.d import D\nfrom wb.sub import *\n"
+                "__all__ = ['C']\n__all__ += ('part',)\n"
+            ),
+            "src/wb/c.py": "C = 1\n",
+            "src/wb/d.py": "D = 1\n",
+            "src/wb/part.py": "P = 1\n",
+            "src/wb/sub.py": "S = 1\n",
+            # A module alias, in a package and in a plain module.
+            "src/wd/__init__.py": "import wd.impl as backend\n",
+            "src/wd/front.py": "import wd.impl as engine\n",
+            "src/wd/impl.py": "X = 1\n",
+            # Wildcards that import each other end.
+            "src/we/__init__.py": "from we.b import *\nE = 1\n",
+            "src/we/b.py": "from we import *\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("from wa import *\n") == {"wa", "wa.c", "wd", "wd.impl"}
+    assert of("from wa import A\n") == {"wa", "wa.c"}, "a wildcard in a source module"
+    assert of("from wa import eng\n") == {"wa", "wa.c", "wd", "wd.impl"}
+    assert of("from wb import *\n") == {"wb", "wb.c", "wb.part"}
+    assert of("from wb import S\n") == {"wb", "wb.sub"}
+    assert of("from wd import backend\n") == {"wd", "wd.impl"}
+    assert of("from wd.front import engine\n") == {"wd", "wd.front", "wd.impl"}
+    assert of("from we import *\n") == {"we", "we.b"}, "a cycle of wildcards ends"
+    # The selection of #883 then reaches the test that only reads such a value.
+    _tree(
+        tmp_path,
+        {"tests/test_w.py": "from wd import backend\n\n\ndef test_x():\n    assert backend.X\n"},
+    )
+    mutant = next(m for m in rm.mutants_of("X = 1\n", "src/wd/impl.py") if not m.test_lines)
+    imports = rm.imports_of_tests(tmp_path, ["tests/test_w.py"])
+    passed = {"tests/test_w.py::test_x"}
+    assert rm.covering_tests(mutant, {}, passed, None, imports) == ["tests/test_w.py::test_x"]
+
+
+def test_wildcard_public_names_follow_what_the_docs_say(tmp_path: Path) -> None:
+    # CodeRabbit review on PR #1049: an annotated ``__all__`` is a list of strings; a list
+    # with a non-string element, or an ``__all__`` changed in a way not read, is not, so
+    # the public names fall back to the bound ones; a module-level loop binds its target.
+    _tree(
+        tmp_path,
+        {
+            "src/xa/__init__.py": "from .c import _C\n__all__: list[str] = ['_C']\n",
+            "src/xa/c.py": "_C = 1\n",
+            "src/xb/__init__.py": "from .c import A\nfrom .d import B\nN = 'B'\n"
+            "__all__ = ['A', N]\n",
+            "src/xb/c.py": "A = 1\n",
+            "src/xb/d.py": "B = 1\n",
+            "src/xc/__init__.py": (
+                "from .c import A\nfrom .d import B\nEXTRA = ['B']\n"
+                "__all__ = ['A']\n__all__ += EXTRA\n"
+            ),
+            "src/xc/c.py": "A = 1\n",
+            "src/xc/d.py": "B = 1\n",
+            "src/xd/__init__.py": "from .values import *\n",
+            "src/xd/values.py": "for VALUE in (1,):\n    pass\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("from xa import *\n") == {"xa", "xa.c"}, "an annotated __all__"
+    assert of("from xb import *\n") == {"xb", "xb.c", "xb.d"}, "a non-string element"
+    assert of("from xc import *\n") == {"xc", "xc.c", "xc.d"}, "an __all__ write not read"
+    assert of("from xd import VALUE\n") == {"xd", "xd.values"}, "a module-level loop target"
+
+
+def test_conditional_all_cyclic_wildcards_and_plain_imports(tmp_path: Path) -> None:
+    # #1059 (Codex review on PR #1049): every literal ``__all__`` a branch can set counts, a
+    # cycle of wildcards gives the same answer whichever module is read first, and an import
+    # without ``as`` passes on the module it imports.
+    _tree(
+        tmp_path,
+        {
+            "src/ca/__init__.py": (
+                "from .a import A\nfrom .b import B\nif A:\n    __all__ = ['A']\n"
+                "else:\n    __all__ = ['B']\n"
+            ),
+            "src/ca/a.py": "A = 1\n",
+            "src/ca/b.py": "B = 1\n",
+            "src/ct/__init__.py": (
+                "from .a import A\nfrom .b import B\ntry:\n    __all__ = ['A']\n"
+                "except ImportError:\n    __all__ = ['B']\n"
+            ),
+            "src/ct/a.py": "A = 1\n",
+            "src/ct/b.py": "B = 1\n",
+            # Consecutive unconditional assignments still replace.
+            "src/cu/__init__.py": "from .a import A\nfrom .b import B\n__all__ = ['A']\n"
+            "__all__ = ['B']\n",
+            "src/cu/a.py": "A = 1\n",
+            "src/cu/b.py": "B = 1\n",
+            "src/pkg/__init__.py": "",
+            "src/pkg/a.py": "from .b import *\nfrom .impl import *\n",
+            "src/pkg/b.py": "from .a import *\n",
+            "src/pkg/impl.py": "VALUE = 10\n",
+            "src/backend.py": "X = 1\n",
+            "src/front.py": "import backend\nimport pkg.impl\n",
+            # One branch computes it: the bound names, and the literal of the other branch.
+            "src/cx/__init__.py": (
+                "from .impl import _VALUE, B\nNAMES = ['B']\nif B:\n    __all__ = NAMES\n"
+                "else:\n    __all__ = ['_VALUE']\n__all__.extend([])\n"
+            ),
+            "src/cx/impl.py": "_VALUE = 1\nB = 2\n",
+            "src/ann/__init__.py": "from .c import _VALUE\n__all__: list[str] = ['_VALUE']\n",
+            "src/ann/c.py": "_VALUE = 1\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("from ca import *\n") == {"ca", "ca.a", "ca.b"}, "if/else: the union"
+    assert of("from ct import *\n") == {"ct", "ct.a", "ct.b"}, "try/except: the union"
+    assert of("from cu import *\n") == {"cu", "cu.b"}, "unconditional: the last one"
+    assert rm._Imports(tmp_path / "src").public("cx") == {"B", "NAMES", "_VALUE"}
+    every = {"pkg", "pkg.a", "pkg.b", "pkg.impl"}
+    assert rm._Imports(tmp_path / "src").of("from pkg.b import VALUE\n") == every
+    imports = rm._Imports(tmp_path / "src")
+    assert imports.of("from pkg.a import *\n") == every
+    assert imports.of("from pkg.b import VALUE\n") == every, "the order of reading"
+    assert of("from front import backend\n") == {"front", "backend"}
+    assert of("from front import *\n") == {"front", "backend", "pkg", "pkg.impl"}
+    assert rm._Imports(tmp_path / "src").public("ann") == {"_VALUE"}, "an annotated __all__"
+    # Through ``imports_of_tests``, whose one resolver reads the files in order.
+    _tree(
+        tmp_path,
+        {
+            "tests/test_1.py": "from pkg.a import *\n",
+            "tests/test_2.py": "from pkg.b import VALUE\n",
+        },
+    )
+    found = rm.imports_of_tests(tmp_path, ["tests/test_1.py", "tests/test_2.py"])
+    assert found["tests/test_2.py"] == every
 
 
 def test_identical_changes_on_one_line_have_different_occurrences() -> None:

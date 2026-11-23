@@ -8,11 +8,14 @@ tasks; this module does the rest:
 * ``run`` verifies the tool's clone (pinned commit, no local change; or the SHA-256 of each
   script for a ``kind = "files"`` pin), runs one task with ``matlab -batch`` on named inputs, and
   writes ``provenance.json`` beside the outputs. It verifies the clone again after the run, so a
-  tool that changes or adds a file in its own folder is refused rather than recorded. That check
-  reads ``git status``, which does not see a file that the clone ignores (#1193).
+  tool that changes or adds a file in its own folder is refused rather than recorded. ``git
+  status`` does not list a file that the clone ignores, so for a git pin the run also records the
+  SHA-256 of each ignored file before MATLAB starts and refuses the record if any of them was
+  written, changed or removed (#1193). A clone with ignored files of its own is still accepted.
 * ``freeze`` makes the same record for files that the tool already saved (exports, project
   files), for a tool that cannot run without its window. The record says so, gives the date of
-  each saved file, and lists any manual step that made a result.
+  each saved file, and lists any manual step that made a result. A saved file whose size or date
+  changes while it is copied is refused, so the record never gives an old date for new bytes.
 * ``verify`` checks a frozen directory against its record. The required matrix runs it on every
   committed record (``tests/test_matlab_reference.py``).
 
@@ -36,6 +39,7 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import os
 import platform
 import re
 import shutil
@@ -111,8 +115,38 @@ def verify_clone(tool: str, clone: Path, pins: dict) -> dict:
             got = sha256(path) if path.is_file() else "missing"
             if got != want:
                 raise HarnessError(f"{tool} script {name} has SHA-256 {got}, the pin is {want}")
-        return {"name": tool, "files": dict(pin["files"])}
+        # The record carries the citation with the hashes: the scripts have no URL to name.
+        return {"name": tool, "citation": pin["citation"], "files": dict(pin["files"])}
     raise HarnessError(f"unknown pin kind {pin['kind']!r} for {tool}")
+
+
+def _ignored(tool: str, clone: Path, pins: dict) -> dict[str, str]:
+    """SHA-256 of each file that a git clone ignores, keyed by POSIX path; ``{}`` for a files pin.
+
+    ``git status`` leaves these out, so :func:`verify_clone` cannot see a run that writes one
+    (#1193). A symbolic link is recorded by its target, not followed. Git lists an ignored
+    checkout inside the clone as one folder (``dep/``) and does not look into it, so every file
+    under such a folder is recorded too.
+    """
+    if pins[tool]["kind"] != "git":
+        return {}
+
+    def entry(path: Path) -> str:
+        return f"symlink:{path.readlink()}" if path.is_symlink() else sha256(path)
+
+    listed = _git(clone, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
+    found = {}
+    for name in filter(None, listed.split("\0")):
+        path = clone / name
+        if not name.endswith("/") or path.is_symlink():
+            found[name.rstrip("/")] = entry(path)
+            continue
+        for folder, dirs, files in os.walk(path):
+            here = Path(folder)
+            # A link to a folder is recorded by its target and not walked, like any other link.
+            for item in [*files, *(d for d in dirs if (here / d).is_symlink())]:
+                found[(here / item).relative_to(clone).as_posix()] = entry(here / item)
+    return dict(sorted(found.items()))
 
 
 def _driver() -> dict:
@@ -208,7 +242,9 @@ def run(
         raise HarnessError(f"task {task} needs the inputs: {', '.join(sorted(missing))}")
     params = {**spec.get("params", {}), **(params or {})}
     _no_private_paths(params)
-    tool_part = verify_clone(tool, clone, load_pins() if pins is None else pins)
+    pins = load_pins() if pins is None else pins
+    tool_part = verify_clone(tool, clone, pins)
+    ignored = _ignored(tool, clone, pins)
     input_part = {name: _files(path) for name, path in sorted(inputs.items())}
     _fresh_out(out)
     with tempfile.TemporaryDirectory() as tmp:
@@ -242,9 +278,16 @@ def run(
     # A tool that wrote into its own clone would make the next run start from that file and not
     # from the pin (Deep-LASI saved its settings.mat there on the first workstation run, #715).
     try:
-        verify_clone(tool, clone, load_pins() if pins is None else pins)
+        verify_clone(tool, clone, pins)
     except HarnessError as exc:
         raise HarnessError(f"the run changed the clone; no record written ({exc})") from exc
+    after = _ignored(tool, clone, pins)
+    if after != ignored:
+        changed = sorted(n for n in ignored.keys() | after.keys() if ignored.get(n) != after.get(n))
+        raise HarnessError(
+            "the run changed the clone; no record written (ignored files written, changed or "
+            f"removed: {', '.join(changed)})"
+        )
     return _write_record(
         out,
         {
@@ -274,7 +317,9 @@ def freeze(
     ``tool_version`` is the version that saved the files, as stated (the record keeps it apart
     from a pinned ``commit``); ``inputs`` are the files the tool read to make them, if known.
     ``saved`` in the record gives the date each file was last changed, in UTC, read before the
-    copy: a result made in the tool's window is dated by its file, not by the freeze (#715).
+    copy: a result made in the tool's window is dated by its file, not by the freeze (#715). A
+    file whose size or date changes during the copy is refused: the tool saved it again, and the
+    date read before the copy would not be the date of the bytes copied (#1193).
     """
     _check_release(matlab_release)
     _no_private_paths(tool_version, manual_steps or [])
@@ -286,9 +331,13 @@ def freeze(
             raise HarnessError(f"saved file does not exist: {path.name}")
         if (out / path.name).exists():
             raise HarnessError(f"two saved files share the name {path.name}")
-        changed = _dt.datetime.fromtimestamp(path.stat().st_mtime, _dt.UTC)
+        before = path.stat()
+        changed = _dt.datetime.fromtimestamp(before.st_mtime, _dt.UTC)
         dates[path.name] = changed.isoformat(timespec="seconds")
         shutil.copy2(path, out / path.name)
+        after = path.stat()
+        if (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+            raise HarnessError(f"{path.name} changed while it was copied; no record written")
     return _write_record(
         out,
         {

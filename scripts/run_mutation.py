@@ -431,9 +431,21 @@ def module_name(path: str) -> str:
 def _module_file(src: Path, name: str) -> Path | None:
     base = src.joinpath(*name.split("."))
     for candidate in (base.with_suffix(".py"), base / "__init__.py"):
-        if candidate.is_file():
+        if candidate.is_file() and _exact_case(src, candidate):
             return candidate
     return None
+
+
+def _exact_case(root: Path, path: Path) -> bool:
+    """Whether each part of *path* below *root* is on disk with that case. Python's import
+    matches case even on a filesystem that does not (Windows, macOS), so ``pkg.C`` is no
+    module when only ``pkg/c.py`` exists."""
+    here = root
+    for part in path.relative_to(root).parts:
+        if part not in os.listdir(here):
+            return False
+        here = here / part
+    return True
 
 
 def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
@@ -445,16 +457,66 @@ def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
     return ".".join([*parts, *([node.module] if node.module else [])])
 
 
-def _module_scope(tree: ast.Module) -> Iterable[ast.AST]:
-    """The nodes that bind module names: ``if``/``try``/``with`` blocks are entered, a ``def``
-    or ``class`` body is not, so a local import never shadows what the module passes on."""
-    todo: list[ast.AST] = list(tree.body)
+def _module_scope(tree: ast.Module) -> Iterable[tuple[ast.AST, bool]]:
+    """The nodes that bind module names, each with whether it may not run (it sits in an
+    ``if``, ``try`` or loop): ``if``/``try``/``with`` blocks are entered, a ``def`` or
+    ``class`` body is not, so a local import never shadows what the module passes on."""
+    todo: list[tuple[ast.AST, bool]] = [(node, False) for node in tree.body]
     while todo:
-        node = todo.pop(0)
-        yield node
+        node, conditional = todo.pop(0)
+        yield node, conditional
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             inner = (ast.stmt, ast.excepthandler)
-            todo[:0] = [c for c in ast.iter_child_nodes(node) if isinstance(c, inner)]
+            maybe = conditional or not isinstance(node, (ast.With, ast.AsyncWith))
+            todo[:0] = [(c, maybe) for c in ast.iter_child_nodes(node) if isinstance(c, inner)]
+
+
+def _writes_all(node: ast.AST) -> bool:
+    """Whether *node* changes ``__all__``: an assignment to it (annotated, augmented or plain,
+    with a value) or a call of one of its methods, such as ``__all__.extend(...)``."""
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AugAssign) or (isinstance(node, ast.AnnAssign) and node.value):
+        targets = [node.target]
+    elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+        func = node.value.func
+        targets = [func.value] if isinstance(func, ast.Attribute) else []
+    else:
+        return False
+    return any(isinstance(n, ast.Name) and n.id == "__all__" for t in targets for n in ast.walk(t))
+
+
+def _names_of_all(node: ast.AST) -> list[str] | None:
+    """The strings of ``__all__ = [...]``, ``__all__: list[str] = [...]`` or
+    ``__all__ += (...)`` when every element is a string; ``None`` for anything else."""
+    if isinstance(node, ast.Assign):
+        targets, value = node.targets, node.value
+    elif isinstance(node, ast.AnnAssign) or (
+        isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add)
+    ):
+        targets, value = [node.target], node.value
+    else:
+        return None
+    if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+        return None
+    if not isinstance(value, (ast.List, ast.Tuple)):
+        return None
+    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in value.elts):
+        return None
+    return [e.value for e in value.elts]
+
+
+def _bound_names(node: ast.AST) -> set[str]:
+    """The module names a ``def``, ``class``, assignment or ``for`` target at module scope
+    binds itself."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        return {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return {n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name)}
+    return set()
 
 
 class _Imports:
@@ -464,19 +526,37 @@ class _Imports:
     ``from tether.a import b`` imports ``tether.a`` and, when ``b`` is a submodule, ``tether.a.b``.
     When ``tether.a`` only re-exports ``b`` (``from tether.a.c import b`` in its ``__init__``),
     the test reads a value that ``tether.a.c`` made, so it imports ``tether.a.c`` too, and so on
-    down the chain of re-exports (every branch of a conditional one). Every module found also
-    imports its parent packages (``tether`` and ``tether.a`` for ``tether.a.b``), as Python
-    runs their ``__init__`` first."""
+    down the chain of re-exports (every branch of a conditional one). A wildcard
+    (``from tether.a import *``) imports what each public name of ``tether.a`` comes from, as
+    ``__all__`` lists them when it is a literal of strings (every list a branch may set, when it
+    is set in an ``if`` or ``try``) and else every bound name without a leading ``_``, with
+    the names of any literal list a branch may set; a wildcard inside a source module
+    (``from .c import *``) passes those names on the same way, and a cycle of such wildcards
+    is followed until nothing more is found.
+    A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
+    itself, so ``from tether.a import backend`` imports ``tether.a.c``; ``import tether.a.c``
+    binds ``tether``, through which ``tether.a.c`` is read, and passes it on. Every module
+    found also imports its parent packages (``tether`` and ``tether.a`` for ``tether.a.b``), as
+    Python runs their ``__init__`` first."""
 
     def __init__(self, src: Path) -> None:
         self.src = src
-        self._reexports: dict[str, dict[str, list[tuple[str, str]]]] = {}
+        self._reexports: dict[str, dict[str, list[tuple[str, str | None]]]] = {}
+        self._parsed: dict[str, tuple[dict, list[str], set[str], list[str] | None, list[str]]] = {}
+        # While a cycle of wildcards is being resolved: the maps so far, and those already
+        # recomputed in this pass.
+        self._pending: dict[str, dict[str, list[tuple[str, str | None]]]] | None = None
+        self._pass: set[str] = set()
 
-    def reexports(self, module: str) -> dict[str, list[tuple[str, str]]]:
-        """name -> every (module it may come from, its name there), for the names *module*
-        imports; an ``if``/``else`` or ``try``/``except`` pair gives a name two origins."""
-        if module not in self._reexports:
-            self._reexports[module] = {}
+    def _parse(self, module: str) -> tuple[dict, list[str], set[str], list[str] | None, list[str]]:
+        """(name -> origins, wildcard origins, names bound in place, ``__all__`` or ``None``
+        when it is not known, the literal names some branch may still give it then)."""
+        if module not in self._parsed:
+            names: dict[str, list[tuple[str, str | None]]] = {}
+            stars: list[str] = []
+            local: set[str] = set()
+            known: list[str] = []  # the literal names ``__all__`` may hold
+            written = unknown = False
             path = _module_file(self.src, module)
             if path is not None:
                 is_package = path.name == "__init__.py"
@@ -484,15 +564,78 @@ class _Imports:
                     tree = ast.parse(path.read_text(encoding="utf-8"))
                 except (SyntaxError, UnicodeDecodeError):
                     tree = ast.Module(body=[], type_ignores=[])
-                for node in _module_scope(tree):
+                for node, conditional in _module_scope(tree):
                     if isinstance(node, ast.ImportFrom):
                         origin = _absolute(module, is_package, node)
                         for alias in node.names:
-                            if alias.name != "*":
-                                self._reexports[module].setdefault(
-                                    alias.asname or alias.name, []
-                                ).append((origin, alias.name))
+                            if alias.name == "*":
+                                stars.append(origin)
+                            else:
+                                names.setdefault(alias.asname or alias.name, []).append(
+                                    (origin, alias.name)
+                                )
+                    elif isinstance(node, ast.Import):
+                        for alias in node.names:
+                            # ``import a.b as c`` binds c to the module a.b; ``import a.b``
+                            # binds a, through which a.b is read
+                            bound = alias.asname or alias.name.split(".", 1)[0]
+                            names.setdefault(bound, []).append((alias.name, None))
+                    else:
+                        if _writes_all(node):  # a change not read leaves ``__all__`` unknown
+                            listed = _names_of_all(node)
+                            if not conditional and isinstance(node, (ast.Assign, ast.AnnAssign)):
+                                known, unknown = [], False  # replaces what came before
+                            # a branch that may run adds to the others
+                            known += [n for n in listed or () if n not in known]
+                            written, unknown = True, unknown or listed is None
+                        local |= _bound_names(node) - {"__all__"}
+            all_ = known if written and not unknown else None
+            self._parsed[module] = (names, stars, local, all_, known if unknown else [])
+        return self._parsed[module]
+
+    def reexports(self, module: str) -> dict[str, list[tuple[str, str | None]]]:
+        """name -> every (module it may come from, its name there), for the names *module*
+        imports; an ``if``/``else`` or ``try``/``except`` pair gives a name two origins, a
+        wildcard gives each public name of its module, and a module alias names no name."""
+        if module in self._reexports:
+            return self._reexports[module]
+        if self._pending is not None:  # inside a pass: once each, a cycle reads the map so far
+            if module not in self._pass:
+                self._pass.add(module)
+                self._grow(module, self._pending.setdefault(module, {}))
+            return self._pending.setdefault(module, {})
+        # A cycle of wildcards: repeat passes until no map grows, then cache them all, so the
+        # answer never depends on which module of the cycle was read first.
+        self._pending = {}
+        try:
+            while True:
+                before = {m: {n: len(o) for n, o in f.items()} for m, f in self._pending.items()}
+                self._pass = set()
+                self.reexports(module)
+                after = {m: {n: len(o) for n, o in f.items()} for m, f in self._pending.items()}
+                if after == before:
+                    break
+            self._reexports.update(self._pending)
+        finally:
+            self._pending, self._pass = None, set()
         return self._reexports[module]
+
+    def _grow(self, module: str, found: dict[str, list[tuple[str, str | None]]]) -> None:
+        """Add to *found* what *module* imports, as far as the maps it reads are known."""
+        names, stars, _, _, _ = self._parse(module)
+        pairs = [(n, o) for n, origins in names.items() for o in origins]
+        pairs += [(n, (star, n)) for star in stars for n in sorted(self.public(star))]
+        for name, origin in pairs:
+            if origin not in found.setdefault(name, []):
+                found[name].append(origin)
+
+    def public(self, module: str) -> set[str]:
+        """The names ``from module import *`` binds."""
+        _, _, local, all_, also = self._parse(module)
+        if all_ is not None:
+            return set(all_)
+        bound = {n for n in local | set(self.reexports(module)) if not n.startswith("_")}
+        return bound | set(also)
 
     def _from(self, module: str, name: str, seen: set[tuple[str, str]]) -> set[str]:
         """The modules that ``from module import name`` loads and that made the value."""
@@ -503,7 +646,7 @@ class _Imports:
         if _module_file(self.src, f"{module}.{name}") is not None:
             found.add(f"{module}.{name}")
         for origin, original in self.reexports(module).get(name, ()):
-            found |= self._from(origin, original, seen)
+            found |= {origin} if original is None else self._from(origin, original, seen)
         return found
 
     def of(self, source: str) -> set[str]:
@@ -518,8 +661,13 @@ class _Imports:
                 found |= {alias.name for alias in node.names}
             elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
                 for alias in node.names:
-                    star = alias.name == "*"
-                    found |= {node.module} if star else self._from(node.module, alias.name, set())
+                    if alias.name == "*":
+                        seen: set[tuple[str, str]] = set()
+                        found.add(node.module)
+                        for name in sorted(self.public(node.module)):
+                            found |= self._from(node.module, name, seen)
+                    else:
+                        found |= self._from(node.module, alias.name, set())
         parents = {name.rsplit(".", i)[0] for name in found for i in range(1, name.count(".") + 1)}
         return found | parents
 

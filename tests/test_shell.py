@@ -75,21 +75,7 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
     assert "Accepted" not in shell.status_message
 
 
-@pytest.mark.parametrize(
-    "key_name",
-    [
-        "Key_1",
-        "Key_0",
-        "Key_Minus",
-        "Key_Equal",
-        "Key_BracketLeft",
-        "Key_BracketRight",
-        "Key_R",
-        "Key_P",
-        "Key_Return",
-        "Key_G",
-    ],
-)
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_G"])
 def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
     from pyqtgraph.Qt import QtCore
 
@@ -163,6 +149,13 @@ def test_overflow_picker_lists_and_assigns_beyond_nine(shell) -> None:
         "11: cat 11",
         "12: cat 12",
     ]
+    # ... and that pairing is the persisted tMAVEN class lookup's, class for class (ADR-0125).
+    from tether.project.conditions import ClassLookup
+
+    lookup = ClassLookup.from_categories("", categories)
+    assert [shown.item(i).text() for i in range(shown.count())] == [
+        f"{cls}: {lookup.category_of(cls)}" for cls in picker.overflow_classes
+    ]
     picker.choose(12)
     assert picker.selected_class() == 12
     from tether.gui.curation import Command, CurationAction
@@ -207,7 +200,8 @@ def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None
     assert rows.get("Space") == "Accept trace"
     assert rows.get("I") == "One-click idealize"
     assert rows.get("G") == "Toggle grid (unavailable)"
-    assert rows.get("1") == "Assign category 1 (unavailable)"
+    # The category keys write the project since #359, so the sheet offers them plainly.
+    assert rows.get("1") == "Assign category 1"
     assert "Jump to movie spot (unavailable)" in rows.values()
     assert "Jump to movie spot" not in rows.values()
 
@@ -234,7 +228,6 @@ def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> N
     monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: 11)
     shell.show_overflow_picker()
     assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
-    assert "Category 11" in shell.status_message
 
 
 def test_show_overflow_picker_cancel_dispatches_nothing(shell, monkeypatch) -> None:

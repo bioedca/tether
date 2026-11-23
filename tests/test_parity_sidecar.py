@@ -41,7 +41,11 @@ from tether.idealize import (
     run_ebhmm,
     run_vbfret,
 )
-from tether.idealize.parity import within_tolerance
+from tether.idealize.parity import (
+    load_transition_matrix_tolerance,
+    within_tolerance,
+    within_transition_matrix_tolerance,
+)
 
 pytestmark = pytest.mark.sidecar
 
@@ -105,6 +109,13 @@ def _assert_within_drift_limit(metrics, label: str) -> None:
     )
 
 
+def _assert_transition_matrix(metrics, method: str, label: str) -> None:
+    """The transition-matrix term is inside ``method``'s frozen ceiling (ADR-0110)."""
+    bound = load_transition_matrix_tolerance(FROZEN, method)
+    ok, failures = within_transition_matrix_tolerance(metrics, bound)
+    assert ok, f"{label}: transition-matrix drift vs frozen {method} ceiling: {failures}"
+
+
 def _report(capsys, label: str, metrics) -> None:
     """Write the measured agreement to the job log, also when the test passes.
 
@@ -131,6 +142,7 @@ def test_281mol_fresh_fit_matches_reference_within_frozen_tolerance(tmp_path, ca
     _report(capsys, "vbconhmm smd_281mol fresh fit vs reference", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"parity drift vs frozen tolerance: {failures}"
+    _assert_transition_matrix(metrics, "vbconhmm", "vbconhmm smd_281mol fresh fit vs reference")
     _assert_within_drift_limit(metrics, "vbconhmm smd_281mol fresh fit vs reference")
 
 
@@ -150,6 +162,7 @@ def test_4mol_cross_seed_matches_within_frozen_tolerance(tmp_path, capsys):
     _report(capsys, "vbconhmm smd_4mol cross-seed", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"cross-seed parity drift vs frozen tolerance: {failures}"
+    _assert_transition_matrix(metrics, "vbconhmm", "vbconhmm smd_4mol cross-seed")
     _assert_within_drift_limit(metrics, "vbconhmm smd_4mol cross-seed")
 
 
@@ -197,6 +210,7 @@ def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path, caps
     _report(capsys, f"ebhmm smd_281mol cross-seed, seeds {EBFRET_SEEDS}", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"ebFRET cross-seed parity drift vs frozen ebhmm tolerance: {failures}"
+    _assert_transition_matrix(metrics, "ebhmm", f"ebhmm smd_281mol, seeds {EBFRET_SEEDS}")
 
 
 def _model_datasets(path):

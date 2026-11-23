@@ -17,6 +17,8 @@ Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
   traces of each Deep-LASI export, against Deep-LASI's corrected FRET with its own factors in
   the ``(1 + α)`` convention of ADR-0028. The numbers are recorded and only the convention
   parity is asserted: no agreement limit exists, and setting one is a maintainer decision.
+  The numbers include the shape of the acceptor-bleach step behind each of Tether's γ (#1233,
+  :func:`_deeplasi_agreement.gamma_step_numbers`), as evidence for #546 and never a limit.
 * **The scripted rerun of video 010**: the frozen output of
   ``scripts/reference/matlab/deep_lasi.py`` (ADR-0074) is checked against its provenance record,
   and compared with the old export, so that the old export has a repeatable origin.
@@ -44,14 +46,17 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
     pytest.importorskip("skimage")
     pytest.importorskip("h5py")
     pytest.importorskip("tifffile")
-    from tether.project.extract import extract_movie  # noqa: PLC0415
+    from tether.project.extract import ExtractOptions, extract_movie  # noqa: PLC0415
     from tether.project.oracle import evaluate_project  # noqa: PLC0415
 
     movie = private_data.path(neutral_id, "movie")
     tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", agree.STATE))
     mat = agree.window_export(private_data, neutral_id)
     out = tmp_path / f"{neutral_id}.tether"
-    summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
+    # The ADR-0022 limits were set for the donor-anchored rule; this names it, so the
+    # partner-in-both default cannot move recall (#1231, ADR-0127).
+    options = ExtractOptions(colocalization="donor-anchored")
+    summary = extract_movie(movie, out, options=options, tmap=tmap, tdat=tdat)
     assert out.is_file(), f"{neutral_id}: extraction wrote no project"
     assert summary.registration_source == "imported", neutral_id
 

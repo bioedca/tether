@@ -9,7 +9,7 @@ to show in a dry run:
 * [`expand_movie_arguments`][] makes each argument a list of movie files. A file is used as
   it is. A folder means the movie files directly inside it, or every movie file below it
   when ``recursive`` is set. Anything else is a pattern that Tether expands itself, with
-  the standard-library [`glob`][] module, so ``"data/*.tif"`` gives the same list in
+  the standard-library `glob` module, so ``"data/*.tif"`` gives the same list in
   PowerShell, cmd and bash. A pattern match that is a folder is expanded like a folder
   argument. The whole list is sorted and each movie appears once. An argument that gives
   no movie is refused with a message that names it.
@@ -21,6 +21,13 @@ to show in a dry run:
 * [`describe_checkpoint`][] says, from the output alone, what a run will do with a movie
   whose output already exists. It reads the same provenance groups the runner's
   checkpoint reads, opened read-only.
+
+``tether batch --into`` (#1151) puts every movie into one project, so a movie's checkpoint
+there is its content: [`movie_in_project`][] finds the movie in the project's ``/movies``
+table, and [`describe_append`][] says what a run will do with it. These two read the
+movie's bytes to hash it, but only when the project holds a movie of the same size.
+[`describe_project_stages`][] says what the run will do with the project's correct and
+idealize stages, which run once for the whole project.
 """
 
 from __future__ import annotations
@@ -36,8 +43,11 @@ __all__ = [
     "NAME_SEPARATOR",
     "MovieArgumentError",
     "OutputNameCollision",
+    "describe_append",
     "describe_checkpoint",
+    "describe_project_stages",
     "expand_movie_arguments",
+    "movie_in_project",
     "movie_suffixes",
     "output_stems",
 ]
@@ -85,7 +95,7 @@ def _is_movie_file(path: Path) -> bool:
 def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:
     """List the movie files in ``folder``, leaving out hidden names (a leading ``.``).
 
-    Hidden names are left out because the patterns of [`glob`][] leave them out too, and
+    Hidden names are left out because the patterns of `glob` leave them out too, and
     because macOS writes ``._name.tif`` resource files beside a movie on some drives.
 
     A sub-folder that cannot be listed raises its [`OSError`][] rather than being passed
@@ -285,7 +295,16 @@ def expand_movie_arguments(
 
 
 def _parent_names(movie: Path) -> tuple[str, ...]:
+    """Return the folder names above ``movie``, outermost first.
+
+    They are those of its absolute path, read as text. Where that text names another file
+    than the movie, the real location's folders are used instead: [`os.path.abspath`][]
+    removes ``..`` as text, so after a link ``link/../m.tif`` would read as the folder
+    that holds the link, while the file is in the link target's parent.
+    """
     absolute = Path(os.path.abspath(movie))
+    if _identity(absolute) != _identity(movie):
+        absolute = Path(os.path.realpath(movie))
     return absolute.parent.relative_to(absolute.anchor).parts
 
 
@@ -293,12 +312,14 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
     """Give each movie the stem of its output project, unique without regard to case.
 
     The rule: a movie's output stem is its file stem. While two stems are equal (compared
-    with [`str.casefold`][]), each movie of that group that has a parent folder not yet
+    with `str.casefold`), each movie of that group that has a parent folder not yet
     used puts the next one in front, joined with [`NAME_SEPARATOR`][]. So
     ``day1/movie_010.tif`` and ``day2/movie_010.tif`` become ``day1__movie_010`` and
     ``day2__movie_010``, and a movie whose stem collides with no other keeps its own.
     The folder names are those of the movie's absolute path, so the result does not
-    depend on the folder the command was run from.
+    depend on the folder the command was run from. Where that path, read as text, names
+    another file (a link followed by ``..``), the folders of the movie's real location
+    are used.
 
     Parameters
     ----------
@@ -381,3 +402,150 @@ def describe_checkpoint(output: Path, *, policy: str, overwrite: bool, idealize:
     if not remaining:
         return "exists, complete: will be skipped"
     return f"exists: will resume at {' + '.join(remaining)}"
+
+
+def movie_in_project(project: Path, movie: Path) -> str | None:
+    """Return the ``movie_id`` under which ``movie``'s content is in ``project``, or ``None``.
+
+    The identity is the content ``sha256`` the append itself refuses a repeat by (#347,
+    ADR-0117). The movie is hashed only when a ``/movies`` row has its file size, or has
+    no size recorded, so a movie of a size the project does not hold is never read. The
+    project is opened read-only; an absent project holds no movie.
+
+    Raises
+    ------
+    OSError
+        If the project or the movie cannot be read.
+    """
+    match = _find_movie_in_project(project, movie)
+    return None if match is None else match[0]
+
+
+def _find_movie_in_project(project: Path, movie: Path) -> tuple[str, str] | None:
+    """Return the matching movie ID and content hash from the same project read."""
+    if not os.path.lexists(project):
+        return None
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    with h5py.File(project, "r") as f:
+        table = f["movies"][TABLE][:]
+    size = movie.stat().st_size
+    candidates = [row for row in table if int(row["file_size"]) in (size, 0)]
+    if not candidates:
+        return None
+    from tether.project.extract import _hash_movie  # noqa: PLC0415
+
+    sha256 = _hash_movie(movie)[0]
+    for row in candidates:
+        if _text(row["sha256"]).lower() == sha256:
+            return _text(row["movie_id"]), sha256
+    return None
+
+
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+def describe_append(project: Path, movie: Path, *, first: bool) -> str:
+    """Say what an ``--into`` run will do with ``movie``, without writing (#1151).
+
+    ``first`` is whether ``movie`` is the first of the run, which creates an absent
+    project. A movie already in the project is skipped; any other is appended. A project
+    written by a newer Tether, or one that cannot be read, is named as a failure.
+    """
+    from tether.project import batch  # noqa: PLC0415 - h5py only when the project exists
+
+    if not os.path.lexists(project):
+        return "new project: will be created with this movie" if first else "will be appended"
+    try:
+        batch._assert_output_not_newer(project)
+        existing = movie_in_project(project, movie)
+    except Exception as exc:
+        return f"will fail: {exc}"
+    if existing is not None:
+        return f"already in the project as movie {existing!r}: will be skipped"
+    return "will be appended"
+
+
+def describe_appends(project: Path, movies: Sequence[Path]) -> list[str]:
+    """Say what an ``--into`` run will do with each of ``movies``, in order (#1243).
+
+    As [`describe_append`][] for each movie, and a movie with the same content as an
+    earlier one the run adds is skipped, as the run skips it: the earlier one is in the
+    project by then. Movies are hashed only when an earlier added movie has their size.
+    """
+    from tether.project.extract import _hash_movie  # noqa: PLC0415
+
+    added: list[tuple[Path, int]] = []
+    hashes: dict[Path, str | None] = {}
+
+    def content(movie: Path) -> str | None:
+        if movie not in hashes:
+            try:
+                hashes[movie] = _hash_movie(movie)[0]
+            except OSError:
+                hashes[movie] = None
+        return hashes[movie]
+
+    actions: list[str] = []
+    for index, movie in enumerate(movies):
+        action = describe_append(project, movie, first=index == 0)
+        if action == "will be appended" or action.startswith("new project"):
+            twin: Path | None = None
+            try:
+                size = movie.stat().st_size
+            except OSError:
+                size = -1
+            else:
+                twin = next(
+                    (
+                        earlier
+                        for earlier, earlier_size in added
+                        if earlier_size == size
+                        and (earlier_hash := content(earlier)) is not None
+                        and earlier_hash == content(movie)
+                    ),
+                    None,
+                )
+            if twin is not None:
+                action = f"same content as {twin.name}: will be skipped"
+            else:
+                added.append((movie, size))
+        actions.append(action)
+    return actions
+
+
+def describe_project_stages(project: Path, *, idealize: bool, appending: bool) -> str:
+    """Say what an ``--into`` run will do with the project's correct and idealize stages.
+
+    They run once over the whole project after the appends (#1151): always when the run
+    appends a movie (``appending``), otherwise by the checkpoint of
+    [`tether.project.batch.run_batch_into`][]. Read-only, like the rest of this module.
+    """
+    from tether.project import batch  # noqa: PLC0415
+
+    stages = [batch.STAGE_CORRECT] + ([batch.STAGE_IDEALIZE] if idealize else [])
+    named = " and ".join(stages)
+    if appending:
+        return f"{named} will run over every movie in the project after the appends"
+    try:
+        current = batch._movies_digest(project)
+    except Exception as exc:
+        return f"will fail: {exc}"
+
+    def due(stage: str) -> bool:
+        covered = batch._covered_movies(project, stage)
+        if covered is not None and covered != current:
+            return True
+        if stage == batch.STAGE_CORRECT:
+            return not batch._is_corrected(project)
+        return not batch._is_idealized(project)
+
+    remaining = [stage for stage in stages if due(stage)]
+    if batch.STAGE_CORRECT in remaining and idealize:
+        remaining = stages  # a new correction makes the stored model stale as well
+    if not remaining:
+        return f"no movie to append; {named} complete: will be skipped"
+    return f"no movie to append; {' and '.join(remaining)} will run over the whole project"

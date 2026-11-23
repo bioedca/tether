@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -132,6 +133,27 @@ def test_compare_uses_the_relative_limit_for_floats() -> None:
     assert [d.quantity for d in moved] == ["x"]
     assert moved[0].relative == pytest.approx(4 * rtol, rel=1e-3)
     assert [d.quantity for d in _golden.compare(golden, {"x": 1000.0, "nan": 1.0})] == ["nan"]
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_compare_reports_a_non_finite_float_against_a_finite_one(bad: float) -> None:
+    """#1197: NaN and infinity make the relative test false, so they once passed as equal."""
+    for golden, actual in (
+        ({"a": 1.0}, {"a": bad}),
+        ({"a": [1.0, 2.0]}, {"a": [bad, 2.0]}),
+        ({"a": [[1.0], [2.0]]}, {"a": [[1.0], [bad]]}),
+    ):
+        for old, new in ((golden, actual), (actual, golden)):
+            diffs = _golden.compare(old, new)
+            assert [d.quantity for d in diffs] == ["a"], (old, new)
+            assert diffs[0].relative == math.inf
+            assert "`a" in _golden.diff_table({"t": diffs})
+        # The same non-finite value on both sides is no difference.
+        assert _golden.compare(actual, {"a": json.loads(json.dumps(actual["a"]))}) == []
+    # A different non-finite value is a difference too.
+    for other in (math.nan, math.inf, -math.inf):
+        same = bad == other or (math.isnan(bad) and math.isnan(other))
+        assert (_golden.compare({"a": [bad]}, {"a": [other]}) == []) is same
 
 
 def test_compare_reports_added_and_removed_quantities() -> None:

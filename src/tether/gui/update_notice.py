@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The opt-in update notice in the shell: the first-run question and the "newer release" bar (#248).
 
-**Off until the user says yes.** At startup [`UpdateNotice.start`][] reads the consent answer
+**Off until the user says yes.** At startup, ``start`` on the notice that
+[`UpdateNotice`][] builds reads the consent answer
 ([`tether.gui.app_settings.update_check_state`][], ADR-0095). Only *allowed* starts a check.
 
 ============================  ===============================================================
@@ -20,7 +21,8 @@ The answer can be changed at any time with **Help → Check for new releases at 
 Ticking it there, or pressing **Check for new releases** on the question, stores *allowed* and
 runs the check at once; unticking it stores *declined*.
 
-**Never on the GUI thread, never in the way.** [`UpdateNotice.start`][] reads one small file
+**Never on the GUI thread, never in the way.** ``start`` on the notice that
+[`UpdateNotice`][] builds reads one small file
 and, when allowed, starts a daemon thread; it returns at once. The thread runs
 [`tether.gui.update_check.check_for_update`][] and hands the result back to the GUI thread
 through a queued Qt signal. Whatever goes wrong there, the user sees nothing: no dialog, no
@@ -29,8 +31,8 @@ thread still waiting when the application quits does not keep it alive.
 
 **One notice per run.** A newer release produces exactly one bar; dismissing it hides it for
 the rest of the session. It is not remembered: the store holds only the consent answer
-(ADR-0095), so the next start asks GitHub again and shows the bar again while the installed
-copy is still older.
+and the trace colours (ADR-0095, ADR-0123), so the next start asks GitHub again and shows
+the bar again while the installed copy is still older.
 
 **What the link opens.** Always [`tether.gui.update_check.RELEASES_PAGE`][], never a URL from
 GitHub's answer; the only text of the answer the bar shows is the version, re-spelled from

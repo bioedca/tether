@@ -19,8 +19,8 @@ the mode (``temp/ParticleDetectionMode``) and the mapping-reference channel's
 overriding ``options.detection_mode`` / ``options.detection_threshold`` so a
 re-extraction matches how the movie was actually detected.
 
-Two registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
-imported ``.tmap``"):
+Three registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
+imported ``.tmap``", plus the Stage-10 map file), and each run uses exactly one:
 
 * **native** (default) -- control points are paired from the sample movie's *own*
   detections (coarse phase-correlation prealign -> mutual nearest-neighbour pairing
@@ -35,7 +35,19 @@ imported ``.tmap``"):
   is trusted as-is: with no sample-movie control points to measure against, its
   residual is left unknown (NaN), so it never trips the over-gate flag (the
   ~1.6 px molecule-domain scatter of a bead map is colocalization, not registration,
-  error -- see ADR-0014).
+  error -- see ADR-0014);
+* **map file** -- pass ``map_path=<path>`` to apply a Tether ``.npz`` map
+  ([`tether.imaging.calibrate.save_map`][], e.g. a bead map made once and reused for
+  later movies) via [`tether.imaging.calibrate.load_map`][]. Like a ``.tmap`` it skips
+  the native fit and splits at the map's own stored channel geometry, and it keeps
+  the residual and the over-gate verdict the map was saved with (#353).
+
+**Precedence.** With neither file the native fit runs. A ``.tmap`` or a map file
+*replaces* the native fit (``options.donor_side`` is then ignored). The two files are
+never combined: passing both is refused before any work, since neither can be said to
+win. A ``.tdat`` is independent of all three -- it sets detection, not registration --
+and its own rule is unchanged: it overrides ``options.detection_mode`` /
+``options.detection_threshold``.
 
 The native path splits each frame by a **channel layout** (#908,
 [`tether.imaging.layout`][]): ``options.channel_layout`` -- side by side, top and
@@ -62,7 +74,9 @@ the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`
 
 [`add_movie_to_project`][] runs the same stages on another movie and appends it to an
 existing project under its writer lock, as one atomic replace of a staged copy (#347,
-ADR-0117).
+ADR-0117). [`reextract_movie`][] runs them again on a movie the project already holds
+and writes a new trace generation of it the same way; the previous generation stays
+readable and its labels move to the molecules that did not move (#921, ADR-0136).
 
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
 Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
@@ -98,6 +112,7 @@ from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
     fit_registration_map,
+    load_map,
     registration_map_from_tmap,
     write_calibration,
 )
@@ -109,12 +124,14 @@ from tether.imaging.extract import (
     assert_appendable,
     extract_molecules,
     write_extraction,
+    write_generation,
 )
 from tether.imaging.layout import (
     LAYOUT_SIDE_BY_SIDE,
     ChannelLayout,
     ChannelLayoutError,
 )
+from tether.imaging.recipe import ChannelRecipeError, check_frame_fits
 from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
@@ -124,6 +141,7 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
+from tether.io.generations import Generation
 from tether.io.movie import open_movie
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
@@ -132,6 +150,7 @@ from tether.project._guarded_publish import (
     require_publish_guard,
 )
 from tether.project.core import Project
+from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
 
 if TYPE_CHECKING:
@@ -275,7 +294,8 @@ class ExtractionSummary:
     rms_residual: float
     low_confidence_registration: bool
     molecule_tags: tuple[str, ...]
-    registration_source: str  # "native" (paired fit) or "imported" (.tmap)
+    #: ``"native"`` (paired fit), ``"imported"`` (``.tmap``) or ``"map-file"`` (``.npz``).
+    registration_source: str
     detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
     #: The advisory donor-side check (#646, ADR-0070); also stored in /settings/extraction.
     donor_side_check: DonorSideCheck | None = None
@@ -283,6 +303,15 @@ class ExtractionSummary:
     colocalization: str = "partner-in-both"
     #: ``{rule: n_molecules}`` -- the molecules each rule keeps from the same spots (#920).
     rule_counts: Mapping[str, int] = field(default_factory=dict)
+    #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
+    #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
+    rms_gate: float | None = None
+    #: The content SHA-256 stored for this movie when it was extracted.
+    movie_sha256: str | None = None
+    #: The channel layout the extraction was given (``options.channel_layout``, #908);
+    #: ``None`` when the split came from ``donor_side`` or an imported ``.tmap``. The
+    #: donor-side check's remedy names it rather than ``--donor-side`` (#1157).
+    channel_layout: ChannelLayout | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -336,6 +365,7 @@ def _settings(
     rms_residual: float,
     source: str,
     tmap_source: str | None,
+    map_source: str | None,
     tdat_source: str | None,
     donor_side_check: DonorSideCheck,
 ) -> dict:
@@ -349,6 +379,9 @@ def _settings(
     # The imported-.tmap source filename (``None`` for the native path) -- the
     # operator-visible provenance of which calibration file produced this extraction.
     settings["tmap_source"] = tmap_source
+    # The Tether .npz map-file filename (``None`` unless map_path supplied the map,
+    # #353); its sha256 is in the /calibration provenance under ``map_file``.
+    settings["map_source"] = map_source
     # The imported-.tdat source filename (``None`` unless --tdat supplied the
     # detection mode) -- provenance of where the detection settings came from. The
     # resolved options.detection_mode / detection_threshold above already record
@@ -453,19 +486,55 @@ def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> Registratio
         raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
 
 
+def _map_file_registration_map(map_path: str | os.PathLike[str]) -> RegistrationMap:
+    """Load a Tether ``.npz`` map file for extraction (#353).
+
+    Wraps [`load_map`][] and translates a bad file into a clean, map-centric
+    [`ExtractionError`][]. The map is used as saved: its coefficients, geometry,
+    residual and over-gate verdict are not changed. Its provenance gains a
+    ``map_file`` record (the file name and the sha256 of its bytes), so the
+    ``/calibration`` group says which file produced the map. [`_resolve_sources`][]
+    then records the map's own ``gate_px`` as the run's ``rms_gate``. The file is read once
+    and the map decoded from those bytes, so a file replaced during the call cannot
+    pair one file's digest with another's coefficients. A map without channel
+    geometry for both halves is refused, since the movie could not be split.
+    """
+    path = Path(map_path)
+    try:
+        content = path.read_bytes()  # one read: the digest names the bytes decoded
+        digest = hashlib.sha256(content).hexdigest()
+        reg_map = load_map(path, content=content)
+    except Exception as exc:  # unreadable, not a map file, newer version, pickled data
+        raise ExtractionError(f"could not use --map {path.name}: {exc}") from exc
+    if reg_map.reference_geometry is None or reg_map.moving_geometry is None:
+        raise ExtractionError(
+            f"could not use --map {path.name}: the map has no channel geometry for both "
+            "halves, so the movie cannot be split with it"
+        )
+    provenance = dict(reg_map.provenance)
+    provenance["map_file"] = {"name": path.name, "sha256": digest}
+    return replace(reg_map, provenance=provenance)
+
+
+def _registration_source(reg_map: RegistrationMap, map_path: object) -> str:
+    """Return the run's registration source: the map's own, or ``"map-file"`` for an ``.npz``."""
+    return "map-file" if map_path is not None else reg_map.source
+
+
 def _write_metadata_origins(
     path: Path,
     movie_id: str,
     frame_time: float,
     pixel_size_um: float | None,
     *,
-    roles_from_tmap: bool,
+    roles_from_file: bool,
 ) -> None:
     """Record where frame time, pixel size and channel roles came from (#911).
 
     A value read off the movie is origin ``file`` (a file frame time is verified).
-    Channel roles are ``file`` from an imported ``.tmap`` and ``user`` on the native
-    path, where the run's ``donor_side`` option names the donor half.
+    Channel roles are ``file`` from an imported ``.tmap`` or a map file (#353), whose
+    geometry names the halves, and ``user`` on the native path, where the run's
+    ``donor_side`` option names the donor half.
     """
     import h5py  # noqa: PLC0415
 
@@ -479,7 +548,7 @@ def _write_metadata_origins(
         frame_time_verified=known_time,
         pixel_size_um=pixel_size_um or 0.0,
         pixel_size_origin=mm.ORIGIN_FILE if pixel_size_um else mm.ORIGIN_UNKNOWN,
-        channel_roles_origin=mm.ORIGIN_FILE if roles_from_tmap else mm.ORIGIN_USER,
+        channel_roles_origin=mm.ORIGIN_FILE if roles_from_file else mm.ORIGIN_USER,
     )
     with h5py.File(path, "r+") as f:
         mm.write_metadata_record(f, record)
@@ -519,12 +588,20 @@ def _check_inputs(
     movie_path: Path,
     tmap: str | os.PathLike[str] | None,
     tdat: str | os.PathLike[str] | None,
+    map_path: str | os.PathLike[str] | None = None,
 ) -> None:
-    """Refuse a missing movie, ``.tmap`` or ``.tdat`` before any work."""
+    """Refuse a missing movie, ``.tmap``, map file or ``.tdat``, or two maps, before any work."""
+    if tmap is not None and map_path is not None:
+        raise ExtractionError(
+            "--tmap and --map cannot be combined (each one supplies the registration map); "
+            "pass one or the other"
+        )
     if not movie_path.exists():
         raise ExtractionError(f"movie not found: {movie_path}")
     if tmap is not None and not Path(tmap).exists():
         raise ExtractionError(f"tmap not found: {tmap}")
+    if map_path is not None and not Path(map_path).is_file():
+        raise ExtractionError(f"map file not found: {map_path}")
     if tdat is not None and not Path(tdat).exists():
         raise ExtractionError(f"tdat not found: {tdat}")
 
@@ -533,14 +610,16 @@ def _resolve_sources(
     options: ExtractOptions,
     tmap: str | os.PathLike[str] | None,
     tdat: str | os.PathLike[str] | None,
+    map_path: str | os.PathLike[str] | None = None,
 ) -> tuple[ExtractOptions, RegistrationMap | None]:
-    """Apply a ``.tdat``'s detection settings and decode a ``.tmap``, before movie IO.
+    """Apply a ``.tdat``'s detection settings and load a ``.tmap`` or map file, before movie IO.
 
     A ``.tdat`` supplies the detection mode/threshold the movie was actually detected
-    with, and an imported ``.tmap`` is independent of the movie; both are resolved up
-    front so a bad file fails fast with a clean error and nothing is touched. The map
-    is ``None`` for the native fit. A ``channel_layout`` beside a ``.tmap`` is refused
-    here, before either file is read (#908).
+    with, and an imported ``.tmap`` or a saved map file is independent of the movie;
+    all are resolved up front so a bad file fails fast with a clean error and nothing
+    is touched. The map is ``None`` for the native fit. [`_check_inputs`][] has already
+    refused a ``.tmap`` together with a map file. A ``channel_layout`` beside a
+    ``.tmap`` (#908) or a map file (#353) is refused here, before either file is read.
     """
     if tmap is not None and options.channel_layout is not None:
         # The imported path splits at the .tmap's own crops; a layout beside it would
@@ -549,10 +628,22 @@ def _resolve_sources(
             "channel_layout and tmap both set the channel split; give only one (the "
             ".tmap splits at its own stored crop geometry)"
         )
+    if map_path is not None and options.channel_layout is not None:
+        # A map file splits at its own stored geometry, the same way (#353).
+        raise ExtractionError(
+            "channel_layout and map_path both set the channel split; give only one (the "
+            "map file splits at its own stored channel geometry)"
+        )
     if tdat is not None:
         options = _apply_tdat_detection(options, tdat)
-    imported_map = _imported_registration_map(tmap) if tmap is not None else None
-    return options, imported_map
+    if tmap is not None:
+        return options, _imported_registration_map(tmap)
+    if map_path is not None:
+        reg_map = _map_file_registration_map(map_path)
+        # The saved map was judged against its own gate; record that gate, so the
+        # profile and a resumed batch's over-gate check agree with the map applied.
+        return replace(options, rms_gate=reg_map.gate_px), reg_map
+    return options, None
 
 
 def _run_pipeline(
@@ -591,18 +682,25 @@ def _run_pipeline(
 
             layout: ChannelLayout | None = None
             if imported_map is not None:
-                # Imported path: registration comes from the .tmap. Split + detect
-                # at its own stored channel geometry -- rotate, flip, then crop, as
-                # Deep-LASI's processImage did for the map (#559) (donor = reference half,
-                # acceptor = moving half), so donor_side / prealign / pairing are
-                # not used. A map without crop geometry leaves the split undefined.
+                # Imported path: registration comes from the .tmap or the map file.
+                # Split + detect at its own stored channel geometry -- rotate, flip,
+                # then crop, as Deep-LASI's processImage did for the map (#559) (donor =
+                # reference half, acceptor = moving half), so donor_side / prealign /
+                # pairing are not used. A map without crop geometry leaves the split
+                # undefined.
                 reg_map = imported_map
                 donor_geom = reg_map.reference_geometry
                 acceptor_geom = reg_map.moving_geometry
                 if donor_geom is None or acceptor_geom is None:
                     raise ExtractionError(
-                        "imported .tmap lacks per-channel crop geometry; cannot split the movie"
+                        "imported map lacks per-channel crop geometry; cannot split the movie"
                     )
+                # A movie turned against its map, or smaller than it, is refused here
+                # with both geometries named, not split at the wrong pixels (#887, #910).
+                try:
+                    check_frame_fits(height, width, donor_geom, acceptor_geom)
+                except ChannelRecipeError as exc:
+                    raise ExtractionError(f"{movie_path.name}: {exc}") from exc
                 donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
                 _, _, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
@@ -709,6 +807,30 @@ def _run_pipeline(
     )
 
 
+#: The ``/settings/batch`` marks naming the movies each project stage of
+#: ``tether batch --into`` covers (#1151); an empty mark means "not every movie".
+_BATCH_SETTINGS = "batch"
+_BATCH_STAGE_MARKS = ("correct_movies", "idealize_movies")
+
+
+def _mark_project_stages_unfinished(project_path: Path) -> None:
+    """Mark the project's correct and idealize stages as not covering every movie (#1243).
+
+    An append leaves ``/settings/correction`` and ``/idealization`` in place, so their
+    checkpoints still read as done although the new movie's molecules are in neither.
+    The empty ``{stage}_movies`` marks in ``/settings/batch`` tell the next
+    ``tether batch --into`` run to correct and idealize the project again, whichever
+    route the movie came by. Written into the staged copy, so the marks publish with
+    the movie or not at all.
+    """
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(project_path, "r+") as f:
+        grp = f["settings"].require_group(_BATCH_SETTINGS)
+        for name in _BATCH_STAGE_MARKS:
+            grp.attrs[name] = ""
+
+
 def _persist(
     project_path: Path,
     extracted: _Extracted,
@@ -716,6 +838,7 @@ def _persist(
     *,
     tmap: str | os.PathLike[str] | None,
     tdat: str | os.PathLike[str] | None,
+    map_path: str | os.PathLike[str] | None = None,
 ) -> tuple[str, str, list[str]]:
     """Write one movie's calibration + extraction into an existing project.
 
@@ -726,6 +849,40 @@ def _persist(
     """
     movie_id = f"mov-{uuid4()}"
     calibration_id = f"cal-{uuid4()}"
+    movie, settings = _movie_and_settings(
+        extracted, movie_path, movie_id, calibration_id, tmap=tmap, tdat=tdat, map_path=map_path
+    )
+    write_calibration(project_path, extracted.reg_map, calibration_id=calibration_id)
+    molecule_ids = write_extraction(
+        project_path,
+        movie=movie,
+        molecules=extracted.molecules,
+        traces=extracted.traces,
+        parsed=parse_filename(movie_path.name),
+        registration_map=extracted.reg_map,
+        settings=settings,
+    )
+    _write_metadata_origins(
+        project_path,
+        movie_id,
+        extracted.frame_time,
+        extracted.pixel_size_um,
+        roles_from_file=tmap is not None or map_path is not None,
+    )
+    return movie_id, calibration_id, molecule_ids
+
+
+def _movie_and_settings(
+    extracted: _Extracted,
+    movie_path: Path,
+    movie_id: str,
+    calibration_id: str,
+    *,
+    tmap: str | os.PathLike[str] | None,
+    tdat: str | os.PathLike[str] | None,
+    map_path: str | os.PathLike[str] | None,
+) -> tuple[MovieMetadata, dict]:
+    """Build the ``/movies`` row provenance and the settings profile of one extracted movie."""
     reg_map = extracted.reg_map
     movie = MovieMetadata(
         movie_id=movie_id,
@@ -748,29 +905,13 @@ def _persist(
         extracted.options,
         n_control_points=reg_map.n_control_points,
         rms_residual=reg_map.rms_residual,
-        source=reg_map.source,
+        source=_registration_source(reg_map, map_path),
         tmap_source=Path(tmap).name if tmap is not None else None,
+        map_source=Path(map_path).name if map_path is not None else None,
         tdat_source=Path(tdat).name if tdat is not None else None,
         donor_side_check=extracted.side_check,
     )
-    write_calibration(project_path, reg_map, calibration_id=calibration_id)
-    molecule_ids = write_extraction(
-        project_path,
-        movie=movie,
-        molecules=extracted.molecules,
-        traces=extracted.traces,
-        parsed=parse_filename(movie_path.name),
-        registration_map=reg_map,
-        settings=settings,
-    )
-    _write_metadata_origins(
-        project_path,
-        movie_id,
-        extracted.frame_time,
-        extracted.pixel_size_um,
-        roles_from_tmap=tmap is not None,
-    )
-    return movie_id, calibration_id, molecule_ids
+    return movie, settings
 
 
 def _summary(
@@ -779,6 +920,8 @@ def _summary(
     movie_id: str,
     calibration_id: str,
     molecule_ids: list[str],
+    *,
+    map_path: str | os.PathLike[str] | None = None,
 ) -> ExtractionSummary:
     reg_map = extracted.reg_map
     return ExtractionSummary(
@@ -790,11 +933,14 @@ def _summary(
         rms_residual=float(reg_map.rms_residual),
         low_confidence_registration=bool(reg_map.low_confidence),
         molecule_tags=tuple(reg_map.molecule_tags),
-        registration_source=reg_map.source,
+        registration_source=_registration_source(reg_map, map_path),
         detection_mode=extracted.options.detection_mode,
         donor_side_check=extracted.side_check,
         colocalization=extracted.molecules.policy,
         rule_counts=dict(extracted.molecules.rule_counts),
+        rms_gate=float(reg_map.gate_px),
+        movie_sha256=extracted.sha256,
+        channel_layout=extracted.options.channel_layout,
     )
 
 
@@ -805,8 +951,10 @@ def extract_movie(
     options: ExtractOptions | None = None,
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
     publish_guard: Callable[[], None] | None = None,
+    refuse_over_gate: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -828,7 +976,7 @@ def extract_movie(
         geometry (rotation, flip and crop, in that order), so
         ``options.donor_side`` is ignored and an ``options.channel_layout`` is
         refused. When ``None`` (default), a native fit is paired from the movie's
-        own detections.
+        own detections. Cannot be combined with ``map_path``.
     tdat:
         Optional path to a Deep-LASI ``.tdat``. When given, the particle-detection
         mode (and, once the MCOS ``Channel`` decoder lands, the per-channel
@@ -837,6 +985,20 @@ def extract_movie(
         ``tdat_source`` in ``/settings/extraction`` -- so a re-extraction matches the
         method the movie was actually detected with. Independent of ``tmap`` (the two
         compose: import both registration and detection settings from Deep-LASI).
+    map_path:
+        Optional path to a Tether ``.npz`` map file
+        ([`save_map`][tether.imaging.calibrate.save_map]; #353). When given, the
+        saved map is applied as it is (the native fit is skipped) and the two
+        channels are split at the map's own stored geometry, so
+        ``options.donor_side`` is ignored and an ``options.channel_layout`` is
+        refused; the map keeps the residual and the
+        over-gate verdict it was saved with. The file name is recorded as
+        ``map_source`` in ``/settings/extraction`` and the ``/calibration``
+        provenance gains ``map_file`` (name + sha256).
+
+        **Precedence:** one registration source per run. The native fit runs when
+        neither ``tmap`` nor ``map_path`` is given; either file replaces it; passing
+        both is refused. ``tdat`` is independent and composes with any of the three.
     overwrite:
         Replace an existing ``output_path``.
     publish_guard:
@@ -847,6 +1009,11 @@ def extract_movie(
         [`publish_lock`][tether.project.lock.publish_lock] on ``output_path`` and pass
         the check it yields. Without one, a new path is published only if it is
         still absent, and an existing one is refused.
+    refuse_over_gate:
+        Write nothing when the registration residual is over ``options.rms_gate``
+        (a low-confidence registration), and raise instead. ``tether batch --policy
+        fail --into`` uses it so that a rejected movie never enters the project
+        (#1151). By default such a movie is written and flagged.
 
     Returns
     -------
@@ -860,20 +1027,22 @@ def extract_movie(
     ------
     ExtractionError
         Any operator-actionable failure: invalid options, a missing or
-        unreadable/compressed movie, a missing or undecodable ``.tmap`` or
-        ``.tdat`` (or a ``.tdat`` with an unsupported detection mode), a
+        unreadable/compressed movie, a missing or undecodable ``.tmap``, map file or
+        ``.tdat`` (or a ``.tdat`` with an unsupported detection mode), both a
+        ``.tmap`` and a map file, a
         pre-existing output without ``overwrite`` or without a ``publish_guard``,
         an un-splittable frame (a channel layout whose rectangles are outside the
         frame, or a frame too small to cut in two), a channel layout given together
         with a ``.tmap``, too few
-        matched control points to register (native path), or a write failure. Never
-        a raw primitive traceback.
+        matched control points to register (native path), a registration over the
+        gate under ``refuse_over_gate``, or a write failure. Never a raw primitive
+        traceback.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
     output_path = Path(output_path)
 
-    _check_inputs(movie_path, tmap, tdat)
+    _check_inputs(movie_path, tmap, tdat, map_path)
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
     try:
@@ -881,8 +1050,9 @@ def extract_movie(
     except PublishGuardRequiredError as exc:
         raise ExtractionError(str(exc)) from exc
 
-    options, imported_map = _resolve_sources(options, tmap, tdat)
+    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
     extracted = _run_pipeline(movie_path, options, imported_map)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     # --- Persist atomically (movie memmap is now closed) -----------------------
     # Build at a sibling temp path, then atomically replace the destination only
@@ -893,7 +1063,7 @@ def extract_movie(
     try:
         Project.create(tmp_path, overwrite=True)
         movie_id, calibration_id, molecule_ids = _persist(
-            tmp_path, extracted, movie_path, tmap=tmap, tdat=tdat
+            tmp_path, extracted, movie_path, tmap=tmap, tdat=tdat, map_path=map_path
         )
         publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
     except ExtractionError:
@@ -903,7 +1073,9 @@ def extract_movie(
         tmp_path.unlink(missing_ok=True)
         raise ExtractionError(f"failed to write {output_path.name}: {exc}") from exc
 
-    return _summary(output_path, extracted, movie_id, calibration_id, molecule_ids)
+    return _summary(
+        output_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
+    )
 
 
 def count_molecules_by_rule(
@@ -912,14 +1084,15 @@ def count_molecules_by_rule(
     options: ExtractOptions | None = None,
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
 ) -> dict[str, int]:
     """Count the molecules each colocalization rule keeps, before any extraction (#920).
 
     Runs the stages of [`extract_movie`][] up to colocalization -- through the stage
     preview ([`tether.project.preview.iter_extraction_stages`][]), whose molecules are
     those of a real run -- and stops there: no trace is integrated and nothing is
-    written. ``options``, ``tmap`` and ``tdat`` mean what they mean for
-    [`extract_movie`][].
+    written. ``options``, ``tmap``, ``tdat`` and ``map_path`` mean what they mean for
+    [`extract_movie`][], so a count with a map file uses that map (#353).
 
     Returns
     -------
@@ -936,8 +1109,8 @@ def count_molecules_by_rule(
     from tether.project.preview import OUTCOME_FAILED, iter_extraction_stages  # noqa: PLC0415
 
     movie_path = Path(movie_path)
-    _check_inputs(movie_path, tmap, tdat)
-    options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat)
+    _check_inputs(movie_path, tmap, tdat, map_path)
+    options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
     try:
         with open_movie(movie_path) as reader:
             stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
@@ -994,6 +1167,17 @@ def _refuse_duplicate_movie(project_path: Path, sha256: str, movie_path: Path) -
         )
 
 
+#: The error of a movie refused by ``refuse_over_gate``; ``tether batch`` records the
+#: same words for a movie its ``fail`` policy rejects.
+OVER_GATE_ERROR = "registration residual exceeds the gate (policy=fail)"
+
+
+def _check_gate(extracted: _Extracted, *, refuse_over_gate: bool) -> None:
+    """Raise before anything is written when the registration is over its gate (#1151)."""
+    if refuse_over_gate and extracted.reg_map.low_confidence:
+        raise ExtractionError(OVER_GATE_ERROR)
+
+
 def add_movie_to_project(
     project_path: str | os.PathLike[str],
     movie_path: str | os.PathLike[str],
@@ -1001,7 +1185,9 @@ def add_movie_to_project(
     options: ExtractOptions | None = None,
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
     publish_guard: Callable[[], None] | None,
+    refuse_over_gate: bool = False,
 ) -> ExtractionSummary:
     """Extract ``movie_path`` and append it to the existing project ``project_path``.
 
@@ -1012,7 +1198,9 @@ def add_movie_to_project(
     positional trace↔molecule join). A movie longer than every stored one widens
     each ``/traces`` array, and the existing rows gain zero-padded columns. The
     movie's settings profile is recorded under ``/settings/extraction/movies``; the
-    first extraction's stamp is not changed (#347, ADR-0117).
+    first extraction's stamp is not changed (#347, ADR-0117). The project's correction
+    and idealization no longer cover every movie, so the same publish marks both
+    unfinished for ``tether batch --into`` (#1243); the stored results are kept.
 
     The update is written to a sibling copy of the project and published by one
     atomic replace, under the project's writer lock: ``publish_guard`` is called
@@ -1023,16 +1211,20 @@ def add_movie_to_project(
     ----------
     project_path:
         An existing, compatible ``.tether`` project
-        ([`create_project`][tether.project.create_project] or [`extract_movie`][]).
+        ([`create_project`][tether.io.schema.create_project] or [`extract_movie`][]).
     movie_path:
         The movie to append; see [`extract_movie`][].
-    options, tmap, tdat:
-        As for [`extract_movie`][]. The aperture parameters (``window``, the radii and
-        ``bg_window``) must equal the ones the project's first extraction recorded.
+    options, tmap, tdat, map_path:
+        As for [`extract_movie`][], with the same precedence. The aperture parameters
+        (``window``, the radii and ``bg_window``) must equal the ones the project's first
+        extraction recorded.
     publish_guard:
         **Required.** The check yielded by
         [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``
         (#346, ADR-0112).
+    refuse_over_gate:
+        As for [`extract_movie`][]: a movie whose registration is over the gate is
+        not appended, and the project is left as it was (#1151).
 
     Returns
     -------
@@ -1047,13 +1239,14 @@ def add_movie_to_project(
         arrays do not cover every molecule (an analysis-only import, a subset exported
         without its raw layers), no ``publish_guard``, a movie whose content
         is already in the project, aperture parameters that differ from the
-        project's, or a guard that fails (the writer lock was lost).
+        project's, a registration over the gate under ``refuse_over_gate``, or a
+        guard that fails (the writer lock was lost).
     """
     options = options or ExtractOptions()
     project_path = Path(project_path)
     movie_path = Path(movie_path)
 
-    _check_inputs(movie_path, tmap, tdat)
+    _check_inputs(movie_path, tmap, tdat, map_path)
     if not project_path.is_file():
         raise ExtractionError(
             f"project not found: {project_path} (extract_movie creates a new project)"
@@ -1068,7 +1261,7 @@ def add_movie_to_project(
             "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
         )
 
-    options, imported_map = _resolve_sources(options, tmap, tdat)
+    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
     try:
         identity = _hash_movie(movie_path)
     except Exception as exc:
@@ -1076,6 +1269,7 @@ def add_movie_to_project(
     _refuse_duplicate_movie(project_path, identity[0], movie_path)
 
     extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     try:
         with guarded_project_write(
@@ -1084,11 +1278,180 @@ def add_movie_to_project(
             # The copy is the state that will be published: check it, not the name.
             _refuse_duplicate_movie(stage, extracted.sha256, movie_path)
             movie_id, calibration_id, molecule_ids = _persist(
-                stage, extracted, movie_path, tmap=tmap, tdat=tdat
+                stage, extracted, movie_path, tmap=tmap, tdat=tdat, map_path=map_path
             )
+            _mark_project_stages_unfinished(stage)
     except ExtractionError:
         raise
     except Exception as exc:  # aperture mismatch, lost lock, IO failure
         raise ExtractionError(f"failed to append to {project_path.name}: {exc}") from exc
 
-    return _summary(project_path, extracted, movie_id, calibration_id, molecule_ids)
+    return _summary(
+        project_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
+    )
+
+
+@dataclass(frozen=True)
+class GenerationSummary:
+    """The outcome of one [`reextract_movie`][] run.
+
+    ``extraction`` is the run's [`ExtractionSummary`][], whose ``movie_id`` is the movie
+    that gained the generation; ``generation`` is its new record
+    ([`tether.io.generations.Generation`][]), active, with the carried keys.
+    """
+
+    extraction: ExtractionSummary
+    generation: Generation
+
+    @property
+    def n_carried(self) -> int:
+        """How many molecules kept their key, labels, category and window."""
+        return len(self.generation.carried_keys)
+
+
+#: The node of ADR-0103 a new generation edits, and the guarded edge into the factor
+#: version that it always crosses: every trace of the movie is integrated again, so the
+#: intensities of any alpha or gamma contributor in it change (edge 7's guard).
+_GENERATION_NODE = "trace_generation"
+_CONTRIBUTOR_INTENSITIES_CHANGE = 7
+
+
+def reextract_movie(
+    project_path: str | os.PathLike[str],
+    movie_path: str | os.PathLike[str],
+    *,
+    options: ExtractOptions | None = None,
+    tmap: str | os.PathLike[str] | None = None,
+    tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
+    publish_guard: Callable[[], None] | None,
+    refuse_over_gate: bool = False,
+    match_px: float | None = None,
+) -> GenerationSummary:
+    """Extract a movie the project already holds again, as a new trace generation.
+
+    The movie is found by its content hash. Stages 1-15 run as for [`extract_movie`][]
+    (a new map, geometry, layout or options may be given), and the result is written by
+    [`write_generation`][tether.imaging.extract.write_generation]: the generation that
+    was active is copied, unchanged, to the project's generation archive and stays
+    readable ([`tether.io.generations.read_generation`][]), and the new one becomes
+    active. Molecules within ``match_px`` of a previous molecule
+    ([`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX] by default) keep
+    its ``molecule_key``, curation label, category and analysis window, marked carried;
+    fits and corrections of the movie are marked stale through the ``trace_generation``
+    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]). The movie's frame time
+    and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
+
+    The update is written to a sibling copy of the project and published by one atomic
+    replace under the project's writer lock, exactly as [`add_movie_to_project`][] is.
+
+    Parameters
+    ----------
+    project_path:
+        An existing, compatible ``.tether`` project that holds the movie.
+    movie_path:
+        The movie file; its bytes must be the ones the project recorded.
+    options, tmap, tdat, map_path, refuse_over_gate:
+        As for [`add_movie_to_project`][]; the aperture parameters must equal the
+        project's.
+    publish_guard:
+        **Required.** The check yielded by
+        [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``.
+    match_px:
+        The "did not move" distance in pixels; ``None`` is ``GENERATION_MATCH_PX``.
+
+    Returns
+    -------
+    GenerationSummary
+        The extraction outcome and the new generation's record.
+
+    Raises
+    ------
+    ExtractionError
+        Every failure [`add_movie_to_project`][] reports, and a movie whose content is
+        not in the project (append it instead).
+    """
+    options = options or ExtractOptions()
+    project_path = Path(project_path)
+    movie_path = Path(movie_path)
+
+    _check_inputs(movie_path, tmap, tdat, map_path)
+    if not project_path.is_file():
+        raise ExtractionError(f"project not found: {project_path}")
+    try:
+        assert_appendable(project_path)
+    except Exception as exc:  # not HDF5, not a .tether, a newer schema, misaligned layers
+        raise ExtractionError(f"cannot extract into {project_path.name}: {exc}") from exc
+    if publish_guard is None:
+        raise ExtractionError(
+            f"a new generation in {project_path.name} needs its writer lock "
+            "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
+        )
+
+    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
+    try:
+        identity = _hash_movie(movie_path)
+    except Exception as exc:
+        raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
+    movie_id = _held_movie_id(project_path, identity[0], movie_path)
+
+    extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
+
+    calibration_id = f"cal-{uuid4()}"
+    try:
+        with guarded_project_write(
+            project_path, write_guard=publish_guard, label="generation"
+        ) as stage:
+            # The copy is the state that will be published: find the movie in it.
+            if _held_movie_id(stage, extracted.sha256, movie_path) != movie_id:
+                raise ExtractionError(f"{movie_path.name} changed identity in {project_path.name}")
+            movie, settings = _movie_and_settings(
+                extracted,
+                movie_path,
+                movie_id,
+                calibration_id,
+                tmap=tmap,
+                tdat=tdat,
+                map_path=map_path,
+            )
+            write_calibration(stage, extracted.reg_map, calibration_id=calibration_id)
+            record, molecule_ids = write_generation(
+                stage,
+                movie=movie,
+                molecules=extracted.molecules,
+                traces=extracted.traces,
+                parsed=parse_filename(movie_path.name),
+                registration_map=extracted.reg_map,
+                settings=settings,
+                match_px=match_px,
+            )
+            mark_stale_in(
+                stage,
+                _GENERATION_NODE,
+                movie_id,
+                record.generation_id,
+                guards_hold=(_CONTRIBUTOR_INTENSITIES_CHANGE,),
+            )
+    except ExtractionError:
+        raise
+    except Exception as exc:  # aperture mismatch, lost lock, IO failure
+        raise ExtractionError(
+            f"failed to write a new generation into {project_path.name}: {exc}"
+        ) from exc
+
+    summary = _summary(
+        project_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
+    )
+    return GenerationSummary(extraction=summary, generation=record)
+
+
+def _held_movie_id(project_path: Path, sha256: str, movie_path: Path) -> str:
+    """Return the ``movie_id`` the project holds ``sha256`` under; refuse a movie it lacks."""
+    existing = _movie_ids_with_sha256(project_path, sha256)
+    if not existing:
+        raise ExtractionError(
+            f"{movie_path.name} is not in {project_path.name} (no movie with its sha256); "
+            "append it with add_movie_to_project"
+        )
+    return existing[0]

@@ -47,6 +47,7 @@ dtype; rows resized/assigned) — no group/dataset/dtype/field change — so the
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -57,12 +58,16 @@ from tether.io.filename import ConditionKey, parse_filename
 from tether.io.schema import CONDITIONS_DTYPE, TABLE
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     import numpy as np
 
 __all__ = [
+    "UNCATEGORIZED_CLASS",
     "CategoryDifference",
     "CategoryList",
     "CategoryListComparison",
+    "ClassLookup",
     "ConditionSyncSummary",
     "ConditionValidationReport",
     "ConfirmationRequired",
@@ -74,6 +79,8 @@ __all__ = [
     "copy_category_list",
     "preview_rekey",
     "read_category_list",
+    "read_class_lookup",
+    "read_class_lookups",
     "read_condition_audit",
     "read_condition_keys",
     "read_conditions",
@@ -97,6 +104,19 @@ _SETTINGS = "settings"
 #: ``/settings/condition_audit``). The schema builder's docstring reserves the
 #: ``/conditions`` group for exactly this (PRD §5.1).
 _CATEGORIES_GROUP = "categories"
+
+#: The attribute on ``/conditions/categories/<condition_id>`` that persists the
+#: condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; #367,
+#: ADR-0125): a JSON object ``{"<class>": "<category name>"}`` over the classes
+#: ``>= 1``. It is written by the one list writer, `_write_category_names`, in the
+#: same file session as the names, so the two cannot drift through Tether's own
+#: writes; [`read_class_lookup`][] refuses a pair that disagrees.
+_CLASS_LOOKUP_ATTR = "tmaven_class_lookup"
+
+#: tMAVEN class ``0`` is pinned to Tether's *uncategorized* null state, the stored
+#: ``/molecules.category`` value ``""`` (PRD §7.3, §7.4): a returning class ``0``
+#: always resolves to ``""``. Named categories are classes ``>= 1``.
+UNCATEGORIZED_CLASS = 0
 
 #: The append-only re-key/merge audit log, a lazily-created dataset under the
 #: frozen ``/settings`` container (additive data — ``schema-guard`` stays green,
@@ -346,6 +366,37 @@ def _validate_timestamp(timestamp: str) -> None:
         raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
 
 
+def _refuse_nul_audit_text(**fields: object) -> None:
+    """Refuse audit text with an embedded NUL before any write (#1145).
+
+    HDF5 variable-length strings cannot hold a NUL character, so h5py refuses the row
+    only *after* the audit dataset has grown; checking first keeps the log and the
+    edit together. Raises [`ValueError`][] naming the first offending field.
+    """
+    for name, value in fields.items():
+        if isinstance(value, str) and "\x00" in value:
+            raise ValueError(
+                f"{name} {value!r} contains a NUL character, which an HDF5 "
+                "variable-length string cannot store"
+            )
+
+
+def _append_rows(ds: object, rows: np.ndarray) -> int:
+    """Append ``rows`` to the resizable 1-D ``ds``; return the first new index.
+
+    Grows the dataset, assigns, and shrinks it back to its previous length when the
+    assignment fails, so a refused row never leaves a zero-filled row behind (#1145).
+    """
+    n0 = int(ds.shape[0])  # type: ignore[attr-defined]
+    ds.resize((n0 + len(rows),))  # type: ignore[attr-defined]
+    try:
+        ds[n0:] = rows  # type: ignore[index]
+    except BaseException:
+        ds.resize((n0,))  # type: ignore[attr-defined]
+        raise
+    return n0
+
+
 def _audit_dtype() -> np.dtype:
     """The append-only re-key/merge audit-log compound dtype (a ``/settings`` artifact)."""
     import h5py  # noqa: PLC0415
@@ -403,10 +454,7 @@ def _append_condition_audit(
     row["timestamp"] = timestamp
     row["reason"] = reason
     row["app_version"] = _app_version()
-    n0 = ds.shape[0]
-    ds.resize((n0 + 1,))
-    ds[n0:] = row
-    return n0
+    return _append_rows(ds, row)
 
 
 # --- writers ------------------------------------------------------------------
@@ -717,7 +765,8 @@ def rekey_condition(
     ------
     ValueError
         If ``from_condition_id`` is empty, ``to_key`` hashes back to it (a no-op
-        re-key), or ``timestamp`` is not an offset-aware ISO-8601 string.
+        re-key), ``timestamp`` is not an offset-aware ISO-8601 string, or ``labeler``,
+        ``reason`` or ``timestamp`` contains a NUL character. Nothing is written.
     KeyError
         If no ``/molecules`` row carries ``from_condition_id`` (never a silent no-op).
     ConfirmationRequired
@@ -736,6 +785,8 @@ def rekey_condition(
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # reject a bad stamp before it enters the audit log
+    # fromisoformat takes any one character as the date/time separator, NUL included
+    _refuse_nul_audit_text(labeler=labeler, reason=reason, timestamp=timestamp)
     path = Path(path)
 
     with h5py.File(path, "r+") as f:
@@ -850,12 +901,159 @@ class CategoryList:
     def code_of(self, category: str) -> int:
         """The integer code (0-based position) of ``category``.
 
-        Raises [`KeyError`][] if ``category`` is not in the list.
+        Raises `KeyError` if ``category`` is not in the list.
         """
         try:
             return self.categories.index(category)
         except ValueError:
             raise KeyError(category) from None
+
+    @property
+    def class_lookup(self) -> ClassLookup:
+        """The tMAVEN class ↔ category lookup this list defines (class = code + 1)."""
+        return ClassLookup.from_categories(self.condition_id, self.categories)
+
+
+@dataclass(frozen=True)
+class ClassLookup:
+    """A condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; ADR-0125).
+
+    tMAVEN stores a per-trace integer ``class``; Tether stores the free-text
+    ``/molecules.category`` name. This is the one translation between them, read by
+    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]) and the curation shortcuts:
+
+    * class ``0`` ↔ ``""``, the *uncategorized* null state (always, on every
+      condition, even one with no category list);
+    * class ``k >= 1`` ↔ the ``k``-th entry of the condition's
+      [`CategoryList`][] — the entry the ``k`` hotkey assigns (PRD §7.3), i.e. its
+      0-based [`code`][CategoryList.code_of] plus one.
+
+    Anything else is **unmapped**: [`category_of`][] answers ``None`` and a caller
+    reports it rather than guessing a name.
+    """
+
+    #: The condition this lookup belongs to.
+    condition_id: str
+    #: The named classes, ``{class: category name}`` over classes ``>= 1``.
+    classes: Mapping[int, str]
+
+    @classmethod
+    def from_categories(cls, condition_id: str, categories: Iterable[str]) -> ClassLookup:
+        """The lookup an ordered category list defines (class ``k`` ↔ entry ``k``)."""
+        return cls(
+            condition_id=condition_id,
+            classes={k: str(name) for k, name in enumerate(categories, start=1)},
+        )
+
+    def category_of(self, integer_class: int) -> str | None:
+        """The category name of ``integer_class`` (``""`` for class 0), else ``None``."""
+        if type(integer_class) is bool:  # bool is an int subclass; never a class
+            return None
+        cls = int(integer_class)
+        if cls == UNCATEGORIZED_CLASS:
+            return ""
+        return self.classes.get(cls)
+
+    def class_of(self, category: str) -> int | None:
+        """The integer class of ``category`` (``0`` for ``""``), else ``None``."""
+        if category == "":
+            return UNCATEGORIZED_CLASS
+        for cls, name in self.classes.items():
+            if name == category:
+                return cls
+        return None
+
+
+def _encode_class_lookup(names: tuple[str, ...]) -> str:
+    """The persisted JSON form of the lookup ``names`` defines (see `_CLASS_LOOKUP_ATTR`)."""
+    lookup = ClassLookup.from_categories("", names)
+    return json.dumps(
+        {str(k): v for k, v in lookup.classes.items()},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _decode_class_lookup(raw: object, condition_id: str) -> dict[int, str]:
+    """Parse + validate a persisted lookup attribute (``ValueError`` when malformed)."""
+    try:
+        payload = json.loads(_to_str(raw))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"condition {condition_id!r} has a malformed {_CLASS_LOOKUP_ATTR} attribute: {exc}"
+        ) from None
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} must be a JSON object, "
+            f"got {type(payload).__name__}"
+        )
+    classes: dict[int, str] = {}
+    for key, name in payload.items():
+        if not (isinstance(key, str) and key.isdigit() and int(key) >= 1):
+            raise ValueError(
+                f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} has class {key!r}; "
+                "classes must be integers >= 1 (class 0 is pinned to uncategorized)"
+            )
+        if not isinstance(name, str) or not name:
+            raise ValueError(
+                f"condition {condition_id!r} {_CLASS_LOOKUP_ATTR} maps class {key} to "
+                f"{name!r}; a named class needs a non-empty category name"
+            )
+        classes[int(key)] = name
+    return classes
+
+
+def _read_class_lookup(f: object, condition_id: str) -> ClassLookup:
+    """Read one condition's persisted lookup from an open file (lenient about the id).
+
+    A condition with no list (or an id that cannot name a list) has only class 0. A
+    list written before #367 carries no attribute; its lookup is the one the list
+    order defines, which is exactly what `_write_category_names` would persist. A
+    persisted lookup that disagrees with the list it sits on is refused
+    ([`ValueError`][]) rather than either one being trusted over the other.
+    """
+    empty = ClassLookup(condition_id=condition_id, classes={})
+    if not condition_id or "/" in condition_id:
+        return empty
+    conditions = f[_CONDITIONS]  # type: ignore[index]
+    if _CATEGORIES_GROUP not in conditions or condition_id not in conditions[_CATEGORIES_GROUP]:
+        return empty
+    ds = conditions[_CATEGORIES_GROUP][condition_id]
+    names = tuple(_to_str(v) for v in ds[:])
+    derived = ClassLookup.from_categories(condition_id, names)
+    if _CLASS_LOOKUP_ATTR not in ds.attrs:
+        return derived
+    stored = _decode_class_lookup(ds.attrs[_CLASS_LOOKUP_ATTR], condition_id)
+    if stored != dict(derived.classes):
+        raise ValueError(
+            f"condition {condition_id!r}: the persisted {_CLASS_LOOKUP_ATTR} {stored} "
+            f"disagrees with its category list {list(names)}; rewrite the list with "
+            "set_category_list to restore one lookup"
+        )
+    return ClassLookup(condition_id=condition_id, classes=stored)
+
+
+def read_class_lookup(path: str | Path, condition_id: str) -> ClassLookup:
+    """Read a condition's persisted tMAVEN class ↔ category lookup (PRD §7.4). Read-only.
+
+    The single source the tMAVEN hand-off and its return leg read
+    ([`ClassLookup`][]). Lenient about the id, like [`read_category_list`][]: a
+    condition with no list yet answers a lookup holding only class 0. Raises
+    `ValueError` when the persisted lookup is malformed or disagrees with the
+    category list beside it.
+    """
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        return _read_class_lookup(f, condition_id)
+
+
+def read_class_lookups(path: str | Path, condition_ids: Iterable[str]) -> dict[str, ClassLookup]:
+    """[`read_class_lookup`][] for several conditions in one file open."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        return {cid: _read_class_lookup(f, cid) for cid in dict.fromkeys(condition_ids)}
 
 
 def _require_safe_condition_id(condition_id: str) -> str:
@@ -938,6 +1136,8 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
     Lazily creates the ``/conditions/categories`` sub-group and the per-condition
     resizable vlen-string dataset on first use (additive data). An emptied list
     resizes the dataset to 0 rows (kept, not deleted, to avoid HDF5 free-space churn).
+    Also (re)writes the ``tmaven_class_lookup`` attribute the names define, so the
+    persisted lookup always travels with the list (ADR-0125).
     """
     import h5py  # noqa: PLC0415
 
@@ -959,6 +1159,10 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
         )
     if names:
         ds[:] = list(names)
+    # The tMAVEN class lookup is persisted beside the names it is derived from, in
+    # this same write, so every list edit (set / add / rename / remove / copy)
+    # carries its lookup with it (PRD §5.1, ADR-0125).
+    ds.attrs[_CLASS_LOOKUP_ATTR] = _encode_class_lookup(names)
 
 
 def read_category_list(path: str | Path, condition_id: str) -> CategoryList:
@@ -982,7 +1186,7 @@ def set_category_list(path: str | Path, condition_id: str, categories: object) -
     The general editor — set, reorder (pass a permutation), or clear (pass ``[]``) a
     condition's vocabulary in one write. Names are stripped and must be non-empty and
     unique; order defines the integer codes. Requires ``condition_id`` to be a
-    materialized ``/conditions`` row ([`KeyError`][] otherwise). Returns the
+    materialized ``/conditions`` row (`KeyError` otherwise). Returns the
     resulting [`CategoryList`][].
     """
     import h5py  # noqa: PLC0415
@@ -999,8 +1203,8 @@ def add_category(path: str | Path, condition_id: str, name: str) -> CategoryList
     """Append one category to a condition's list; return the updated list (PRD §5.1).
 
     The new category's integer code is the (previous) list length. Rejects a name
-    that (after stripping) is empty or already present ([`ValueError`][]), and an
-    unregistered ``condition_id`` ([`KeyError`][]).
+    that (after stripping) is empty or already present (`ValueError`), and an
+    unregistered ``condition_id`` (`KeyError`).
     """
     import h5py  # noqa: PLC0415
 
@@ -1023,7 +1227,7 @@ def rename_category(path: str | Path, condition_id: str, old: str, new: str) -> 
     unchanged) but does **not** rewrite the ``/molecules.category`` values that
     reference ``old`` — re-labeling molecules is a separate explicit step (never
     silent, §5.1). Rejects an absent ``old`` or an already-present ``new``
-    ([`KeyError`][] / [`ValueError`][]), and an unregistered condition.
+    (`KeyError` / `ValueError`), and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
 
@@ -1046,7 +1250,7 @@ def remove_category(path: str | Path, condition_id: str, name: str) -> CategoryL
 
     A list-level edit only: later categories shift down one code, and molecules that
     referenced ``name`` keep their stored ``/molecules.category`` string (they are
-    not silently re-labeled, §5.1). Rejects an absent ``name`` ([`KeyError`][])
+    not silently re-labeled, §5.1). Rejects an absent ``name`` (`KeyError`)
     and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
@@ -1119,7 +1323,7 @@ def _read_held_category_names(path: str | Path, condition_id: str, role: str) ->
     """Read a condition's list from a project that must hold the condition.
 
     Unlike the lenient [`read_category_list`][], a cross-project read refuses a
-    project with no ``/conditions`` row for ``condition_id`` ([`KeyError`][]
+    project with no ``/conditions`` row for ``condition_id`` (`KeyError`
     naming the file, ADR-0068): an empty list read from a project that does not
     hold the condition would otherwise copy as a clear or compare as "every
     category missing".
@@ -1147,7 +1351,7 @@ def copy_category_list(
     The destination's previous list is replaced; an empty source list empties it.
 
     Both projects must hold ``condition_id`` as a ``/conditions`` row: a copy from
-    or into a project that does not is refused with a [`KeyError`][] that names
+    or into a project that does not is refused with a `KeyError` that names
     the file. Like the other list edits, molecules' stored ``/molecules.category``
     names in the destination are not rewritten. Returns the destination's list.
     """
@@ -1173,7 +1377,7 @@ def compare_category_lists(
     Reports each category whose name or integer code differs: a name only one
     project holds, or a name both hold at different codes. Two equal lists report
     nothing ([`CategoryListComparison.equal`][]). Both projects must hold
-    ``condition_id`` ([`KeyError`][] naming the file otherwise).
+    ``condition_id`` (`KeyError` naming the file otherwise).
     """
     _require_safe_condition_id(condition_id)
     a = CategoryList(condition_id, _read_held_category_names(path_a, condition_id, "first"))

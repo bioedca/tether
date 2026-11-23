@@ -146,3 +146,27 @@ def test_docs_do_not_promise_e_is_never_nan(page: Path) -> None:
     assert not _NEVER_NAN.search(text), f"{page.name} promises E is never NaN"
     assert re.search(r"zero total\s+intensity", text), f"{page.name} omits the NaN frame"
     assert re.search(r"missing (?:α or γ|factor)", text), f"{page.name} omits the fallback"
+
+
+#: Wordings that said a NaN factor is never stored (#1241). A withheld α or γ *is* stored as
+#: the NaN sentinel (docs/glossary.md, "withheld factor / NaN sentinel"); what the code holds
+#: is that no factor is computed from too few traces and that a NaN factor is never applied.
+_NAN_FACTOR_NEVER_STORED = re.compile(
+    r"NaN\s+factor\s+is\s+(?:ever|never)\s+(?:written|emitted)"
+    r"|no\s+NaN\s+factor\s+is\s+ever\s+(?:written|emitted)"
+    r"|never\s+(?:writes?|emits?)\s+(?:a\s+)?NaN\s+factor",
+    re.IGNORECASE,
+)
+
+
+def test_prd_does_not_say_a_nan_factor_is_never_written() -> None:
+    # Inline code is dropped first: §12's example commit subject quotes the old wording as an
+    # example of the format, not as a requirement, and #1241 keeps it.
+    prose = re.sub(r"`[^`]*`", "", (_REPO / "docs" / "PRD.md").read_text(encoding="utf-8"))
+    text = " ".join(prose.split())
+    found = _NAN_FACTOR_NEVER_STORED.search(text)
+    assert found is None, f"PRD.md says a NaN factor is never stored: {found and found.group(0)!r}"
+    # §7.2 states the narrower guarantee the code keeps, and the sentinel beside it.
+    assert re.search(r"factor is never computed from an empty or too-small", text)
+    assert re.search(r"stored as the NaN .{0,40}sentinel", text)
+    assert re.search(r"NaN or other non-finite factor is never applied", text)

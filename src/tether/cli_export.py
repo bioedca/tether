@@ -17,7 +17,7 @@ write over the source project, and exit codes (0 written, 1 failed, 2 usage).
 An export only reads the source project. It takes no writer lock and never touches the
 project's ``<file>.lock``, so it works on a project another user holds open.
 
-Only [`argparse`][] is imported at module level: ``tether.cli.build_parser`` registers
+Only `argparse` is imported at module level: ``tether.cli.build_parser`` registers
 these parsers on the ``tether --version`` path, which must stay free of the HDF5 stack.
 The export functions are imported inside [`run_export`][tether.cli_export.run_export].
 """
@@ -259,6 +259,34 @@ def _input_overwritten(form: str, targets: list[tuple[Path, Path]]) -> str | Non
     return None
 
 
+def _shared_destination(form: str, targets: list[tuple[Path, Path]]) -> str | None:
+    """Return the refusal if two planned destinations are one existing file (#1217).
+
+    ``table`` and ``traces`` open each output and provenance file in mode ``"w"``, so
+    when two of those paths are hard links to one file the later export truncates it
+    and replaces what the earlier one wrote, and the command still reports success.
+    The names are distinct (``_targets`` refused case-folded clashes), so only the
+    identity of the files behind them is compared, with ``Path.samefile`` as in
+    ``_is_source``. ``subset`` writes its data file through a temporary file and a
+    rename, which breaks the link, so only its provenance files, which are written in
+    place like every other form's, are checked.
+    """
+    paths = []
+    for _, out in targets:
+        if form != "subset":
+            paths.append(out)
+        paths.append(out.with_name(out.name + _SIDECAR_SUFFIX))
+    existing = [path for path in paths if path.exists()]
+    for i, first in enumerate(existing):
+        for second in existing[i + 1 :]:
+            if first.samefile(second):
+                return (
+                    f"{form} outputs {first} and {second} are the same file (hard links); "
+                    "refusing to write one over the other"
+                )
+    return None
+
+
 def _export_one(form: str, source: Path, out: Path, args: argparse.Namespace):
     """Run one export; raise on any failure, return the function's ``ExportResult``."""
     from tether.io.schema import assert_is_compatible_project
@@ -311,7 +339,7 @@ def run_export(args: argparse.Namespace) -> int:
     projects = [Path(p) for p in args.projects]
     try:
         targets, folder = _targets(form, projects, Path(args.output))
-        refusal = _input_overwritten(form, targets)
+        refusal = _input_overwritten(form, targets) or _shared_destination(form, targets)
     except _UsageError as exc:
         print(f"{prog}: {exc}", file=sys.stderr)
         return 2

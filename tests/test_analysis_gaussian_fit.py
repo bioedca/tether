@@ -119,11 +119,25 @@ def test_the_fraction_error_matches_the_spread_of_repeated_fits() -> None:
 
 
 def test_gaussians_come_back_in_order_of_mean() -> None:
-    hist = _histogram(gaussian_sum(_centers(), *TRUTH))
+    # A noisy histogram, so the covariance is not scaled towards zero by near-zero residuals and a
+    # wrongly permuted row or column cannot hide under an absolute tolerance (#1194).
+    hist = _noisy(5)
     ordered = fit_gaussians(hist, (0.0, 0.33))
     swapped = fit_gaussians(hist, (0.33, 0.0))
+    assert ordered.success and swapped.success
+    assert np.all(np.diff(ordered.params[1::3]) > 0)
     np.testing.assert_allclose(swapped.params, ordered.params, rtol=1e-7)
-    np.testing.assert_allclose(swapped.covariance, ordered.covariance, rtol=1e-4, atol=1e-12)
+    # Relative tolerance on every entry that is not near zero; the near-zero ones only have to be
+    # near zero in both, measured against the largest entry.
+    cov = ordered.covariance
+    floor = 1e-6 * np.abs(cov).max()
+    large = np.abs(cov) > floor
+    assert large.sum() > cov.shape[0]  # off-diagonal entries are compared too, not only variances
+    np.testing.assert_allclose(swapped.covariance[large], cov[large], rtol=1e-5)
+    np.testing.assert_array_less(np.abs(swapped.covariance[~large]), 2 * floor)
+    # The comparison can tell the Gaussians apart: their blocks swapped is not the same matrix.
+    blocks = [3, 4, 5, 0, 1, 2]
+    assert not np.allclose(cov[np.ix_(blocks, blocks)][large], cov[large], rtol=1e-5)
 
 
 def test_a_negative_width_from_the_optimizer_is_reported_as_its_absolute_value(

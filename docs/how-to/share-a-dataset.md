@@ -119,7 +119,7 @@ show_identity("deposit/accepted.tether")
 
 The full project prints one line for each movie and then the curator names. The subset prints
 no movie line, because a subset has no movie rows. It keeps the curator names, because it
-keeps the curation history.
+keeps the curation history, unless you export it with `curator_alias` (below).
 
 The other files carry neither field:
 
@@ -128,8 +128,27 @@ The other files carry neither field:
 - The Deep-LASI trace matrix holds only numbers.
 - A provenance file names the source project by its file name only.
 
-Tether has no option that removes the curator names from a project file. If the names must not
-be public, deposit the molecule table and the trace matrix and leave out the project file. The
+To replace the curator names, run the subset export again. Use `overwrite=True` to
+replace the subset and its provenance file from step 2.
+
+```python
+export_subset_tether(
+    "tutorial.tether",
+    "deposit/accepted.tether",
+    molecule_keys=accepted,
+    include_raw=True,
+    curator_alias="curator",
+    overwrite=True,
+)
+show_identity("deposit/accepted.tether")
+```
+
+The curator check prints aliases such as `curator-1`. One person keeps the same alias
+in the labels and the condition change log.
+
+Your project file does not change, so do
+not deposit it. [Export results](export-results.md#share-a-subset-without-your-user-name) gives
+the details. The
 [privacy policy](../privacy.md#the-desktop-application) says what else Tether records on your
 computer.
 

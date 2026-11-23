@@ -33,7 +33,15 @@ def _load(name: str):
 
 
 harness = _load("harness")
-DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"), _load("deep_lasi"))}
+DRIVERS = {
+    m.TOOL: m
+    for m in (
+        _load("smfret_analysis2"),
+        _load("mash_fret"),
+        _load("deep_lasi"),
+        _load("fret_cloud"),
+    )
+}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -137,9 +145,11 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "cloud.m").write_text("function cloud\nend\n", encoding="utf-8")
-    pins = {"lab": {"kind": "files", "files": {"cloud.m": harness.sha256(scripts / "cloud.m")}}}
+    digest = harness.sha256(scripts / "cloud.m")
+    pins = {"lab": {"kind": "files", "citation": "A, 2025", "files": {"cloud.m": digest}}}
     assert harness.verify_clone("lab", scripts, pins) == {
         "name": "lab",
+        "citation": "A, 2025",
         "files": pins["lab"]["files"],
     }
     (scripts / "cloud.m").write_text("function cloud\ndisp(1)\nend\n", encoding="utf-8")
@@ -289,6 +299,13 @@ def test_every_committed_output_matches_its_record(record: Path) -> None:
 def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
     pins = harness.load_pins()
     for tool in DRIVERS:
+        if pins[tool]["kind"] == "files":
+            # A tool with no public commit (#710): each script by its SHA-256, and a citation.
+            assert pins[tool]["files"], tool
+            for name, digest in pins[tool]["files"].items():
+                assert re.fullmatch(r"[0-9a-f]{64}", digest), (tool, name)
+            assert pins[tool]["citation"], tool
+            continue
         assert pins[tool]["kind"] == "git"
         assert re.fullmatch(r"[0-9a-f]{40}", pins[tool]["commit"]), tool
         assert pins[tool]["url"].startswith(("https://github.com/", "https://gitlab.com/"))
@@ -427,3 +444,97 @@ def test_a_run_that_writes_into_the_clone_is_refused(tmp_path, clone) -> None:
             pins=pins,
         )
     assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
+def _ignoring_clone(clone) -> tuple[Path, str]:
+    """The clone with a committed ``.gitignore`` for ``*.mat``: git status lists no such file."""
+    repo = clone[0]
+    (repo / ".gitignore").write_text("*.mat\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-q", "-m", "ignore")
+    return repo, _git(repo, "rev-parse", "HEAD").strip()
+
+
+def _run_touching(tmp_path: Path, clone, touch: str | None) -> Path:
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    params = {"touch_clone": touch} if touch else {}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": params}}
+    return harness.run(
+        "x",
+        "t",
+        tasks,
+        clone=clone[0],
+        inputs={},
+        out=tmp_path / "o",
+        matlab=STANDIN,
+        pins=pins,
+    )
+
+
+@pytest.mark.parametrize("name", ["s.mat", "sub/dir/s.mat"])
+def test_a_run_that_writes_an_ignored_file_into_the_clone_is_refused(tmp_path, clone, name) -> None:
+    # git status does not list an ignored file, so the status check alone passed this (#1193).
+    clone = _ignoring_clone(clone)
+    (clone[0] / name).parent.mkdir(parents=True, exist_ok=True)
+    assert not _git(clone[0], "status", "--porcelain", "--untracked-files=all").strip()
+    with pytest.raises(harness.HarnessError, match=rf"ignored files .*{re.escape(name)}"):
+        _run_touching(tmp_path, clone, name)
+    assert not _git(clone[0], "status", "--porcelain", "--untracked-files=all").strip()
+    assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
+def test_a_run_that_overwrites_an_ignored_file_in_the_clone_is_refused(tmp_path, clone) -> None:
+    clone = _ignoring_clone(clone)
+    (clone[0] / "s.mat").write_text("the settings before the run\n", encoding="utf-8")
+    with pytest.raises(harness.HarnessError, match=r"ignored files .*s\.mat"):
+        _run_touching(tmp_path, clone, "s.mat")
+    assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
+def test_a_clone_with_ignored_files_of_its_own_is_accepted(tmp_path, clone) -> None:
+    # The pre-run check stays as it was: an ignored file the run leaves alone is no refusal.
+    clone = _ignoring_clone(clone)
+    (clone[0] / "s.mat").write_text("settings\n", encoding="utf-8")
+    record = json.loads(_run_touching(tmp_path, clone, None).read_text(encoding="utf-8"))
+    assert record["tool"]["commit"] == clone[1]
+
+
+def test_a_freeze_whose_source_changes_during_the_copy_is_refused(tmp_path, monkeypatch) -> None:
+    # The tool saved the file again between reading its date and copying it (#1193): the
+    # record would have given the old date for the new bytes.
+    saved = tmp_path / "export.mat"
+    saved.write_bytes(b"MATLAB")
+    os.utime(saved, (1_700_000_000, 1_700_000_000))
+    copy2 = harness.shutil.copy2
+
+    def save_again(src, dst):
+        copy2(src, dst)
+        Path(src).write_bytes(b"matlab")  # the same size, new bytes and a new date
+        os.utime(src, (1_700_000_060, 1_700_000_060))
+
+    monkeypatch.setattr(harness.shutil, "copy2", save_again)
+    with pytest.raises(harness.HarnessError, match="export.mat changed while it was copied"):
+        harness.freeze(
+            "deep-lasi", saved=[saved], out=tmp_path / "f", tool_version="1", matlab_release="2023b"
+        )
+    assert not (tmp_path / "f" / harness.RECORD).exists()
+
+
+def test_a_run_that_writes_into_an_ignored_checkout_in_the_clone_is_refused(
+    tmp_path, clone
+) -> None:
+    # Git lists an ignored checkout as one folder ("dep/") and does not look into it (#1193).
+    clone = _ignoring_clone(clone)
+    (clone[0] / ".gitignore").write_text("*.mat\ndep/\n", encoding="utf-8")
+    _git(clone[0], "add", ".gitignore")
+    _git(clone[0], "commit", "-q", "-m", "ignore dep")
+    clone = clone[0], _git(clone[0], "rev-parse", "HEAD").strip()
+    dep = clone[0] / "dep"
+    dep.mkdir()
+    _git(dep, "init", "-q")
+    (dep / "lib.m").write_text("function lib\nend\n", encoding="utf-8")
+    assert "dep/" in _git(clone[0], "ls-files", "--others", "--ignored", "--exclude-standard")
+    record = json.loads(_run_touching(tmp_path / "a", clone, None).read_text(encoding="utf-8"))
+    assert record["tool"]["commit"] == clone[1]
+    with pytest.raises(harness.HarnessError, match=r"ignored files .*dep/settings\.txt"):
+        _run_touching(tmp_path / "b", clone, "dep/settings.txt")

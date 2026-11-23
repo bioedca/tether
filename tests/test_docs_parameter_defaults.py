@@ -687,6 +687,10 @@ def _registry() -> list[_Entry]:
             ("DEFAULT_GAMMA_HALF_WINDOW",),
             module_constant("tether.fret.gamma", "DEFAULT_GAMMA_HALF_WINDOW"),
         ),
+        (
+            ("DEFAULT_MIN_CLEAN_STEP_FRACTION",),
+            module_constant("tether.fret.gamma", "DEFAULT_MIN_CLEAN_STEP_FRACTION"),
+        ),
         # Idealization.
         (("MODEL_TYPE_DEFAULT",), module_constant("tether.project.idealize", "MODEL_TYPE_DEFAULT")),
         (
@@ -1016,6 +1020,38 @@ def _registry() -> list[_Entry]:
         (
             ("alpha", "in_grid_only"),
             function_default("tether.analysis.cloud", "alpha_shape", "alpha"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_GRID_POINTS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_GRID_POINTS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_RANGE",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_RANGE"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_BANDWIDTH",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_BANDWIDTH"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_HDR_COVERAGES",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_HDR_COVERAGES"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_N_CENTROIDS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_N_CENTROIDS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER"),
+        ),
+        (
+            ("DEFAULT_SUCCESSIVE_SEED",),
+            module_constant("tether.analysis.successive", "DEFAULT_SUCCESSIVE_SEED"),
         ),
         (
             ("DEFAULT_ANTICORR_WINDOW",),
@@ -1447,6 +1483,54 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.analysis.cloud", "k_rmse_elbow", "restarts", "DEFAULT_ELBOW_RESTARTS"),
     ("tether.analysis.cloud", "k_rmse_elbow", "seed", "DEFAULT_ELBOW_SEED"),
     ("tether.analysis.cloud", "raw_fret_cloud", "time_dt", "DEFAULT_CLOUD_TIME_DT"),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "grid_points",
+        "DEFAULT_SUCCESSIVE_GRID_POINTS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "value_range",
+        "DEFAULT_SUCCESSIVE_RANGE",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "bandwidth",
+        "DEFAULT_SUCCESSIVE_BANDWIDTH",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "hdr_coverages",
+        "DEFAULT_SUCCESSIVE_HDR_COVERAGES",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "n_centroids",
+        "DEFAULT_SUCCESSIVE_N_CENTROIDS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "kmeans_restarts",
+        "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "kmeans_max_iter",
+        "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",
+    ),
+    (
+        "tether.analysis.successive",
+        "successive_frame_cloud",
+        "seed",
+        "DEFAULT_SUCCESSIVE_SEED",
+    ),
     ("tether.analysis.dwell", "DwellTimeAnalysis.histogram", "nbins", "DEFAULT_DWELL_NBINS"),
     ("tether.analysis.dwell", "population_dwell_times", "ci_level", "DEFAULT_DWELL_CI_LEVEL"),
     ("tether.analysis.dwell", "population_dwell_times", "dt", "DEFAULT_DWELL_DT"),
@@ -1495,6 +1579,12 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.project.drift", "cross_condition_drift", "alpha", "DEFAULT_DRIFT_ALPHA"),
     ("tether.project.gamma", "compute_gamma", "ceiling", "GAMMA_CEILING"),
     ("tether.project.gamma", "compute_gamma", "half_window", "DEFAULT_GAMMA_HALF_WINDOW"),
+    (
+        "tether.project.gamma",
+        "compute_gamma",
+        "min_clean_step_fraction",
+        "DEFAULT_MIN_CLEAN_STEP_FRACTION",
+    ),
     (
         "tether.project.gamma",
         "compute_gamma",
@@ -1578,6 +1668,15 @@ tether.analysis.cloud
     raw_fret_cloud signal_bins DEFAULT_CLOUD_SIGNAL_BINS
     raw_fret_cloud signal_range DEFAULT_CLOUD_SIGNAL_RANGE
     raw_fret_cloud time_bins DEFAULT_CLOUD_TIME_BINS
+tether.analysis.successive
+    population_successive_frame_cloud bandwidth DEFAULT_SUCCESSIVE_BANDWIDTH
+    population_successive_frame_cloud grid_points DEFAULT_SUCCESSIVE_GRID_POINTS
+    population_successive_frame_cloud hdr_coverages DEFAULT_SUCCESSIVE_HDR_COVERAGES
+    population_successive_frame_cloud kmeans_max_iter DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER
+    population_successive_frame_cloud kmeans_restarts DEFAULT_SUCCESSIVE_KMEANS_RESTARTS
+    population_successive_frame_cloud n_centroids DEFAULT_SUCCESSIVE_N_CENTROIDS
+    population_successive_frame_cloud seed DEFAULT_SUCCESSIVE_SEED
+    population_successive_frame_cloud value_range DEFAULT_SUCCESSIVE_RANGE
 tether.analysis.dwell
     fit_survival ci_level DEFAULT_DWELL_CI_LEVEL
 tether.analysis.histogram
@@ -1639,6 +1738,7 @@ tether.fret.gamma
     estimate_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     estimate_gamma min_qualifying_traces DEFAULT_MIN_QUALIFYING_TRACES
     estimate_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+    few_clean_steps min_fraction DEFAULT_MIN_CLEAN_STEP_FRACTION
     trace_gamma ceiling GAMMA_CEILING
     trace_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     trace_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
