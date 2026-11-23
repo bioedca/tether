@@ -99,7 +99,7 @@ retired = 0
 
 [pages."docs/tutorial.md"]
 kind = "procedure"
-long_share = 22.5
+long_share = 20.4
 semicolons = 7
 long_paragraphs = 0
 retired = 0

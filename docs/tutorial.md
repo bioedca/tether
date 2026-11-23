@@ -105,9 +105,10 @@ wherever this tutorial says magenta, read red. In that menu the selected set has
 
 On some systems, Tether cannot show the movie panel, for example where OpenGL is not
 available. Then the status-bar line above ends with `; movie panel unavailable:` and the
-reason. This tutorial does not use the movie panel. But that warning stays in the status bar,
-and it hides the lines that the next steps tell you to look for. If you see it, click
-**Dismiss** at the right end of the status bar before you go on to step 5.
+reason. This tutorial does not use the movie panel.
+
+But the warning stays in the status bar. It hides the lines that the next steps tell you to look
+for. If you see it, click **Dismiss** at the right end of the status bar. Then go on to step 5.
 
 ## 5. Look at each trace
 
