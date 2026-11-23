@@ -119,6 +119,73 @@ def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) 
     assert (tmp_path / "tutorial.tether").is_file()
 
 
+def _step(page: str, number: int) -> str:
+    """The text of the page's step ``number``, from its heading to the next one."""
+    start = page.index(f"\n## {number}. ")
+    return page[start : page.index("\n## ", start + 1)]
+
+
+def _dismiss_as_the_page_says(qtbot, shell, *, warned: bool) -> None:
+    """Click **Dismiss** when the opening line carries a warning, as step 4 tells (#1312)."""
+    from pyqtgraph.Qt import QtCore
+
+    # The window is never shown headless, so "shown" is read as "not hidden".
+    button = shell.messages.dismiss_button
+    assert button.isHidden() is not warned
+    if warned:
+        qtbot.mouseClick(button, QtCore.Qt.MouseButton.LeftButton)
+        assert shell.messages.sticky is None
+        assert button.isHidden()
+
+
+def test_step_4_tells_what_to_do_with_the_movie_panel_warning() -> None:
+    """Step 4 names the optional warning suffix and the **Dismiss** action (#1312)."""
+    step = _step(_page(), 4)
+    assert f"```text\n{OPEN_LINE}\n```" in step
+    assert "`; movie panel unavailable:`" in step
+    assert "**Dismiss**" in step
+    assert "step 5" in step
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_unavailable_movie_panel_warning_is_dismissed_before_step_5(
+    qtbot, tmp_path, monkeypatch, capsys
+) -> None:
+    """Without a movie panel, step 4's warning hides step 5's line until it is dismissed.
+
+    The shell takes this branch only where no OpenGL context exists (macOS offscreen), so the
+    reason is forced here and every platform runs it (#1312).
+    """
+    from pyqtgraph.Qt import QtCore
+
+    import tether.gui.shell as shell_module
+    from tether.gui.app import create_shell
+
+    _extract(tmp_path, monkeypatch, capsys)
+    reason = "no OpenGL context in this test"
+    monkeypatch.setattr(shell_module, "_movie_panel_unavailable", lambda: reason)
+
+    _app, shell = create_shell(["tutorial.tether"])
+    qtbot.addWidget(shell.window)
+    status = shell.window.statusBar()
+    try:
+        lst = shell.molecule_list
+        warned = f"{OPEN_LINE}; movie panel unavailable: {reason}"
+        assert status.currentMessage() == warned
+
+        # Without Dismiss, the warning holds the status bar and step 5's line is hidden.
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Right)
+        assert status.currentMessage() == warned
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Left)
+
+        _dismiss_as_the_page_says(qtbot, shell, warned=True)
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Right)
+        assert status.currentMessage() == BROWSE_LINE
+    finally:
+        shell.close()
+
+
 @pytest.mark.gui
 @_needs_qt
 def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatch, capsys) -> None:
@@ -159,7 +226,9 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         no_panel = shell_module._movie_panel_unavailable()
         tail = f"; movie panel unavailable: {no_panel}" if no_panel else ""
         assert status.currentMessage() == OPEN_LINE + tail
-        shell.messages.acknowledge()
+        # Step 4's note: that warning stays in the status bar until the learner clicks
+        # **Dismiss** (#1274), else it hides step 5's line (#1312).
+        _dismiss_as_the_page_says(qtbot, shell, warned=bool(no_panel))
         assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
         assert lst.currentRow() == 0
 
