@@ -2501,6 +2501,117 @@ extract_of = ["mashfret-group-iib-intron-archive"]
 extract_script = "scripts/make_mashfret_fixture.py"
 citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
 
+# --- Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105) -----
+# Values computed by FRET_cloud_contours_centroids.m (FRET_cloud scripts, Eduardo Campos Chavez,
+# 2025, unpublished; pinned by SHA-256 in scripts/reference/matlab/pins.toml, not vendored) from
+# the GPL-3.0-only traces above, so GPL-3.0-only. provenance.json is the harness record.
+
+[[dataset]]
+id = "fret-cloud-centroids-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv"
+size = 162
+sha256 = "1fecb09c8fa5ad4c85f23a5a71738fc9b7b99810315741201fbae3847af3b58b"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-density-h5"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5"
+size = 324992
+sha256 = "c20de959914d6048de0fb353cc5ad2d9cef416dfeee58c00acbab6d339a82086"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-files-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv"
+size = 1051
+sha256 = "46146dcd4cc8fe1f5b1c2254621abe58b48cef453d364607c9d9281003ee63cd"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-pairs-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv"
+size = 151259
+sha256 = "1841fc6e2696c916a32ed6cf376a194dc91557e51373d8a8970962a66889e8a0"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-provenance-json"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json"
+size = 8093
+sha256 = "a0ffb4a449bd04c8cddec37e17b3f6e8f9a6421ae166de13b56cd9bc5720891e"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-thresholds-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv"
+size = 352
+sha256 = "b5574055afb1a7dd2d65769bd1cebf41ac3b718e12c4ba2dbdb98500fec9dbfc"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-toolbox-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv"
+size = 74
+sha256 = "1d3fdcfd927cd384fadfe9cc3cbf90f4de0c71ed50cdd7cf8ae12aeffa385a50"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+# --- A MASH-FRET test project with a non-zero leakage coefficient: github.com/RNA-FRETools/MASH-FRET
+# at commit b577928, GPL-3.0-only (#870). The project (2.0 MB) is larger than a git file, so the
+# required matrix reads an extract (scripts/make_mashfret_leakage_fixture.py says what it keeps).
+
+[[dataset]]
+id = "mashfret-2chan2exc-project"
+source = "accession:github:RNA-FRETools/MASH-FRET@b577928ecf2bd9040dda6f66ad0035567785e5e1"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/blob/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+license = "GPL-3.0-only"
+file = "2chan2exc.mash"
+size = 2008685
+sha256 = "adac4b599652fb264caae52613eb81bb66cc40915ea137d648931ccacfa913c6"
+tier = "download"
+download_url = "https://raw.githubusercontent.com/RNA-FRETools/MASH-FRET/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+citation = "Hadzic MCAS, Kowerko D, König SLB, Börner R, Steffen FD, Sigel RKO. MASH-FRET (test project 2chan2exc.mash). GitHub RNA-FRETools/MASH-FRET, commit b577928 (2021-11-24). Software paper: Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. PLoS ONE 13(4):e0195277 (2018), doi:10.1371/journal.pone.0195277"
+
+[[dataset]]
+id = "mashfret-2chan2exc-leakage-extract"
+source = "accession:github:RNA-FRETools/MASH-FRET@b577928ecf2bd9040dda6f66ad0035567785e5e1"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/blob/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+license = "GPL-3.0-only"
+file = "tests/fixtures/mashfret_2chan2exc_leakage_extract.mat"
+size = 277650
+sha256 = "e4ddd2ee884269433814cf39f96935c9b0fe3c8eb6cd3321fa1db96a5e1476fb"
+tier = "git"
+extract_of = ["mashfret-2chan2exc-project"]
+extract_script = "scripts/make_mashfret_leakage_fixture.py"
+citation = "Hadzic MCAS, Kowerko D, König SLB, Börner R, Steffen FD, Sigel RKO. MASH-FRET (test project 2chan2exc.mash). GitHub RNA-FRETools/MASH-FRET, commit b577928 (2021-11-24). Software paper: Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. PLoS ONE 13(4):e0195277 (2018), doi:10.1371/journal.pone.0195277"
+
 # --- Weninger laboratory, trinucleotide-repeat hairpins: Zenodo 10.5281/zenodo.7853531 (a copy of
 # Dryad doi:10.5061/dryad.ht76hdrkc), CC0-1.0 (#798). The archive is too large for the download
 # tier, so it is a workstation record at its path below the data folder; no workstation check

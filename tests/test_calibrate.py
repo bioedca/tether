@@ -444,6 +444,87 @@ def test_write_read_calibration_nan_residual(tmp_path: Path) -> None:
 # --- imported .tmap path + apply-both parity (§7.1; §9 M1) -------------------
 
 
+def test_imported_map_carries_tmap_rotation_and_flip() -> None:
+    # #559: each channel's decoded Rotation/Flip lands in the map's split geometry
+    # next to its crop, so the movie is split rotate -> flip -> crop like the map.
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[270.0]]), flip=np.array([[0, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    assert reg.reference_geometry is not None and reg.moving_geometry is not None
+    assert reg.reference_geometry.rotation_deg == 0
+    assert reg.reference_geometry.flip == (0, 0)
+    assert reg.moving_geometry.rotation_deg == 270
+    assert reg.moving_geometry.flip == (0, 1)
+    assert reg.moving_geometry.crop == tuple(np.asarray(channels[moving_id].crop).ravel())
+
+    bad = dict(channels)
+    bad[moving_id] = replace(channels[moving_id], rotation=np.array([[45.0]]))
+    with pytest.raises(ValueError, match="Rotation"):
+        registration_map_from_tmap(bad, reference_channel=reference)
+
+
+@pytest.mark.parametrize("turned", [False, True], ids=["unturned", "turned"])
+@pytest.mark.parametrize(
+    "bad_value",
+    [1.9, np.nan, np.inf, 1 + 0.5j, complex(1, np.inf)],
+    ids=["fraction", "nan", "inf", "complex", "complex-inf"],
+)
+def test_imported_map_refuses_a_non_integral_crop(turned: bool, bad_value: float | complex) -> None:
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    crop = channels[moving_id].crop.astype(np.result_type(bad_value, np.float64))
+    crop.flat[0] = bad_value
+    rotation = np.array([[90.0]]) if turned else channels[moving_id].rotation
+    channels[moving_id] = replace(channels[moving_id], crop=crop, rotation=rotation)
+    with pytest.raises(ValueError, match=rf"channel {moving_id} crop .*whole numbers"):
+        registration_map_from_tmap(channels, reference_channel=reference)
+
+
+def test_imported_map_accepts_an_integral_crop_stored_as_float() -> None:
+    # #1190: a whole-number crop stored as float64 (the decoded dtype) still loads,
+    # and gives exactly the map an integer-typed crop gives.
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    as_float = {
+        cid: replace(ch, crop=np.asarray(ch.crop, dtype=np.float64)) for cid, ch in channels.items()
+    }
+    as_int = {
+        cid: replace(ch, crop=np.asarray(ch.crop, dtype=np.int64)) for cid, ch in channels.items()
+    }
+    got = registration_map_from_tmap(as_float, reference_channel=reference)
+    want = registration_map_from_tmap(as_int, reference_channel=reference)
+    assert got.reference_geometry == want.reference_geometry
+    assert got.moving_geometry == want.moving_geometry
+    assert got.moving_geometry is not None
+    assert all(type(v) is int for v in got.moving_geometry.crop)
+
+
+def test_imported_map_rotation_and_flip_survive_persistence(tmp_path) -> None:
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[90.0]]), flip=np.array([[1, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    path = tmp_path / "map.npz"
+    save_map(reg, path)
+    back = load_map(path)
+    assert back.moving_geometry == reg.moving_geometry
+    assert back.reference_geometry == reg.reference_geometry
+
+
 def test_imported_map_matches_tmap_channel_helper() -> None:
     """The imported 0-based transform equals the TmapChannel 0-based helper exactly.
 

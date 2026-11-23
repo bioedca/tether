@@ -25,7 +25,7 @@ analogue of tMAVEN's non-finite filter. Frames whose successor is
 [`NO_STATE`][tether.idealize.driver.NO_STATE] (a window edge or interior gap) are excluded from
 the denominator: a transition across a gap is unobserved, never assumed. Pooled over
 molecules, the probabilities are binned like tMAVEN (``[-0.05, 1.05]``, 25 bins,
-density) with an optional Gaussian-KDE curve [McKinney2006][vandeMeent2014].
+density) with an optional Gaussian-KDE curve [McKinney2006], [vandeMeent2014].
 
 [`empirical_transition_probability`][] is the per-molecule scalar;
 [`transition_prob_histogram`][] is the pure-array core (per-molecule paths → a
@@ -210,7 +210,7 @@ def transition_prob_histogram(
     prob_range
         ``(lo, hi)`` probability range for the histogram (``hi > lo``).
     density
-        If ``True``, normalize like [`numpy.histogram`][] ``density`` (integral over
+        If ``True``, normalize like `numpy.histogram` ``density`` (integral over
         the range is 1); else raw counts.
     kde
         Attach a Gaussian-KDE overlay curve when computable.

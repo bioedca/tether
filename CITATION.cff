@@ -19,7 +19,7 @@ authors:
     affiliation: "Mondragón Lab, Northwestern University"
     email: "bioedca@u.northwestern.edu"
   - given-names: "Alfonso"
-    family-names: "Mondragon"
+    family-names: "Mondragón"
     orcid: "https://orcid.org/0000-0002-0423-6323"
     affiliation: "Mondragón Lab, Northwestern University"
   # Entity author. CFF 1.2.0 entities accept `name`/`email` but NOT `affiliation`
@@ -71,7 +71,7 @@ references:
       - family-names: "Ray"
         given-names: "Korak Kumar"
       - family-names: "Bodick"
-        given-names: "Michael"
+        given-names: "Maya"
       - family-names: "Kinz-Thompson"
         given-names: "Colin D."
       - family-names: "Gonzalez"

@@ -29,8 +29,8 @@ The UC3 loop with this module is::
     model = retrain_condition_model(load_model(path), day2, video_id=v2)  # reads day1 again
     save_model(model, path)
 
-Out of scope here: the project's ``/models`` reference and the owner-curator lock (#561), and the
-application controls (#640).
+The project's ``/models`` reference and the model file's owner-curator lock are
+[`tether.project.model_artifact`][] (#561, ADR-0119); the application controls are #640.
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ def _to_str(value: object) -> str:
 def _file_attributes(path: Path) -> int:
     """The Windows file attributes of ``path`` (``0`` elsewhere). Metadata only: no byte read.
 
-    Raises [`FileNotFoundError`][] when the file does not exist.
+    Raises `FileNotFoundError` when the file does not exist.
     """
     return int(getattr(os.stat(path), "st_file_attributes", 0))
 
@@ -220,23 +220,23 @@ def _check_available(path: Path) -> None:
 def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
     """Read one project's labelled rows of ``condition_id``. Read-only; takes no lock.
 
-    Opens the file only through the path-based readers, which open it with ``h5py`` mode ``"r"``.
+    Uses one read-only file handle for the features, active molecules, labels and reviews.
     A human accept/reject supersedes a provisional prior on the same molecule (the
     [`tether.project.gbranking`][] rule).
     """
-    from tether.imaging.extract import read_molecules  # noqa: PLC0415
     from tether.project.gbranking import (  # noqa: PLC0415
         _latest_provisional_labels,
         _require_featured_human_labels,
     )
-    from tether.project.labels import read_labels  # noqa: PLC0415
-    from tether.project.ranking import ranking_dataset  # noqa: PLC0415
-    from tether.project.weighting import human_counts_by_condition  # noqa: PLC0415
+    from tether.project.ranking import _training_snapshot  # noqa: PLC0415
+    from tether.project.weighting import (  # noqa: PLC0415
+        human_counts_by_condition,
+        training_curation_codes,
+    )
 
     try:
-        data = ranking_dataset(path)
-        molecules = read_molecules(path)
-        provisional = _latest_provisional_labels(read_labels(path))
+        data, molecules, label_rows = _training_snapshot(path)
+        provisional = _latest_provisional_labels(label_rows)
     except OSError as exc:
         raise SourceProjectUnavailableError(path, "unreadable", str(exc)) from exc
 
@@ -244,17 +244,21 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
         _to_str(key): _to_str(cond)
         for key, cond in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
     }
-    _require_featured_human_labels(path, molecules, data.molecule_keys, condition_id)
-    n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
-    n_human = human_counts_by_condition(molecules["condition_id"], molecules["curation_label"]).get(
-        condition_id, 0
+    pending = data.pending_label_ids
+    _require_featured_human_labels(
+        path, molecules, data.molecule_ids, condition_id, pending=pending
     )
+    n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
+    eligible = training_curation_codes(
+        molecules["molecule_id"], molecules["curation_label"], pending
+    )
+    n_human = human_counts_by_condition(molecules["condition_id"], eligible).get(condition_id, 0)
 
     idx: list[int] = []
     labels: list[bool] = []
     human: list[bool] = []
     for i, key in enumerate(data.molecule_keys):
-        if condition_by_key.get(key) != condition_id:
+        if condition_by_key.get(key) != condition_id or data.molecule_ids[i] in pending:
             continue
         code = int(data.curation_label[i])
         if code != _UNCURATED:

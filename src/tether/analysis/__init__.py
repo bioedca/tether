@@ -64,14 +64,19 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   [`population_transition_density`][tether.analysis.tdp.population_transition_density] — the B1 real
   Transition
   Density Plot: the initial-vs-final idealized-FRET density over state-change frames of
-  a population's *fresh* idealizations [McKinney2006].
+  a population's *fresh* idealizations [McKinney2006];
+  [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density] is its
+  drawn view (Gaussian filter, bicubic spline, normalization to the maximum), a view of
+  the stored counts and never a reported number.
 - [`state_dwells`][tether.analysis.dwell.state_dwells] /
   [`survival_curve`][tether.analysis.dwell.survival_curve] /
   [`fit_survival`][tether.analysis.dwell.fit_survival] /
   [`population_dwell_times`][tether.analysis.dwell.population_dwell_times] — the B2 dwell-time
   analysis:
   per-state dwell-length distributions, their empirical survival function, and its
-  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
+  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024];
+  [`mean_dwell_time`][tether.analysis.dwell.mean_dwell_time] gives the amplitude-weighted mean
+  dwell time of a sum-of-exponentials fit with its propagated error (#1028).
 -
   [`empirical_transition_probability`][tether.analysis.transition_prob.empirical_transition_probability]
   /
@@ -94,20 +99,27 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   cloud QC view
   (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
   Gaussian-KDE surface and highest-density-region percentile contours (the
-  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017].
+  numerical-grid density-quantile method) [Hyndman1996], [Haselsteiner2017].
 - [`alpha_shape`][tether.analysis.cloud.alpha_shape] /
   [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape] —
   the raw FRET cloud's
   **α-shape support boundary** (PR-5b): the concave hull of the pooled ``(time, E)`` cloud
   from its Delaunay triangulation (circumradius ``<= alpha`` in axis-normalized
-  coordinates), tracing where the population's signal lives [Edelsbrunner1983][PateiroLopez2010].
+  coordinates), tracing where the population's signal lives [Edelsbrunner1983], [PateiroLopez2010].
 - [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] /
   [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow]
   — the
   **k-vs-RMSE elbow** state-count *hint* (PR-5b): k-means over the pooled apparent-E
-  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
+  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011], [Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
-  [Schubert2022][McKinney2006].
+  [Schubert2022], [McKinney2006].
+- [`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud] /
+  [`population_successive_frame_cloud`][tether.analysis.successive.population_successive_frame_cloud]
+  — the **successive-frame FRET cloud** (#710, ADR-0105): E at frame ``i`` against E at frame
+  ``i + 1`` within each molecule, never across a masked frame, with a fixed-bandwidth
+  Gaussian density, its highest-density-region contour levels and optional k-means
+  centroids — the plot of the laboratory's FRET_cloud scripts. It is a different plot from
+  the time–FRET cloud above ([`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud]).
 - [`find_anticorrelation_events`][tether.analysis.anticorrelation.find_anticorrelation_events] /
   [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events]
   — the
@@ -117,7 +129,7 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   threshold, which rejects white shot-noise anticorrelation) into time-localized events —
   the model-free lens that says *when* within a trace the donor and acceptor
   anticorrelate, subordinate to the HMM/TDP transition count
-  [Felekyan2012][Torres2007][Chung2010][McKinney2006].
+  [Felekyan2012], [Torres2007], [Chung2010], [McKinney2006].
 
 Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
 
@@ -146,6 +158,15 @@ Changed at M17 (#369, ADR-0109):
   ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]
   when the cloud has no 2-D region).
 
+Added at M17 (FR-PLOT, PRD §7.7; #373, ADR-0124):
+
+- [`SavedSelection`][tether.analysis.saved_selection.SavedSelection] /
+  [`select_molecules`][tether.analysis.saved_selection.select_molecules] /
+  [`preset_selections`][tether.analysis.saved_selection.preset_selections] — the Qt-free,
+  serializable one-project series of the plot builder: a named selection frozen from a
+  [`query_molecules`][tether.analysis.query.query_molecules] result with the filter that made
+  it, and the one-click presets (one selection per condition, movie or source file).
+
 Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
 
 - [`dirichlet_rate_bounds`][tether.analysis.rate_bounds.dirichlet_rate_bounds] /
@@ -153,9 +174,30 @@ Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
   HMM's un-normalized transition count matrix with their Dirichlet lower and upper
   bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
   stored idealization model (the result carries its provenance stamp).
+
+Added at M17 (FR-ANALYZE, PRD §7.7; #1030, ADR-0120):
+
+- [`fit_gaussians`][tether.analysis.gaussian_fit.fit_gaussians] — a sum of ``n`` Gaussians
+  fitted to a 1-D histogram by least squares, with each Gaussian's mean, width, area and
+  fraction of the total area, and their errors propagated from the full covariance
+  [Gopich2010]; the fit behind Fig. 5c of [CamposChavez2024].
+
+Exposed lazily (FR-EXPORT, PRD §7.9; #372):
+
+- [`plot_export`][tether.analysis.plot_export] and every name in its ``__all__`` —
+  [`export_figure`][tether.analysis.plot_export.export_figure], the ``render_*`` helpers,
+  [`PlotExportResult`][tether.analysis.plot_export.PlotExportResult] and the export
+  constants — resolve on first attribute access through a module ``__getattr__``
+  ([PEP 562](https://peps.python.org/pep-0562/)), so
+  ``from tether.analysis import export_figure`` works while ``import tether.analysis``
+  still does not import Matplotlib. ``dir(tether.analysis)`` lists these names. They
+  are deliberately **not** in this package's ``__all__``: a star import then stays
+  Matplotlib-free as well.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from tether.analysis.anticorrelation import (
     DEFAULT_ANTICORR_MIN_MAGNITUDE,
@@ -203,9 +245,18 @@ from tether.analysis.dwell import (
     DwellTimeAnalysis,
     StateDwells,
     fit_survival,
+    mean_dwell_time,
     population_dwell_times,
     state_dwells,
     survival_curve,
+)
+from tether.analysis.gaussian_fit import (
+    AREA_METHODS,
+    DEFAULT_AREA_METHOD,
+    DEFAULT_INITIAL_WIDTH,
+    GaussianFit,
+    fit_gaussians,
+    gaussian_sum,
 )
 from tether.analysis.histogram import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -263,6 +314,12 @@ from tether.analysis.rate_bounds import (
     dirichlet_rate_bounds,
     model_rate_bounds,
 )
+from tether.analysis.saved_selection import (
+    SavedSelection,
+    SelectionFilter,
+    preset_selections,
+    select_molecules,
+)
 from tether.analysis.selection import MoleculeSelection, Selection, resolve_selection
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
@@ -271,12 +328,32 @@ from tether.analysis.state_number import (
     population_state_number,
     state_number_counts,
 )
+from tether.analysis.successive import (
+    DEFAULT_SUCCESSIVE_BANDWIDTH,
+    DEFAULT_SUCCESSIVE_GRID_POINTS,
+    DEFAULT_SUCCESSIVE_HDR_COVERAGES,
+    DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER,
+    DEFAULT_SUCCESSIVE_KMEANS_RESTARTS,
+    DEFAULT_SUCCESSIVE_N_CENTROIDS,
+    DEFAULT_SUCCESSIVE_RANGE,
+    DEFAULT_SUCCESSIVE_SEED,
+    SuccessiveFrameCloud,
+    SuccessiveFramePairs,
+    population_successive_frame_cloud,
+    successive_frame_cloud,
+    successive_frame_pairs,
+)
 from tether.analysis.tdp import (
+    DEFAULT_TDP_INTERP_RES,
+    DEFAULT_TDP_NORMALIZE,
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
     DEFAULT_TDP_SIGNAL_RANGE,
+    DEFAULT_TDP_SMOOTH,
+    SmoothedTransitionDensity,
     TransitionDensityPlot,
     population_transition_density,
+    smooth_transition_density,
     transition_density,
 )
 from tether.analysis.transition_prob import (
@@ -290,12 +367,44 @@ from tether.analysis.transition_prob import (
     transition_prob_histogram,
 )
 
+if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them lazily
+    from tether.analysis import plot_export
+    from tether.analysis.plot_export import (
+        DEFAULT_EXPORT_DPI,
+        DEFAULT_FIGSIZE,
+        DEFAULT_PLOT_FORMATS,
+        DEFAULT_TDP_COLOR_SCALE,
+        SERIES_COLOR_CYCLE,
+        SERIES_COLORS,
+        SERIES_LINESTYLES,
+        TDP_COLOR_SCALES,
+        PlotExportResult,
+        SeriesStyle,
+        export_figure,
+        render_alpha_shape,
+        render_cross_correlation,
+        render_dwell_survival,
+        render_histogram1d,
+        render_histogram2d,
+        render_per_condition_histograms,
+        render_population_anticorrelation,
+        render_raw_fret_cloud,
+        render_state_number,
+        render_state_number_elbow,
+        render_transition_density,
+        render_transition_prob,
+        render_transition_sync_histogram2d,
+        series_style,
+    )
+
 __all__ = [
+    "AREA_METHODS",
     "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_ANTICORR_MIN_MAGNITUDE",
     "DEFAULT_ANTICORR_MIN_WINDOWS",
     "DEFAULT_ANTICORR_STEP",
     "DEFAULT_ANTICORR_WINDOW",
+    "DEFAULT_AREA_METHOD",
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_CLOUD_BW_METHOD",
@@ -313,6 +422,7 @@ __all__ = [
     "DEFAULT_HMM_MAX_ITER",
     "DEFAULT_HMM_TOL",
     "DEFAULT_HMM_VAR_FLOOR",
+    "DEFAULT_INITIAL_WIDTH",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -320,10 +430,21 @@ __all__ = [
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_STATE_NUMBER_LOW",
+    "DEFAULT_SUCCESSIVE_BANDWIDTH",
+    "DEFAULT_SUCCESSIVE_GRID_POINTS",
+    "DEFAULT_SUCCESSIVE_HDR_COVERAGES",
+    "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",
+    "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",
+    "DEFAULT_SUCCESSIVE_N_CENTROIDS",
+    "DEFAULT_SUCCESSIVE_RANGE",
+    "DEFAULT_SUCCESSIVE_SEED",
     "DEFAULT_SYNC_PREFRAME",
+    "DEFAULT_TDP_INTERP_RES",
+    "DEFAULT_TDP_NORMALIZE",
     "DEFAULT_TDP_NSKIP",
     "DEFAULT_TDP_SIGNAL_BINS",
     "DEFAULT_TDP_SIGNAL_RANGE",
+    "DEFAULT_TDP_SMOOTH",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "DEFAULT_TPROB_KDE_BANDWIDTH",
@@ -338,24 +459,30 @@ __all__ = [
     "CrossCorrelation",
     "DwellFit",
     "DwellTimeAnalysis",
+    "GaussianFit",
     "GaussianHMM",
     "Histogram1D",
     "Histogram2D",
     "HistogramBootstrapCI",
     "KinsoftKineticsResult",
     "KinsoftReference",
-    "MoleculeSelection",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
+    "MoleculeSelection",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RateBounds",
+    "SavedSelection",
     "RawFretCloud",
     "Selection",
+    "SelectionFilter",
+    "SmoothedTransitionDensity",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
+    "SuccessiveFrameCloud",
+    "SuccessiveFramePairs",
     "TransitionDensityPlot",
     "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
@@ -369,9 +496,12 @@ __all__ = [
     "evaluate_kinsoft_level",
     "find_anticorrelation_events",
     "fit_gaussian_hmm",
+    "fit_gaussians",
     "fit_survival",
+    "gaussian_sum",
     "k_rmse_elbow",
     "load_kinsoft_reference",
+    "mean_dwell_time",
     "model_gaussian_overlay",
     "model_rate_bounds",
     "occupied_state_count",
@@ -387,15 +517,21 @@ __all__ = [
     "population_model_gaussian_overlay",
     "population_raw_fret_cloud",
     "population_state_number",
+    "population_successive_frame_cloud",
     "population_time_signal_histogram2d",
     "population_transition_density",
     "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
+    "preset_selections",
     "query_molecules",
     "raw_fret_cloud",
     "resolve_selection",
+    "select_molecules",
+    "smooth_transition_density",
     "state_dwells",
     "state_number_counts",
+    "successive_frame_cloud",
+    "successive_frame_pairs",
     "survival_curve",
     "time_signal_histogram2d",
     "transition_density",
@@ -404,3 +540,56 @@ __all__ = [
     "two_state_rate_constants",
     "viterbi_paths",
 ]
+
+#: Names this package resolves on first access (PEP 562) instead of importing at load
+#: time: the `tether.analysis.plot_export` module and its ``__all__``. Importing that
+#: module imports Matplotlib, so an eager import here would put Matplotlib on every
+#: ``import tether.analysis``. ``tests/test_imports.py`` keeps this set equal to
+#: ``plot_export.__all__``.
+_LAZY_PLOT_EXPORT_NAMES = frozenset(
+    {
+        "plot_export",
+        "DEFAULT_EXPORT_DPI",
+        "DEFAULT_FIGSIZE",
+        "DEFAULT_PLOT_FORMATS",
+        "DEFAULT_TDP_COLOR_SCALE",
+        "SERIES_COLOR_CYCLE",
+        "SERIES_COLORS",
+        "SERIES_LINESTYLES",
+        "TDP_COLOR_SCALES",
+        "PlotExportResult",
+        "SeriesStyle",
+        "export_figure",
+        "render_alpha_shape",
+        "render_cross_correlation",
+        "render_dwell_survival",
+        "render_histogram1d",
+        "render_histogram2d",
+        "render_per_condition_histograms",
+        "render_population_anticorrelation",
+        "render_raw_fret_cloud",
+        "render_state_number",
+        "render_state_number_elbow",
+        "render_transition_density",
+        "render_transition_prob",
+        "render_transition_sync_histogram2d",
+        "series_style",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a `tether.analysis.plot_export` name on first access (PEP 562)."""
+    if name in _LAZY_PLOT_EXPORT_NAMES:
+        import importlib
+
+        module = importlib.import_module("tether.analysis.plot_export")
+        value = module if name == "plot_export" else getattr(module, name)
+        globals()[name] = value  # cache: later lookups skip this hook
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """List the eager names plus the lazily resolved plot-export names."""
+    return sorted(set(globals()) | _LAZY_PLOT_EXPORT_NAMES)

@@ -9,12 +9,13 @@ unmerged edits are inert and reviewed as code.
 `AGENTS.md` governs operations/safety; `docs/PRD.md` governs product/science; `CONTRIBUTING.md` and
 templates add detail. If they conflict, stop, choose the safe option, and ask.
 
-Two pages remain outside this file, and both are *conditional* — read them only when you are about
-to do the thing they govern: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR, and
-[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster. The **`tether-worker`** skill
-is conditional in the same way and required for work-item work (§Outcome and authority): it carries
-the peer-worker procedure — claim, worktree, handoff — and by its own first line neither restates
-nor relaxes anything here.
+Three pages sit outside this file, all *conditional* — read each only before doing what it
+governs: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR,
+[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster, and
+[`handoff.md`](docs/agents/handoff.md) before writing to a PR in a Codex handoff. The
+**`tether-worker`** skill is conditional likewise and required for work-item work (§Outcome and
+authority): it carries the worker procedure and by its own first line neither restates nor relaxes
+anything here.
 
 **`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
 one of them in this file would strand the other lane, so every command below writes `<py>` and you
@@ -98,10 +99,10 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   sidecar, and deep dependency locks; registered tunables; stamped analysis provenance.
 - Never weaken a frozen scientific oracle/tolerance to fit an implementation or fabricate a passing
   reference value; source, version, checksum, and provenance-lock every accepted reference.
-- Add an ADR in the implementation PR for schema/version, dependency/isolation, architectural, or
-  scientifically consequential choices. **Read [`docs/agents/adr.md`](docs/agents/adr.md) before
-  adding one**: it carries the numbering mechanics, and picking a number by reading `docs/adr/` is
-  how two records come to share one — a collision git cannot see.
+- Add an ADR in the implementation PR (exception: `CONTRIBUTING.md` rule 5) for schema/version,
+  dependency/isolation, architectural, or scientifically consequential choices. **Read
+  [`docs/agents/adr.md`](docs/agents/adr.md) before adding one**: it carries the numbering
+  mechanics, and picking a number by reading `docs/adr/` is how two records come to share one.
 - Never commit raw/private/unlicensed data, secrets, or large data to ordinary Git. Work-item-authorized,
   redistributable fixtures may use named small or LFS/gated paths with license and provenance.
 - Add SPDX/REUSE coverage to new files. Update MkDocs and public docstrings for user-visible changes.

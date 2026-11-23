@@ -10,8 +10,10 @@ Locks the headless core of "Hand to tMAVEN" (PRD §7.4/§5.3):
 * the per-trace reconcile diff (analysis-window + class), and its **non-destructive**
   commit — an imported tMAVEN model lands as a *new* ``/idealization/{model}`` (rows
   remapped by the match, additive so ``schema-guard`` holds), an accepted window edit
-  re-stales that molecule's dependent idealizations, and the ``class 0 ↔
-  uncategorized`` leg applies while a non-zero class is surfaced as M4-deferred.
+  re-stales that molecule's dependent idealizations, and a returning tMAVEN class
+  resolves through its condition's persisted integer↔category lookup (class ``0`` ↔
+  uncategorized, class ``k`` ↔ the ``k``-th category; #367, ADR-0125) while an
+  unmapped class is surfaced as deferred and never written.
 
 Wholly headless (no sidecar / Qt); the interactive reconcile dialog is the M2 S7
 PR-B GUI follow-up.
@@ -251,9 +253,10 @@ def test_hand_off_writes_smd_with_superset_and_windows(tmp_path):
     assert smd.molecule_ids == manifest.molecule_ids
     assert smd.molecule_keys == manifest.molecule_keys
     assert smd.donor_xy is not None and smd.donor_xy.shape == (4, 2)
-    # analysis windows ride along; classes neutral (uncategorized) at M2
+    # analysis windows ride along; every molecule is uncategorized, so class 0
     assert smd.pre_list is not None and smd.post_list is not None
     np.testing.assert_array_equal(smd.classes, np.zeros(4, dtype="int64"))
+    assert manifest.classes == [0, 0, 0, 0] and manifest.unclassed == []
     # SMD raw == the store's corrected traces (donor, acceptor)
     np.testing.assert_allclose(smd.raw[:, :, 0], _step_trace(4, 30))
     np.testing.assert_allclose(smd.raw[:, :, 1], _step_trace(4, 30) * 0.5)
@@ -469,7 +472,9 @@ def test_reconcile_degenerate_returning_window_no_change(tmp_path):
 def test_reconcile_class_zero_to_uncategorized(tmp_path):
     donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
     proj, keys = _build_store(tmp_path / "p.tether", donor, acceptor)
-    # give store molecule 0 a category so a returning class 0 is a real clear-to-uncategorized
+    # give store molecule 0 a listed category so a returning class 0 is a real
+    # clear-to-uncategorized (the hand-off would have written it as class 1)
+    _seed_categories(proj.path, ["good"])
     _set_category(proj.path, row=0, value="good")
     ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.zeros(2, dtype="int64"))
 
@@ -479,9 +484,11 @@ def test_reconcile_class_zero_to_uncategorized(tmp_path):
     assert by_row[1].class_change is None  # already uncategorized -> no change
 
 
-def test_reconcile_nonzero_class_is_m4_deferred(tmp_path):
+def test_reconcile_unmapped_class_is_deferred(tmp_path):
+    """A class the condition's lookup does not hold is surfaced, never guessed."""
     donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
     proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static"])  # only class 1 is mapped
     ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 0]))
 
     report = read_return_leg(proj, ret)
@@ -489,6 +496,72 @@ def test_reconcile_nonzero_class_is_m4_deferred(tmp_path):
     cc = by_row[0].class_change
     assert cc is not None and cc.returned_class == 2
     assert cc.applicable is False and cc.proposed_category is None
+
+
+def test_reconcile_nonzero_class_resolves_through_the_lookup(tmp_path):
+    donor, acceptor = _step_trace(3, 20), _step_trace(3, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static", "dynamic"])
+    _set_category(proj.path, row=2, value="static")
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 1, 1]))
+
+    report = read_return_leg(proj, ret)
+    by_row = {t.store_row: t for t in report.matched}
+    assert by_row[0].class_change == ClassChange(
+        2, "", proposed_category="dynamic", applicable=True
+    )
+    assert by_row[1].class_change == ClassChange(1, "", proposed_category="static", applicable=True)
+    assert by_row[2].class_change is None  # class 1 is already its category
+
+
+def test_reconcile_class_zero_leaves_an_unlisted_category_alone(tmp_path):
+    """A category the lookup cannot express went out as class 0; a 0 back is no edit."""
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static"])
+    _set_category(proj.path, row=0, value="removed-from-list")
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.zeros(2, "int64"))
+
+    report = read_return_leg(proj, ret)
+    assert report.class_changes == []
+
+
+def test_hand_off_writes_each_category_as_its_lookup_class(tmp_path):
+    donor, acceptor = _step_trace(4, 20), _step_trace(4, 20) * 0.5
+    proj, keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static", "dynamic"])
+    _set_category(proj.path, row=0, value="dynamic")
+    _set_category(proj.path, row=1, value="static")
+    _set_category(proj.path, row=3, value="not-in-the-list")
+
+    manifest = hand_off_to_tmaven(proj, out_path=tmp_path / "out.hdf5")
+    smd = read_smd(tmp_path / "out.hdf5")
+    np.testing.assert_array_equal(smd.classes, [2, 1, 0, 0])
+    assert manifest.classes == [2, 1, 0, 0]
+    assert manifest.unclassed == [keys[3]]
+
+
+def test_untouched_round_trip_carries_no_class_diff(tmp_path):
+    """Hand off categorized molecules and return the SMD unchanged: nothing to reconcile."""
+    donor, acceptor = _step_trace(3, 20), _step_trace(3, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static", "dynamic"])
+    _set_category(proj.path, row=0, value="dynamic")
+    _set_category(proj.path, row=1, value="static")
+    out = tmp_path / "out.hdf5"
+    hand_off_to_tmaven(proj, out_path=out)
+
+    report = read_return_leg(proj, out)
+    assert report.all_matched
+    assert report.class_changes == []
+
+
+def _seed_categories(path, names: list[str]) -> None:
+    """Materialize the store's one condition and give it ``names`` as its list."""
+    from tether.project.conditions import set_category_list, sync_conditions
+
+    sync_conditions(path)
+    set_category_list(path, _PARSED.condition_id, names)
 
 
 def _set_category(path, *, row: int, value: str) -> None:
@@ -525,6 +598,97 @@ def test_apply_window_edit_updates_store_and_restales(tmp_path):
     assert keys[1] in applied.stale_after
     assert keys[1] in stale_molecule_keys(proj, "prior")
     assert keys[0] not in stale_molecule_keys(proj, "prior")
+
+
+def _has_features(path) -> bool:
+    from tether.io.schema import TABLE
+
+    with h5py.File(path, "r") as f:
+        return "features" in f and TABLE in f["features"]
+
+
+def _window_edit_return_leg(tmp_path, donor, acceptor, *, row: int = 1):
+    """A returning SMD that trims molecule ``row``'s window to ``(0, 25)`` (40 frames)."""
+    n = donor.shape[0]
+    pre = np.zeros(n, dtype="int64")
+    post = np.full(n, 40, dtype="int64")
+    post[row] = 25
+    return _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+
+def test_apply_window_edit_invalidates_the_feature_cache(tmp_path):
+    """An accepted window edit makes the cached features stale (#1112).
+
+    ``/features/table`` was sliced to the old window; the merge-back deletes it so the
+    ranker reads "run compute_features first" instead of features from old frames.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj)
+    assert _has_features(proj.path)
+
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+
+    assert not _has_features(proj.path)
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(proj)
+    assert compute_features(proj).n_molecules == 3  # recompute works on the new window
+
+
+def test_apply_reconcile_keeps_the_cache_when_no_featured_window_changes(tmp_path):
+    from tether.project.features import compute_features
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj, molecule_keys=[keys[0]])  # molecule 1 has no feature row
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor, row=1)
+
+    apply_reconcile(proj, ret, accept_windows=False)  # the edit is shown, not accepted
+    assert _has_features(proj.path)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+    assert _has_features(proj.path)  # the edited molecule was never featured
+
+
+def test_apply_reconcile_rechecks_ownership_after_the_window_guard(tmp_path, monkeypatch):
+    """A lock stolen while the merge-back waits for ``WINDOW_WRITE_GUARD`` must not write.
+
+    #1112 makes the store write wait for the in-process window guard; ownership is
+    checked again once the guard is held, so a steal during that wait is refused.
+    """
+    from contextlib import contextmanager, suppress
+
+    from tether.project import features as _features
+    from tether.project import lock as _lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    real_guard = _features.WINDOW_WRITE_GUARD
+
+    @contextmanager
+    def _steal_while_waiting():
+        foreign = _lock.acquire(
+            proj.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999), steal=True
+        )
+        assert _lock.release(proj.path, foreign)
+        with real_guard:
+            yield
+
+    proj.acquire_lock()
+    try:
+        before = read_molecules(proj.path)["analysis_window"].copy()
+        monkeypatch.setattr(_features, "WINDOW_WRITE_GUARD", _steal_while_waiting())
+        with pytest.raises(LockedError):
+            proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+    finally:
+        with suppress(Exception):
+            proj.release_lock()
+
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
 
 
 def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
@@ -609,6 +773,7 @@ def test_apply_window_default_no_change(tmp_path):
 def test_apply_class_zero_clears_category(tmp_path):
     donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
     proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["good"])
     _set_category(proj.path, row=0, value="good")
     ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.zeros(2, "int64"))
 
@@ -628,13 +793,37 @@ def test_apply_nonzero_class_is_deferred_not_written(tmp_path):
     ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 0]))
 
     applied = apply_reconcile(proj, ret, accept_classes=True)
-    assert applied.classes_deferred  # molecule 0's id: needs the M4 lookup
+    assert applied.classes_deferred  # molecule 0's id: class 2 is unmapped (no list)
     assert applied.classes_applied == []
     cats = [
         c.decode() if isinstance(c, bytes) else str(c)
         for c in read_molecules(proj.path)["category"]
     ]
-    assert cats[0] == "orig"  # untouched (no free-text mapping at M2)
+    assert cats[0] == "orig"  # untouched: an unmapped class is never guessed
+
+
+def test_apply_nonzero_class_writes_the_lookup_category(tmp_path):
+    donor, acceptor = _step_trace(3, 20), _step_trace(3, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static", "dynamic"])
+    _set_category(proj.path, row=1, value="static")
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 2, 5]))
+    ids = [
+        m.decode() if isinstance(m, bytes) else str(m)
+        for m in read_molecules(proj.path)["molecule_id"]
+    ]
+
+    applied = apply_reconcile(proj, ret, accept_classes=True)
+    assert sorted(applied.classes_applied) == sorted(ids[:2])
+    assert applied.classes_deferred == [ids[2]]  # class 5 is unmapped -> not written
+    cats = [
+        c.decode() if isinstance(c, bytes) else str(c)
+        for c in read_molecules(proj.path)["category"]
+    ]
+    assert cats == ["dynamic", "dynamic", ""]
+    # the lookup attribute and the written names are additive data: the freeze holds
+    with h5py.File(proj.path, "r") as f:
+        assert diff_manifest(build_manifest(), introspect(f)) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -862,7 +1051,7 @@ def test_apply_classes_generator_spec_not_exhausted(tmp_path):
     mid0 = mid0.decode() if isinstance(mid0, bytes) else str(mid0)
 
     applied = apply_reconcile(proj, ret, accept_classes=(m for m in [mid0]))
-    # molecule 0's non-zero class is M4-deferred; the generator must not be exhausted
+    # molecule 0's class 2 is unmapped (no list); the generator must not be exhausted
     # before _deferred_class_ids reads it (finding: accept_classes consumed twice)
     assert applied.classes_deferred == [mid0]
     assert applied.classes_applied == []

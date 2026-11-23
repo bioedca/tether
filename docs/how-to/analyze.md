@@ -21,9 +21,8 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 - The molecules of one experimental condition. Each plot pools every molecule the analysis
   admits, whatever its condition, so a plot of one condition needs a project, or a
   `molecule_keys` selection, that holds only the molecules of that condition. A project can
-  hold more than one condition. A project made by `tether extract` or `tether batch` holds
-  one movie, and every molecule in it gets the one provisional condition parsed from the
-  movie's filename, so make sure that the movie holds molecules of one condition only. Run
+  hold more than one condition. Every molecule gets the provisional condition parsed from its
+  movie's filename, so make sure that each movie holds molecules of one condition only. Run
   the script for each project in that project's own folder, so one project's figures do not
   overwrite another's.
 - Your movie's frame time in seconds. Dwell times and rates come out **per frame** unless
@@ -33,18 +32,19 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
   `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
   locations. Only the histogram has a menu item; the other two plots are made from Python.
 
-## 1. Look at the histogram in the window
+## 1. Look at the histogram in the application window
 
-Open the project with `tether-gui movie.tether` and choose **Analysis → Population
-histogram…**. A panel opens with the histogram, and the status bar names how many molecules
-and frames went into it, for example:
+Open the project with `tether-gui movie.tether`, choose **View → Section → Analyze**, and
+then choose **Analysis → Population histogram…**. The **Analysis** menu shows only in the
+**Analyze** section. A panel opens with the histogram, and the status bar names how many
+molecules and frames went into it, for example:
 
 ```text
 Population histogram — 398 molecule(s), 71640 frame(s)
 ```
 
 Rejected molecules are left out. The panel is for looking; to save the plot as a figure, use
-the script below.
+the script below. **View → Section → Curate and correct** takes you back to the traces.
 
 ## 2. Make and save all three plots
 
@@ -52,10 +52,7 @@ Save this as `plots.py` beside the project, set `dt` to your frame time, and run
 Tether's Python. Each analysis takes its settings from one dictionary, and the same
 dictionary goes into the figure's provenance file, so the record names every setting that
 made the plot. `molecule_keys=None` means every molecule the analysis admits; to analyze only
-some, put their keys there, so the record names them too. A key selects every molecule that
-carries it, and a movie file added to the project twice gives both copies the same keys, so
-there a key counts the molecule twice and the record cannot show it. Select by key only in a
-project that holds each movie file once:
+some, put their keys there, so the record names them too:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
@@ -142,7 +139,7 @@ for state, analysis in dwells.items():
 Each plot is written three times, as `histogram.pdf`, `histogram.svg` and `histogram.png`,
 with a `histogram.provenance.json` beside them recording what made it; likewise `tdp.*` and
 one `dwell-state-N.*` set per state.
-The TDP uses a log colour scale, so a rare transition stays visible next to a frequent one.
+The TDP uses a log color scale, so a rare transition stays visible next to a frequent one.
 The `tdp.provenance.json` file records the scale. To get a linear scale, call
 `render_transition_density(tdp, color_scale="linear")`.
 The histogram carries a shaded 95% confidence band, drawn from 1000 bootstrap resamples of
@@ -166,10 +163,10 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    `dt = 1` ([`dt`](../reference/parameters.md#param-dt)). With a frame time of exactly
    1 second the axis still says frames, but the numbers are the same, and the printed rates
    are per second either way. One `dt` applies to every molecule, so it
-   is right only when they all come from movies recorded at that frame time. A project from
-   one `tether extract` run holds one movie; if yours combines movies recorded at different
-   frame times, run the script once per frame time, with that frame time as `dt` and those
-   molecules as `molecule_keys` in `dwell_settings`. Give each run's dwell files names of
+   is right only when they all come from movies recorded at that frame time. If your project
+   holds movies recorded at different frame times, run the script once per frame time, with
+   that frame time as `dt` and those molecules as `molecule_keys` in `dwell_settings`. Give
+   each run's dwell files names of
    their own, for example `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`,
    because a run that reuses a name overwrites the files the earlier run wrote.
 4. The script prints one rate for each state whose fit succeeded, from the
@@ -178,10 +175,40 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it
    then prints both rates, slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
+   `analysis.fit.mean_dwell_time()` gives one number for such a fit. It is the mean dwell
+   time `(A1/k1 + A2/k2) / (A1 + A2)` and its propagated error. For rates fitted by another
+   program, call `tether.analysis.mean_dwell_time`. First put each error beside its own
+   parameter. tMAVEN sorts the rates and amplitudes, but not their errors.
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To
 report a γ-corrected efficiency instead, see [Where the corrected efficiency
 appears](apply-corrections.md#where-the-corrected-efficiency-appears).
+
+## 4. Fit Gaussians to the histogram
+
+To report the population of each FRET state from the histogram, fit one Gaussian for each
+state. Give one starting mean for each state, and add these lines to the end of `plots.py`:
+
+```python
+from tether.analysis.gaussian_fit import fit_gaussians
+
+fit = fit_gaussians(hist.histogram, (0.0, 0.33))
+if fit.success:
+    for mean, fraction, error in zip(fit.means, fit.fractions, fit.fraction_stderr):
+        print(f"E = {mean:.3f}: fraction {fraction:.4f} ± {error:.4f}")
+```
+
+The Gaussians come back in order of mean, whatever the order of the starting means. Each
+fraction is the area of its Gaussian divided by the sum of the areas, and the `±` is one
+standard error of the fit. The area is `A·√(2π)·σ`, the area under the whole Gaussian. To use
+the area inside the histogram range instead (the sum of the Gaussian over the bin centres, as
+the analysis of Fig. 5c in Campos-Chavez et al. 2024 does), pass `area="bin_sum"`. The two
+differ when a Gaussian goes past an end of the range.
+
+The error is the precision of the least-squares fit to the bins. It does not include the
+differences between molecules, because the frames of one molecule are not independent of each
+other. [ADR-0120](../adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)
+has the method and how it reproduces the published numbers.
 
 ## Next
 

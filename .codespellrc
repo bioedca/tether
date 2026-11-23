@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# codespell settings for Tether (#185). The pre-commit hook and a bare `codespell` run
+# from the repository root read this file. Every suppression is a word in
+# .codespell-ignore; do not add per-line ignore comments.
+[codespell]
+# The agent layer (ADR-0064), third-party and verbatim files, generated output, binary
+# assets and the lock files. The leading `*` matches the path both as pre-commit passes
+# it (`tests/fixtures/...`) and as a bare recursive run reaches it (`./tests/fixtures/...`).
+skip = *.agents/*,*.claude/*,*docs/agents/*,*AGENTS.md,*CLAUDE.md,*tests/test_agent_contract_is_runnable.py,*tests/test_agent_entry_points.py,*tests/test_claim.py,*tests/test_reaper.py,*tests/test_greptile_config.py,*tests/test_greptile_usage.py,*tests/fixtures/*,*LICENSES/*,*NOTICE,*site/*,*docs/assets/*,*.svg,*conda-lock.yml,*.git/*
+ignore-words = .codespell-ignore

@@ -31,6 +31,7 @@ default.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +53,8 @@ from tether.ml.features import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from os import PathLike
+
+    from h5py import File
 
     from tether.ml.similarity import Neighbor, SimilarityIndex
     from tether.project.core import Project
@@ -127,13 +130,59 @@ def _feature_table_dtype() -> np.dtype:
     return np.dtype(fields)
 
 
+WINDOW_WRITE_GUARD = threading.RLock()
+"""Serializes, inside one process, the feature-table write with analysis-window edits.
+
+`_write_features_table` checks the
+windows and creates ``/features/table`` while holding it, and every analysis-window writer
+(the setters in [`tether.project.molecule_edits`][],
+[`compute_photobleach`][tether.project.photobleach.compute_photobleach] and the tMAVEN
+merge-back in [`tether.project.handoff`][]) holds it for its whole write, so no window edit
+can land between that check and the table it guards. Across processes the HDF5 file lock
+already refuses a second ``r+`` open while one is held.
+"""
+
+
+def invalidate_features(f: object, molecule_ids: set[str]) -> None:
+    """Delete ``/features/table`` when it holds a row for any of ``molecule_ids``.
+
+    The one rule every analysis-window writer applies, inside its own ``r+`` handle and
+    under ``WINDOW_WRITE_GUARD``, before it writes the new windows. The table is a
+    recomputable cache of each molecule's windowed traces, so a window change makes that
+    molecule's row stale. Deleting the table makes
+    [`feature_matrix`][tether.project.features.feature_matrix] raise "run compute_features
+    first" rather than serve features from frames that are no longer the stored window. A
+    table with no row for a changed molecule is kept, and an empty ``molecule_ids`` (no
+    window changed) touches nothing.
+    """
+    if not molecule_ids or FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        return
+    group = f[FEATURES_GROUP]
+    featured = {_to_str(mid) for mid in group[TABLE]["molecule_id"]}
+    if featured & molecule_ids:
+        del group[TABLE]
+
+
 def _windowed_rows(
     path: Path,
     molecule_keys: list[str] | None,
     intensity_quantity: str,
     include_rejected: bool,
 ) -> list[tuple[str, str, np.ndarray, np.ndarray]]:
-    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``.
+    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``."""
+    return _windowed_rows_and_windows(path, molecule_keys, intensity_quantity, include_rejected)[0]
+
+
+def _windowed_rows_and_windows(
+    path: Path,
+    molecule_keys: list[str] | None,
+    intensity_quantity: str,
+    include_rejected: bool,
+) -> tuple[list[tuple[str, str, np.ndarray, np.ndarray]], dict[str, tuple[int, int]]]:
+    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``, and the windows.
+
+    The second value maps each returned ``molecule_id`` to the stored
+    ``analysis_window`` that sliced its trace, taken from the same ``/molecules`` read.
 
     The identity-carrying analog of
     `tether.analysis._store.windowed_channels`: reads ``/molecules`` +
@@ -150,7 +199,7 @@ def _windowed_rows(
 
     molecules = read_molecules(path)
     if molecules.shape[0] == 0:
-        return []
+        return [], {}
     donor_key, acceptor_key = resolve_quantity(intensity_quantity)
     traces = read_traces(path)
     for key in (donor_key, acceptor_key):
@@ -175,14 +224,16 @@ def _windowed_rows(
     mol_keys = molecules["molecule_key"]
 
     out: list[tuple[str, str, np.ndarray, np.ndarray]] = []
+    used: dict[str, tuple[int, int]] = {}
     for i in rows:
         lo, hi = int(analysis_window[i][0]), int(analysis_window[i][1])
+        used[_to_str(mol_ids[i])] = (lo, hi)
         if hi <= lo:  # unset [0, 0] -> native extent (mirrors idealize._windows)
             lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
         donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
         out.append((_to_str(mol_ids[i]), _to_str(mol_keys[i]), donor, acceptor))
-    return out
+    return out, used
 
 
 def windowed_traces(
@@ -292,13 +343,19 @@ def compute_features(
         The store has no extracted molecules, or lacks the requested trace layer.
     FileExistsError
         ``/features/table`` exists and ``overwrite`` is ``False``.
+    RuntimeError
+        A featured molecule's ``analysis_window`` changed while the features were
+        computed (a window edit landed in between). Nothing is written; run it again.
     """
     from tether.project.core import Project as _Project
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
 
-    rows = _windowed_rows(path, molecule_keys, intensity_quantity, include_rejected)
+    # Keep the window that sliced each trace; the write rechecks it under the guard.
+    rows, windows_used = _windowed_rows_and_windows(
+        path, molecule_keys, intensity_quantity, include_rejected
+    )
     if not rows:
         raise ValueError(
             f"{path.name} has no molecules to feature "
@@ -340,6 +397,7 @@ def compute_features(
         app_version=app_version,
         created_utc=created_utc,
         overwrite=overwrite,
+        expected_windows={mid: windows_used[mid] for mid in molecule_ids},
     )
     return StoredFeatures(
         molecule_ids=molecule_ids,
@@ -360,13 +418,18 @@ def _write_features_table(
     app_version: str,
     created_utc: str,
     overwrite: bool,
+    expected_windows: dict[str, tuple[int, int] | None] | None = None,
 ) -> None:
     """Write the compound feature table under ``/features`` as additive data.
 
     Stamps provenance (app version, UTC time, source trace quantity, the ordered
     feature names + schema version) on the dataset so the cache is self-describing
-    and traceable. Replaces any prior table when ``overwrite`` (the recompute path);
-    refuses to clobber otherwise.
+    and traceable. With ``expected_windows`` it first checks, inside the same ``r+``
+    handle and under ``WINDOW_WRITE_GUARD``,
+    that no featured row's ``analysis_window`` differs from the one that sliced its
+    trace.
+    Replaces any prior table when ``overwrite`` (the recompute path); refuses to
+    clobber otherwise.
 
     Note: the recompute path is ``del`` + ``create_dataset``. HDF5 does not return
     the freed block to the filesystem, so heavy re-derivation slowly grows the
@@ -377,7 +440,9 @@ def _write_features_table(
     """
     import h5py
 
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
+        if expected_windows is not None:
+            _refuse_changed_windows(f, expected_windows)
         group = f.require_group(FEATURES_GROUP)
         if TABLE in group:
             if not overwrite:
@@ -395,10 +460,39 @@ def _write_features_table(
         dataset.attrs["n_molecules"] = int(table.shape[0])
 
 
+def _refuse_changed_windows(f: object, expected: dict[str, tuple[int, int] | None]) -> None:
+    """Raise if a featured row's stored ``analysis_window`` is not the one read.
+
+    A window setter ([`tether.project.molecule_edits`][]) deletes ``/features/table``
+    when it changes a featured row. An edit that lands between the read and this write
+    would otherwise be undone by the write, which would put back features from the old
+    frames. Raises [`RuntimeError`][] and writes nothing; a rerun reads the new window.
+    """
+    now = _window_snapshot_from(f)
+    changed = sorted(mid for mid, window in expected.items() if now.get(mid) != window)
+    if changed:
+        raise RuntimeError(
+            f"the analysis window of {len(changed)} molecule(s) changed while features were "
+            f"computed (first: {changed[0]}); nothing was written. "
+            "Run compute_features again."
+        )
+
+
+def _window_snapshot_from(f: object) -> dict[str, tuple[int, int]]:
+    """Return ``molecule_id -> analysis_window`` from an open store handle."""
+    if "molecules" not in f or TABLE not in f["molecules"]:  # type: ignore[operator, index]
+        return {}
+    table = f["molecules"][TABLE][:]  # type: ignore[index]
+    return {
+        _to_str(mid): (int(w[0]), int(w[1]))
+        for mid, w in zip(table["molecule_id"], table["analysis_window"], strict=True)
+    }
+
+
 def read_features(project: ProjectRef) -> np.ndarray:
     """Read ``/features/table`` back as a structured array (a copy, store order).
 
-    Raises [`KeyError`][] if no feature table has been written.
+    Raises `KeyError` if no feature table has been written.
     """
     import h5py
 
@@ -421,7 +515,7 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
     order is authoritative even if [`FEATURE_NAMES`][tether.ml.features.FEATURE_NAMES] later
     grows (a stale cache is read faithfully, then recomputed on demand).
 
-    Raises [`KeyError`][] if no feature table has been written.
+    Raises `KeyError` if no feature table has been written.
     """
     import h5py
 
@@ -429,19 +523,22 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
 
     path = project.path if isinstance(project, _Project) else Path(project)
     with h5py.File(path, "r") as f:
-        if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
-            raise KeyError(
-                f"no /features/{TABLE} in {Path(path).name} (run compute_features first)"
-            )
-        dataset = f[FEATURES_GROUP][TABLE]
-        table = dataset[:]
-        names_attr = dataset.attrs.get("feature_names")
-        feature_names = (
-            tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
-        )
-        intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
-        app_version = _to_str(dataset.attrs.get("app_version", ""))
-        created_utc = _to_str(dataset.attrs.get("created_utc", ""))
+        return _feature_matrix_in(f, path)
+
+
+def _feature_matrix_in(f: File, path: Path) -> StoredFeatures:
+    """Read a cached matrix from an already-open project snapshot."""
+    if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        raise KeyError(f"no /features/{TABLE} in {Path(path).name} (run compute_features first)")
+    dataset = f[FEATURES_GROUP][TABLE]
+    table = dataset[:]
+    names_attr = dataset.attrs.get("feature_names")
+    feature_names = (
+        tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
+    )
+    intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
+    app_version = _to_str(dataset.attrs.get("app_version", ""))
+    created_utc = _to_str(dataset.attrs.get("created_utc", ""))
 
     molecule_ids = [_to_str(x) for x in table["molecule_id"]]
     molecule_keys = [_to_str(x) for x in table["molecule_key"]]
@@ -464,7 +561,7 @@ def build_project_similarity_index(project: ProjectRef) -> SimilarityIndex:
 
     The store-integrated entry to [`tether.ml.similarity.build_similarity_index`][]:
     the curation dock builds this once per condition/video and reuses it across queries.
-    Read-only; raises [`KeyError`][] if no feature table has been written.
+    Read-only; raises `KeyError` if no feature table has been written.
     """
     from tether.ml.similarity import build_similarity_index
 

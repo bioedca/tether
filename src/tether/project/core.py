@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from tether.io.movie import MovieReader
     from tether.project.conditions import (
         CategoryList,
+        ClassLookup,
         ConditionSyncSummary,
         ConditionValidationReport,
         RekeyPreview,
@@ -49,7 +50,8 @@ if TYPE_CHECKING:
     )
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
-    from tether.project.lock import LockIdentity, LockInfo
+    from tether.project.lock import LockIdentity, LockInfo, RecoveryAction
+    from tether.project.movie_metadata import MovieMetadataRecord
 
 __all__ = ["Project"]
 
@@ -296,6 +298,31 @@ class Project:
         self._held_lock = info
         return info, prior
 
+    def record_lock_takeover(
+        self, action: RecoveryAction | str, taken: LockInfo, ousted: LockInfo | None
+    ) -> np.ndarray:
+        """Keep a durable record of a successful Recover or Take over (#1099, ADR-0121).
+
+        Appends one row to ``/settings/lock_takeovers``
+        ([`lock_takeovers.record_takeover`][tether.project.lock_takeovers.record_takeover])
+        for the ``(taken, ousted)`` pair that
+        [`recover_lock`][tether.project.lock.recover_lock] returned. Call it once the
+        project has been reopened writable under the new lock; it goes through the same
+        single-writer check as every other write (`_assert_writable`, §5.4), so a lock
+        lost again in the meantime raises [`LockedError`][tether.project.lock.LockedError]
+        and nothing is written.
+        """
+        from tether.project import lock_takeovers
+
+        self._assert_writable()
+        return lock_takeovers.record_takeover(self.path, action, taken, ousted)
+
+    def read_lock_takeovers(self) -> np.ndarray:
+        """The append-only takeover record (`lock_takeovers.read_takeovers`); may be empty."""
+        from tether.project import lock_takeovers
+
+        return lock_takeovers.read_takeovers(self.path)
+
     def release_lock(self) -> bool:
         """Release the lock this handle holds; ``False`` if it holds none / lost it.
 
@@ -362,7 +389,10 @@ class Project:
     def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
         """Reject a molecule (reversible sticky tag, `labels.reject`).
 
-        Refuses the canonical write if the file is locked by another writer (§5.4).
+        ``reason`` / ``note`` / ``value`` pass through to
+        [`labels.reject`][tether.project.labels.reject], which
+        records them in ``/labels/reject_log``. Refuses the canonical write if the file
+        is locked by another writer (§5.4).
         """
         from tether.project import labels
 
@@ -390,6 +420,12 @@ class Project:
         from tether.project import labels
 
         return labels.read_labels(self.path)
+
+    def reject_record(self, molecule_key: str) -> np.ndarray | None:
+        """The reason row of the molecule's current reject (`labels.reject_record_of`)."""
+        from tether.project import labels
+
+        return labels.reject_record_of(self.path, molecule_key)
 
     def rejected_molecule_keys(self) -> set[str]:
         """The molecules currently rejected (`labels.rejected_molecule_keys`)."""
@@ -504,6 +540,17 @@ class Project:
 
         return conditions.read_category_list(self.path, condition_id)
 
+    def class_lookup(self, condition_id: str) -> ClassLookup:
+        """A condition's persisted tMAVEN class ↔ category lookup (§7.4; ADR-0125).
+
+        Delegates to
+        [`conditions.read_class_lookup`][tether.project.conditions.read_class_lookup];
+        read-only.
+        """
+        from tether.project import conditions
+
+        return conditions.read_class_lookup(self.path, condition_id)
+
     def set_category_list(self, condition_id: str, categories: object) -> CategoryList:
         """Replace a condition's whole ordered category list (`conditions.set_category_list`).
 
@@ -543,6 +590,369 @@ class Project:
 
         self._assert_writable()
         return conditions.remove_category(self.path, condition_id, name)
+
+    # --- per-molecule category + analysis window (PRD §5.1, §7.2; #358) --------
+
+    def set_category(
+        self,
+        molecule_key: str,
+        category: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's category to a name in its condition's list
+        ([`molecule_edits.set_category`][tether.project.molecule_edits.set_category]).
+
+        The condition's [`category_list`][] is the vocabulary: a name not in it is
+        refused. Refuses the write if the file is locked by another writer
+        (`_assert_writable`, §5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_category(
+            self.path,
+            molecule_key,
+            category,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def clear_category(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Clear a molecule's category to ``""`` (`molecule_edits.clear_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.clear_category(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def set_analysis_window(
+        self,
+        molecule_key: str,
+        start: int,
+        stop: int,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's ``[start, stop)`` analysis window, clamped to its frames
+        ([`molecule_edits.set_analysis_window`][tether.project.molecule_edits.set_analysis_window]).
+
+        A window narrower than ``frame_range`` is a manual override that photobleach
+        detection leaves alone. Refuses the write if the file is locked by another
+        writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_analysis_window(
+            self.path,
+            molecule_key,
+            start,
+            stop,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def reset_analysis_window(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Restore a molecule's analysis window to its ``frame_range``
+        ([`molecule_edits.reset_analysis_window`][tether.project.molecule_edits.reset_analysis_window]).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.reset_analysis_window(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def read_molecule_audit(self) -> np.ndarray:
+        """The append-only per-molecule edit log (`molecule_edits.read_molecule_audit`)."""
+        from tether.project import molecule_edits
+
+        return molecule_edits.read_molecule_audit(self.path)
+
+    # --- movie metadata with its origin (#911; §7.1, §11.1 units) --------------
+
+    def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
+        """Return each movie's frame time, pixel size and channel roles with their origins.
+
+        The call only reads; it delegates to
+        [`movie_metadata.read_movie_metadata`][tether.project.movie_metadata.read_movie_metadata].
+
+        Returns
+        -------
+        dict of str to MovieMetadataRecord
+            One [`MovieMetadataRecord`][tether.project.movie_metadata.MovieMetadataRecord]
+            for each ``/movies`` row, keyed by ``movie_id``. Its ``frame_time`` is in
+            seconds per frame and its ``pixel_size_um`` in micrometers per pixel;
+            ``0.0`` means unknown.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> project.movie_metadata()["mov-1"].frame_time_origin
+        'unknown'
+        """
+        from tether.project import movie_metadata
+
+        return movie_metadata.read_movie_metadata(self.path)
+
+    def set_frame_time(self, movie_id: str, seconds: float) -> MovieMetadataRecord:
+        """Give a movie's frame time, with origin ``user`` and not verified.
+
+        Delegates to
+        [`movie_metadata.set_frame_time`][tether.project.movie_metadata.set_frame_time]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        seconds : float
+            The frame time, in seconds per frame. It must be finite and greater than
+            zero.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If the project's writer lock blocks the operation (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``seconds`` is not finite and positive.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_frame_time("mov-1", 0.05)
+        >>> record.frame_time, record.frame_time_origin, record.frame_time_verified
+        (0.05, 'user', False)
+        """
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_frame_time(self.path, movie_id, seconds)
+
+    def confirm_frame_time(self, movie_id: str) -> MovieMetadataRecord:
+        """Verify a movie's frame time, the user's separate action.
+
+        Delegates to
+        [`movie_metadata.confirm_frame_time`][tether.project.movie_metadata.confirm_frame_time]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written, with ``frame_time_verified`` set to ``True``.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If the project's writer lock blocks the operation (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If the movie has no frame time to confirm (its frame time is ``0.0``).
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_frame_time("mov-1", 0.05)
+        >>> project.confirm_frame_time("mov-1").frame_time_verified
+        True
+        """
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.confirm_frame_time(self.path, movie_id)
+
+    def update_movie_metadata(
+        self,
+        movie_id: str,
+        *,
+        frame_time: float | None = None,
+        pixel_size_um: float | None = None,
+        confirm_frame_time: bool = False,
+    ) -> MovieMetadataRecord:
+        """Apply several metadata changes to one movie.
+
+        Delegates to
+        [`movie_metadata.update_movie_metadata`][tether.project.movie_metadata.update_movie_metadata]
+        after the single-writer check. A given value gets the origin ``user``, and a
+        given frame time starts unverified. A validation error leaves the record untouched.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        frame_time : float or None, optional
+            The frame time to record, in seconds per frame. It must be finite and
+            greater than zero. The default, ``None``, leaves the frame time unchanged.
+        pixel_size_um : float or None, optional
+            The pixel size to record, in micrometers per pixel. It must be finite and
+            greater than zero. The default, ``None``, leaves the pixel size unchanged.
+        confirm_frame_time : bool, optional
+            Mark the stored frame time as verified. The default is ``False``.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written, with every requested change applied.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If the project's writer lock blocks the operation (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``frame_time`` or ``pixel_size_um`` is not finite and positive, if
+            ``confirm_frame_time`` is set and the movie has no frame time, or if
+            ``frame_time`` is given and ``confirm_frame_time`` is set in one call.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.update_movie_metadata("mov-1", frame_time=0.05, pixel_size_um=0.16)
+        >>> record.frame_time, record.pixel_size_um, record.frame_time_verified
+        (0.05, 0.16, False)
+        """
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.update_movie_metadata(
+            self.path,
+            movie_id,
+            frame_time=frame_time,
+            pixel_size_um=pixel_size_um,
+            confirm_frame_time=confirm_frame_time,
+        )
+
+    def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
+        """Give a movie's pixel size, with origin ``user``.
+
+        Delegates to
+        [`movie_metadata.set_pixel_size`][tether.project.movie_metadata.set_pixel_size]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        micrometres : float
+            The pixel size, in micrometers per pixel. It must be finite and greater
+            than zero.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If the project's writer lock blocks the operation (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``micrometres`` is not finite and positive.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_pixel_size("mov-1", 0.16)
+        >>> record.pixel_size_um, record.pixel_size_origin
+        (0.16, 'user')
+        """
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_pixel_size(self.path, movie_id, micrometres)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 

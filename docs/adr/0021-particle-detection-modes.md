@@ -74,7 +74,7 @@ band-pass (`bpass(I, 1, 9)`; `lobject = 9`, vs mode 2's 7) → keep the top `1 �
 band-pass values (percentile sort) → regional maxima
 (`skimage.morphology.local_maxima` = `imregionalmax`, 8-conn) → 8-connected
 centroids, then the shared Stage-4 tail. The `t` is **dual-use** (intensity floor
-+ percentile cut), faithful to the reference; default `t = 0.98` (the standalone
+\+ percentile cut), faithful to the reference; default `t = 0.98` (the standalone
 `.m` default). Mode 3 localizes with the centroid, not `radialcenter` (the
 `findPart.m:30` comment naming `radialcenter` is aspirational; the actual `.m`
 uses `regionprops 'Centroid'`). Still additive at the imaging layer
@@ -126,6 +126,7 @@ decodes `threshold=None`, so each detector keeps its faithful default
 version/lock change).
 
 **Deferred to a follow-up PR:**
+
 - **PR-C3d** — per-channel detect + bidirectional colocalization, oracle
   re-framed to evaluate the **colocalized** set apples-to-apples (USER
   CORRECTION #1), re-measure @1px; **only then** invoke the maintainer-approved

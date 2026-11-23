@@ -16,7 +16,11 @@ structure/round-trip, not scientific accuracy.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import subprocess
+import sys
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 
@@ -38,7 +42,7 @@ from tether.imaging.calibrate import LOW_CONFIDENCE_TAG  # noqa: E402
 from tether.imaging.detect import ParticleDetectionMode  # noqa: E402
 from tether.imaging.extract import read_molecules, read_patches, read_traces  # noqa: E402
 from tether.imaging.register import PolyTransform2D, TmapChannel  # noqa: E402
-from tether.io.schema import assert_is_compatible_project  # noqa: E402
+from tether.io.schema import SCHEMA_VERSION, assert_is_compatible_project  # noqa: E402
 from tether.project.extract import ExtractionError, ExtractOptions, extract_movie  # noqa: E402
 
 _BG = 80.0
@@ -113,7 +117,7 @@ def test_extract_movie_creates_valid_project(tmp_path) -> None:
 
     # A valid, schema-compatible project was written.
     assert out.exists()
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
 
     # All three colocalized molecules survived the crop-box guardrail.
     assert summary.n_molecules == 3
@@ -194,8 +198,39 @@ def test_cli_main_extract_succeeds(tmp_path, capsys) -> None:
     rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
 
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert "Extracted 3 molecule(s)" in capsys.readouterr().out
+
+
+def test_cli_extract_warns_about_onedrive_conflict_copies(tmp_path, capsys) -> None:
+    # #560 / PRD §5.4: a project the CLI opens that has a sync-conflict sibling gets a
+    # stderr warning naming it; the copy is untouched and the exit code is unchanged.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    onedrive = tmp_path / "out-DESKTOP-AB12.tether"
+    numbered = tmp_path / "out (1).tether"
+    onedrive.write_bytes(b"copy")
+    numbered.write_bytes(b"copy")
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "  warning: 2 possible OneDrive/SharePoint conflict copies beside out.tether:" in err
+    assert "out-DESKTOP-AB12.tether" in err
+    assert "out (1).tether" in err
+    assert onedrive.read_bytes() == b"copy"
+    assert numbered.read_bytes() == b"copy"
+
+
+def test_cli_extract_without_conflict_copies_prints_no_conflict_warning(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
+
+    assert rc == 0
+    assert "conflict cop" not in capsys.readouterr().err
 
 
 # --- error handling ----------------------------------------------------------
@@ -213,7 +248,7 @@ def test_extract_refuses_existing_output_without_overwrite(tmp_path, capsys) -> 
     # --overwrite replaces it with a real project.
     rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW), "--overwrite"])
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
 
 
 def test_extract_missing_movie_reports_error(tmp_path, capsys) -> None:
@@ -222,6 +257,19 @@ def test_extract_missing_movie_reports_error(tmp_path, capsys) -> None:
     assert rc == 1
     assert "movie not found" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_overwrite_into_a_missing_directory_reports_error(tmp_path, capsys) -> None:
+    # --overwrite takes the destination lock before extraction starts, so a
+    # missing parent directory fails there; it is still a one-line error (#346).
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "missing" / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW), "--overwrite"])
+
+    assert rc == 1
+    assert capsys.readouterr().err.startswith("tether extract: ")
+    assert not out.parent.exists()
 
 
 def test_extract_movie_rejects_bad_option() -> None:
@@ -362,8 +410,8 @@ def _synthetic_tmap_channels(
     halves of ``_SHAPE`` ([[y1, x1], [y2, x2]] as Deep-LASI stores them).
 
     ``acceptor_rotation`` / ``acceptor_flip`` default to identity (empty, as the
-    real UCKOPSB .tmap stores them); pass a non-identity value to exercise the
-    refuse-non-identity-geometry guard.
+    real UCKOPSB .tmap stores them); pass another stored value to exercise the
+    rotation/flip decode (#559).
     """
     eye = np.eye(3)
     identity = PolyTransform2D(
@@ -424,7 +472,7 @@ def test_extract_imported_tmap_creates_valid_project(tmp_path, monkeypatch) -> N
 
     summary = ext.extract_movie(movie, out, tmap=tmap, options=ExtractOptions(window=_WINDOW))
 
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.registration_source == "imported"
     assert summary.n_molecules == 3
     # An imported bead map is trusted: no sample control points -> unknown residual,
@@ -505,7 +553,7 @@ def test_cli_extract_with_tmap_succeeds(tmp_path, monkeypatch, capsys) -> None:
     )
 
     assert rc == 0
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     output = capsys.readouterr().out
     assert "Extracted 3 molecule(s)" in output
     assert "imported from" in output
@@ -540,19 +588,16 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
 
 
 @pytest.mark.parametrize(
-    "geometry",
-    [{"acceptor_rotation": np.array([90.0])}, {"acceptor_flip": np.array([1, 0])}],
-    ids=["rotation", "flip"],
+    "acceptor_rotation", [None, np.array([[90.0]])], ids=["unturned", "turned"]
 )
-def test_extract_imported_tmap_nonidentity_geometry_refused(
-    tmp_path, monkeypatch, capsys, geometry
+@pytest.mark.parametrize("bad_value", [1.9, 1 + 0.5j], ids=["fraction", "complex"])
+def test_extract_non_integral_tmap_crop_errors(
+    tmp_path, monkeypatch, capsys, acceptor_rotation, bad_value
 ) -> None:
-    # A .tmap whose channel carries a non-identity rotation OR flip is refused
-    # loudly (the imported path applies only crop geometry so far), never silently
-    # mis-split. Both axes are covered so a flip regression can't slip through.
     import tether.project.extract as ext
 
-    channels = _synthetic_tmap_channels(**geometry)
+    channels = _synthetic_tmap_channels(acceptor_rotation=acceptor_rotation)
+    channels[1] = replace(channels[1], crop=np.array([[bad_value, 49.0], [64.0, 96.0]]))
     monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
     movie = _make_movie(tmp_path)
     tmap = _stub_tmap(tmp_path)
@@ -560,7 +605,208 @@ def test_extract_imported_tmap_nonidentity_geometry_refused(
 
     rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
     assert rc == 1
-    assert "rotation/flip" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "could not use --tmap" in err
+    assert "channel 1 crop" in err
+    assert not out.exists()
+
+
+# --- imported .tmap rotation/flip (#559) ---------------------------------------
+#
+# Deep-LASI splits each channel with processImage: rotate (imrotate(I, -Rotation),
+# a clockwise turn), then flip ([v, h]), then crop in the rotated/flipped frame. The
+# .tmap polynomials live in that processed frame. So a raw movie whose channel is
+# stored turned or mirrored, with a .tmap that names the turn, must split back to
+# the identity-case halves and give the identity-case molecules.
+
+
+def _clockwise(image: np.ndarray, rotation_deg: int) -> np.ndarray:
+    return np.rot90(image, k=-(rotation_deg // 90))
+
+
+def _flip(image: np.ndarray, flip: tuple[int, int]) -> np.ndarray:
+    if flip[0]:
+        image = image[::-1, :]
+    if flip[1]:
+        image = image[:, ::-1]
+    return image
+
+
+def _stored_region(half: np.ndarray, rotation_deg: int, flip: tuple[int, int]) -> np.ndarray:
+    """The raw-frame pixels that rotate-then-flip into ``half`` (the inverse, by hand)."""
+    return np.rot90(_flip(half, flip), k=rotation_deg // 90)
+
+
+def _crop_after(
+    raw_shape: tuple[int, int],
+    rows: slice,
+    cols: slice,
+    rotation_deg: int,
+    flip: tuple[int, int],
+) -> list[int]:
+    """1-based inclusive ``[y1, x1, y2, x2]`` of a raw region after rotate-then-flip."""
+    wanted = np.zeros(raw_shape, dtype=bool)
+    wanted[rows, cols] = True
+    moved = _flip(_clockwise(wanted, rotation_deg), flip)
+    r, c = np.nonzero(moved)
+    return [int(r.min()) + 1, int(c.min()) + 1, int(r.max()) + 1, int(c.max()) + 1]
+
+
+def _turned_movie_and_channels(
+    tmp_path, *, donor: tuple[int, tuple[int, int]], acceptor: tuple[int, tuple[int, int]]
+) -> tuple[object, dict[int, TmapChannel]]:
+    """A raw movie whose halves are stored turned/mirrored, and the matching .tmap.
+
+    The identity-case frame is the one :func:`_make_movie` writes (acceptor spots at
+    half the donor amplitude). Each half is stored in the raw frame as the pixels
+    that ``rotate -> flip`` turns back into that half, side by side (donor first),
+    on the flat background. The .tmap channels keep the identity-case polynomials
+    and carry the rotation, flip and the crop in the rotated/flipped frame.
+    """
+    amplitudes = np.concatenate(
+        [np.full(len(_DONOR_CENTERS), _AMP), np.full(len(_ACCEPTOR_CENTERS), _AMP / 2)]
+    )
+    frame = _gaussian_frame(np.vstack([_DONOR_CENTERS, _ACCEPTOR_CENTERS]), amplitudes)
+    half = _SHAPE[1] // 2
+    halves = (frame[:, :half], frame[:, half:])
+    stored = [
+        _stored_region(h, rot, flip)
+        for h, (rot, flip) in zip(halves, (donor, acceptor), strict=True)
+    ]
+    raw_shape = (max(r.shape[0] for r in stored), sum(r.shape[1] for r in stored))
+    raw = np.full(raw_shape, _BG)
+    crops = []
+    col = 0
+    for region, (rot, flip) in zip(stored, (donor, acceptor), strict=True):
+        rows, cols = slice(0, region.shape[0]), slice(col, col + region.shape[1])
+        raw[rows, cols] = region
+        crops.append(_crop_after(raw_shape, rows, cols, rot, flip))
+        col += region.shape[1]
+
+    movie = tmp_path / "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
+    stack = np.broadcast_to(raw, (_N_FRAMES, *raw_shape))
+    tifffile.imwrite(
+        movie, np.ascontiguousarray(stack, dtype=">u2"), photometric="minisblack", byteorder=">"
+    )
+
+    base = _synthetic_tmap_channels()
+    channels = {
+        cid: replace(
+            base[cid],
+            crop=np.array([[y1, x1], [y2, x2]]),
+            rotation=np.array([[float(rot)]]),
+            flip=np.array([list(flip)], dtype=np.uint8),
+        )
+        for cid, (rot, flip), (y1, x1, y2, x2) in zip((0, 1), (donor, acceptor), crops, strict=True)
+    }
+    return movie, channels
+
+
+_IDENTITY = (0, (0, 0))
+_TURNS = [
+    pytest.param(_IDENTITY, (90, (0, 0)), id="acceptor-rot90"),
+    pytest.param(_IDENTITY, (180, (0, 0)), id="acceptor-rot180"),
+    pytest.param(_IDENTITY, (270, (0, 0)), id="acceptor-rot270"),
+    pytest.param(_IDENTITY, (0, (1, 0)), id="acceptor-flip-v"),
+    pytest.param(_IDENTITY, (0, (0, 1)), id="acceptor-flip-h"),
+    pytest.param(_IDENTITY, (0, (1, 1)), id="acceptor-flip-vh"),
+    pytest.param(_IDENTITY, (90, (1, 0)), id="acceptor-rot90-flip-v"),
+    pytest.param((270, (0, 1)), _IDENTITY, id="donor-rot270-flip-h"),
+    pytest.param((180, (0, 0)), (90, (0, 1)), id="both-turned"),
+]
+
+
+@pytest.mark.parametrize(("donor", "acceptor"), _TURNS)
+def test_extract_imported_tmap_applies_rotation_and_flip(
+    tmp_path, monkeypatch, donor, acceptor
+) -> None:
+    # #559: a .tmap channel with a rotation and/or a flip is applied, not refused,
+    # and the extraction recovers the identity-case molecules.
+    import tether.project.extract as ext
+    from tether.imaging.split import process_image
+    from tether.project.oracle import MATCH_TOL_PX, match_coordinates
+
+    identity_channels = _synthetic_tmap_channels()
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: identity_channels)
+    identity_dir = tmp_path / "identity"
+    identity_dir.mkdir()
+    identity_out = identity_dir / "identity.tether"
+    ext.extract_movie(
+        _make_movie(identity_dir, acceptor_amp=_AMP / 2),
+        identity_out,
+        tmap=_stub_tmap(identity_dir),
+        options=ExtractOptions(window=_WINDOW),
+    )
+
+    turned_dir = tmp_path / "turned"
+    turned_dir.mkdir()
+    movie, channels = _turned_movie_and_channels(turned_dir, donor=donor, acceptor=acceptor)
+    # The construction is right: each stored channel splits back to its identity half.
+    raw = tifffile.imread(movie)[0].astype(np.float64)
+    identity_raw = tifffile.imread(identity_dir / movie.name)[0].astype(np.float64)
+    for cid, half in ((0, identity_raw[:, :48]), (1, identity_raw[:, 48:])):
+        ch = channels[cid]
+        got = process_image(
+            raw, rotation_deg=ch.rotation_deg, crop=np.asarray(ch.crop).ravel(), flip=ch.flip_vh
+        )
+        np.testing.assert_array_equal(got, half)
+
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    out = turned_dir / "turned.tether"
+    summary = ext.extract_movie(
+        movie, out, tmap=_stub_tmap(turned_dir), options=ExtractOptions(window=_WINDOW)
+    )
+
+    assert summary.registration_source == "imported"
+    assert summary.n_molecules == 3
+    want, got = read_molecules(identity_out), read_molecules(out)
+    for key in ("donor_xy", "acceptor_xy"):
+        matches = match_coordinates(want[key], got[key], tol_px=MATCH_TOL_PX)
+        assert len(matches) == 3, key
+        np.testing.assert_allclose(
+            np.array(sorted(got[key].tolist())), np.array(sorted(want[key].tolist()))
+        )
+    traces = read_traces(out)
+    ratio = traces["acceptor_corrected"].mean(axis=1) / traces["donor_corrected"].mean(axis=1)
+    assert ratio.tolist() == pytest.approx([0.5] * 3, rel=0.02)
+
+    # /movies records each channel's rotation and flip next to its crop.
+    with h5py.File(out, "r") as f:
+        row = f["/movies/table"][0]
+        assert int(row["donor_rotation_deg"]) == donor[0]
+        assert row["donor_flip"].tolist() == list(donor[1])
+        assert int(row["acceptor_rotation_deg"]) == acceptor[0]
+        assert row["acceptor_flip"].tolist() == list(acceptor[1])
+        assert row["acceptor_crop"].tolist() == np.asarray(channels[1].crop).ravel().tolist()
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        {"acceptor_rotation": np.array([45.0])},
+        {"acceptor_rotation": np.array([90.0, 180.0])},
+        {"acceptor_flip": np.array([2, 0])},
+        {"acceptor_flip": np.array([1, 0, 1])},
+    ],
+    ids=["rotation-45", "rotation-two-values", "flip-value-2", "flip-three-values"],
+)
+def test_extract_imported_tmap_bad_rotation_or_flip_errors(
+    tmp_path, monkeypatch, capsys, geometry
+) -> None:
+    # A stored rotation or flip that processImage could not have applied leaves the
+    # split undefined: a clean .tmap-centric error (exit 1), nothing written.
+    import tether.project.extract as ext
+
+    channels = _synthetic_tmap_channels(**geometry)
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(_stub_tmap(tmp_path))])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "could not use --tmap" in err
+    assert "Rotation" in err or "Flip" in err
     assert not out.exists()
 
 
@@ -636,7 +882,7 @@ def test_extract_alternate_mode_is_recorded(tmp_path, mode) -> None:
         out,
         options=ExtractOptions(window=_WINDOW, detection_mode=mode, detection_threshold=0.4),
     )
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.n_molecules == 3
     profile = _extraction_profile(out)
     assert profile["detection_mode"] == mode
@@ -757,7 +1003,7 @@ def test_extract_tdat_applies_decoded_mode(tmp_path) -> None:
     tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)
     out = tmp_path / "tdat.tether"
     summary = extract_movie(movie, out, tdat=tdat, options=ExtractOptions(window=_WINDOW))
-    assert assert_is_compatible_project(out) == 1
+    assert assert_is_compatible_project(out) == SCHEMA_VERSION
     assert summary.n_molecules == 3
     assert summary.detection_mode == "intensity"
     profile = _extraction_profile(out)
@@ -1021,3 +1267,228 @@ def test_cli_warns_on_stderr_when_the_registration_exceeds_the_gate(tmp_path, ca
     captured = capsys.readouterr()
     assert rc == 0
     assert "exceeds" not in captured.err
+
+
+# --- the destination writer lock (#346, ADR-0112) ----------------------------
+
+_HOLDER_SCRIPT = """
+import sys
+from tether.project import lock
+
+held = lock.acquire(sys.argv[1])
+print(held.nonce, flush=True)
+sys.stdin.readline()
+lock.release(sys.argv[1], held)
+"""
+
+_UNGUARDED_SCRIPT = """
+import sys
+from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
+
+try:
+    extract_movie(sys.argv[1], sys.argv[2], options=ExtractOptions(window=21), overwrite=True)
+except ExtractionError as exc:
+    print(exc)
+    sys.exit(3)
+"""
+
+_CLI_SCRIPT = """
+import sys
+from tether.cli import main
+
+sys.exit(main(["extract", sys.argv[1], "-o", sys.argv[2], "--window", "21", "--overwrite"]))
+"""
+
+
+def _run_child(script: str, *args: object) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", script, *map(str, args)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def test_second_process_cannot_replace_a_project_another_process_holds(tmp_path) -> None:
+    """Writer A holds ``p.tether``; extraction in process B fails instead of replacing it.
+
+    The true-subprocess regression for the clobber #249 only reproduced conceptually:
+    before #346, process B's ``extract_movie(..., overwrite=True)`` published a new
+    inode over the project process A held open, and A's later writes went to the
+    orphaned file. Both of B's routes now fail and leave A's file and lock untouched.
+    """
+    from tether.project import lock
+
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "p.tether"
+    extract_movie(movie, out, options=ExtractOptions(window=_WINDOW))
+    # The inode number alone: on main the canonical identity helper does not exist yet.
+    original = os.stat(out).st_ino
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLDER_SCRIPT, str(out)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        nonce = holder.stdout.readline().strip()
+        assert nonce, holder.stderr.read() if holder.stderr else ""
+
+        unguarded = _run_child(_UNGUARDED_SCRIPT, movie, out)
+        assert unguarded.returncode == 3, unguarded.stderr
+        assert "needs its writer lock" in unguarded.stdout
+
+        cli = _run_child(_CLI_SCRIPT, movie, out)
+        assert cli.returncode == 1, cli.stderr
+        assert "is locked" in cli.stderr
+
+        assert os.stat(out).st_ino == original
+        held = lock.read_lock(out)
+        assert held is not None
+        assert held.nonce == nonce
+        assert list(tmp_path.glob("p.tether.*.tmp")) == []
+    finally:
+        if holder.poll() is None:
+            holder.communicate("\n", timeout=30)
+
+    assert lock.read_lock(out) is None
+    # Once A releases, B's locked overwrite publishes a new file and releases its lock.
+    cli = _run_child(_CLI_SCRIPT, movie, out)
+    assert cli.returncode == 0, cli.stderr
+    assert os.stat(out).st_ino != original
+    assert lock.read_lock(out) is None
+
+
+def test_extract_refuses_an_unguarded_overwrite_before_any_work(tmp_path, monkeypatch) -> None:
+    from tether.project import extract as extract_module
+
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    out.write_bytes(b"existing project")
+
+    def _no_movie_io(*_a, **_k):
+        raise AssertionError("an unguarded overwrite must be refused before the movie opens")
+
+    monkeypatch.setattr(extract_module, "open_movie", _no_movie_io)
+    with pytest.raises(ExtractionError, match="needs its writer lock"):
+        extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), overwrite=True)
+    assert out.read_bytes() == b"existing project"
+
+
+def test_unguarded_new_path_publish_never_replaces_a_file_that_appeared(tmp_path) -> None:
+    """Without a guard, a path another writer created during the build is not replaced."""
+    from tether.project._guarded_publish import publish_staged_project
+    from tether.project.lock import PublishGuardRequiredError
+
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+    out.write_bytes(b"appeared meanwhile")
+
+    with pytest.raises(PublishGuardRequiredError):
+        publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"appeared meanwhile"
+    assert stage.read_bytes() == b"new project"
+
+    out.unlink()
+    publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"new project"
+    assert not stage.exists()
+
+
+def test_publish_without_hard_links_never_replaces_a_file_that_appeared(
+    tmp_path, monkeypatch
+) -> None:
+    """Where os.link fails, an exclusive create still refuses a path that appeared."""
+    from tether.project import _guarded_publish
+    from tether.project.lock import PublishGuardRequiredError
+
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+
+    def no_links_and_a_racing_writer(src, dst):
+        Path(dst).write_bytes(b"appeared meanwhile")
+        raise PermissionError(1, "hard links not supported")
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links_and_a_racing_writer)
+    with monkeypatch.context() as m:
+        # Model the other writer arriving after any absence check: a check-then-replace
+        # would now replace its file.
+        m.setattr(_guarded_publish.os.path, "lexists", lambda _p: False)
+        with pytest.raises((FileExistsError, PublishGuardRequiredError)):
+            _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"appeared meanwhile"
+    assert stage.read_bytes() == b"new project"
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    out.unlink()
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"new project"
+    assert not stage.exists()
+
+
+def test_publish_without_hard_links_holds_the_destination_lock(tmp_path, monkeypatch) -> None:
+    """A writer holding the new path's lock stops the no-hard-link publish (#346)."""
+    from tether.project import _guarded_publish
+    from tether.project import lock as lock_module
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+    foreign = lock_module.acquire(
+        out, identity=lock_module.LockIdentity(host="OTHER", user="bob", pid=999)
+    )
+
+    with pytest.raises(lock_module.LockError):
+        _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert not out.exists()
+    assert stage.read_bytes() == b"new project"
+    assert lock_module.read_lock(out) == foreign
+
+
+def test_publish_without_hard_links_keeps_a_successors_file(tmp_path, monkeypatch) -> None:
+    """If the lock is stolen and the name published meanwhile, the successor's file stays."""
+    from tether.project import _guarded_publish
+    from tether.project import lock as lock_module
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    out = tmp_path / "out.tether"
+    real_publish_lock = _guarded_publish.publish_lock
+
+    @contextlib.contextmanager
+    def stolen_after_reservation(path):
+        with real_publish_lock(path) as guard:
+
+            def steal_then_check() -> None:
+                # A successor steals the lock and publishes into the reserved name.
+                tmp = tmp_path / "successor.tmp"
+                tmp.write_bytes(b"successor project")
+                os.replace(tmp, out)
+                raise lock_module.LockError("lock ownership changed before publish")
+
+            del guard
+            yield steal_then_check
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    monkeypatch.setattr(_guarded_publish, "publish_lock", stolen_after_reservation)
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+
+    with pytest.raises(lock_module.LockError):
+        _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"successor project"
+    assert stage.read_bytes() == b"new project"
