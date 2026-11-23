@@ -366,7 +366,7 @@ def test_conditional_all_cyclic_wildcards_and_plain_imports(tmp_path: Path) -> N
             # One branch computes it: the bound names, and the literal of the other branch.
             "src/cx/__init__.py": (
                 "from .impl import _VALUE, B\nNAMES = ['B']\nif B:\n    __all__ = NAMES\n"
-                "else:\n    __all__ = ['_VALUE']\n"
+                "else:\n    __all__ = ['_VALUE']\n__all__.extend([])\n"
             ),
             "src/cx/impl.py": "_VALUE = 1\nB = 2\n",
             "src/ann/__init__.py": "from .c import _VALUE\n__all__: list[str] = ['_VALUE']\n",

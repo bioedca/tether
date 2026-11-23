@@ -583,7 +583,7 @@ class _Imports:
                     else:
                         if _writes_all(node):  # a change not read leaves ``__all__`` unknown
                             listed = _names_of_all(node)
-                            if not conditional and not isinstance(node, ast.AugAssign):
+                            if not conditional and isinstance(node, (ast.Assign, ast.AnnAssign)):
                                 known, unknown = [], False  # replaces what came before
                             # a branch that may run adds to the others
                             known += [n for n in listed or () if n not in known]
