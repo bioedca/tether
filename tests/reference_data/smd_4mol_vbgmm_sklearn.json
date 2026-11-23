@@ -75,7 +75,7 @@
     ]
   },
   "tolerance": {
-    "status": "proposed; awaiting the maintainer's sign-off in the pull request (#1302)",
+    "status": "approved by the maintainer (bioedca) on 2026-11-23 in the #1302 thread, with the strict expected failure and follow-up #1337",
     "means_max_abs": 0.03,
     "fractions_max_abs": 0.01,
     "basis": "tMAVEN's own vbGMM updates run to convergence (its convergence test off; 20000 and 60000 iterations give the same result) land within 0.0225 of the reference means and 0.0065 of its fractions. That residual is the mean prior alone: tMAVEN centres each state's prior on that state's k-means start, scikit-learn centres every state's prior on the data mean; the same updates with the shared data-mean prior, started from tMAVEN's converged point, reach the reference within 5e-5. Each limit is above the residual and far below the deviation of the stopped fit (0.44 and 0.38)."

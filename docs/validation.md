@@ -475,6 +475,7 @@ convergence, differ from the reference.
 > fixture, because the lower bound its convergence test reads goes down at every step. Its state
 > means are up to 0.44 FRET from the reference, so the sidecar test is a strict expected failure:
 > a tMAVEN that fits to convergence passes, and the job then fails until the marker is removed.
+> The early stop is tracked in [#1337](https://github.com/bioedca/tether/issues/1337).
 
 ### Measured traces with a stored vbFRET path
 

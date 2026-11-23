@@ -162,7 +162,8 @@ def test_vbgmm_key_fits_the_requested_states_reproducibly(tmp_path):
     reason=(
         "tMAVEN 10f4230's plain vbGMM stops after two iterations on this fixture, because the "
         "lower bound its convergence test reads goes down at every step; its state means are up "
-        "to 0.44 from the converged independent fit (#1302, ADR-0138). Strict: a tMAVEN that "
+        "to 0.44 from the converged independent fit (#1302, ADR-0138, tracked in #1337). "
+        "Strict: a tMAVEN that "
         "fits to convergence passes, and the XPASS fails until this marker is removed."
     ),
 )

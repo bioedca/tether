@@ -5,9 +5,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0138 — An independent scikit-learn fit is the reference for the `vbgmm` key, and the pinned tMAVEN fails it
 
-- **Status:** proposed (the maintainer signs off on the comparator and the tolerance in the pull request)
+- **Status:** accepted
 - **Date:** 2026-11-23
-- **Deciders:** bioedca (issue #1302 approved 2026-11-23; the agent proposes the comparator and the tolerance, the maintainer signs off before merge)
+- **Deciders:** bioedca (issue #1302 approved 2026-11-23; the agent proposed the comparator and the tolerance; the maintainer chose option 1 with them on 2026-11-23)
 - **PRD anchor:** §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2
 - **Milestone:** none
 - **Issue:** [#1302](https://github.com/bioedca/tether/issues/1302)
@@ -63,7 +63,7 @@ data tMAVEN fits: with it, tMAVEN's own `vb_em_gmm` gives the sidecar result to 
 ## Considered options
 
 1. **scikit-learn on the base side, committed numbers, a strict expected failure on the sidecar
-   (proposed).** `tests/_vbgmm_reference.py` fits; `tests/reference_data/smd_4mol_vbgmm_sklearn.json`
+   (chosen).** `tests/_vbgmm_reference.py` fits; `tests/reference_data/smd_4mol_vbgmm_sklearn.json`
    keeps the numbers, their provenance and the tolerance; `tests/test_vbgmm_reference.py` (base
    matrix) fits again and holds the committed numbers to 1e-6; the sidecar test compares the live
    fit and is marked `xfail(strict=True, raises=VbgmmDisagreement)`. Only a deviation over the
@@ -77,7 +77,8 @@ data tMAVEN fits: with it, tMAVEN's own `vb_em_gmm` gives the sidecar result to 
 
 ## Decision outcome
 
-Option 1, subject to the maintainer's sign-off. The tolerance: the largest absolute difference of
+Option 1, approved by the maintainer on 2026-11-23. The early stop is tracked in
+[#1337](https://github.com/bioedca/tether/issues/1337). The tolerance: the largest absolute difference of
 the state means (states sorted by mean) at most **0.03 FRET**, and of the state fractions (tMAVEN's
 `frac`, the share of the responsibilities) at most **0.01**. Both are above the converged residual
 (0.0225 and 0.0065, finding 4) and far below the stopped fit's deviation (0.44 and 0.38). Variances
