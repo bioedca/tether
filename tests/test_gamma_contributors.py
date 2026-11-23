@@ -321,3 +321,53 @@ def test_estimate_gamma_refuses_an_exclusion_outside_the_traces() -> None:
     donor, acceptor = _cohort(2)
     with pytest.raises(ValueError, match="outside"):
         estimate_gamma(donor, acceptor, [ALPHA] * 2, [ACC] * 2, [DON] * 2, exclude={2})
+
+
+# --- the writer lock and the transition lock (review of PR #1335) ---------------------------
+
+
+def test_an_unlocked_project_is_refused_before_anything_is_written(tmp_path: Path) -> None:
+    from tether.project.lock import LockedError  # noqa: PLC0415
+
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=10)
+    compute_gamma(path)
+    gamma_before = read_molecules(path)["gamma"].copy()
+    proj = Project.open(path)  # no lock held
+    with pytest.raises(LockedError):
+        set_gamma_contributor(proj, _key(path, 0), include=False, actor=ME, reason="bad")
+    assert len(read_gamma_contributor_decisions(path)) == 0
+    np.testing.assert_array_equal(read_molecules(path)["gamma"], gamma_before)
+    assert cs.read_correction_state(path).state is S.GAMMA_REVIEW
+
+
+def test_an_approval_waits_for_a_contributor_edit_in_flight(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading  # noqa: PLC0415
+
+    from tether.project import gamma as gamma_module  # noqa: PLC0415
+
+    started, approved = threading.Event(), threading.Event()
+    real = gamma_module._compute_gamma
+    errors: list[BaseException] = []
+
+    def approve() -> None:
+        try:
+            _approve(project)
+        except BaseException as exc:  # noqa: BLE001 - reported below
+            errors.append(exc)
+        approved.set()
+
+    def slow_pass(*args: object, **kwargs: object):
+        started.set()
+        threading.Thread(target=approve).start()
+        assert not approved.wait(0.3)  # the approval waits for the edit
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gamma_module, "_compute_gamma", slow_pass)
+    set_gamma_contributor(project, _key(project.path, 1), include=False, actor=ME, reason="x")
+    assert started.is_set() and approved.wait(5) and not errors
+    # The approval landed after the edit, so it froze the new evidence and was not lost.
+    assert len(read_gamma_contributor_decisions(project.path)) == 1
+    assert cs.read_correction_state(project.path).state is S.CALIBRATION_APPROVED

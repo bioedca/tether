@@ -296,16 +296,39 @@ def set_gamma_contributor(
         If ``molecule_key`` is not a row of the γ evidence table.
     tether.project.correction_states.CorrectionTransitionError
         In CALIBRATION_APPROVED.
+    tether.project.lock.LockedError
+        If this handle does not hold the project's writer lock, before anything is written,
+        or if the lock changes hands during the write.
     """
-    import h5py  # noqa: PLC0415
-
     from tether.project import correction_states as cs  # noqa: PLC0415
-    from tether.project.gamma import _compute_gamma  # noqa: PLC0415
 
     reason = reason.strip()
     if not include and not reason:
         raise ValueError("an exclusion of a γ contributor needs a reason")
-    project._assert_writable()
+    # The transitions of this project wait while the state is read, the γ pass runs and the
+    # events are sent, so an approval cannot land in between (it is reentrant for send_event).
+    with cs._transition_lock(project.path):
+        return _set_held(project, molecule_key, include=include, actor=actor, reason=reason)
+
+
+def _set_held(
+    project: Project, molecule_key: str, *, include: bool, actor: Actor, reason: str
+) -> GammaSummary | None:
+    """Run [`set_gamma_contributor`][] under the transition lock of its project."""
+    import h5py  # noqa: PLC0415
+
+    from tether.project import correction_states as cs  # noqa: PLC0415
+    from tether.project import lock  # noqa: PLC0415
+    from tether.project.gamma import _compute_gamma  # noqa: PLC0415
+
+    # The writer lock must be held, and be this writer's, before anything is written: the
+    # γ pass is bound to its nonce, as a transition is.
+    epoch = cs._held_nonce(project)
+
+    def guard() -> None:
+        if cs._held_nonce(project) != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
+
     params = _stamped_parameters(project.path)
     keys = {_text(k) for k in read_gamma_contributors(project.path)["molecule_key"]}
     if molecule_key not in keys:
@@ -340,9 +363,7 @@ def set_gamma_contributor(
         "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
         "app_version": cs._app_version(),
     }
-    summary = _compute_gamma(
-        project.path, write_guard=project._assert_writable, decision=decision, **params
-    )
+    summary = _compute_gamma(project.path, write_guard=guard, decision=decision, **params)
 
     state = cs.read_correction_state(project.path).state
     if state is cs.CorrectionState.GAMMA_REVIEW and not summary.applied:
