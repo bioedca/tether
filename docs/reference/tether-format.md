@@ -171,6 +171,7 @@ guaranteed to be there.
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/settings/correction_transitions` | absent | `send_event` (`src/tether/project/correction_states.py`) |
+| `/settings/approvals` | absent | `record_approval` (`src/tether/project/approvals.py`), called by `tether approve` and by a recipe policy |
 | `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
@@ -694,7 +695,7 @@ leave `/patches` empty**, because they have no coordinates.
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
 datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
-`recorded_inputs`, `stale_marks` and `correction_transitions`, which are datasets.
+`recorded_inputs`, `stale_marks`, `correction_transitions` and `approvals`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -820,6 +821,28 @@ A scope with no row is in its start state: `APPARENT_REVIEW`, or `GAMMA_REVIEW` 
 `/settings/leakage`, `/settings/gamma` or `/settings/correction` exists. Such a project never
 reads as approved. A corrected analysis is refused in every state except `ANALYSIS_READY`, and an
 apparent-E analysis is never refused.
+
+### Approvals
+
+`/settings/approvals` is a resizable compound dataset with one row for each approval of a step
+that needs a person ([ADR-0102](../adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md),
+section 4). Every field is a UTF-8 string: `step` (`map.accept`, `alpha.confirm`, `gamma.approve` or
+`fit.select`), `subject` (the map, the condition or the analysis set), `by` (`person` or
+`policy`), `actor` (the person's name, or the policy text exactly as the recipe gives it),
+`recipe_sha256` and `recipe_version` (the identity of the recipe whose run asked for the
+approval, or `""` and `0` for an approval that no recipe run asked for), `report` (a JSON object of
+each evidence file name, the report's JSON and its PNG images, to its SHA-256), `timestamp`
+(ISO-8601 UTC) and `app_version`. Only an approval writes a row: a policy whose rule does not
+approve writes none. The rows are append-only.
+
+A recipe run (`tether run`) stores jobs for steps that write a project in its `/settings/jobs`
+while recording progress for steps that write no project in the per-user checkpoint.
+The job's single part is a JSON object with `recipe_sha256`, `recipe_version` and `step` (the
+step number). Jobs written by the current runner also store `run_id` and `attempt_id` to
+identify the run and step attempt.
+`--resume` checks project jobs against the recipe checkpoint in Tether's per-user state.
+A step that stopped at an approval step is stored `cancelled`, with the requested step and
+subject in the cancellation reason so a later approval can identify its recipe.
 
 ## `/idealization` — one subgroup per fitted model
 

@@ -14,6 +14,8 @@ applies each result on the main thread.
 * Cancellation is part of the core. A task submitted as cancellable gets a [`CancelToken`][];
   its work stops by raising [`TaskCancelled`][]. A task that is not cancellable refuses a
   cancel, and the one-click idealize is not cancellable.
+* Progress is optional. A task submitted with ``reports_progress`` gets a [`ProgressReport`][]
+  and tells it how far it is; the window reads the fraction and shows it (#627).
 
 The state names are those of the stored jobs of the job coordinator (#895). This module stores
 nothing in a project and keeps no record that outlives the process. A stored job can therefore
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
 __all__ = [
     "BackgroundTask",
     "CancelToken",
+    "ProgressReport",
     "TaskCancelled",
     "TaskOutcome",
     "TaskRunner",
@@ -99,6 +102,38 @@ class CancelToken:
             raise TaskCancelled
 
 
+class ProgressReport:
+    """How far a task is, written by its work and read by the window.
+
+    The work of a task submitted with ``reports_progress`` receives the report as its
+    ``progress`` keyword argument. The fraction is one attribute that the work replaces, so
+    the main thread reads either the old or the new value and needs no lock.
+
+    Examples
+    --------
+    >>> from tether.gui.tasks import ProgressReport
+    >>> report = ProgressReport()
+    >>> report.fraction is None
+    True
+    >>> report.report(3, 4)
+    >>> report.fraction
+    0.75
+    """
+
+    def __init__(self) -> None:
+        self._fraction: float | None = None
+
+    @property
+    def fraction(self) -> float | None:
+        """The part done, from 0 to 1, or ``None`` before the first report."""
+        return self._fraction
+
+    def report(self, done: float, total: float) -> None:
+        """Record that ``done`` of ``total`` steps are done; a ``total`` of 0 or less is ignored."""
+        if total > 0:
+            self._fraction = min(1.0, max(0.0, done / total))
+
+
 @dataclass(frozen=True)
 class TaskOutcome:
     """The end of one task, as [`TaskRunner.take_finished`][] returns it.
@@ -132,12 +167,21 @@ class BackgroundTask:
         A value that the caller uses to identify the task.
     token : CancelToken or None
         The cancel token of a cancellable task, else ``None``.
+    progress : ProgressReport or None, optional
+        The progress report of a task that reports progress. The default is ``None``.
     """
 
-    def __init__(self, future: Future[Any], context: Any, token: CancelToken | None) -> None:
+    def __init__(
+        self,
+        future: Future[Any],
+        context: Any,
+        token: CancelToken | None,
+        progress: ProgressReport | None = None,
+    ) -> None:
         self._future = future
         self._context = context
         self._token = token
+        self._progress = progress
 
     @property
     def future(self) -> Future[Any]:
@@ -153,6 +197,11 @@ class BackgroundTask:
     def cancellable(self) -> bool:
         """Whether [`cancel`][tether.gui.tasks.BackgroundTask.cancel] can stop the task."""
         return self._token is not None
+
+    @property
+    def progress(self) -> float | None:
+        """The part done, from 0 to 1, or ``None`` when the task has reported none."""
+        return None if self._progress is None else self._progress.fraction
 
     @property
     def cancel_requested(self) -> bool:
@@ -261,6 +310,7 @@ class TaskRunner:
         *args: Any,
         context: Any = None,
         cancellable: bool = False,
+        reports_progress: bool = False,
     ) -> BackgroundTask | None:
         """Start ``fn(*args)`` on the worker thread.
 
@@ -275,6 +325,9 @@ class TaskRunner:
             ``None``.
         cancellable : bool, optional
             Whether the task gets a [`CancelToken`][]. The default is ``False``.
+        reports_progress : bool, optional
+            Whether the task gets a [`ProgressReport`][], as ``fn(*args, progress=report)``.
+            The default is ``False``.
 
         Returns
         -------
@@ -284,8 +337,14 @@ class TaskRunner:
         if self._active is not None:
             return None
         token = CancelToken() if cancellable else None
-        call = partial(fn, *args, cancel=token) if token is not None else partial(fn, *args)
-        self._active = BackgroundTask(self._executor.submit(call), context, token)
+        report = ProgressReport() if reports_progress else None
+        keywords: dict[str, Any] = {}
+        if token is not None:
+            keywords["cancel"] = token
+        if report is not None:
+            keywords["progress"] = report
+        call = partial(fn, *args, **keywords)
+        self._active = BackgroundTask(self._executor.submit(call), context, token, report)
         return self._active
 
     def take_finished(self) -> TaskOutcome | None:

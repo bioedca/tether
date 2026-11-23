@@ -227,6 +227,7 @@ def create_shell(
     try:
         from tether.gui import app_settings, theme
         from tether.gui.curation import default_keymap_path
+        from tether.gui.messages import Level
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
@@ -253,9 +254,10 @@ def create_shell(
     file_open.attach(shell.load_project)
     # A startup project can replace the keymap warning before the window is visible.
     keymap_error = shell.keymap_error
-    status = shell.status_message
-    if keymap_error is not None and status != keymap_error:
-        shell.window.statusBar().showMessage(f"{keymap_error} {status}")
+    message = shell.messages.latest
+    if keymap_error is not None and message is not None and message.text != keymap_error:
+        level = Level.ERROR if message.level is Level.ERROR else Level.WARNING
+        shell.messages.post(f"{keymap_error} {message.text}", level)
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell
