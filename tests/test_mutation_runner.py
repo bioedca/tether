@@ -415,7 +415,12 @@ def test_a_conditional_all_that_may_stay_unset_keeps_the_default_names(tmp_path:
         "        __all__ = ['B']\nelse:\n    __all__ = ['A']\n",
         "later": "if A:\n    __all__ = ['A']\n__all__ = ['B']\n",
         "first": "__all__ = ['A']\nif A:\n    __all__ = ['B']\n",
-        "within": "import contextlib\nwith contextlib.suppress():\n    __all__ = ['A']\n",
+        "within": "import contextlib\nwith contextlib.suppress(ValueError):\n"
+        "    raise ValueError\n    __all__ = ['A']\n",
+        "deleted": "__all__ = ['A']\ndel __all__\n",
+        "maybe": "__all__ = ['A']\nif A:\n    del __all__\n",
+        "again": "__all__ = ['A']\ndel __all__\n__all__ = ['B']\n",
+        "rebound": "if A:\n    del A\n    __all__ = ['A']\nelse:\n    __all__ = ['B']\n",
     }
     files = {f"src/{p}/__init__.py": head + body for p, body in packages.items()}
     files |= {f"src/{p}/{rel}": text for p in packages for rel, text in three.items()}
@@ -432,11 +437,16 @@ def test_a_conditional_all_that_may_stay_unset_keeps_the_default_names(tmp_path:
         "nested": {"A", "B"},
         "later": {"B"},  # a later unconditional assignment replaces what came before
         "first": {"A", "B"},
-        "within": {"A"},  # a with block runs its body
+        "within": {"A", "B", "C", "contextlib"},  # a with block may suppress the raise
+        "deleted": {"A", "B", "C"},  # a del unbinds it
+        "maybe": {"A", "B", "C"},
+        "again": {"B"},  # assigned again after the del
+        "rebound": {"A", "B"},  # a del of another name changes nothing
     }
     for package, names in expected.items():
         assert imports.public(package) == names, package
-        modules = {package} | {f"{package}.{n.lower()}" for n in names}
+        # ``import contextlib`` passes on the module itself
+        modules = {package} | {f"{package}.{n.lower()}" if len(n) == 1 else n for n in names}
         assert imports.of(f"from {package} import *\n") == modules, package
 
 

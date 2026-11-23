@@ -506,30 +506,47 @@ def _names_of_all(node: ast.AST) -> list[str] | None:
     return [e.value for e in value.elts]
 
 
+def _deletes_all(node: ast.AST) -> bool:
+    """Whether *node* holds a ``del __all__`` at module scope (not in a ``def`` or ``class``)."""
+    scoped = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    todo = [node]
+    while todo:
+        n = todo.pop()
+        if isinstance(n, ast.Delete):
+            if any(isinstance(t, ast.Name) and t.id == "__all__" for t in n.targets):
+                return True
+        elif not isinstance(n, scoped):
+            inner = (ast.stmt, ast.excepthandler)
+            todo += [c for c in ast.iter_child_nodes(n) if isinstance(c, inner)]
+    return False
+
+
 def _sets_all(body: list[ast.stmt]) -> bool:
-    """Whether every path through *body* that finishes assigns ``__all__``: an ``if`` sets it
-    when both branches do, a ``try`` when its ``finally`` does or both the path without an
-    exception and every handler do, a ``with`` when its body does; a loop may run no time, and
-    a ``def`` or ``class`` body is not module scope."""
+    """Whether every path through *body* that finishes leaves ``__all__`` bound: an ``if``
+    binds it when both branches do, a ``try`` when its ``finally`` does or both the path
+    without an exception and every handler do; a loop may run no time, a ``with`` may
+    suppress an exception raised before the assignment, a ``del __all__`` that may run
+    unbinds it, and a ``def`` or ``class`` body is not module scope."""
+    bound = False
     for node in body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             stored = (n for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
-            if any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored):
-                return True
+            sets = any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored)
         elif isinstance(node, ast.If):
-            if _sets_all(node.body) and _sets_all(node.orelse):
-                return True
-        elif isinstance(node, (ast.With, ast.AsyncWith)):
-            if _sets_all(node.body):
-                return True
+            sets = _sets_all(node.body) and _sets_all(node.orelse)
         elif isinstance(node, (ast.Try, ast.TryStar)):
             handled = all(_sets_all(h.body) for h in node.handlers)
-            if _sets_all(node.finalbody) or (
+            sets = _sets_all(node.finalbody) or (
                 handled and (_sets_all(node.body) or _sets_all(node.orelse))
-            ):
-                return True
-    return False
+            )
+        else:
+            sets = False
+        if sets:
+            bound = True
+        elif _deletes_all(node):
+            bound = False
+    return bound
 
 
 def _bound_names(node: ast.AST) -> set[str]:
@@ -557,8 +574,9 @@ class _Imports:
     ``__all__`` lists them when it is a literal of strings (every list a branch may set, when it
     is set in an ``if`` or ``try``) and else every bound name without a leading ``_``, with
     the names of any literal list a branch may set; the bound names count too when some path
-    can leave ``__all__`` unset (it is set only in an ``if`` with no ``else``, a loop, or a
-    ``try`` whose handler does not set it); a wildcard inside a source module
+    can leave ``__all__`` unset (it is set only in an ``if`` with no ``else``, a loop, a
+    ``with`` that may suppress an exception, or a ``try`` whose handler does not set it, or a
+    ``del __all__`` may run after it); a wildcard inside a source module
     (``from .c import *``) passes those names on the same way, and a cycle of such wildcards
     is followed until nothing more is found.
     A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
