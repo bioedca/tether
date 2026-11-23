@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from _deep_device import compare_device_scores
 from tether.ml.deep import assemble_dataset
 from tether.ml.deep.model import TrainedDeepClassifier, train_classifier
 
@@ -104,15 +105,14 @@ def test_cuda_and_cpu_training_agree_on_the_decision() -> None:
     ds = _synthetic_dataset(n_per_class=12, seed=3)
     on_gpu = train_classifier(ds, epochs=15, batch_size=8, seed=3, device="cuda").predict_proba(ds)
     on_cpu = train_classifier(ds, epochs=15, batch_size=8, seed=3, device="cpu").predict_proba(ds)
+    comparison = compare_device_scores(on_cpu, on_gpu, n_samples=ds.n_samples)
     truth = ds.y == 1
     for device, proba in (("cuda", on_gpu), ("cpu", on_cpu)):
         assert proba[truth].mean() > proba[~truth].mean() + 0.2
         accuracy = float(((proba >= 0.5) == truth).mean())
         assert accuracy >= 0.9, f"{device} decides {accuracy:.2f} of molecules correctly"
-    gpu_decision = on_gpu >= 0.5
-    cpu_decision = on_cpu >= 0.5
-    agreement = float((gpu_decision == cpu_decision).mean())
-    assert agreement >= 0.9, (
-        f"cuda and cpu decide differently on {int((gpu_decision != cpu_decision).sum())} of "
-        f"{ds.n_samples} molecules (agreement {agreement:.2f})"
+    assert comparison.agreement >= 0.9, (
+        f"cuda and cpu decide differently on {comparison.n_disagreements} of "
+        f"{ds.n_samples} molecules (agreement {comparison.agreement:.2f}, "
+        f"largest score difference {comparison.max_score_difference:.6g})"
     )
