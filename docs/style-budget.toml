@@ -141,9 +141,9 @@ retired = 0
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 29.7
-semicolons = 7
-long_paragraphs = 1
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/export-results.md"]
