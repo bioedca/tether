@@ -135,7 +135,7 @@ numbers.
 ## The style budget
 
 The test `tests/test_docs_style_budget.py` counts four things on each nav page and on
-`README.md`. The table `docs/style-budget.toml` holds a budget for each count on each page.
+`README.md`, `CONTRIBUTING.md` and `SECURITY.md`. The table `docs/style-budget.toml` holds a budget for each count on each page.
 
 | Count | Rule | What the test counts |
 |---|---|---|

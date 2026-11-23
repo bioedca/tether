@@ -88,7 +88,7 @@ def test_the_pointer_rules_point_to_the_rule_they_do_not_restate() -> None:
     assert CONTRIBUTING_AI in _rule(1)
     assert CONTRIBUTING_AI in _rule(3)
     assert "AGENTS.md#evidence-and-tool-routing" in _rule(3)
-    assert "CONTRIBUTING.md#merging-prd-122-126" in _rule(8)
+    assert "CONTRIBUTING.md#what-review-to-expect" in _rule(8)
     for number in (1, 3, 8):
         assert "This page does not change" in _rule(number), number
 
