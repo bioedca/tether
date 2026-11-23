@@ -221,19 +221,14 @@ def about_text(rows: list[tuple[str, str]] | None = None) -> str:
 def log_folder() -> Path | None:
     """The folder that holds Tether's log files, or ``None`` when it does not exist yet.
 
-    The location is the per-user application data folder plus ``logs``. Nothing in
-    Tether writes a log file yet (the message log is separate work), so the Help menu
-    hides **Open log folder** until this folder exists.
+    The location is [`log_folder_path`][tether.gui.messages.log_folder_path]: the per-user
+    application data folder plus ``logs``, where the message log (#627) writes
+    ``tether.log``. The Help menu hides **Open log folder** until this folder exists.
     """
-    from pyqtgraph.Qt import QtCore
+    from tether.gui.messages import log_folder_path
 
-    location = QtCore.QStandardPaths.writableLocation(
-        QtCore.QStandardPaths.StandardLocation.AppLocalDataLocation
-    )
-    if not location:
-        return None
-    folder = Path(location) / "logs"
-    return folder if folder.is_dir() else None
+    folder = log_folder_path()
+    return folder if folder is not None and folder.is_dir() else None
 
 
 def open_external(url: str) -> bool:

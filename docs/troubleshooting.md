@@ -996,6 +996,41 @@ installed NVIDIA driver.
 **driver** is needed — no system CUDA toolkit. Full instructions and the reference GPU floor
 are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 
+### I missed a message in the status bar
+
+**Symptom.** The desktop application showed something in the status bar at the bottom of the
+window, and the next action replaced it before you read it.
+
+**Cause and what to do.** The **Messages** panel keeps the latest 2,000 messages the status
+bar showed, with their time and their level: information, warning or error. Open the panel with
+**View → Messages**. Select the rows you want, or none for all of them, and press **Copy**.
+The messages go to the clipboard as text, ready for a bug report.
+
+A warning or an error also stays in the status bar until you press **Dismiss** beside it.
+The next warning or error replaces it too. A later information line, such as
+`Molecule mol-3 (4/40)`, does not hide it.
+
+A running background task shows its name at the right of the status bar. It also shows its
+progress when it reports one, and a **Cancel** button when it can be stopped. The one-click
+idealize cannot be stopped, because its sidecar may still be writing to the project. Module:
+`tether.gui.messages`.
+
+**The log file.** The same lines go to a log file, `tether.log`. **Help → Open log folder**
+opens its folder:
+
+- Windows: `%LOCALAPPDATA%\MondragonLab\Tether\logs\`
+- macOS: `~/Library/Application Support/MondragonLab/Tether/logs/`
+- Linux: `~/.local/share/MondragonLab/Tether/logs/`, or under `$XDG_DATA_HOME` when that
+  variable is set
+
+Each line is the time, the level and the message as the status bar showed it. The log holds
+no trace data and no file contents. A path is in it only where a message showed that path.
+
+When the file passes about 1 MB it is renamed `tether.log.1`, and the three newest old files
+are kept. The environment variable `TETHER_LOG_DIR` moves the folder. If the file cannot be
+written, the application stops writing it for that session. The Messages panel still keeps
+the latest 2,000 messages, and an older one is then gone for good.
+
 ---
 
 ## Exit codes, and where the details go

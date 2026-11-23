@@ -452,13 +452,16 @@ def test_a_write_another_window_holds_up_is_a_status_message_not_an_error(
     monkeypatch.setattr(preferences, "_try_lock", lambda _fd: False)
     monkeypatch.setattr(preferences, "_LOCK_TIMEOUT_S", 0.05)
     assert shell.set_curator_name("Ana")
-    assert "being written by another Tether window" in shell.status_message
+    # The failed save stays in the status bar until dismissed (#627).
+    sticky = shell.messages.sticky
+    assert sticky is not None and "being written by another Tether window" in sticky.text
 
 
 def test_a_failed_preferences_write_is_a_status_message_not_an_error(
     launch, tmp_path, monkeypatch
 ) -> None:
     from tether.gui import preferences
+    from tether.gui.messages import Level
 
     def boom(*_args, **_kwargs):
         raise OSError("read-only home")
@@ -470,10 +473,18 @@ def test_a_failed_preferences_write_is_a_status_message_not_an_error(
     assert shell.project_path == path
     assert shell.set_curator_name("Ana")
     assert shell.curator_name == "Ana"
-    # The success message of the same action does not hide the failed save.
-    assert "Could not save preferences: read-only home" in shell.status_message
+    # The success message of the same action does not hide the failed save: the error
+    # stays in the status bar until dismissed (#627), and the success line stays
+    # information rather than carrying the error along.
+    sticky = shell.messages.sticky
+    assert sticky is not None and sticky.level is Level.ERROR
+    assert sticky.text == "Could not save preferences: read-only home"
+    assert "Could not save preferences" not in shell.status_message
+    assert shell.messages.latest.level is Level.INFO
     shell.reset_layout()
-    assert "Could not save preferences: read-only home" in shell.status_message
+    assert shell.messages.sticky is not None
+    assert "Could not save preferences: read-only home" in shell.window.statusBar().currentMessage()
+    assert "Could not save preferences" not in shell.status_message
     shell.close()  # the layout and position saves fail quietly too
 
 
