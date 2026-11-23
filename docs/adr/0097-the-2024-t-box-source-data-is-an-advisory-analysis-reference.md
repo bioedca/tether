@@ -134,7 +134,7 @@ the dwell inversion and the column reader.
 | --- | --- |
 | Population fits of the histograms (Figs. 2c, 3b, ...) | HMM fits, #757 |
 | Rates and their Dirichlet bounds (Supplementary Table 5) | #758 |
-| Fig. 5b, 5 uM WT tRNA column, its efficiencies | no trace matrix in the archive (its Fig. 5c fraction is compared, below) |
+| Fig. 5b, 5 uM WT tRNA column, its efficiencies | no trace matrix in the archive (its Fig. 5c fraction is compared, below); a workstation test on unpublished files (amendment below) |
 | Transition-synchronized histograms (Supp. Figs. S3-S6) | they need the Viterbi paths, which the archive does not hold (#757) |
 | Representative traces of Supp. Figs. S5a and S6a | same check as Figs. 2b-4e; reading the 30 MB second workbook adds time and no new case |
 | BLI and SEC data (Supp. Figs. S1, S2) | not smFRET; Tether has no function for them |
@@ -240,3 +240,23 @@ fail; 13 uM WT tRNA and 13 uM tRNA-ΔNCCA stay inside (6.1e-6 and 2.6e-5), which
 that some column fail and not each. Setting the module's bin count to 198 fails the weekly tests of
 columns 0 and 6 and the 5 uM WT tRNA test (Linux, 2026-11-17), and the deliberate-error test with
 them, since it checks that the count is the notebook's.
+
+## Amendment, 2026-11-16 — the 5 uM WT tRNA column of Fig. 5b in the unpublished per-run files (#1128)
+
+The archive still has no trace data for this column, and the archive stays the reference: its
+traces keep no weekly test. A read-only check of the authors' per-run trace files of the three
+5 uM WT tRNA movies, which are not in the archive, found:
+
+- Molecules 1 to 138 of the column are the three runs joined in order (66, 8 and 64 molecules).
+  Each block of 400 values is `A / (D + A)` of the first 400 frames of its molecule, the file read
+  with `skiprows=1` as the notebook reads it, to 1e-6.
+- Molecules 139 to 163 (25) agree with no molecule of those files at any start frame (to 1e-4).
+  No file has 163 molecules.
+
+`tests/test_campos_chavez_5um_runs.py` (tier `workstation`, ADR-0071) repeats the check where the
+workstation runner names the files under neutral ids. It fails if blocks 1 to 138 are not the
+joined runs, and it records the number of blocks that match nothing. Further files can be named for
+the search only (role `wt5_other`, never joined): a file that holds some of the 25 changes that
+number and does not fail the test. Nothing from the per-run files, and no
+path, is committed (ADR-0083). A corrected file in the archive is the authors' action, outside
+Tether.
