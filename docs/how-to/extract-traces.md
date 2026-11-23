@@ -185,6 +185,8 @@ a line starting `detection: mode`. Each line names what was applied. Then check 
     molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
     **donor** trace (green) should step **up**. If it steps down instead, close the project
     in `tether-gui`. Then extract again with the other `--donor-side` and `--overwrite`.
+    If you extracted with `--tmap`, extract again with a correctly oriented map or without
+    `--tmap` instead.
 
 ## Add another movie to a project
 

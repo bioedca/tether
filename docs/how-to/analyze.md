@@ -60,7 +60,8 @@ the traces.
 
 1. Save the script below as `plots.py` beside the project.
 2. Set `dt` to your frame time.
-3. Run the script with Tether's Python.
+3. If your fit is an ebFRET fit, set `model_name` to `ebhmm`.
+4. Run the script with Tether's Python.
 
 Each analysis takes its settings from one dictionary. The same dictionary goes into the
 provenance file of the figure. So the record names every setting that made the plot.
