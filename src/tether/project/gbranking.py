@@ -33,8 +33,8 @@ import numpy as np
 
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT, seed_weight
 from tether.project.labels import HUMAN_WEIGHT, PROVISIONAL_LABEL_SOURCES, CurationLabel
-from tether.project.ranking import ranking_dataset
-from tether.project.weighting import human_counts_by_condition
+from tether.project.ranking import _training_snapshot
+from tether.project.weighting import human_counts_by_condition, training_curation_codes
 
 if TYPE_CHECKING:
     from os import PathLike
@@ -112,23 +112,25 @@ class FeatureCacheIncompleteError(ValueError):
 def _require_featured_human_labels(
     path: Path,
     molecules: np.ndarray,
-    featured_keys: list[str],
+    featured_ids: list[str],
     condition_id: str | None = None,
+    *,
+    pending: frozenset[str],
 ) -> None:
     """Stop when a human label (of ``condition_id``, or of any condition) has no feature row."""
-    featured = set(featured_keys)
+    featured = set(featured_ids)
     missing = tuple(
         _to_str(mid)
-        for mid, key, cond, code in zip(
+        for mid, cond, code in zip(
             molecules["molecule_id"],
-            molecules["molecule_key"],
             molecules["condition_id"],
             molecules["curation_label"],
             strict=True,
         )
         if int(code) != _UNCURATED
+        and _to_str(mid) not in pending
         and (condition_id is None or _to_str(cond) == condition_id)
-        and _to_str(key) not in featured
+        and _to_str(mid) not in featured
     )
     if missing:
         raise FeatureCacheIncompleteError(path, missing)
@@ -239,26 +241,26 @@ def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, Ranki
     Returns both so a caller that also ranks/evaluates (`_train_and_rank`) reuses the single
     ``/features`` read rather than assembling it twice. Read-only.
     """
-    from tether.imaging.extract import read_molecules  # noqa: PLC0415
-    from tether.project.labels import read_labels  # noqa: PLC0415
-
-    data = ranking_dataset(project)
+    data, molecules, label_rows = _training_snapshot(project)
     path = _project_path(project)
-    molecules = read_molecules(path)
-    _require_featured_human_labels(path, molecules, data.molecule_keys)
-    n_human_by_condition = human_counts_by_condition(
-        molecules["condition_id"], molecules["curation_label"]
+    pending = data.pending_label_ids
+    _require_featured_human_labels(path, molecules, data.molecule_ids, pending=pending)
+    eligible = training_curation_codes(
+        molecules["molecule_id"], molecules["curation_label"], pending
     )
+    n_human_by_condition = human_counts_by_condition(molecules["condition_id"], eligible)
     condition_by_key = {
         _to_str(key): _to_str(cond)
         for key, cond in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
     }
-    provisional_by_key = _latest_provisional_labels(read_labels(path))
+    provisional_by_key = _latest_provisional_labels(label_rows)
 
     idx: list[int] = []
     labels: list[bool] = []
     weights: list[float] = []
     for i, key in enumerate(data.molecule_keys):
+        if data.molecule_ids[i] in pending:
+            continue
         human = int(data.curation_label[i])
         if human != _UNCURATED:
             # A human accept/reject is authoritative and supersedes any provisional prior on the
@@ -292,7 +294,8 @@ def weighted_training_set(
     prior (Deep-LASI / cross-condition seed, at its ``w₀/(1 + n_human)`` decayed weight) becomes a
     training row; a human label supersedes a provisional prior on the same molecule. Uncurated
     molecules with no prior are omitted from *training* (they are still ranked, never dropped —
-    PRD §7.5). Read-only over the M0-frozen ``/features`` + ``/molecules`` + ``/labels``.
+    PRD §7.5). Carried labels enter training after a human accepts or rejects the
+    current extraction. Read-only.
 
     Parameters
     ----------

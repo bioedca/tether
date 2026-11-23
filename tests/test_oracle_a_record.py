@@ -142,7 +142,8 @@ def test_each_file_of_video_010_is_pinned_and_agrees_with_the_provenance_table()
 def _source_pairs(table: str) -> list[list[tuple[str, str]]]:
     """Each row of the fixture table as its ``(source digest, source size)`` pairs, in row order.
 
-    A row with several sources lists them in the same order in both columns, joined by ``+``.
+    A row with several sources lists them in the same order in both columns, joined by ``+``;
+    the spacing around each ``+`` is not part of either value (#1228).
     """
     rows: list[list[tuple[str, str]]] = []
     columns: tuple[int, int] | None = None
@@ -154,7 +155,7 @@ def _source_pairs(table: str) -> list[list[tuple[str, str]]]:
         if "Source size" in cells and "Source SHA-256" in cells:
             columns = (cells.index("Source SHA-256"), cells.index("Source size"))
         elif columns is not None and not set("".join(cells)) <= set("-: "):
-            digests, sizes = (cells[i].split(" + ") for i in columns)
+            digests, sizes = ([v.strip() for v in cells[i].split("+")] for i in columns)
             assert len(digests) == len(sizes), f"PROVENANCE.md row has unpaired sources: {line}"
             rows.append(list(zip(digests, sizes, strict=True)))
     return rows
@@ -190,3 +191,42 @@ def test_a_pin_whose_sizes_are_swapped_disagrees_with_the_provenance_table(
     problems = _disagreements(swapped, PROVENANCE.read_text(encoding="utf-8"))
     assert any(p.startswith(f"{one}:") for p in problems), problems
     assert any(p.startswith(f"{other}:") for p in problems), problems
+
+
+def _two_source_table(sizes: str, digests: str) -> str:
+    """A fixture table with one two-source row, its source cells written as given."""
+    return (
+        "| Fixture | Source size | Source SHA-256 |\n"
+        "|---|---|---|\n"
+        f"| `x.npz` | {sizes} | {digests} |\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("sizes", "digests"),
+    [
+        ("891,955,083 B + 9,053,155 B", "`aa` + `bb`"),
+        ("891,955,083 B+ 9,053,155 B", "`aa` +`bb`"),
+        ("891,955,083 B +9,053,155 B", "`aa`+`bb`"),
+        ("891,955,083 B  +  9,053,155 B", "`aa`+ `bb`"),
+    ],
+)
+def test_a_source_cell_pairs_the_same_whatever_the_spacing_around_its_plus(
+    sizes: str, digests: str
+) -> None:
+    """``B+ `` or `` +`` splits like `` + ``, so a spacing slip neither drops nor merges a pair."""
+    assert _source_pairs(_two_source_table(sizes, digests)) == [
+        [("`aa`", "891,955,083 B"), ("`bb`", "9,053,155 B")]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sizes", "digests"),
+    [("891,955,083 B", "`aa` + `bb`"), ("891,955,083 B+ 9,053,155 B", "`aa`")],
+)
+def test_a_row_whose_source_cells_hold_different_counts_still_fails(
+    sizes: str, digests: str
+) -> None:
+    """Trimming the spacing must not hide a row that really leaves a value out."""
+    with pytest.raises(AssertionError, match="unpaired sources"):
+        _source_pairs(_two_source_table(sizes, digests))

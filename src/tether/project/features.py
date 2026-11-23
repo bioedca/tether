@@ -54,6 +54,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from os import PathLike
 
+    from h5py import File
+
     from tether.ml.similarity import Neighbor, SimilarityIndex
     from tether.project.core import Project
 
@@ -521,19 +523,22 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
 
     path = project.path if isinstance(project, _Project) else Path(project)
     with h5py.File(path, "r") as f:
-        if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
-            raise KeyError(
-                f"no /features/{TABLE} in {Path(path).name} (run compute_features first)"
-            )
-        dataset = f[FEATURES_GROUP][TABLE]
-        table = dataset[:]
-        names_attr = dataset.attrs.get("feature_names")
-        feature_names = (
-            tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
-        )
-        intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
-        app_version = _to_str(dataset.attrs.get("app_version", ""))
-        created_utc = _to_str(dataset.attrs.get("created_utc", ""))
+        return _feature_matrix_in(f, path)
+
+
+def _feature_matrix_in(f: File, path: Path) -> StoredFeatures:
+    """Read a cached matrix from an already-open project snapshot."""
+    if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        raise KeyError(f"no /features/{TABLE} in {Path(path).name} (run compute_features first)")
+    dataset = f[FEATURES_GROUP][TABLE]
+    table = dataset[:]
+    names_attr = dataset.attrs.get("feature_names")
+    feature_names = (
+        tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
+    )
+    intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
+    app_version = _to_str(dataset.attrs.get("app_version", ""))
+    created_utc = _to_str(dataset.attrs.get("created_utc", ""))
 
     molecule_ids = [_to_str(x) for x in table["molecule_id"]]
     molecule_keys = [_to_str(x) for x in table["molecule_key"]]

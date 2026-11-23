@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -585,13 +585,35 @@ from tether.project.lock import LockIdentity
 action, project = sys.argv[1], sys.argv[2]
 if action == "acquire":
     info = lock.acquire(project, identity=LockIdentity(host="HOST-A", user="alice", pid=111))
-    print(json.dumps(info.to_dict()))
+    out = info.to_dict()
 else:
     bob = LockIdentity(host="HOST-B", user="bob", pid=222)
     info, prior = lock.steal_lock(project, identity=bob)
     assert lock.release(project, info)
-    print(json.dumps({"stolen": info.to_dict(), "prior": prior.to_dict() if prior else None}))
+    out = {"stolen": info.to_dict(), "prior": prior.to_dict() if prior else None}
+print(json.dumps({"module": lock.__file__, "result": out}))
 """
+
+
+def _share_tree_under_test(shared: Path, group: int) -> Path:
+    """Copy the ``tether`` package under test where the test users can read it (#1222).
+
+    The children cannot be pointed at the tree under test directly: when it sits
+    under a directory they cannot traverse (a worktree below a ``0700`` directory),
+    Python drops the unreadable ``PYTHONPATH`` entry without a word and imports
+    ``tether`` from whatever else is on ``sys.path``, such as an editable install of
+    another checkout. Returns the ``lock.py`` the children must import.
+    """
+    import shutil
+
+    package = Path(lock.__file__).resolve().parents[1]
+    copy = shared / "src" / "tether"
+    shutil.copytree(package, copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for path in [copy.parent, copy, *copy.rglob("*")]:
+        os.chown(path, 0, group, follow_symlinks=False)
+        if not path.is_symlink():
+            path.chmod(0o750 if path.is_dir() else 0o640)
+    return copy / "project" / "lock.py"
 
 
 @pytest.mark.skipif(
@@ -621,10 +643,13 @@ def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> 
         cache.mkdir()
         os.chown(cache, 0, group)
         cache.chmod(0o2777)
-        src = Path(lock.__file__).resolve().parents[2]
+        module_under_test = Path(lock.__file__).resolve()
+        shared_lock = _share_tree_under_test(shared, group)
+        assert shared_lock.read_bytes() == module_under_test.read_bytes()
         env = {
             **os.environ,
-            "PYTHONPATH": str(src),
+            "PYTHONPATH": str(shared_lock.parents[2]),
+            "PYTHONDONTWRITEBYTECODE": "1",
             "HOME": str(shared),
             "NUMBA_CACHE_DIR": str(cache),
             "MPLCONFIGDIR": str(cache),
@@ -644,7 +669,10 @@ def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> 
                 timeout=60,
             )
             assert done.returncode == 0, done.stderr
-            return json.loads(done.stdout.strip().splitlines()[-1])
+            report = json.loads(done.stdout.strip().splitlines()[-1])
+            # A fallback import would test another checkout's code: fail loudly instead.
+            assert Path(report["module"]).resolve() == shared_lock.resolve(), report["module"]
+            return report["result"]
 
         first = run(first_user, "acquire")
         guard = lock._guard_path(lock.lock_path(project))
@@ -1877,6 +1905,38 @@ def test_a_file_without_identity_keeps_the_beside_lock_alone(tmp_path: Path, mon
     assert lock.read_lock(project) == held
     assert lock.release(project, held)
     assert not lock.user_lock_dir().exists()
+
+
+@pytest.mark.parametrize("failure_at", ["write", "close"])
+def test_a_failed_initial_sidecar_write_rolls_back_the_claim(
+    tmp_path: Path, monkeypatch, failure_at: str
+) -> None:
+    project = tmp_path / "new.tether"
+    sidecar = lock.lock_path(project)
+    fdopen = lock.os.fdopen
+    disk_full = OSError(28, "No space left on device")
+
+    @contextmanager
+    def incomplete_record(fd, *args, **kwargs):
+        with fdopen(fd, *args, **kwargs) as stream:
+            assert sidecar.exists()
+
+            class PartialRecord:
+                def write(self, _text):
+                    stream.write("{")
+                    if failure_at == "write":
+                        raise disk_full
+
+            yield PartialRecord()
+        raise disk_full
+
+    with monkeypatch.context() as m:
+        m.setattr(lock.os, "fdopen", incomplete_record)
+        with pytest.raises(OSError, match="No space left on device"), lock.publish_lock(project):
+            pytest.fail("an incomplete sidecar must not grant the lock")
+    assert not sidecar.exists()
+    with lock.publish_lock(project) as guard:
+        guard()
 
 
 def test_a_failed_identity_record_write_rolls_back_the_claim(tmp_path: Path, monkeypatch) -> None:
