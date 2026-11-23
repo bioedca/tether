@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from _sidecar_gate import requires_sidecar
+from _vbgmm_reference import VbgmmDisagreement, deviations, disagreement, load_reference
 from tether.idealize import NO_STATE, read_smd, run_vbfret, states_from_idealized, write_smd
 
 pytestmark = pytest.mark.sidecar
@@ -152,3 +153,49 @@ def test_vbgmm_key_fits_the_requested_states_reproducibly(tmp_path):
     first, second = (result.model for result in fits)
     np.testing.assert_array_equal(first.means, second.means)
     np.testing.assert_array_equal(first.idealized, second.idealized)
+
+
+@requires_sidecar
+@pytest.mark.xfail(
+    raises=VbgmmDisagreement,
+    strict=True,
+    reason=(
+        "tMAVEN 10f4230's plain vbGMM stops after two iterations on this fixture, because the "
+        "lower bound its convergence test reads goes down at every step; its state means are up "
+        "to 0.44 from the converged independent fit (#1302, ADR-0138). Strict: a tMAVEN that "
+        "fits to convergence passes, and the XPASS fails until this marker is removed."
+    ),
+)
+def test_vbgmm_key_agrees_with_the_independent_reference(tmp_path, capsys):
+    # The numbers come from scikit-learn's variational Gaussian mixture with tMAVEN's vbGMM
+    # priors on the same pooled FRET (tests/_vbgmm_reference.py), fitted on the base side and
+    # committed, because the sidecar environment has no scikit-learn. Only a deviation over the
+    # approved tolerance is the expected failure; a fit that does not run, or a reference that
+    # names another fixture, fails the test as usual.
+    reference = load_reference()
+    smd = tmp_path / "smd_4mol.hdf5"
+    shutil.copyfile(FOUR_MOL, smd)
+    assert reference["fixture"]["path"].endswith(FOUR_MOL.name)
+
+    settings = reference["tmaven"]
+    result = run_vbfret(
+        smd,
+        model_type="vbgmm",
+        nstates=settings["nstates"],
+        nrestarts=settings["nrestarts"],
+        seed=settings["seed"],
+        model_out=tmp_path / "vbgmm.hdf5",
+        timeout=1800.0,
+    )
+    assert result.status["ok"] is True
+    assert result.status["method"] == "run_vbgmm"
+    model = result.model
+    assert model.nstates == settings["nstates"]
+    assert model.frac is not None and model.frac.shape == (settings["nstates"],)
+
+    found = deviations(model.means, model.frac, reference)
+    with capsys.disabled():
+        print(f"\n[parity] vbgmm smd_4mol vs scikit-learn reference: {found}")
+    problem = disagreement(model.means, model.frac, reference)
+    if problem is not None:
+        raise VbgmmDisagreement(problem)
