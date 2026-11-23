@@ -7,7 +7,7 @@
 """Take turns for CodeRabbit on bioedca/tether: one queue file per pull request.
 
 The repository copy of the queue script that Claude threads have run from the maintainer's project
-folder since 2026-11-10. It is here so the Codex lane can run it too (`docs/agents/handoff.md`).
+folder since 2026-11-10. It was added for the Codex handoff of 2026-11-19 to 2026-11-23 (ADR-0137).
 The behaviour is the project-folder copy's, with two changes: the state folder is resolved rather
 than fixed beside the script, and the docs-only route, off since 2026-11-14, is gone.
 
@@ -77,7 +77,7 @@ ALLOWANCE = re.compile(r"set your current allowance at (\d+) reviews? per hour",
 #: newest reading always wins. With no reading in the last 3 hours, or with a refusal newer than the
 #: last reading, the pace falls back to SLOW. The pace is an estimate for the wake-up time and never
 #: a reason to ask: the answer comes from what GitHub shows. Before 2026-11-12 it was a fixed 60
-#: minutes (1 review an hour, the allowance on 2026-11-10). docs/agents/handoff.md, "The CodeRabbit queue".
+#: minutes (1 review an hour, the allowance on 2026-11-10).
 MAX_PER_HOUR = 5
 #: The pace reads the allowance and refusals of the last 3 hours only.
 PACE_LOOKBACK = timedelta(hours=3)
@@ -402,7 +402,7 @@ def status(mine: int | None) -> int:
         else:
             queue.append((joined, number, title))
 
-    # 3b. A pull request that conflicts with main may not ask (docs/agents/handoff.md), yet it
+    # 3b. A pull request that conflicts with main may not ask, yet it
     #     held its place: each one ahead of the first thread that can ask cost a 10-minute window of
     #     every slot (2026-11-18: the slot of 14:35Z was taken at 15:29Z). Such an entry is parked: it
     #     keeps its file and gets its place back as soon as GitHub reads it as mergeable again.
