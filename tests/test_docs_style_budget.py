@@ -3,7 +3,8 @@
 """A ratchet on the countable writing-style rules (#592).
 
 The style guide (``docs/maintainers/writing-style.md``, #582) sets rules that a machine can
-count. ``docs/style-budget.toml`` holds a budget for each nav page and for ``README.md``:
+count. ``docs/style-budget.toml`` holds a budget for each nav page and for the top-level pages
+``README.md``, ``CONTRIBUTING.md`` and ``SECURITY.md`` (#609):
 
 * ``long_share`` -- the percentage of sentences over the length limit of rule 2 (20 words on a
   ``procedure`` page, 25 on a ``descriptive`` one);
@@ -43,6 +44,8 @@ BUDGET_FILE = _REPO / "docs" / "style-budget.toml"
 LIMITS = {"procedure": 20, "descriptive": 25}
 MAX_SENTENCES = 6
 SHARE_SLACK = 2.0
+#: The pages outside ``docs/`` that the style guide covers (rule 1), read like nav pages.
+TOP_LEVEL_PAGES = ("README.md", "CONTRIBUTING.md", "SECURITY.md")
 
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _FENCE_CLOSE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
@@ -252,10 +255,10 @@ def check(page: str, found: Measure, budget: dict) -> list[str]:
 
 
 def nav_pages() -> list[str]:
-    """Every page in the ``mkdocs.yml`` nav, as a repository path, plus ``README.md``."""
+    """Every page in the ``mkdocs.yml`` nav, as a repository path, plus the top-level pages."""
     lines = (_REPO / "mkdocs.yml").read_text(encoding="utf-8").splitlines()
     start = lines.index("nav:") + 1
-    pages = ["README.md"]
+    pages = list(TOP_LEVEL_PAGES)
     for line in lines[start:]:
         if line and not line[0].isspace() and not line.startswith("#"):
             break
@@ -281,7 +284,7 @@ def measure_page(page: str, table: dict) -> Measure:
 def test_budget_lists_every_nav_page_and_the_readme() -> None:
     table = load_budget()
     assert sorted(table["pages"]) == sorted(nav_pages()), (
-        "docs/style-budget.toml must hold one entry for each nav page and README.md, and no "
+        "docs/style-budget.toml must hold one entry for each nav page and top-level page, and no "
         "other; run python tests/test_docs_style_budget.py to print the measured table"
     )
     for page, entry in table["pages"].items():
@@ -414,7 +417,7 @@ _HEADER = """\
 # SPDX-FileCopyrightText: 2026 The Tether Authors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The style budget of each nav page and README.md, checked by tests/test_docs_style_budget.py
+# The style budget of each nav page and top-level page, checked by tests/test_docs_style_budget.py
 # (#592). A budget may go down; raising one is a reviewed decision. The rules and how to read a
 # failure: docs/maintainers/writing-style.md, "The style budget".
 """
