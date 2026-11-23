@@ -171,6 +171,7 @@ guaranteed to be there.
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/settings/correction_transitions` | absent | `send_event` (`src/tether/project/correction_states.py`) |
+| `/settings/gamma_contributors`, `/settings/gamma_contributor_decisions` | absent | `compute_gamma` (`src/tether/project/gamma.py`) / `set_gamma_contributor` (`src/tether/project/gamma_contributors.py`) |
 | `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
@@ -694,7 +695,8 @@ leave `/patches` empty**, because they have no coordinates.
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
 datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
-`recorded_inputs`, `stale_marks` and `correction_transitions`, which are datasets.
+`recorded_inputs`, `stale_marks`, `correction_transitions`, `gamma_contributors` and
+`gamma_contributor_decisions`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -711,6 +713,8 @@ datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`
 | `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
 | `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 | `correction_transitions` | `tether.project.correction_states` | A **dataset**: append-only transitions of the correction states of G03, created lazily (ADR-0131). |
+| `gamma_contributors` | `compute_gamma` (`src/tether/project/gamma.py`) | A **dataset**: the γ evidence table, one row for each examined molecule (#927). Replaced on each γ pass, and removed with `gamma` by a `compute_leakage_alpha` pass that withholds α. |
+| `gamma_contributor_decisions` | `tether.project.gamma_contributors` | A **dataset**: append-only exclusions and inclusions of γ contributors by a person or a recipe policy, created lazily (#927). |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -820,6 +824,41 @@ A scope with no row is in its start state: `APPARENT_REVIEW`, or `GAMMA_REVIEW` 
 `/settings/leakage`, `/settings/gamma` or `/settings/correction` exists. Such a project never
 reads as approved. A corrected analysis is refused in every state except `ANALYSIS_READY`, and an
 apparent-E analysis is never refused.
+
+### γ evidence table
+
+`/settings/gamma_contributors` holds one row for each molecule that the last γ pass examined
+([#927](https://github.com/bioedca/tether/issues/927)), in `/molecules` order. Its fields:
+`molecule_key`; `step`, the absolute acceptor-bleach frame, and `step_source` (`detector`
+today; a window that a person sets comes with the calibration windows of
+[#928](https://github.com/bioedca/tether/issues/928)); the level window that averaged the
+intensities, `level_window` (`half-window` or `whole-segment`) with `half_window` (`0` for the
+whole segments) and the absolute half-open `pre_window` and `post_window`; the levels
+`donor_pre`, `donor_post`, `acceptor_pre` and `acceptor_post` (the acceptor is
+leakage-corrected) and the changes `delta_donor` (ΔI_D) and `delta_acceptor` (ΔI_A); `ratio`,
+the raw ΔI_A / ΔI_D with its sign; `gamma`, the trace γ (`NaN` unless the row is included by
+the gates); `gate`, the estimator's reason (`ok`, `no-step`, `short-pre`, `short-post`,
+`degenerate-donor` or `out-of-range`); and `included`, with the `reason`, `by` and `actor` of
+an exclusion. `by` is `estimator` for a gate, or `person` or `policy` for a decision. With the
+stored traces and `/molecules.alpha`, the windows give each row again.
+
+An excluded row keeps its `ratio`, also when it is negative, zero or above the ceiling. The
+`ratio` is `NaN` only when no step was measured (`no-step`, `short-pre`, `short-post`) or when
+ΔI_D is zero; then the `reason` is `zero-donor-step`. The population γ is the median of the
+included rows and is withheld below `min_qualifying_traces` included rows, so with no
+decision it is the γ that `compute_gamma` gave before the table. `/settings/gamma` counts the
+decisions in `n_excluded`.
+
+`/settings/gamma_contributor_decisions` has the fields `molecule_key`, `included`, `reason`,
+`by` (`person` or `policy`), `actor`, `timestamp` and `app_version`. The latest row for a
+`molecule_key` holds, and each γ pass reads it. `set_gamma_contributor` writes the decision
+and the new γ pass in one guarded write; an exclusion needs a reason, and an inclusion
+withdraws a decision but never a gate. The correction state follows the change: in
+`CALIBRATION_APPROVED` the evidence is frozen and the change is refused; in
+`CORRECTED_REVIEW` and `ANALYSIS_READY` the change is the evidence-change event and the state
+becomes `CALIBRATION_STALE`; in `GAMMA_REVIEW` a withheld γ moves the state to
+`CALIBRATION_BLOCKED`, and in `CALIBRATION_BLOCKED` a valid γ moves it back to
+`GAMMA_REVIEW`.
 
 ## `/idealization` — one subgroup per fitted model
 

@@ -375,7 +375,8 @@ the `labeler` of each `/labels/table` and `/labels/reject_log` row, the `labeler
 `/settings/condition_audit` row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
 `/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
 `/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
-A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
+A `/settings/correction_transitions` row, a `/settings/gamma_contributors` row and a
+`/settings/gamma_contributor_decisions` row store a user name in `actor` when `by` is
 `person`. The `actor` of a `policy` row contains policy text and keeps its value.
 By default each user name is the operating-system login.
 

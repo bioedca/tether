@@ -45,6 +45,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.gamma
 
+::: tether.project.gamma_contributors
+
 ::: tether.project.gbranking
 
 ::: tether.project.handoff
