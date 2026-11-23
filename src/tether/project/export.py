@@ -787,10 +787,14 @@ def _copied_attr(key: str, value: object, aliases: _CuratorAliases | None) -> ob
     return PureWindowsPath(_to_str(value)).name
 
 
-def _source_user_names(src: object, label_rows: np.ndarray) -> list[str]:
+def _source_user_names(
+    src: object, label_rows: np.ndarray, reject_rows: np.ndarray | None
+) -> list[str]:
     """Every user name the copy would carry, in the order the copy writes them:
-    the exported ``/labels`` rows first, then the verbatim metadata groups."""
+    the exported label and reject-log rows first, then the verbatim metadata groups."""
     names = _row_names(label_rows)
+    if reject_rows is not None:
+        names += _row_names(reject_rows)
     for grp in _SUBSET_VERBATIM_GROUPS:
         if grp not in src:  # type: ignore[operator]
             continue
@@ -835,19 +839,14 @@ def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _Curator
             src_group.file.copy(item, dst_group, name=member)  # type: ignore[attr-defined]
 
 
-def _kept_labels(src: object, selected_keys: set[str]) -> np.ndarray:
-    """The source ``/labels`` rows whose molecule is in the subset (store order)."""
-    from tether.io.schema import TABLE  # noqa: PLC0415
-
-    labels = src["labels"][TABLE][()]  # type: ignore[index]
-    if labels.shape[0] == 0:
-        return labels
-    mask = np.array([_to_str(k) in selected_keys for k in labels["molecule_key"]], dtype=bool)
-    return labels[mask]
+def _subset_label_rows(rows: np.ndarray, selected_keys: set[str]) -> tuple[np.ndarray, np.ndarray]:
+    """The source positions and rows of selected labels or reasons in store order."""
+    mask = np.array([_to_str(k) in selected_keys for k in rows["molecule_key"]], dtype=bool)
+    return np.flatnonzero(mask), rows[mask]
 
 
 def _copy_labels(dst: object, kept: np.ndarray, aliases: _CuratorAliases | None) -> int:
-    """Write the subset's ``/labels`` provenance rows (``kept``, from `_kept_labels`).
+    """Write the subset's selected ``/labels`` provenance rows.
 
     ``molecule_key`` travels so a labeled subset row always resolves to its canonical
     molecule on merge-back (§5.1/§7.10). With ``aliases`` the ``labeler`` names are
@@ -863,6 +862,51 @@ def _copy_labels(dst: object, kept: np.ndarray, aliases: _CuratorAliases | None)
     table.resize((kept.shape[0],))
     table[:] = kept
     return int(kept.shape[0])
+
+
+def _kept_reject_log(src: object, selected_keys: set[str]) -> np.ndarray | None:
+    """Read selected reject-log rows, or return ``None`` when the source has no log."""
+    from tether.project.labels import REJECT_LOG  # noqa: PLC0415
+
+    log = src["labels"].get(REJECT_LOG)  # type: ignore[index]
+    return None if log is None else _subset_label_rows(log[()], selected_keys)[1]
+
+
+def _copy_reject_log(dst: object, kept: np.ndarray | None, aliases: _CuratorAliases | None) -> int:
+    """Write the subset's selected ``/labels/reject_log`` rows (#1051).
+
+    The reason of each reject travels with its ``/labels`` row, so
+    [`tether.project.labels.reject_record_of`][] reads the same reason in the subset as in
+    the source. The log is created lazily, as [`tether.project.labels.reject`][] does: a
+    source without one, or a selection none of whose molecules has a row, leaves the subset
+    without the dataset. When aliasing, the log uses the same labeler names as the
+    labels table. Returns the number of rows copied.
+    """
+    from tether.project.labels import REJECT_LOG  # noqa: PLC0415
+
+    if kept is None or kept.shape[0] == 0:
+        return 0
+    if aliases is not None:
+        kept = aliases.apply(kept)
+    dst["labels"].create_dataset(  # type: ignore[index]
+        REJECT_LOG, data=kept, dtype=kept.dtype, maxshape=(None,)
+    )
+    return int(kept.shape[0])
+
+
+def _copy_label_reviews(
+    src: object, dst: object, selected_ids: set[str], kept_indices: np.ndarray
+) -> None:
+    """Carry review state with the label indexes of the copied rows."""
+    from tether.io import generations  # noqa: PLC0415
+
+    event_indices = {old: new for new, old in enumerate(kept_indices)}
+    review_events = {
+        mid: event_indices.get(event, generations.PENDING_LABEL_REVIEW)
+        for mid, event in generations.label_reviews_in(src).items()
+        if mid in selected_ids
+    }
+    generations.append_label_reviews(dst, review_events)
 
 
 def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | None) -> None:
@@ -950,9 +994,9 @@ def export_subset_tether(
     their ``/molecules`` rows (coordinates + identity + all scalar fields), the two
     ``/patches`` channel stacks, the corrected ``/traces`` layers, every
     ``/idealization`` model (filtered to the exported molecules), the ``/labels``
-    provenance rows, and the ``/conditions``/``/settings``/``/calibration``/``/models``
-    metadata verbatim. The source **raw** traces are embedded only when
-    ``include_raw=True``.
+    provenance rows and their ``/labels/reject_log`` reasons, and the
+    ``/conditions``/``/settings``/``/calibration``/``/models`` metadata verbatim. The
+    source **raw** traces are embedded only when ``include_raw=True``.
 
     Movie-less & raw-reconstructability (§5.4). The subset carries **no** ``/movies``
     rows, so it is definitionally movie-less — there is no source movie to resolve or
@@ -984,8 +1028,8 @@ def export_subset_tether(
     provenance is stamped into the subset's root attributes.
 
     Copy for sharing (#620). With ``curator_alias`` set, the copy replaces user names
-    in the labels, condition audit, lock takeover, job owner and correction transition
-    records. It replaces the actor of a person-authored transition and preserves the
+    in the labels, reject log, condition audit, lock takeover, job owner and correction
+    transition records. It replaces the actor of a person-authored transition and preserves the
     policy text of a policy-authored transition. Each distinct user name becomes
     ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first met, so one
     person keeps one alias and multi-curator analysis still works. A full path in
@@ -1036,7 +1080,11 @@ def export_subset_tether(
     if curator_alias is not None and not str(curator_alias).strip():
         raise ValueError("curator_alias must be a non-empty prefix such as 'curator'")
 
-    from tether.io.schema import assert_is_compatible_project, create_project  # noqa: PLC0415
+    from tether.io.schema import (  # noqa: PLC0415
+        TABLE,
+        assert_is_compatible_project,
+        create_project,
+    )
 
     path = _project_path(project)
     assert_is_compatible_project(path)
@@ -1053,24 +1101,28 @@ def export_subset_tether(
         # to a temp sibling and atomically moved into place — os.replace always clobbers.
         raise FileExistsError(f"{out_path} already exists; pass overwrite=True to replace it")
 
-    molecules = read_molecules(path)
-    rows = _selected_rows(molecules, molecule_keys, include_rejected)
-    if not rows:
-        raise ValueError(
-            "no molecules selected to export (empty selection, or every match rejected "
-            "with include_rejected=False)"
-        )
-    selected_keys = _selected_keys(molecules, rows)
-    selected_ids = _selected_ids(molecules, rows)
-
     created_utc = datetime.now(UTC).isoformat()
     with h5py.File(path, "r") as src:
+        # Select rows and copy their review state from one open file. A
+        # generation can replace the canonical path between separate opens.
+        molecules = src["molecules"][TABLE][()]
+        rows = _selected_rows(molecules, molecule_keys, include_rejected)
+        if not rows:
+            raise ValueError(
+                "no molecules selected to export (empty selection, or every match rejected "
+                "with include_rejected=False)"
+            )
+        selected_keys = _selected_keys(molecules, rows)
+        selected_ids = _selected_ids(molecules, rows)
         _preflight_source(src, int(molecules.shape[0]), include_raw)
-        kept_labels = _kept_labels(src, selected_keys)
+        kept_indices, kept_labels = _subset_label_rows(src["labels"][TABLE][()], selected_keys)
+        kept_reject_log = _kept_reject_log(src, selected_keys)
         aliases = (
             None
             if curator_alias is None
-            else _CuratorAliases(str(curator_alias), _source_user_names(src, kept_labels))
+            else _CuratorAliases(
+                str(curator_alias), _source_user_names(src, kept_labels, kept_reject_log)
+            )
         )
         # Stage into a temp sibling, then atomically replace, so a mid-copy HDF5/IO
         # failure never truncates an existing subset (writing straight to out_path with
@@ -1091,6 +1143,8 @@ def export_subset_tether(
                 # merge-back key, §5.1/§7.10) — deliberately different keys.
                 models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
                 n_labels = _copy_labels(dst, kept_labels, aliases)
+                n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
+                _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
@@ -1121,6 +1175,7 @@ def export_subset_tether(
             "idealization_models": models,
             "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
+            "n_reject_log_rows": n_reject_log,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
             **(
                 {}

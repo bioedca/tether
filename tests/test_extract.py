@@ -17,7 +17,9 @@ Locks the first writer of extraction *data* into a ``.tether``:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+from shutil import copyfile
 
 import pytest
 
@@ -41,11 +43,13 @@ from tether.imaging.extract import (  # noqa: E402
     read_patches,
     read_traces,
     write_extraction,
+    write_generation,
 )
 from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import build_manifest, create_project, diff_manifest, introspect  # noqa: E402
+from tether.project import labels  # noqa: E402
 
 _BG = 80.0
 _AMP = 300.0
@@ -169,6 +173,47 @@ def test_molecule_key_rejects_non_finite() -> None:
         molecule_key("m", [np.nan, 1.0])
     with pytest.raises(ValueError, match=r"\[x, y\] pair"):
         molecule_key("m", [1.0, 2.0, 3.0])
+
+
+@pytest.mark.parametrize("original_x", [15.0, 30.0])
+def test_later_generation_keys_distinguish_camera_sites_and_returns(
+    tmp_path: Path, original_x: float
+) -> None:
+    movie = replace(_movie("movie", sha="1" * 64), width=128)
+
+    def write_site(path: Path, x: float, crop_x: int, *, initial: bool = False) -> bytes:
+        geometry = ChannelGeometry(crop=(1, 1 + crop_x, 64, 64 + crop_x))
+        molecules = _molecules(np.array([[x, 30.0]]))
+        channel = _channel(molecules.donor_xy)
+        if initial:
+            create_project(path)
+        writer = write_extraction if initial else write_generation
+        writer(
+            path,
+            movie=replace(movie, donor_geometry=geometry),
+            molecules=molecules,
+            traces=extract_molecules(channel, channel, molecules),
+            parsed=_PARSED,
+        )
+        return bytes(read_molecules(path)["molecule_key"][0])
+
+    left, right = tmp_path / "left.tether", tmp_path / "right.tether"
+    write_site(left, original_x, 0, initial=True)
+    copyfile(left, right)
+    camera_50 = write_site(left, 30.0, 20)
+    assert write_site(right, 30.0, 40) != camera_50
+    assert write_site(right, 10.0, 40) == camera_50  # same site, other crop and ordinal
+
+    initial = tmp_path / "independent.tether"
+    initial_key = write_site(initial, 30.0, 20, initial=True)
+    assert initial_key != camera_50
+    assert write_site(initial, 10.0, 40) == initial_key  # recorded carry from generation 1
+
+    labels.accept(left, camera_50.decode(), labeler="synthetic curator")
+    write_site(left, 35.0, 20)
+    returned = write_site(left, 30.0, 20)
+    assert returned != camera_50
+    assert labels.curation_label_of(left, returned.decode()) == labels.CurationLabel.UNCURATED
 
 
 # --- extract_molecules -------------------------------------------------------
@@ -448,6 +493,40 @@ def test_write_extraction_empty_molecules_writes_movie_only(tmp_path: Path) -> N
         assert "donor_corrected" not in f["traces"]  # no trace datasets created yet
 
 
+@pytest.mark.parametrize("match_px", [-1.0, float("nan"), float("inf")])
+def test_write_generation_rejects_invalid_distance_with_no_previous_molecules(
+    tmp_path: Path, match_px: float
+) -> None:
+    project = tmp_path / "empty.tether"
+    create_project(project)
+    _extract_into(project, movie_id="m", sha="s", donor=np.empty((0, 2)))
+    before = project.read_bytes()
+    molecules = _molecules(np.array([[20.0, 20.0]]))
+    traces = extract_molecules(
+        _channel(molecules.donor_xy), _channel(molecules.acceptor_xy), molecules
+    )
+    with pytest.raises(ValueError, match="match_px must be a finite distance >= 0"):
+        write_generation(
+            project,
+            movie=_movie("m", sha="s"),
+            molecules=molecules,
+            traces=traces,
+            parsed=_PARSED,
+            match_px=match_px,
+        )
+    assert project.read_bytes() == before
+    record, ids = write_generation(
+        project,
+        movie=_movie("m", sha="s"),
+        molecules=molecules,
+        traces=traces,
+        parsed=_PARSED,
+        match_px=0.0,
+    )
+    assert record.match_px == 0.0
+    assert len(ids) == 1
+
+
 def test_write_extraction_rejects_row_mismatch(tmp_path: Path) -> None:
     project = tmp_path / "p.tether"
     create_project(project)
@@ -555,12 +634,12 @@ def test_write_extraction_bad_settings_profile_rejected_before_mutating(tmp_path
 
 
 def test_write_extraction_returns_compatible_project(tmp_path: Path) -> None:
-    from tether.io.schema import assert_is_compatible_project
+    from tether.io.schema import SCHEMA_VERSION, assert_is_compatible_project
 
     project = tmp_path / "p.tether"
     create_project(project)
     _extract_into(project, movie_id="m", sha="s", donor=np.array([[20.0, 20.0]]))
-    assert assert_is_compatible_project(project) == 1  # still a valid, current project
+    assert assert_is_compatible_project(project) == SCHEMA_VERSION  # still a valid, current project
 
 
 def _as_str(value: object) -> str:

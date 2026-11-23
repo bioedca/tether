@@ -98,6 +98,11 @@ selected. The large panel shows the selected molecule's trace: on top, the donor
 in green, the acceptor intensity in magenta and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
+These are the default **Color-blind safe** trace colors. If you once selected **View → Trace
+colors → Classic green and red**, Tether keeps that choice, so your acceptor trace is red:
+wherever this tutorial says magenta, read red. In that menu the selected set has a check mark.
+[Select the trace colors](reference/gui-theme.md#select-the-trace-colors) tells how to change it.
+
 ## 5. Look at each trace
 
 Press the **Right arrow** (or **Down arrow**) to move to the next molecule and the **Left

@@ -10,9 +10,11 @@ the committed reference file, the golden-file layout and the ranker comparison o
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import json
 import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -271,3 +273,129 @@ def test_the_summary_goes_to_the_job_summary_file(tmp_path: Path, monkeypatch) -
     monkeypatch.delenv("GITHUB_STEP_SUMMARY")
     ref.write_summary("Title", "| b |")  # no summary file outside a job: nothing happens
     assert "| b |" not in target.read_text(encoding="utf-8")
+
+
+# --- the hardening of #1226 -----------------------------------------------------------------
+
+
+def _synthetic_reference(samples: list[ref.Sample]) -> dict:
+    return {
+        "split": {"test_traces": ref.derive_split(samples, test_fraction=0.3, seed=759)},
+        "training": {"window_length": 64, "seed": 0},
+        "accuracy": {"floor": 0.9},
+    }
+
+
+def test_the_deep_row_is_computed_from_the_stored_scores() -> None:
+    compare = _load_script("compare_deep_with_ranker")
+    samples = ref.labelled_samples(_synthetic_traces(40))
+    reference = _synthetic_reference(samples)
+    _, test = ref.split(samples, reference["split"]["test_traces"])
+    deep = ref.score(test, [0.9 if s.accept else 0.1 for s in test])
+    # Metrics stored beside the scores are not what the table shows.
+    tampered = dataclasses.replace(deep, roc_auc=0.1, balanced_accuracy=0.1, precision_at_k=0.1)
+    table = compare.report(reference, samples, tampered)
+    assert table.splitlines()[2].startswith(f"| {compare.DEEP} | 1.0000 | 1.0000 | 1.0000 |")
+    # Every matched range needs one finite score.
+    for scores in ((), deep.scores[:-1], (float("nan"), *deep.scores[1:])):
+        with pytest.raises(ValueError, match="scores for"):
+            compare.report(reference, samples, dataclasses.replace(deep, scores=scores))
+
+
+def test_the_ranker_comparison_fails_when_required_scores_are_absent(tmp_path: Path) -> None:
+    compare = _load_script("compare_deep_with_ranker")
+    absent = tmp_path / "deep-scores.json"
+    assert compare.main(["--require-deep-scores"]) == 1
+    assert compare.main(["--deep-scores", str(absent), "--require-deep-scores"]) == 1
+
+
+def _workflow() -> dict:
+    import yaml
+
+    return yaml.safe_load((_REPO / ".github" / "workflows" / "deep.yml").read_text("utf-8"))
+
+
+def test_a_base_lock_change_runs_the_deep_workflow() -> None:
+    doc = _workflow()
+    triggers = doc.get("on", doc.get(True))  # YAML 1.1 reads a bare `on` as true
+    assert "conda-lock.yml" in triggers["pull_request"]["paths"]
+
+
+def test_the_ranker_job_requires_the_scores_when_smoke_passed() -> None:
+    steps = _workflow()["jobs"]["ranker"]["steps"]
+    download = next(s for s in steps if s.get("id") == "download")
+    assert download["uses"].startswith("actions/download-artifact@")
+    assert download["continue-on-error"] is True
+    run = next(s for s in steps if "compare_deep_with_ranker.py" in s.get("run", ""))
+    assert run["env"] == {
+        "SMOKE_RESULT": "${{ needs.smoke.result }}",
+        "DOWNLOAD_OUTCOME": "${{ steps.download.outcome }}",
+    }
+    script = run["run"]
+    # The file is read only after a successful download; a passed smoke requires it.
+    assert 'if [ "$DOWNLOAD_OUTCOME" = "success" ]; then\n  args+=(--deep-scores ' in script
+    assert 'if [ "$SMOKE_RESULT" = "success" ]; then\n  args+=(--require-deep-scores)' in script
+
+
+def test_the_golden_updater_refuses_check_together_with_measure(tmp_path: Path) -> None:
+    update = _load_script("update_deep_golden")
+    out = tmp_path / "out.json"
+    with pytest.raises(SystemExit) as stop:
+        update.main(["--check", "--measure", str(out)])
+    assert stop.value.code == 2
+    assert not out.exists()
+
+
+def _fake_model(monkeypatch, history: list[float]) -> list[tuple[int, ...]]:
+    """Stand in for the torch module: record the input shapes, give the scores of the labels."""
+    shapes: list[tuple[int, ...]] = []
+
+    def train_classifier(data, *, seed):
+        shapes.append(data.X.shape)
+        return types.SimpleNamespace(history=history, hyperparameters={"seed": seed})
+
+    def predict_proba(trained, data):
+        shapes.append(data.X.shape)
+        return np.where(np.asarray(data.y) == 1, 0.9, 0.1)
+
+    module = types.ModuleType("tether.ml.deep.model")
+    module.train_classifier = train_classifier
+    module.predict_proba = predict_proba
+    monkeypatch.setitem(sys.modules, "tether.ml.deep.model", module)
+    return shapes
+
+
+def test_both_datasets_use_the_window_of_the_reference(monkeypatch) -> None:
+    samples = ref.labelled_samples(_synthetic_traces(40))
+    reference = _synthetic_reference(samples)
+    shapes = _fake_model(monkeypatch, [0.7, 0.5])
+    run = ref.train_and_score(samples, reference)
+    assert [shape[-1] for shape in shapes] == [64, 64]
+    assert run.scores.roc_auc == 1.0
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_a_non_finite_training_number_is_never_frozen(monkeypatch, bad: float) -> None:
+    samples = ref.labelled_samples(_synthetic_traces(40))
+    _fake_model(monkeypatch, [0.7, bad])
+    with pytest.raises(ValueError, match="non-finite training numbers.*loss_history"):
+        ref.train_and_score(samples, _synthetic_reference(samples))
+    with pytest.raises(ValueError, match="train_input_sum$"):
+        ref.require_finite({"train_input_sum": bad, "roc_auc": 0.9, "n_test_ranges": 3})
+    ref.require_finite({"loss_history": [0.7, 0.5], "train_input_sum": 1.0})
+
+
+def test_the_samples_are_read_from_the_dataset_the_caller_names(monkeypatch) -> None:
+    from reference_data import fetch
+
+    asked: list[str] = []
+
+    def path_for(dataset_id: str, **_: object) -> Path:
+        asked.append(dataset_id)
+        raise LookupError(dataset_id)
+
+    monkeypatch.setattr(fetch, "path_for", path_for)
+    for dataset in ("another-id", ref.load_reference()["dataset"]["id"]):
+        with pytest.raises(LookupError):
+            ref.load_samples(dataset)
+    assert asked == ["another-id", ref.DATASET]

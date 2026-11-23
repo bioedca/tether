@@ -43,6 +43,8 @@ from tether.gui.app_settings import (
     update_check_state,
 )
 
+# A write leaves the file and its lock file (#1254), and never a temporary.
+_LOCK_FILENAME = SETTINGS_FILENAME + ".lock"
 _ROOT = Path(__file__).resolve().parents[1]
 _SRC = _ROOT / "src" / "tether"
 _UPGRADE_SMOKE = _ROOT / "packaging" / "scripts" / "upgrade_smoke.sh"
@@ -307,7 +309,8 @@ def test_the_write_leaves_no_temporary_file(store: tuple[Path, Path]) -> None:
     settings, _ = store
     record_update_consent(True, settings_file=settings)
     record_update_consent(False, settings_file=settings)
-    assert sorted(p.name for p in settings.parent.iterdir()) == [SETTINGS_FILENAME]
+    # The empty lock file stays (#1254); a temporary file never does.
+    assert sorted(p.name for p in settings.parent.iterdir()) == [SETTINGS_FILENAME, _LOCK_FILENAME]
 
 
 def test_a_failed_write_keeps_the_old_answer(
@@ -323,7 +326,60 @@ def test_a_failed_write_keeps_the_old_answer(
     with pytest.raises(OSError):
         record_update_consent(True, settings_file=settings)
     assert _state(store) is UpdateCheckState.DECLINED
-    assert sorted(p.name for p in settings.parent.iterdir()) == [SETTINGS_FILENAME]
+    assert sorted(p.name for p in settings.parent.iterdir()) == [SETTINGS_FILENAME, _LOCK_FILENAME]
+
+
+_HOLD_THE_LOCK = """
+import sys
+from pathlib import Path
+from tether.gui import preferences
+with preferences._locked(Path(sys.argv[1])):
+    print("held", flush=True)
+    sys.stdin.readline()
+"""
+
+
+def test_a_lock_held_by_another_instance_fails_the_write_and_dies_with_it(
+    store: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #1254: the settings file takes the lock of #1171, on its own lock file.
+    from tether.gui import preferences
+
+    settings, _ = store
+    record_update_consent(False, settings_file=settings)
+    before = settings.read_bytes()
+    holder = subprocess.Popen(  # noqa: S603 - this interpreter, a fixed script
+        [sys.executable, "-c", _HOLD_THE_LOCK, str(settings)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "held"
+        monkeypatch.setattr(preferences, "_LOCK_TIMEOUT_S", 0.3)
+        # A write waits a short time, then fails the way any failed write does.
+        with pytest.raises(OSError, match="another Tether window"):
+            record_update_consent(True, settings_file=settings)
+        assert settings.read_bytes() == before
+        # Reading takes no lock: it neither waits nor fails while the lock is held.
+        assert _state(store) is UpdateCheckState.DECLINED
+    finally:
+        # A crashed instance: killed while it holds the lock, so it never releases it.
+        holder.kill()
+        holder.wait(timeout=30)
+    # The lock died with the process; the file it leaves behind blocks nothing.
+    assert (settings.parent / _LOCK_FILENAME).exists()
+    record_update_consent(True, settings_file=settings)
+    assert _state(store) is UpdateCheckState.ALLOWED
+
+
+def test_reading_takes_no_lock_and_creates_no_lock_file(store: tuple[Path, Path]) -> None:
+    settings, _ = store
+    settings.parent.mkdir(parents=True)
+    assert _state(store) is UpdateCheckState.PENDING
+    assert app_settings.stored_trace_colors(settings) is None
+    assert list(settings.parent.iterdir()) == []
 
 
 @pytest.mark.parametrize("value", [1, 0, "yes", None])

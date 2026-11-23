@@ -8,6 +8,10 @@ Usage, in the deep env (``deep/conda-lock.yml``), from a clone of the commit to 
     TETHER_REFERENCE_DOWNLOAD=1 python scripts/update_deep_golden.py --check
     TETHER_REFERENCE_DOWNLOAD=1 python scripts/update_deep_golden.py --seed 3 --measure out.json
 
+``TETHER_REFERENCE_DOWNLOAD=1`` lets the script download the PySMACKS traces when they are not in
+the reference-data cache yet; without it, and with no cached copy, it stops with exit ``2``.
+``--check`` and ``--measure`` exclude each other.
+
 The script trains the deep classifier once on the train part of the PySMACKS tutorial labels,
 with the training seed of ``schema/deep_classifier_reference.json``, scores the test part, writes
 ``tests/golden/deep/pysmacks_classifier.json`` and prints the same Markdown old/new table as
@@ -40,18 +44,20 @@ import _golden  # noqa: E402
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument(
+    # --check compares with the golden file and --measure never reads it, so one run does one.
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--check", action="store_true", help="write nothing; exit 1 when a quantity moved"
     )
     parser.add_argument("--seed", type=int, help="training seed (default: the reference file's)")
-    parser.add_argument(
+    mode.add_argument(
         "--measure", type=Path, help="write the quantities of one training here and stop"
     )
     args = parser.parse_args(argv)
 
     reference = _deep_reference.load_reference()
     try:
-        samples = _deep_reference.load_samples()
+        samples = _deep_reference.load_samples(reference["dataset"]["id"])
     except BaseException as exc:  # pytest's Skipped is a BaseException
         if type(exc).__name__ != "Skipped":
             raise

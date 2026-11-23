@@ -89,6 +89,8 @@ So does a trace with a missing value or a constant channel.
 3. Or click a name in the list.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+The keys on this page are the ones Tether starts with. To move one, see
+[Change a key](#change-a-key).
 
 The curation keys act only in the **Curate and correct** section. In **Prepare** and
 **Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
@@ -138,11 +140,41 @@ keep the same molecule selected.
 When a button has the keyboard focus, **Space** and **Enter** push that button. They do not
 accept the molecule or jump to it. Click the molecule list to curate with the keys again.
 
-> The number keys, the analysis-window keys and **P** answer with `unavailable` in the status
-> bar and change nothing in the project. Categories, analysis-window edits and photobleach detection
-> are not saved from the curation view.
+## 4. Set a category and the analysis window
 
-## 4. Change your mind
+These keys save to the project at once, like accept and reject. None of them moves the
+selection.
+
+- **1** to **9** give the selected molecule a category from the list of its condition.
+  **1** is the first name in the list, **2** the second, and so on. The status bar reads, for
+  example, `Category 2 (bound) set for` and the ID. For a category after the ninth, choose
+  **Curation → Assign category (overflow)…** and pick it from the list. A number past the end
+  of the list changes nothing. The status bar then says how many categories the condition has.
+- **0** clears the category. The molecule is then *uncategorized*, which is not the same as
+  any named category.
+- **-** and **=** move the start of the
+  [analysis window](../reference/parameters.md) one frame earlier or later. **[** and **]**
+  move its end. The analysis window is the part of the trace that the histograms,
+  idealization and the other analyses read.
+- **R** resets the analysis window to the whole trace.
+- **P** finds where the total intensity photobleaches and ends the analysis window there. The
+  start stays where it is. If the trace does not bleach, the window ends at the last frame.
+
+The trace panel marks the analysis window with two dashed lines on the FRET plot. An
+idealization is drawn only inside it. After each window key the status bar gives the window
+that is now saved, for example `Analysis window [12, 340) for` and the ID. The first number
+is the first frame inside the window and the second is the first frame after it. A window key
+that would move a bound off the trace or empty the window changes nothing. The status bar
+then says why.
+
+Every one of these keys changes nothing while a one-click idealization is running or when the
+project is read-only. The status bar then reads `unavailable` and gives the reason. Each saved
+change is added to the project's molecule edit log, with your curator name.
+
+A window you set by hand is kept when photobleach detection runs again over the whole project.
+After **R**, that detection may set the window of the molecule automatically again.
+
+## 5. Change your mind
 
 - To accept a molecule you rejected, select it and press **Space**. Tether then shows the
   next molecule, as after any accept.
@@ -155,6 +187,50 @@ accept the molecule or jump to it. Click the molecule list to curate with the ke
 Nothing you do here deletes a molecule or a decision. Every accept, reject and un-reject is
 added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
 so the history survives a reversal.
+
+## Change a key
+
+You can move every curation key, for example to a key that is easier to reach. Choose
+**Curation → Edit keyboard shortcuts…**. The window lists each action with its key.
+
+1. Click the action, for example **Accept trace**.
+2. Click the **New key** field and press the key you want. You can hold Shift, Ctrl or Alt
+   with it.
+3. If the key is free, click **Assign**. The table shows the new key.
+4. Click **Save**. The new key works at once. **Curation → Keyboard shortcuts…** shows it.
+   Tether uses it again the next time it starts.
+
+**Cancel** closes the window and keeps the keys you had.
+
+The window tells you when it cannot use a key, and **Assign** stays off:
+
+- A key another action already has. Each key does one thing, so give that action another key
+  first.
+- **C** and **V**. They stay reserved and do nothing.
+- A key a menu command already uses, such as Ctrl+O for **File → Open project…**.
+- **Tab**, **Shift+Tab** and **Esc**. They move between the fields and close the window.
+
+A letter or digit you assign still types into the **Category name** field. There it never
+curates.
+
+An action you give a new key loses its old keys. **Reject trace**, for example, then has
+only the new key. To get an action's first keys back, click it and then **Restore default**.
+When another action now has one of those keys, the window names it and changes nothing.
+**Restore all defaults** gives every action its first keys.
+
+Tether keeps the keys in a file named `keymap.json`. The editor shows where, under the table:
+
+- Windows: `%LOCALAPPDATA%\MondragonLab\Tether\tether\`
+- macOS: `~/Library/Preferences/MondragonLab/Tether/tether/`
+- Linux: `~/.config/MondragonLab/Tether/tether/`, or under `$XDG_CONFIG_HOME` when that
+  variable is set
+
+Delete that file to start with the first keys again. Tether may not be able to use the file,
+for example after an edit by hand. It then starts with the first keys and says so once in the
+status bar. It does not change the file until you save new keys in the editor.
+
+A file from an older version of Tether keeps your keys. An action that version did not have
+gets its first key, unless you already use that key.
 
 ## What each label does downstream
 

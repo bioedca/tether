@@ -344,6 +344,12 @@ uses the three words only in these meanings:
   window, corrections, or idealization.**
 - **`/patches`** — per-molecule local image patch (e.g. 21×21) cached at extraction/import, enabling movie-less
   curation and the static overlap view.
+- **`/generations`** (table, `schema_version` 2) — one row per **trace generation** of a movie: each extraction of
+  a movie writes one (its id, the inputs that made it, the time). The movie's **active** generation is its newest,
+  and its molecules are the movie's rows of `/molecules`, `/traces` and `/patches`; an earlier one is archived
+  unchanged under `/generations/archive` and stays readable. An extraction never overwrites or deletes a
+  generation; molecules that did not move (§11.2) keep their `molecule_key`, and their labels, category and
+  analysis window are carried and marked so (ADR-0136).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the
@@ -429,11 +435,11 @@ imported as a degraded, round-trip-disabled **analysis-only** project (§7.8).
   dehydrated placeholder — it warns instead; the head/tail content hash and full `sha256` run only on relink or
   explicit verify. A mismatch is flagged and never silently trusted.
 - Tether refuses files newer than the app: a file whose `schema_version` is above the app's `SCHEMA_VERSION` does
-  not open. Schema migration (back up the file, then migrate it in place) is **not needed** while the schema is
-  additive-only (ADR-0005): `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
-  The **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR (§9.2,
-  §12.6), makes it required: that change carries the backup-and-migrate path and a test that exercises it, and
-  the test joins oracle (f) (§9.5).
+  not open. Schema migration means back up the file, then migrate it in place. The
+  **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR (§9.2, §12.6), made
+  it required. That step is version 2 (`/generations`, ADR-0136): a publish that raises a file's stamp first copies
+  the file, as it was, to `<stem>.v<old>-backup.tether` beside it, and the test that exercises it is in oracle (f)
+  (§9.5).
 - **Movie-less mode** is first-class (patches + coordinates); a subset-export `.tether` always opens movie-less
   (raw is not reconstructable there).
 
@@ -767,7 +773,7 @@ re-queue; live unseen-tail re-ranking is a deferred opt-in.
 **Reject semantics.** A reject (single or opt-in threshold-reject) is a **reversible tag**, never a deletion: the
 molecule is excluded from default histograms/idealization through a **toggleable filter**, kept in a visible
 "rejected" bin, one-click un-rejectable, with **undo + confirmation** on bulk threshold-reject, and the reject
-**carries across files** as a sticky exclusion (and as an ML training label). This honors "never silently drop."
+**carries across files** as a sticky exclusion. When eligible, it is also an ML training label.
 
 The model **shall** be **per-condition, persistent, and incrementally retrained**: a standalone, portable artifact
 (not trapped in one experiment file) following the loop in UC3 (load → curate one video → warm-start-retrain →
@@ -788,6 +794,11 @@ human-vs-human disagreement on the same molecule surfaces through a §7.4-style 
 informative next traces (surfaced as the non-reordering badge above). A later deep phase (1-D CNN/LSTM on raw
 traces, DeepFRET/Deep-LASI-style [Thomsen2020]) **shall** reuse the same label store on the GPU (RTX 4060 floor,
 §8).
+
+A label carried from an earlier extraction (§7.1) becomes eligible for training and
+evaluation after a human accepts or rejects the current extraction. While review is
+pending, its weight is zero and it does not count toward provisional-label decay.
+The label history and the molecule's place in the ranked candidates are preserved.
 
 ### 7.6 FR-ANNOTATE — Annotation & conditions
 
@@ -1427,7 +1438,7 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential and leave-one-video-out precision@k uplift over file order, median across videos (ADR-0114) | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`, for both protocols; the real-video uplift leg is withheld, no curated labelled set exists (ADR-0114, §9.6) | gate on the prequential protocol; the real-data leg is *not yet met* |
 | **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E (a missing factor never gives a NaN E; a zero-total-intensity frame is NaN) | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, and α is also checked on real data by the workstation band, ADR-0133) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band is a `workstation` check on the lab's donor-only sample, passed 2026-11-19 (ADR-0133); the γ-vs-Deep-LASI leg is withheld (ADR-0028, ADR-0133; §9.6) | gate |
-| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); no schema-migration leg while the schema is additive-only; the first schema-version step adds a backup-and-migrate test (§5.4) | gate |
+| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the backup-and-migrate test of the first schema-version step (version 2, ADR-0136; §5.4) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
 
 **What a synthesized fixture establishes.** A row whose fixture is synthesized ((d), (e), (g), and the synthetic
@@ -1628,6 +1639,7 @@ this section.
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
 | Integration | Sum (top-hat): I = TOT − bg·N_psf | `deeplasi/functions/traces/extractTracesC.m:20-33` |
 | Molecule-key quantization | 0.1 px (`donor_xy` quantized before the cross-file content hash `molecule_key`) | Tether (§5.1/§7.10; below the 8 px detection min-separation so no collision; ADR-0016) |
+| Trace-generation match distance (`GENERATION_MATCH_PX`) | 0.5 px — compare `donor_xy` in the raw camera frame with an inclusive Euclidean radius. Both positions must be each other's closest partner. Equal distances resolve to the lower partner index. A match keeps its `molecule_key` and carries the label, category and analysis window. Recorded per generation as `/generations.match_px` and configurable in `reextract_movie(match_px=…)`. | Tether (#921, ADR-0136); five key quanta |
 | Registration prealign | phase-correlation, 4-DOF similarity (translation, S5a; rotation+scale via Fourier-Mellin log-polar, S5b, ADR-0012/ADR-0013); sub-pixel `upsample_factor` = 10; band-pass `low_sigma` = 1 / `high_sigma` = 20 px (S5b; low cut 3 → 1 px, ADR-0089) | `deeplasi/functions/mapping/createMapPhaseCorr.m:6-16`; [Crocker1996] (bandpass alt.); `upsample_factor` / `low_sigma` / `high_sigma` = `skimage.registration.phase_cross_correlation` + `skimage.filters.difference_of_gaussians` (ADR-0013, ADR-0089) |
 | NN pairing tolerance | 2 px (fit on original, un-prealigned coords); 4 px legacy | `deeplasi/functions/mapping/findPairs.m:15-24`, `createMap.m:53` |
 | Polynomial map degree | 2 (retry 3; similarity fallback if < ~6 points); 4 legacy | `deeplasi/functions/mapping/createMapPhaseCorr.m:20-47`, `createMap.m:57-58` |

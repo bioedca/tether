@@ -33,7 +33,7 @@ max_skipped = 48
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 37
+max_skipped = 39
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -268,6 +268,15 @@ why = """The test plants a FIFO at the settings file path (#1116); Windows has n
 FIFO can sit at a file path there. test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
+test = "tests/test_gui_trace_colors.py::test_a_write_to_a_file_without_read_permission_fails_and_keeps_both_answers"
+reason = "needs POSIX permissions that bind this user (not root, not Windows)"
+jobs = ["test (windows-latest)"]
+why = """The test makes the settings file unreadable with chmod 000 (#1254, case 2); Windows has no \
+POSIX permission bits and no os.geteuid. The same read failure runs on every leg through \
+test_a_write_that_cannot_read_the_file_fails_and_keeps_both_answers, and test (ubuntu-latest) and \
+test (macos-latest) run this one as a non-root user."""
+
+[[skip]]
 test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
 reason = "needs root to run two real POSIX users"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
@@ -289,6 +298,14 @@ jobs = ["test (windows-latest)"]
 why = """The timeout kills the child's process group with os.killpg, which Windows lacks, and
 the benchmarks workflow runs only on ubuntu-latest (#875); test (ubuntu-latest) and
 test (macos-latest) run the test."""
+
+[[skip]]
+test = "tests/test_benchmarks.py::test_an_interrupt_also_stops_the_child_and_what_it_started"
+reason = "process groups are POSIX; the job is Linux"
+jobs = ["test (windows-latest)"]
+why = """The test proves the measurement's process group is gone after an interrupt; the group
+kill uses os.killpg, which Windows lacks, and the benchmarks workflow runs only on
+ubuntu-latest (#1098); test (ubuntu-latest) and test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_theme.py::test_the_napari_viewer_follows_the_theme"

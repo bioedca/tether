@@ -51,6 +51,48 @@ class BatchRequest(ExtractionFields, Request):
     ``--no-idealize`` is ``idealize=False`` and ``--no-defer`` is
     ``defer_if_unavailable=False``. ``None`` in a supervision field means the
     [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
+
+    The extraction fields ``donor_side``, ``channel_layout``, ``channel_layout_donor``,
+    ``channel_layout_donor_rect``, ``channel_layout_acceptor_rect``, ``detection_mode``,
+    ``detection_threshold``, ``detection_block``, ``min_separation``, ``prealign``,
+    ``prealign_upsample``, ``prealign_low_sigma``, ``prealign_high_sigma``, ``pair_tol``,
+    ``rms_gate``, ``window``, ``coloc_distance``, ``colocalization``, ``disk_radius``,
+    ``ring_inner``, ``ring_outer`` and ``bg_window`` are inherited and documented in
+    [`ExtractionFields`][tether.services.profile.ExtractionFields].
+
+    Attributes
+    ----------
+    movies
+        The movies to process: each a file, a folder or a pattern; one or more.
+    out_dir
+        Directory for the per-movie ``.tether`` projects (created if absent).
+    into
+        Path to the single ``.tether`` project to create or append movies to.
+    tmap
+        Path to a shared imported Deep-LASI ``.tmap`` applied to every movie, or ``None``.
+    tdat
+        Path to a shared Deep-LASI ``.tdat`` detection configuration, or ``None``.
+    policy
+        Over-gate registration policy: ``warn`` or ``fail``.
+    idealize
+        Run the idealization stage; ``False`` is ``--no-idealize``.
+    overwrite
+        Re-extract incomplete outputs or those the ``fail`` policy rejects. Refused with
+        ``into`` or when a rejected output has review or generation history.
+    log
+        Path of the JSONL log; ``None`` uses ``batch-log.jsonl`` in ``out_dir`` or
+        ``<project stem>-batch-log.jsonl`` beside the ``into`` project.
+    max_restarts
+        Maximum restarts after transient sidecar failure (a count; ``0`` disables them).
+    sidecar_timeout
+        Sidecar timeout for one idealization call, in seconds.
+    sidecar_python
+        Path to the sidecar interpreter; ``None`` uses ``$TETHER_SIDECAR_PYTHON``.
+    defer_if_unavailable
+        Defer idealization when the sidecar is unavailable at startup; ``False`` is
+        ``--no-defer``.
+    recursive
+        Make a folder in ``movies`` include its sub-folders.
     """
 
     COMMAND: ClassVar[str] = "batch"
@@ -118,7 +160,7 @@ class BatchPlan:
             header = (
                 f"Batch plan (dry run): {len(self.movies)} movie(s) into the one project "
                 f"{self.into}; nothing was written (a movie is read only to hash it, when "
-                "the project holds a movie of its size)"
+                "the project or an earlier movie of the run has its size)"
             )
         lines = [header]
         lines.extend(f"  {m.movie} -> {m.output}  [{m.action}]" for m in self.movies)
@@ -178,6 +220,13 @@ def _settings(request: BatchRequest) -> tuple[ExtractOptions, SidecarSupervision
         extract_options = request.extract_options()
     except ExtractionError as exc:
         raise RequestRefused(str(exc)) from exc
+    # A .tmap splits each frame at its own crops, so extraction refuses a layout beside it
+    # for every movie; refusing it here keeps the dry run from promising a run that fails.
+    if request.tmap is not None and extract_options.channel_layout is not None:
+        raise RequestRefused(
+            "channel_layout and --tmap both set the channel split (the .tmap splits at its "
+            "own crops); leave channel_layout null in the profile or drop --tmap"
+        )
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
     # a startup liveness probe -> idealization-deferred mode when the sidecar env is
     # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
@@ -277,22 +326,51 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
     return f"found at {found} (the run checks that it starts before the first movie)"
 
 
+def _rect_text(rect: tuple[int, ...] | None) -> str:
+    return "[" + " ".join(str(v) for v in rect or ()) + "]"
+
+
+def _extraction_settings(options: ExtractOptions, *, tmap: bool, tdat: bool) -> tuple[str, ...]:
+    """Name the channel split and the detection the run would extract each movie with."""
+    layout = options.channel_layout
+    if tmap:  # the .tmap splits at its own crops, so donor_side is not used
+        split: tuple[str, ...] = ("channel-layout=from .tmap",)
+    elif layout is None:
+        split = ("channel-layout=none", f"donor-side={options.donor_side}")
+    elif layout.donor is None:  # a rectangles layout names its channels by rectangle
+        split = (
+            f"channel-layout={layout.kind}",
+            f"donor-rect={_rect_text(layout.donor_rect)}",
+            f"acceptor-rect={_rect_text(layout.acceptor_rect)}",
+        )
+    else:
+        split = (f"channel-layout={layout.kind}", f"donor={layout.donor}")
+    if tdat:  # the .tdat supplies both, and a choice beside it was refused
+        return (*split, "detection-mode=from .tdat", "detection-threshold=from .tdat")
+    threshold = options.detection_threshold
+    return (
+        *split,
+        f"detection-mode={options.detection_mode}",
+        f"detection-threshold={'mode default' if threshold is None else threshold}",
+    )
+
+
 def plan(request: BatchRequest) -> BatchPlan:
     """Say what [`run`][] would do with *request*, writing nothing.
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] for the same requests
     that [`run`][] refuses. An existing output project is opened read-only to read its
     checkpoint; the output directory is not created. With ``into``, a movie is hashed to
-    find out whether it is already in the project, but only when the project holds a
-    movie of the same size.
+    find out whether it is already in the project, or the same as an earlier movie of the
+    run, but only when the project or that earlier movie has its size.
     """
     from tether.project.batch_inputs import (
-        describe_append,
+        describe_appends,
         describe_checkpoint,
         describe_project_stages,
     )
 
-    _, supervision = _settings(request)
+    extract_options, supervision = _settings(request)
     out_dir = _out_dir(request)
     jobs = _jobs(request, out_dir)
     into = Path(request.into) if request.into is not None else None
@@ -312,13 +390,10 @@ def plan(request: BatchRequest) -> BatchPlan:
             for job in jobs
         )
     else:
+        actions = describe_appends(into, [job.movie_path for job in jobs])
         movies = tuple(
-            PlannedMovie(
-                movie=job.movie_path,
-                output=into,
-                action=describe_append(into, job.movie_path, first=index == 0),
-            )
-            for index, job in enumerate(jobs)
+            PlannedMovie(movie=job.movie_path, output=into, action=action)
+            for job, action in zip(jobs, actions, strict=True)
         )
         appending = any(
             m.action == "will be appended" or m.action.startswith("new project") for m in movies
@@ -334,6 +409,9 @@ def plan(request: BatchRequest) -> BatchPlan:
             f"recursive={'on' if request.recursive else 'off'}",
             f"tmap={request.tmap or 'none'}",
             f"tdat={request.tdat or 'none'}",
+            *_extraction_settings(
+                extract_options, tmap=request.tmap is not None, tdat=request.tdat is not None
+            ),
         )
     )
     if supervision is not None:
@@ -364,9 +442,10 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read
     and before anything is written when the policy, the supervision settings or the
     extraction options are invalid, when a ``tdat`` comes with a ``detection_mode`` or
-    ``detection_threshold``, when a movie argument gives no movie, or when two movies would
-    write the same project and no parent folder name tells them apart; also when it gives
-    both or neither of ``out_dir`` and ``into``, or ``overwrite`` with ``into``. Raises
+    ``detection_threshold``, when a ``channel_layout`` comes with a ``tmap``, when a movie
+    argument gives no movie, or when two movies would write the same project and no parent
+    folder name tells them apart; also when it gives both or neither of ``out_dir`` and
+    ``into``, or ``overwrite`` with ``into``. Raises
     [`CommandFailed`][tether.services.base.CommandFailed] when the output directory or the
     log cannot be written. A failed stage is not an error: it is in the summary.
     """

@@ -218,6 +218,10 @@ def set_curation_label(
     seeds) are cold-start priors that live **only** in ``/labels`` and must never
     masquerade as a human decision.
 
+    A human accept or reject confirms a carried label on the current extraction.
+    The review refers to this appended event and the current molecule ID. Clearing
+    the human decision restores the pending mark for any carried label (ADR-0136).
+
     HDF5 ``r+`` is not transactional, so the two writes are ordered for safe
     recovery, not atomicity: the ``/labels`` audit row is written **first**, then
     ``curation_label``. A crash between them leaves at worst an orphan ``/labels``
@@ -328,10 +332,30 @@ def set_curation_label(
         #    is a /labels-only prior). Read-modify-write per matched row leaves the
         #    other frozen fields untouched.
         if source == LABEL_SOURCE_HUMAN:
-            for i in idx:
-                row = mol_table[i]
+            from tether.io.generations import (  # noqa: PLC0415
+                PENDING_LABEL_REVIEW,
+                append_label_reviews,
+                label_reviews_in,
+            )
+
+            carried = label_reviews_in(f)
+            rows = {i: mol_table[i] for i in idx}
+            clearing = label == CurationLabel.UNCURATED
+            event = PENDING_LABEL_REVIEW if clearing else n0
+            reviews = {
+                mid: event
+                for row in rows.values()
+                if (mid := _to_str(row["molecule_id"])) in carried
+            }
+            # A clear must exclude the carried row before it can fall back to an
+            # old seed. Accept and reject confirm only after writing curation.
+            if clearing:
+                append_label_reviews(f, reviews)
+            for i, row in rows.items():
                 row["curation_label"] = int(label)
                 mol_table[i] = row
+            if not clearing:
+                append_label_reviews(f, reviews)
 
     return label_row[0].copy()
 

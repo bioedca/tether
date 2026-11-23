@@ -343,8 +343,14 @@ def test_a_duplicated_molecule_breaks_a_limit(monkeypatch, tmp_path) -> None:
     """Each molecule written twice (its molecule row and its trace rows) breaks a limit (#1006).
 
     Every copy matches a true molecule, so without the duplicate count the doubled output keeps
-    every other frozen limit.
+    every other frozen limit. The undoubled run has no duplicate, so the doubled one has exactly
+    one per matched Tether molecule of the undoubled run, eligible or not (#1230).
     """
+    (tmp_path / "plain").mkdir()
+    (tmp_path / "doubled").mkdir()
+    plain = measure("easy", tmp_path / "plain")
+    assert plain.n_duplicate == 0, plain
+    n_matched = len(plain.donor_err)
     module = sys.modules[__name__]
     original_molecules, original_traces = module.read_molecules, module.read_traces
 
@@ -356,9 +362,9 @@ def test_a_duplicated_molecule_breaks_a_limit(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(module, "read_molecules", doubled_molecules)
     monkeypatch.setattr(module, "read_traces", doubled_traces)
-    result = measure("easy", tmp_path)
+    result = measure("easy", tmp_path / "doubled")
     broken = violations(result, LIMITS["easy"])
-    assert result.n_duplicate >= result.n_found > 0, result
+    assert result.n_duplicate == n_matched > 0, (result, n_matched)
     assert [text for text in broken if text.startswith("duplicates")], broken
     others = violations(replace(result, n_duplicate=0), LIMITS["easy"])
     assert others == [], others

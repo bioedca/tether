@@ -2210,11 +2210,31 @@ def _cmd_claim(args: argparse.Namespace) -> None:
     )
 
 
+def _is_open(number: int) -> bool:
+    """True only when the issue is read as open; any failure to read it is ``False``.
+
+    Fail closed for the one caller, ``_release_labels``: a requeue missed on an open issue is a
+    visible stale label a maintainer re-adds, while ``status:ready`` on a closed issue is finished
+    work that becomes claimable the moment someone reopens it (#1103).
+    """
+    try:
+        status, issue = _request("GET", f"/repos/{REPO}/issues/{number}")
+    except ClaimError:
+        return False
+    return status == 200 and isinstance(issue, dict) and issue.get("state") == "open"
+
+
 def _release_labels(args: argparse.Namespace) -> None:
-    """Undo the claim's label mirror. Best-effort: the mirror is never the lock."""
+    """Undo the claim's label mirror. Best-effort: the mirror is never the lock.
+
+    ``status:ready`` comes back only on an issue read as open, re-read after the deletes so the
+    answer is as fresh as it can be, the same guard ``reaper._only_in_progress`` keeps. ``release``
+    is the path that runs after a merge closes the issue, and it must not requeue done work (#1103).
+    """
     _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/agent:{args.vendor}", None)
     _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/status:in-progress", None)
-    _request("POST", f"/repos/{REPO}/issues/{args.issue}/labels", {"labels": [REQUIRED_LABEL]})
+    if _is_open(args.issue):
+        _request("POST", f"/repos/{REPO}/issues/{args.issue}/labels", {"labels": [REQUIRED_LABEL]})
 
 
 def _cmd_check(args: argparse.Namespace) -> None:
