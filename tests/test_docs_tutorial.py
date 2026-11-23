@@ -159,6 +159,7 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         no_panel = shell_module._movie_panel_unavailable()
         tail = f"; movie panel unavailable: {no_panel}" if no_panel else ""
         assert status.currentMessage() == OPEN_LINE + tail
+        shell.messages.acknowledge()
         assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
         assert lst.currentRow() == 0
 

@@ -719,9 +719,6 @@ class TetherShell:
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
         # file of tether.gui.preferences. Nothing of it is written into a project.
         self._preferences_file = preferences_file
-        # A failed preferences write, kept until the next status message carries it, so a
-        # success message of the same action does not hide it (#628).
-        self._preferences_error: str | None = None
         # The curator name set for new labels, or None: then the project writes the
         # operating-system user, exactly as before #628.
         self._curator_name: str | None = (
@@ -881,6 +878,19 @@ class TetherShell:
         self._window.setCentralWidget(self._section_stack)
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
+        # Build the window-wide Messages dock before saving the default layout (#627).
+        from tether.gui.messages import Level, MessageCenter, MessagesPanel
+
+        self._messages = MessageCenter(self._window)
+        self._messages_panel = MessagesPanel(self._messages)
+        self._messages_dock = QtWidgets.QDockWidget("Messages", self._window)
+        self._messages_dock.setObjectName("messages")
+        self._messages_dock.setWidget(self._messages_panel.widget)
+        self._messages_dock.toggleViewAction().setText("&Messages")
+        self._window.addDockWidget(
+            getattr(QtCore.Qt.DockWidgetArea, DockArea.BOTTOM.qt_name), self._messages_dock
+        )
+        self._messages_dock.hide()
         # The default layout, kept before a stored one is restored, for View -> Reset
         # layout (#628). A window never shown reports Qt's placeholder size and takes its
         # real one from its size hint on the first show; adjustSize applies that sizing now,
@@ -1032,6 +1042,7 @@ class TetherShell:
             action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
             self._section_actions[spec.id] = action
         self._section_actions[self._section].setChecked(True)
+        self._view_menu.addAction(self._messages_dock.toggleViewAction())
         # View -> Reset layout (#628): the default window size and dock positions, and
         # the stored layout forgotten, so the next launch starts from the default too.
         self._view_menu.addSeparator()
@@ -1112,7 +1123,8 @@ class TetherShell:
 
         # The one message of an unusable keymap file (#635), else the ready line, which
         # names the current accept and reject keys rather than the defaults.
-        self._window.statusBar().showMessage(self._keymap_error or self._ready_message())
+        startup_level = Level.WARNING if self._keymap_error is not None else Level.INFO
+        self._messages.post(self._keymap_error or self._ready_message(), startup_level)
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -1393,9 +1405,13 @@ class TetherShell:
         #917.
         """
         from tether.gui.calibration import ChannelMapActions
+        from tether.gui.messages import Level
 
         self._channel_map = ChannelMapActions(
-            status=self._status, open_project=self.load_project, window=self._window
+            status=self._status,
+            open_project=self.load_project,
+            window=self._window,
+            warning=lambda message: self._status(message, Level.WARNING),
         )
         self._calibration_menu = menu
         self._act_make_map = menu.addAction("&Make channel map…")
@@ -1619,8 +1635,28 @@ class TetherShell:
 
     @property
     def status_message(self) -> str:
-        """The message currently displayed in the window's status bar."""
-        return self._window.statusBar().currentMessage()
+        """The latest status message (#627).
+
+        The status bar shows it, unless the bar holds an earlier warning or error until the
+        user dismisses it; [`messages`][tether.gui.shell.TetherShell.messages] has both.
+        """
+        latest = self._messages.latest
+        return "" if latest is None else latest.text
+
+    @property
+    def messages(self) -> Any:
+        """The [`MessageCenter`][tether.gui.messages.MessageCenter] of the window (#627)."""
+        return self._messages
+
+    @property
+    def messages_panel(self) -> Any:
+        """The [`MessagesPanel`][tether.gui.messages.MessagesPanel] in the Messages dock."""
+        return self._messages_panel
+
+    @property
+    def messages_dock(self) -> QtWidgets.QDockWidget:
+        """The Messages dock (**View → Messages**), hidden by default."""
+        return self._messages_dock
 
     # --- molecules -----------------------------------------------------------
 
@@ -1891,8 +1927,11 @@ class TetherShell:
         try:
             write()
         except (OSError, ValueError) as exc:
-            self._preferences_error = f"Could not save preferences: {exc}"
-            self._window.statusBar().showMessage(self._preferences_error)
+            from tether.gui.messages import Level
+
+            # An error stays in the status bar until dismissed, so a success message of the
+            # same action does not hide it (#628) and nothing needs to carry it along.
+            self._messages.post(f"Could not save preferences: {exc}", Level.ERROR)
             return False
         return True
 
@@ -3912,11 +3951,8 @@ class TetherShell:
         new_row = min(max(self._molecule_list.currentRow() + delta, 0), len(self._traces) - 1)
         self._molecule_list.setCurrentRow(new_row)
 
-    def _status(self, message: str) -> None:
-        if self._preferences_error is not None:
-            message = f"{message} ({self._preferences_error})"
-            self._preferences_error = None
-        self._window.statusBar().showMessage(message)
+    def _status(self, message: str, level: Any = None) -> None:
+        self._messages.post(message, level)
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -3975,6 +4011,7 @@ class TetherShell:
         # to a closed shell, and its worker stops once the command ends.
         self._channel_map.close()
         self._busy_indicator.stop()
+        self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
         if session_project is not None and future is not None and not future.done():
