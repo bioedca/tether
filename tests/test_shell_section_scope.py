@@ -68,7 +68,7 @@ def _cheatsheet_cells(overlay):
 
 
 def test_each_section_has_the_menus_its_specs_declare(shell) -> None:
-    for spec in shell.sections:
+    for spec in shell.sections.visible_sections():
         menus = shell.section_menus(spec.id)
         assert [m.title() for m in menus] == [m.title for m in spec.menus]
         assert [m.objectName() for m in menus] == [f"{spec.id}-{m.id}-menu" for m in spec.menus]
@@ -157,14 +157,14 @@ def test_the_shell_opens_with_the_curate_menus(shell) -> None:
 def test_no_section_menu_action_has_a_shortcut(shell) -> None:
     # A hidden menu's action must not be reachable from the keyboard either, and a bare
     # shortcut would shadow a curation key (§7.3).
-    for spec in shell.sections:
+    for spec in shell.sections.visible_sections():
         for menu in shell.section_menus(spec.id):
             for action in menu.actions():
                 assert action.shortcut().isEmpty(), action.text()
 
 
 def test_the_help_menu_keeps_the_shortcuts_item_in_every_section(shell) -> None:
-    for section_id in shell.sections.ids:
+    for section_id in shell.sections.visible_ids:
         shell.set_section(section_id)
         help_items = [_plain(a.text()) for a in shell.help_menu.actions() if a.isVisible()]
         assert "Keyboard shortcuts…" in help_items
@@ -176,7 +176,7 @@ def test_the_help_menu_keeps_the_shortcuts_item_in_every_section(shell) -> None:
 def test_the_keymap_is_active_only_in_curate_and_correct(shell) -> None:
     from tether.gui.curation import CURATION_SCOPE
 
-    for spec in shell.sections:
+    for spec in shell.sections.visible_sections():
         shell.set_section(spec.id)
         assert shell.keymap_active is (spec.keymap_scope == CURATION_SCOPE)
         assert shell.event_filter.active is shell.keymap_active

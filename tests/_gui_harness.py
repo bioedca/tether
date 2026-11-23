@@ -70,8 +70,9 @@ needs_gl = pytest.mark.skipif(
     reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
 )
 
-#: The id of every section the shell registers, in order. ``tests/test_gui_section_contract.py``
-#: checks this against ``TetherShell().sections.ids``, so a new section cannot skip the contract.
+#: The id of every section the shell shows, in order. ``tests/test_gui_section_contract.py``
+#: checks this against ``TetherShell().sections.visible_ids``, so a new section cannot skip the
+#: contract. A hidden section (Deposit until #956, #897) has no page to check.
 SECTION_IDS: tuple[str, ...] = ("prepare", "curate", "analyze")
 
 #: The sections whose page or docks build a napari ``Viewer``: Curate and correct, whose movie

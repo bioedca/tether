@@ -178,8 +178,9 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **View → Section → Analyze**. Each section has its own menus, and the **Analysis**
-menu is in this one. Choose **Analysis → Population histogram…**. A **Population histogram**
+Choose **View → Section → Analyze**. You can also click **Analyze** on the section bar under
+the menu bar, or press Ctrl+3 (Cmd+3 on macOS). Each section has its own menus, and the
+**Analysis** menu is in this one. Choose **Analysis → Population histogram…**. A **Population histogram**
 panel opens, and the status bar reads:
 
 ```text
