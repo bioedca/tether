@@ -386,7 +386,7 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 17.2
+long_share = 14.6
 semicolons = 3
 long_paragraphs = 2
 retired = 0
