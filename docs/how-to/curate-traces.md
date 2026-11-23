@@ -96,11 +96,13 @@ The curation keys act only in the **Curate and correct** section. In **Prepare**
 **Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
 curate again, choose **View → Section → Curate and correct**.
 
-You can open a section at any time in three ways: click its name on the section bar under
-the menu bar, choose it in **View → Section**, or press Ctrl+1 (Prepare), Ctrl+2 (Curate and
-correct) or Ctrl+3 (Analyze). On macOS, use Cmd. The section bar also shows the next step
-that `tether status` gives for the open project. Click **Go to** on the bar to open the
-section of that step. A project made from imported traces opens in **Curate and correct**.
+You can open a section at any time. Click its name on the section bar under the menu bar,
+or choose it in **View → Section**. Or press Ctrl+1 for Prepare, Ctrl+2 for Curate and correct
+and Ctrl+3 for Analyze. On macOS, use Cmd.
+
+The section bar also shows the next step that `tether status` gives for the open project.
+Click **Go to** on the bar to open the section of that step. A project made from imported
+traces opens in **Curate and correct**.
 
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
