@@ -738,9 +738,6 @@ class TetherShell:
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
         # file of tether.gui.preferences. Nothing of it is written into a project.
         self._preferences_file = preferences_file
-        # A failed preferences write, kept until the next status message carries it, so a
-        # success message of the same action does not hide it (#628).
-        self._preferences_error: str | None = None
         # The curator name set for new labels, or None: then the project writes the
         # operating-system user, exactly as before #628.
         self._curator_name: str | None = (
@@ -909,6 +906,19 @@ class TetherShell:
         self._section_bar.toggleViewAction().setVisible(False)
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
+        # Build the window-wide Messages dock before saving the default layout (#627).
+        from tether.gui.messages import Level, MessageCenter, MessagesPanel
+
+        self._messages = MessageCenter(self._window)
+        self._messages_panel = MessagesPanel(self._messages)
+        self._messages_dock = QtWidgets.QDockWidget("Messages", self._window)
+        self._messages_dock.setObjectName("messages")
+        self._messages_dock.setWidget(self._messages_panel.widget)
+        self._messages_dock.toggleViewAction().setText("&Messages")
+        self._window.addDockWidget(
+            getattr(QtCore.Qt.DockWidgetArea, DockArea.BOTTOM.qt_name), self._messages_dock
+        )
+        self._messages_dock.hide()
         # The default layout, kept before a stored one is restored, for View -> Reset
         # layout (#628). A window never shown reports Qt's placeholder size and takes its
         # real one from its size hint on the first show; adjustSize applies that sizing now,
@@ -994,6 +1004,11 @@ class TetherShell:
         self._file_menu.insertMenu(self._act_close_project, self._recent_menu)
         self._recent_menu.aboutToShow.connect(self._sync_recent_menu)
         self._sync_recent_menu()
+        # Save as recipe (#899): the requests of the open project's completed jobs, as a
+        # recipe file that `tether run` runs again on a new copy of the inputs.
+        self._act_save_recipe = self._file_menu.addAction("Save as &recipe…")
+        self._act_save_recipe.triggered.connect(self._save_recipe_dialog)
+        self._act_save_recipe.setEnabled(False)
         self._file_menu.addSeparator()
         # The name written into new labels (#628). Shown in the status bar too, so a
         # user on a shared computer sees whose labels they are writing.
@@ -1076,6 +1091,7 @@ class TetherShell:
         self._section_bar.addWidget(self._next_step_label)
         self._section_bar.addAction(self._act_next_step)
         self._sync_guided()
+        self._view_menu.addAction(self._messages_dock.toggleViewAction())
         # View -> Reset layout (#628): the default window size and dock positions, and
         # the stored layout forgotten, so the next launch starts from the default too.
         self._view_menu.addSeparator()
@@ -1156,7 +1172,8 @@ class TetherShell:
 
         # The one message of an unusable keymap file (#635), else the ready line, which
         # names the current accept and reject keys rather than the defaults.
-        self._window.statusBar().showMessage(self._keymap_error or self._ready_message())
+        startup_level = Level.WARNING if self._keymap_error is not None else Level.INFO
+        self._messages.post(self._keymap_error or self._ready_message(), startup_level)
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -1495,9 +1512,13 @@ class TetherShell:
         #917.
         """
         from tether.gui.calibration import ChannelMapActions
+        from tether.gui.messages import Level
 
         self._channel_map = ChannelMapActions(
-            status=self._status, open_project=self.load_project, window=self._window
+            status=self._status,
+            open_project=self.load_project,
+            window=self._window,
+            warning=lambda message: self._status(message, Level.WARNING),
         )
         self._calibration_menu = menu
         self._act_make_map = menu.addAction("&Make channel map…")
@@ -1721,8 +1742,28 @@ class TetherShell:
 
     @property
     def status_message(self) -> str:
-        """The message currently displayed in the window's status bar."""
-        return self._window.statusBar().currentMessage()
+        """The latest status message (#627).
+
+        The status bar shows it, unless the bar holds an earlier warning or error until the
+        user dismisses it; [`messages`][tether.gui.shell.TetherShell.messages] has both.
+        """
+        latest = self._messages.latest
+        return "" if latest is None else latest.text
+
+    @property
+    def messages(self) -> Any:
+        """The [`MessageCenter`][tether.gui.messages.MessageCenter] of the window (#627)."""
+        return self._messages
+
+    @property
+    def messages_panel(self) -> Any:
+        """The [`MessagesPanel`][tether.gui.messages.MessagesPanel] in the Messages dock."""
+        return self._messages_panel
+
+    @property
+    def messages_dock(self) -> QtWidgets.QDockWidget:
+        """The Messages dock (**View → Messages**), hidden by default."""
+        return self._messages_dock
 
     # --- molecules -----------------------------------------------------------
 
@@ -1993,8 +2034,11 @@ class TetherShell:
         try:
             write()
         except (OSError, ValueError) as exc:
-            self._preferences_error = f"Could not save preferences: {exc}"
-            self._window.statusBar().showMessage(self._preferences_error)
+            from tether.gui.messages import Level
+
+            # An error stays in the status bar until dismissed, so a success message of the
+            # same action does not hide it (#628) and nothing needs to carry it along.
+            self._messages.post(f"Could not save preferences: {exc}", Level.ERROR)
             return False
         return True
 
@@ -2481,6 +2525,7 @@ class TetherShell:
             self.set_section(entry)
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
+        self._act_save_recipe.setEnabled(True)
         movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
@@ -2964,6 +3009,7 @@ class TetherShell:
         self._readiness = None
         self._sync_guided()
         self._act_close_project.setEnabled(False)
+        self._act_save_recipe.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
         self.set_section(CURATE_SECTION)
@@ -3299,6 +3345,54 @@ class TetherShell:
                 self._status("Hand-off cancelled")
                 return
         self.hand_off_to_tmaven(smd_path)
+
+    def save_recipe(self, path: str | Path) -> Path | None:
+        """Write the open project's actions as the recipe file ``path`` (#899).
+
+        The recipe holds the requests of the project's completed jobs, in order, with
+        each path relative to the recipe's folder where that is possible
+        ([`tether.services.recipe.recipe_from_project`][]). Returns the path written, or
+        ``None`` (with a status message) when there is nothing to save or the write failed.
+        """
+        from tether.services.recipe import RecipeError, recipe_from_project, write_recipe
+
+        if self._project_path is None:
+            self._status("Save as recipe: open a project first")
+            return None
+        try:
+            requests = recipe_from_project(self._project_path)
+            written = write_recipe(path, requests)
+        except (RecipeError, OSError) as exc:
+            self._status(f"Save as recipe: {exc}")
+            return None
+        self._status(f"Saved the recipe {written.name} ({len(requests)} step(s))")
+        return written
+
+    def _save_recipe_dialog(self) -> None:  # pragma: no cover - interactive file dialog
+        """Menu entry: choose where the recipe goes, then [`save_recipe`][]."""
+        from pyqtgraph.Qt import QtWidgets
+
+        out_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self._window, "Save as recipe", "", "Tether recipe (*.json)"
+        )
+        if not out_path:
+            self._status("Save as recipe cancelled")
+            return
+        add_suffix = not out_path.lower().endswith(".json")
+        recipe_path = Path(out_path + ".json" if add_suffix else out_path)
+        if add_suffix and recipe_path.exists():
+            buttons = QtWidgets.QMessageBox.StandardButton
+            answer = QtWidgets.QMessageBox.question(
+                self._window,
+                "Save as recipe",
+                f"{recipe_path.name} already exists. Do you want to replace it?",
+                buttons.Yes | buttons.No,
+                buttons.No,
+            )
+            if answer != buttons.Yes:
+                self._status("Save as recipe cancelled")
+                return
+        self.save_recipe(recipe_path)
 
     def _import_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""
@@ -4020,11 +4114,8 @@ class TetherShell:
         new_row = min(max(self._molecule_list.currentRow() + delta, 0), len(self._traces) - 1)
         self._molecule_list.setCurrentRow(new_row)
 
-    def _status(self, message: str) -> None:
-        if self._preferences_error is not None:
-            message = f"{message} ({self._preferences_error})"
-            self._preferences_error = None
-        self._window.statusBar().showMessage(message)
+    def _status(self, message: str, level: Any = None) -> None:
+        self._messages.post(message, level)
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -4083,6 +4174,7 @@ class TetherShell:
         # to a closed shell, and its worker stops once the command ends.
         self._channel_map.close()
         self._busy_indicator.stop()
+        self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
         if session_project is not None and future is not None and not future.done():

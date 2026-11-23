@@ -198,6 +198,7 @@ def test_an_over_gate_map_is_a_warning_not_a_plain_success(shell, qtbot, tmp_pat
     assert "warning: low confidence" in message
     assert "RMS 0.800 px is over the 0.25 px gate" in message
     assert "low-confidence-registration" in message
+    assert shell.messages.sticky is shell.messages.latest
 
 
 def test_swapped_halves_are_a_warning_and_a_refused_open_is_said(
