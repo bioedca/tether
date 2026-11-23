@@ -506,6 +506,32 @@ def _names_of_all(node: ast.AST) -> list[str] | None:
     return [e.value for e in value.elts]
 
 
+def _sets_all(body: list[ast.stmt]) -> bool:
+    """Whether every path through *body* that finishes assigns ``__all__``: an ``if`` sets it
+    when both branches do, a ``try`` when its ``finally`` does or both the path without an
+    exception and every handler do, a ``with`` when its body does; a loop may run no time, and
+    a ``def`` or ``class`` body is not module scope."""
+    for node in body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            stored = (n for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+            if any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored):
+                return True
+        elif isinstance(node, ast.If):
+            if _sets_all(node.body) and _sets_all(node.orelse):
+                return True
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            if _sets_all(node.body):
+                return True
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            handled = all(_sets_all(h.body) for h in node.handlers)
+            if _sets_all(node.finalbody) or (
+                handled and (_sets_all(node.body) or _sets_all(node.orelse))
+            ):
+                return True
+    return False
+
+
 def _bound_names(node: ast.AST) -> set[str]:
     """The module names a ``def``, ``class``, assignment or ``for`` target at module scope
     binds itself."""
@@ -530,7 +556,9 @@ class _Imports:
     (``from tether.a import *``) imports what each public name of ``tether.a`` comes from, as
     ``__all__`` lists them when it is a literal of strings (every list a branch may set, when it
     is set in an ``if`` or ``try``) and else every bound name without a leading ``_``, with
-    the names of any literal list a branch may set; a wildcard inside a source module
+    the names of any literal list a branch may set; the bound names count too when some path
+    can leave ``__all__`` unset (it is set only in an ``if`` with no ``else``, a loop, or a
+    ``try`` whose handler does not set it); a wildcard inside a source module
     (``from .c import *``) passes those names on the same way, and a cycle of such wildcards
     is followed until nothing more is found.
     A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
@@ -550,7 +578,8 @@ class _Imports:
 
     def _parse(self, module: str) -> tuple[dict, list[str], set[str], list[str] | None, list[str]]:
         """(name -> origins, wildcard origins, names bound in place, ``__all__`` or ``None``
-        when it is not known, the literal names some branch may still give it then)."""
+        when it is not known or some path may leave it unset, the literal names some branch
+        may still give it then)."""
         if module not in self._parsed:
             names: dict[str, list[tuple[str, str | None]]] = {}
             stars: list[str] = []
@@ -589,6 +618,8 @@ class _Imports:
                             known += [n for n in listed or () if n not in known]
                             written, unknown = True, unknown or listed is None
                         local |= _bound_names(node) - {"__all__"}
+                # a path that leaves it unset binds the default names (#1311)
+                unknown = unknown or (written and not _sets_all(tree.body))
             all_ = known if written and not unknown else None
             self._parsed[module] = (names, stars, local, all_, known if unknown else [])
         return self._parsed[module]

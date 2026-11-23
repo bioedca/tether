@@ -398,6 +398,48 @@ def test_conditional_all_cyclic_wildcards_and_plain_imports(tmp_path: Path) -> N
     assert found["tests/test_2.py"] == every
 
 
+def test_a_conditional_all_that_may_stay_unset_keeps_the_default_names(tmp_path: Path) -> None:
+    # #1311 (Codex review on PR #1272): when some path leaves ``__all__`` unset, a wildcard
+    # binds the default public names, so those count with the literal names a branch may
+    # set; when every path sets it, only the literal names count.
+    three = {"a.py": "A = 1\n", "b.py": "B = 1\n", "c.py": "C = 1\n"}
+    head = "from .a import A\nfrom .b import B\nfrom .c import C\n"
+    packages = {
+        "never": "if False:\n    __all__ = ['A']\n",  # the case of the issue
+        "tried": "try:\n    __all__ = ['A']\nexcept ImportError:\n    pass\n",
+        "looped": "for _ in ():\n    __all__ = ['A']\n",
+        "paired": "if A:\n    __all__ = ['A']\nelse:\n    __all__ = ['B']\n",
+        "caught": "try:\n    __all__ = ['A']\nexcept ImportError:\n    __all__ = ['B']\n",
+        "final": "try:\n    pass\nfinally:\n    __all__ = ['A']\n",
+        "nested": "if A:\n    if B:\n        __all__ = ['A']\n    else:\n"
+        "        __all__ = ['B']\nelse:\n    __all__ = ['A']\n",
+        "later": "if A:\n    __all__ = ['A']\n__all__ = ['B']\n",
+        "first": "__all__ = ['A']\nif A:\n    __all__ = ['B']\n",
+        "within": "import contextlib\nwith contextlib.suppress():\n    __all__ = ['A']\n",
+    }
+    files = {f"src/{p}/__init__.py": head + body for p, body in packages.items()}
+    files |= {f"src/{p}/{rel}": text for p in packages for rel, text in three.items()}
+    _tree(tmp_path, files)
+    imports = rm._Imports(tmp_path / "src")
+    assert imports.public("never") == {"A", "B", "C"}
+    assert imports.of("from never import *\n") == {"never", "never.a", "never.b", "never.c"}
+    expected = {
+        "tried": {"A", "B", "C"},  # the except branch leaves it unset
+        "looped": {"A", "B", "C"},  # the loop may run no time
+        "paired": {"A", "B"},  # both branches set it: the union of the literals
+        "caught": {"A", "B"},
+        "final": {"A"},
+        "nested": {"A", "B"},
+        "later": {"B"},  # a later unconditional assignment replaces what came before
+        "first": {"A", "B"},
+        "within": {"A"},  # a with block runs its body
+    }
+    for package, names in expected.items():
+        assert imports.public(package) == names, package
+        modules = {package} | {f"{package}.{n.lower()}" for n in names}
+        assert imports.of(f"from {package} import *\n") == modules, package
+
+
 def test_identical_changes_on_one_line_have_different_occurrences() -> None:
     mutants = [m for m in rm.mutants_of("def f(a):\n    return a + a + a\n", "x") if m.old == "+"]
     assert [m.occurrence for m in mutants] == [0, 1]
