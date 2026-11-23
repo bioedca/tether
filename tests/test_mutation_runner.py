@@ -421,6 +421,16 @@ def test_a_conditional_all_that_may_stay_unset_keeps_the_default_names(tmp_path:
         "maybe": "__all__ = ['A']\nif A:\n    del __all__\n",
         "again": "__all__ = ['A']\ndel __all__\n__all__ = ['B']\n",
         "rebound": "if A:\n    del A\n    __all__ = ['A']\nelse:\n    __all__ = ['B']\n",
+        # CodeRabbit review on PR #1321: a del in a tuple, a finally, an else or a match case
+        "tupled": "__all__ = ['A']\n_T = 0\ndel (__all__, _T)\n",
+        "finally_del": "try:\n    __all__ = ['A']\nfinally:\n    del __all__\n",
+        "else_del": "try:\n    __all__ = ['A']\nexcept ImportError:\n    __all__ = ['A']\n"
+        "else:\n    del __all__\n",
+        "case_del": "__all__ = ['A']\nmatch 1:\n    case 1:\n        del __all__\n",
+        "finally_again": "__all__ = ['A']\ntry:\n    pass\nfinally:\n    del __all__\n"
+        "    __all__ = ['B']\n",
+        "kept": "__all__ = ['A']\nimport contextlib\nwith contextlib.suppress(ValueError):\n"
+        "    pass\n",
     }
     files = {f"src/{p}/__init__.py": head + body for p, body in packages.items()}
     files |= {f"src/{p}/{rel}": text for p in packages for rel, text in three.items()}
@@ -442,6 +452,12 @@ def test_a_conditional_all_that_may_stay_unset_keeps_the_default_names(tmp_path:
         "maybe": {"A", "B", "C"},
         "again": {"B"},  # assigned again after the del
         "rebound": {"A", "B"},  # a del of another name changes nothing
+        "tupled": {"A", "B", "C"},
+        "finally_del": {"A", "B", "C"},
+        "else_del": {"A", "B", "C"},
+        "case_del": {"A", "B", "C"},
+        "finally_again": {"A", "B"},  # bound again; a write in a try adds to the literals
+        "kept": {"A"},  # bound before the with block, which does not unbind it
     }
     for package, names in expected.items():
         assert imports.public(package) == names, package

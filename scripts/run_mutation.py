@@ -506,46 +506,62 @@ def _names_of_all(node: ast.AST) -> list[str] | None:
     return [e.value for e in value.elts]
 
 
-def _deletes_all(node: ast.AST) -> bool:
-    """Whether *node* holds a ``del __all__`` at module scope (not in a ``def`` or ``class``)."""
+def _names_deleted(target: ast.expr) -> set[str]:
+    """The names a ``del`` target unbinds: a name, or the names in a tuple or list of targets
+    (an attribute or item leaves its container bound)."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {n for t in target.elts for n in _names_deleted(t)}
+    return set()
+
+
+def _deletes_all(nodes: list[ast.stmt]) -> bool:
+    """Whether *nodes* hold a ``del __all__`` at module scope (not in a ``def`` or ``class``)."""
     scoped = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-    todo = [node]
+    inner = (ast.stmt, ast.excepthandler, ast.match_case)
+    todo: list[ast.AST] = list(nodes)
     while todo:
         n = todo.pop()
         if isinstance(n, ast.Delete):
-            if any(isinstance(t, ast.Name) and t.id == "__all__" for t in n.targets):
+            if any("__all__" in _names_deleted(t) for t in n.targets):
                 return True
         elif not isinstance(n, scoped):
-            inner = (ast.stmt, ast.excepthandler)
             todo += [c for c in ast.iter_child_nodes(n) if isinstance(c, inner)]
     return False
 
 
-def _sets_all(body: list[ast.stmt]) -> bool:
-    """Whether every path through *body* that finishes leaves ``__all__`` bound: an ``if``
-    binds it when both branches do, a ``try`` when its ``finally`` does or both the path
-    without an exception and every handler do; a loop may run no time, a ``with`` may
-    suppress an exception raised before the assignment, a ``del __all__`` that may run
-    unbinds it, and a ``def`` or ``class`` body is not module scope."""
-    bound = False
+def _sets_all(body: list[ast.stmt], bound: bool = False) -> bool:
+    """Whether ``__all__`` is bound on every path through *body* that finishes, when *bound*
+    says whether it was bound before, taking the statements in the order they run.
+
+    An assignment binds it and a ``del`` unbinds it; an ``if`` binds it when both branches
+    do; a ``try`` runs its body, then its ``else``, or a handler that an exception raised
+    anywhere in the body may enter, and then its ``finally``; a ``with`` may suppress an
+    exception raised anywhere in its body, a loop may run no time, and a ``match`` may match
+    no case. A ``def`` or ``class`` body is not module scope."""
     for node in body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             stored = (n for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
-            sets = any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored)
+            if any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored):
+                bound = True
+        elif isinstance(node, ast.Delete):
+            if any("__all__" in _names_deleted(t) for t in node.targets):
+                bound = False
         elif isinstance(node, ast.If):
-            sets = _sets_all(node.body) and _sets_all(node.orelse)
+            bound = _sets_all(node.body, bound) and _sets_all(node.orelse, bound)
         elif isinstance(node, (ast.Try, ast.TryStar)):
-            handled = all(_sets_all(h.body) for h in node.handlers)
-            sets = _sets_all(node.finalbody) or (
-                handled and (_sets_all(node.body) or _sets_all(node.orelse))
-            )
-        else:
-            sets = False
-        if sets:
-            bound = True
-        elif _deletes_all(node):
-            bound = False
+            # a handler starts wherever the body stopped: bound only if nothing there unbinds it
+            raised = bound and not _deletes_all(node.body)
+            finished = _sets_all(node.orelse, _sets_all(node.body, bound))
+            finished = finished and all(_sets_all(h.body, raised) for h in node.handlers)
+            bound = _sets_all(node.finalbody, finished)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            # a suppressed exception skips the rest of the body
+            bound = _sets_all(node.body, bound) and bound and not _deletes_all(node.body)
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.While, ast.Match)):
+            bound = bound and not _deletes_all([node])
     return bound
 
 
