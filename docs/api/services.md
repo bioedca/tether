@@ -13,6 +13,8 @@ It needs no write access to `bioedca/tether`.
       show_root_heading: false
       members: false
 
+::: tether.services.approve
+
 ::: tether.services.base
 
 ::: tether.services.batch
@@ -30,6 +32,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.services.notices
 
 ::: tether.services.profile
+
+::: tether.services.recipe
 
 ::: tether.services.registry
 
