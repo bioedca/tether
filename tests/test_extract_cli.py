@@ -587,6 +587,30 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
     assert not out.exists()
 
 
+@pytest.mark.parametrize(
+    "acceptor_rotation", [None, np.array([[90.0]])], ids=["unturned", "turned"]
+)
+@pytest.mark.parametrize("bad_value", [1.9, 1 + 0.5j], ids=["fraction", "complex"])
+def test_extract_non_integral_tmap_crop_errors(
+    tmp_path, monkeypatch, capsys, acceptor_rotation, bad_value
+) -> None:
+    import tether.project.extract as ext
+
+    channels = _synthetic_tmap_channels(acceptor_rotation=acceptor_rotation)
+    channels[1] = replace(channels[1], crop=np.array([[bad_value, 49.0], [64.0, 96.0]]))
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "could not use --tmap" in err
+    assert "channel 1 crop" in err
+    assert not out.exists()
+
+
 # --- imported .tmap rotation/flip (#559) ---------------------------------------
 #
 # Deep-LASI splits each channel with processImage: rotate (imrotate(I, -Rotation),
