@@ -39,11 +39,11 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from pathlib import Path
 
     from tether.project.core import Project
 
@@ -60,6 +60,7 @@ __all__ = [
     "CorrectionTransitionError",
     "Transition",
     "TransitionRecord",
+    "mark_traces_replaced_in",
     "read_correction_state",
     "read_correction_transitions",
     "require_analysis_mode",
@@ -606,6 +607,66 @@ def _send_event_held(
 
     _append(project.path, row, check)
     return read_correction_state(project.path, scope)
+
+
+#: The edge a new trace generation takes out of each state after the approval that has one:
+#: the traces the factors and the review were read from are replaced (#1284, ADR-0136).
+_TRACES_REPLACED: dict[CorrectionState, CorrectionEvent] = {
+    CorrectionState.ANALYSIS_READY: CorrectionEvent.FACTOR_EVIDENCE_CHANGES,
+    CorrectionState.CORRECTED_REVIEW: CorrectionEvent.CALIBRATION_EVIDENCE_CHANGES,
+}
+
+
+def mark_traces_replaced_in(
+    path: str | Path,
+    *,
+    movie_id: str,
+    generation_id: str,
+    scope: str = PROJECT_SCOPE,
+) -> CorrectionStatus | None:
+    """Store that a new trace generation replaced traces the correction state was read from.
+
+    The store-path form a staged publish calls, under the writer lock the caller holds
+    (as [`mark_stale_in`][tether.project.jobs.mark_stale_in] is): ``reextract_movie``
+    writes it into the staged copy, so the transition is published with the generation
+    or not at all (#1284, ADR-0136). A new generation integrates every trace of the movie
+    again and resets its applied factors, so the contributor evidence of the approved
+    factors and the reviewed corrected traces both change: ANALYSIS_READY takes *factor or
+    contributor evidence changes* and CORRECTED_REVIEW *calibration evidence changes*, and
+    both reach CALIBRATION_STALE, where corrected analysis is refused until the factors are
+    approved again. The actor is the policy that names the generation. In any other state
+    nothing is written and ``None`` is returned: G03 has no such edge out of it, and none
+    of those states allows corrected analysis.
+    """
+    _check_scope(scope)
+    status, rows = _snapshot(path, scope)
+    event = _TRACES_REPLACED.get(status.state)
+    if event is None:
+        return None
+    (edge,) = (t for t in TRANSITIONS if t.source is status.state and t.event is event)
+    actor = Actor.policy(f"a new trace generation of the movie {movie_id}")
+    detail = {"movie_id": movie_id, "generation_id": generation_id}
+    row = {
+        "scope": scope,
+        "from_state": status.state.value,
+        "event": event.value,
+        "to_state": edge.target.value,
+        "by": actor.by,
+        "actor": actor.name,
+        "detail": json.dumps(detail, sort_keys=True),
+        "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
+        "app_version": _app_version(),
+    }
+    seen = len(rows)
+
+    def check(f: object) -> None:
+        if len([r for r in _rows(f) if r["scope"] == scope]) != seen:
+            raise CorrectionTransitionError(
+                f"the correction state of the {scope} changed while a new generation was stored"
+            )
+
+    _append(Path(path), row, check)
+    return read_correction_state(path, scope)
 
 
 def _choose(

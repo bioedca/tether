@@ -92,7 +92,9 @@ class ModelRefit:
     two rows (§7.10) counts twice. ``refit`` is the new model, or ``None`` when the model was
     left as it was: no row was stale, or the model was ``imported`` from standalone tMAVEN.
     An imported model stores no fit configuration Tether can repeat, so ``stale_only``
-    never refits one, stale or not.
+    never refits one, stale or not. ``moved_keys`` are the members a new trace generation
+    moved, which the refit left out
+    ([`refit_membership`][tether.project.idealize.refit_membership], #1284).
     """
 
     model_name: str
@@ -100,6 +102,7 @@ class ModelRefit:
     n_stale: int
     refit: StoredIdealization | None
     imported: bool = False
+    moved_keys: tuple[str, ...] = ()
 
     @property
     def n_current(self) -> int:
@@ -353,7 +356,9 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         refits: list[ModelRefit] = []
         for name, n_rows, n_stale, imported in checked:
             refit = None
+            moved: tuple[str, ...] = ()
             if n_stale and not imported:
+                moved = core.refit_membership(project, name).moved_keys
                 refit = supervise_idealize(
                     core.reidealize,
                     project,
@@ -364,7 +369,7 @@ def run(request: IdealizeRequest) -> IdealizeResult:
                     require_held_lock=True,
                     **runner,
                 )
-            refits.append(ModelRefit(name, n_rows, n_stale, refit, imported))
+            refits.append(ModelRefit(name, n_rows, n_stale, refit, imported, moved))
         return IdealizeResult(project=project.path, refits=tuple(refits))
     except (SidecarError, LockError) as exc:
         raise CommandFailed(str(exc)) from exc

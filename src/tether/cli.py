@@ -868,6 +868,11 @@ def _format_idealize(result: IdealizeResult) -> str:
         lines.append(
             f"  {refit.model_name}: {refit.n_stale} stale, {refit.n_current} current; {verdict}"
         )
+        if refit.moved_keys:
+            lines.append(
+                f"    {len(refit.moved_keys)} moved in a new trace generation, not refitted: "
+                + ", ".join(refit.moved_keys)
+            )
     return "\n".join(lines)
 
 

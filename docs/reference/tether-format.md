@@ -590,6 +590,13 @@ row-aligned arrays and the new generation's are appended **at the end**, so the 
 other movies move up but are not changed. An archive is written once and never changed or
 removed by an extraction.
 
+A new generation keeps the movie's `condition_id` when every molecule of the previous
+generation had one. When the previous generation has no molecule, the newest archived
+generation of the movie that has molecules gives it. A new generation of a project whose
+correction state is `ANALYSIS_READY` or `CORRECTED_REVIEW` also appends one row to
+`/settings/correction_transitions`, to `CALIBRATION_STALE`, with the actor `policy`
+([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md), #1284).
+
 `/generations/label_reviews` is an optional append-only dataset. Each row stores the
 current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
 row index of a human accept or reject in `/labels/table`. A value of `-1` marks a
