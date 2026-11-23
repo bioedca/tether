@@ -1233,8 +1233,8 @@ tether export subset movie.tether -o accepted.tether
 ```
 
 To share a copy without your user name, give a prefix. A blank prefix, or a prefix that
-contains a user name stored in the project, stops the export with exit code `1`, and no file
-is written:
+contains a user name stored in a project, fails the export of that project: no file is written
+for it, the other projects are still exported, and the exit code is `1`:
 
 ```bash
 tether export subset movie.tether -o shared.tether --curator-alias curator
