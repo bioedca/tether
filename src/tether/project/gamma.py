@@ -387,8 +387,7 @@ def _compute_gamma(
             ),
             half_window=0 if half_window is None else int(half_window),
         )
-        if write_guard is not None:
-            write_guard()
+        # The guard before the stamp also covers the table, which is written with it.
         contributors.write_contributors(f, rows)
         if decision is not None:
             contributors.append_decision(f, decision)

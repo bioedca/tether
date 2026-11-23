@@ -828,37 +828,41 @@ apparent-E analysis is never refused.
 ### γ evidence table
 
 `/settings/gamma_contributors` holds one row for each molecule that the last γ pass examined
-([#927](https://github.com/bioedca/tether/issues/927)), in `/molecules` order. Its fields:
-`molecule_key`; `step`, the absolute acceptor-bleach frame, and `step_source` (`detector`
-today; a window that a person sets comes with the calibration windows of
-[#928](https://github.com/bioedca/tether/issues/928)); the level window that averaged the
-intensities, `level_window` (`half-window` or `whole-segment`) with `half_window` (`0` for the
-whole segments) and the absolute half-open `pre_window` and `post_window`; the levels
-`donor_pre`, `donor_post`, `acceptor_pre` and `acceptor_post` (the acceptor is
-leakage-corrected) and the changes `delta_donor` (ΔI_D) and `delta_acceptor` (ΔI_A); `ratio`,
-the raw ΔI_A / ΔI_D with its sign; `gamma`, the trace γ (`NaN` unless the row is included by
-the gates); `gate`, the estimator's reason (`ok`, `no-step`, `short-pre`, `short-post`,
-`degenerate-donor` or `out-of-range`); and `included`, with the `reason`, `by` and `actor` of
-an exclusion. `by` is `estimator` for a gate, or `person` or `policy` for a decision. With the
-stored traces and `/molecules.alpha`, the windows give each row again.
+([#927](https://github.com/bioedca/tether/issues/927)), in `/molecules` order.
 
-An excluded row keeps its `ratio`, also when it is negative, zero or above the ceiling. The
-`ratio` is `NaN` only when no step was measured (`no-step`, `short-pre`, `short-post`) or when
-ΔI_D is zero; then the `reason` is `zero-donor-step`. The population γ is the median of the
-included rows and is withheld below `min_qualifying_traces` included rows, so with no
+| Field | Meaning |
+|---|---|
+| `molecule_key` | The molecule. |
+| `step`, `step_source` | The absolute acceptor-bleach frame, and where it came from. Today it is always `detector`. A window that a person sets comes with the calibration windows of [#928](https://github.com/bioedca/tether/issues/928). |
+| `level_window`, `half_window` | The level window that averaged the intensities: `half-window` with its half-width, or `whole-segment` with `half_window = 0`. |
+| `pre_window`, `post_window` | The absolute half-open frame ranges of the two levels. |
+| `donor_pre`, `donor_post`, `acceptor_pre`, `acceptor_post` | The four levels. The acceptor is leakage-corrected. |
+| `delta_donor`, `delta_acceptor` | ΔI_D and ΔI_A. |
+| `ratio` | The raw ΔI_A / ΔI_D, with its sign. |
+| `gamma` | The trace γ. It is `NaN` when the gates exclude the row. |
+| `gate` | The estimator's reason: `ok`, `no-step`, `short-pre`, `short-post`, `degenerate-donor` or `out-of-range`. |
+| `included`, `reason`, `by`, `actor` | Whether the row is in the median, and the reason, author kind (`estimator`, `person` or `policy`) and author of an exclusion. |
+
+With the stored traces and `/molecules.alpha`, the windows give each row again. An excluded
+row keeps its `ratio`, also when it is negative, zero or above the ceiling. The `ratio` is
+`NaN` only when no step was measured (`no-step`, `short-pre` or `short-post`), or when ΔI_D
+is zero. Then the `reason` is `zero-donor-step`.
+
+The population γ is the median of the included rows. It is withheld below `min_qualifying_traces` included rows, so with no
 decision it is the γ that `compute_gamma` gave before the table. `/settings/gamma` counts the
 decisions in `n_excluded`.
 
 `/settings/gamma_contributor_decisions` has the fields `molecule_key`, `included`, `reason`,
 `by` (`person` or `policy`), `actor`, `timestamp` and `app_version`. The latest row for a
 `molecule_key` holds, and each γ pass reads it. `set_gamma_contributor` writes the decision
-and the new γ pass in one guarded write; an exclusion needs a reason, and an inclusion
-withdraws a decision but never a gate. The correction state follows the change: in
-`CALIBRATION_APPROVED` the evidence is frozen and the change is refused; in
-`CORRECTED_REVIEW` and `ANALYSIS_READY` the change is the evidence-change event and the state
-becomes `CALIBRATION_STALE`; in `GAMMA_REVIEW` a withheld γ moves the state to
-`CALIBRATION_BLOCKED`, and in `CALIBRATION_BLOCKED` a valid γ moves it back to
-`GAMMA_REVIEW`.
+and the new γ pass in one guarded write. An exclusion needs a reason. An inclusion withdraws
+a decision but never a gate. The correction state follows the change:
+
+- In `CALIBRATION_APPROVED` the evidence is frozen and the change is refused.
+- In `CORRECTED_REVIEW` and `ANALYSIS_READY` the change is the evidence-change event, and the
+  state becomes `CALIBRATION_STALE`.
+- In `GAMMA_REVIEW` a withheld γ moves the state to `CALIBRATION_BLOCKED`, and in
+  `CALIBRATION_BLOCKED` a valid γ moves it back to `GAMMA_REVIEW`.
 
 ## `/idealization` — one subgroup per fitted model
 
