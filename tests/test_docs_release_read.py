@@ -69,6 +69,13 @@ def _tag_step_number() -> int:
     raise AssertionError("docs/release.md has no tag step")
 
 
+def _push_step_number() -> int:
+    for number, body in _top_level_steps().items():
+        if "git push origin v1.0.0" in body:
+            return number
+    raise AssertionError("docs/release.md has no step that pushes the tag")
+
+
 def test_read_step_comes_before_the_tag_step() -> None:
     number, _ = _read_step()
     assert number < _tag_step_number()
@@ -114,7 +121,8 @@ def test_step_references_follow_the_numbering() -> None:
     number, _ = _read_step()
     tag = _tag_step_number()
     text = _release()
-    assert f"The two commands for step {tag}," in text
+    push = _push_step_number()
+    assert number < tag < push
     flat = " ".join(text.split())
     assert f"before step {tag} of [Cutting a release](#cutting-a-release)" in flat
     assert f"Step {number} of [Cutting a release](#cutting-a-release) writes a row" in flat
