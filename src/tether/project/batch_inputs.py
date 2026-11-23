@@ -172,7 +172,7 @@ def _folders_below(folder: Path) -> list[Path]:
     return found
 
 
-def _check_pattern_folders(pattern: str) -> None:
+def _check_pattern_folders(pattern: str, root: Path) -> None:
     """Raise the [`OSError`][] of any folder that ``pattern`` must list and cannot.
 
     [`glob.glob`][] treats a folder it cannot list as empty, so ``data/**/*.tif`` with one
@@ -183,7 +183,7 @@ def _check_pattern_folders(pattern: str) -> None:
     """
     parts = Path(pattern).parts
     anchor = Path(pattern).anchor
-    folders = [Path(anchor) if anchor else Path()]
+    folders = [Path(anchor) if anchor else root]
     if anchor:
         parts = parts[1:]
     for index, part in enumerate(parts):
@@ -207,8 +207,8 @@ def _check_pattern_folders(pattern: str) -> None:
             return
 
 
-def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
-    path = Path(argument)
+def _expand_one(argument: str, *, recursive: bool, root: Path) -> list[Path]:
+    path = root / argument
     if path.is_dir():
         found = _folder_movies(path, recursive=recursive)
         if not found:
@@ -223,10 +223,10 @@ def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
         return [path]
     if not _GLOB_CHARACTERS.intersection(argument):
         raise MovieArgumentError(f"no such movie file or folder: {argument!r}")
-    _check_pattern_folders(argument)
+    _check_pattern_folders(argument, root)
     found = []
-    for match in sorted(glob.glob(argument, recursive=True)):
-        match_path = Path(match)
+    for match in sorted(glob.glob(argument, root_dir=root, recursive=True)):
+        match_path = root / match
         if match_path.is_dir():
             found.extend(_folder_movies(match_path, recursive=recursive))
         elif _is_movie_file(match_path):
@@ -253,7 +253,7 @@ def _identity(path: Path) -> str:
 
 
 def expand_movie_arguments(
-    arguments: Sequence[str], *, recursive: bool = False
+    arguments: Sequence[str], *, recursive: bool = False, root: Path | None = None
 ) -> tuple[Path, ...]:
     """Expand the movie arguments into a sorted list of movies with no repeats.
 
@@ -266,6 +266,8 @@ def expand_movie_arguments(
     recursive
         Include the movies in the sub-folders of a folder argument, and of a folder that
         a pattern matches.
+    root
+        Literal directory for relative arguments. Defaults to the current directory.
 
     Returns
     -------
@@ -281,10 +283,11 @@ def expand_movie_arguments(
         matches no movie file, or a folder that cannot be listed (also a sub-folder that
         ``recursive`` or a pattern looks in). The message names the argument.
     """
+    root = root if root is not None else Path()
     found: dict[str, Path] = {}
     for argument in arguments:
         try:
-            paths = _expand_one(argument, recursive=recursive)
+            paths = _expand_one(argument, recursive=recursive, root=root)
         except OSError as exc:
             # A folder that can be seen but not listed: a refusal that names it, not a
             # traceback from the middle of the expansion.

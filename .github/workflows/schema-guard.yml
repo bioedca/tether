@@ -19,9 +19,11 @@ on:
 permissions:
   contents: read
 
+# Main runs get their own groups so later merges cannot cancel or replace them (#1265).
+# A colon separates main groups from other refs, because Git refs cannot contain it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format(':{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   schema-guard:

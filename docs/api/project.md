@@ -17,6 +17,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.analysis_import
 
+::: tether.project.approvals
+
 ::: tether.project.batch
 
 ::: tether.project.batch_inputs
