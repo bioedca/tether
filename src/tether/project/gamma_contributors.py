@@ -278,7 +278,8 @@ def set_gamma_contributor(
     estimator's gates exclude stays excluded with the gate's reason. The decision and the
     new γ pass, with the parameters stamped in ``/settings/gamma``, are written in one
     guarded write. Returns the new [`GammaSummary`][tether.project.gamma.GammaSummary], or
-    ``None`` when the decision changes nothing (and nothing is written).
+    ``None`` when the decision changes nothing (and no decision or γ pass is written; the
+    follow-up event below is still sent if an earlier send of it failed).
 
     The correction state (#925) follows the change. In CALIBRATION_APPROVED the evidence is
     frozen and the change is refused. After approval it is the event *calibration evidence
@@ -336,13 +337,16 @@ def _set_held(
     with h5py.File(project.path, "r") as f:
         current = latest_decisions(f).get(molecule_key)
     now_included = current is None or current[0]
+    word = "included" if include else f"excluded: {reason}"
+    note = f"gamma contributor {molecule_key} {word}"
     if (include and now_included) or (
         not include and current is not None and current[:4] == (False, reason, actor.by, actor.name)
     ):
+        # Nothing to write. A retry after a failed follow-up event still sends that event,
+        # because the stored γ pass, not this call, decides whether the state must move.
+        _send_follow_up(project, actor, note, applied=not _stored_withheld(project.path))
         return None
 
-    word = "included" if include else f"excluded: {reason}"
-    note = f"gamma contributor {molecule_key} {word}"
     state = cs.read_correction_state(project.path).state
     if state is cs.CorrectionState.CALIBRATION_APPROVED:
         raise cs.CorrectionTransitionError(
@@ -364,10 +368,24 @@ def _set_held(
         "app_version": cs._app_version(),
     }
     summary = _compute_gamma(project.path, write_guard=guard, decision=decision, **params)
+    _send_follow_up(project, actor, note, applied=summary.applied)
+    return summary
+
+
+def _stored_withheld(path: Path) -> bool:
+    """Return whether the stored γ pass withheld the factor."""
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(path, "r") as f:
+        return bool(f[f"{_SETTINGS}/gamma"].attrs["withheld"])
+
+
+def _send_follow_up(project: Project, actor: Actor, note: str, *, applied: bool) -> None:
+    """Move GAMMA_REVIEW or CALIBRATION_BLOCKED to agree with the stored γ pass."""
+    from tether.project import correction_states as cs  # noqa: PLC0415
 
     state = cs.read_correction_state(project.path).state
-    if state is cs.CorrectionState.GAMMA_REVIEW and not summary.applied:
+    if state is cs.CorrectionState.GAMMA_REVIEW and not applied:
         cs.send_event(project, cs.CorrectionEvent.INSUFFICIENT_EVIDENCE, actor, note=note)
-    elif state is cs.CorrectionState.CALIBRATION_BLOCKED and summary.applied:
+    elif state is cs.CorrectionState.CALIBRATION_BLOCKED and applied:
         cs.send_event(project, cs.CorrectionEvent.NEW_EVIDENCE, actor, note=note)
-    return summary

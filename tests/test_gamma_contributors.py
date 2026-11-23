@@ -263,6 +263,40 @@ def test_below_min_qualifying_included_rows_the_state_is_blocked(tmp_path: Path)
         proj.release_lock()
 
 
+def test_a_retry_sends_the_follow_up_event_that_a_failed_send_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=10)
+    assert compute_gamma(path).applied
+    proj = Project.open(path)
+    proj.acquire_lock()
+    real_send = cs.send_event
+
+    def failing_send(project: Project, event: object, *args: object, **kwargs: object) -> object:
+        if event is E.INSUFFICIENT_EVIDENCE:
+            raise OSError("the transition log could not be written")
+        return real_send(project, event, *args, **kwargs)
+
+    try:
+        key = _key(path, 0)
+        monkeypatch.setattr(cs, "send_event", failing_send)
+        with pytest.raises(OSError):
+            set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad")
+        assert cs.read_correction_state(path).state is S.GAMMA_REVIEW  # γ withheld, state not
+        monkeypatch.setattr(cs, "send_event", real_send)
+
+        assert set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad") is None
+        assert cs.read_correction_state(path).state is S.CALIBRATION_BLOCKED
+        assert len(read_gamma_contributor_decisions(path)) == 1
+        # Once the state agrees, the same decision sends nothing more.
+        n_events = len(cs.read_correction_transitions(path))
+        assert set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad") is None
+        assert len(cs.read_correction_transitions(path)) == n_events
+    finally:
+        proj.release_lock()
+
+
 def _approve(project: Project) -> None:
     cs.send_event(project, E.APPROVE, ME, gamma=1.2, factor_version="fv1")
 
