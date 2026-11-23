@@ -51,6 +51,7 @@ __all__ = [
     "load_reference",
     "load_samples",
     "ranker_features",
+    "require_finite",
     "roc_auc",
     "score",
     "scores_from_json",
@@ -265,12 +266,16 @@ def score(samples: Sequence[Sample], scores: Sequence[float]) -> Scores:
 # --- one training run -----------------------------------------------------------------------
 
 
-def load_samples() -> list[Sample]:
-    """The labelled ranges of the downloaded file; a skip (from ``fetch``) when it is not here."""
+def load_samples(dataset: str = DATASET) -> list[Sample]:
+    """The labelled ranges of the downloaded file; a skip (from ``fetch``) when it is not here.
+
+    *dataset* is a manifest id; callers that hold the reference file pass its
+    ``dataset.id``, so the file read is the one the reference names (#1226).
+    """
     from _openfret import read_openfret
     from reference_data import fetch
 
-    return labelled_samples(read_openfret(fetch.path_for(DATASET)).traces)
+    return labelled_samples(read_openfret(fetch.path_for(dataset)).traces)
 
 
 @dataclass(frozen=True)
@@ -293,34 +298,50 @@ def train_and_score(
     seed of the reference file. ``quantities`` are what the golden file freezes: the loss of each
     epoch, the score of each test range, the three metrics and two sums of the train tensor
     (which move when the data preparation changes even if no score does).
+
+    Both datasets are cropped to the reference ``training.window_length``, the window the ranker
+    comparison reads too (#1226). A non-finite loss or input sum raises :class:`ValueError`, so
+    the updater can never freeze ``"nan"`` into a golden file.
     """
     from tether.ml.deep.model import predict_proba, train_classifier
 
     train, test = split(samples, reference["split"]["test_traces"])
-    data_train = deep_dataset(train)
-    data_test = deep_dataset(test)
+    window_length = int(reference["training"]["window_length"])
+    data_train = deep_dataset(train, window_length=window_length)
+    data_test = deep_dataset(test, window_length=window_length)
     seed = int(reference["training"]["seed"] if seed is None else seed)
     trained = train_classifier(data_train, seed=seed)
     proba = np.asarray(predict_proba(trained, data_test), dtype=np.float64)
     result = score(test, proba)
     x = data_train.X.astype(np.float64)
-    quantities = frozen_quantities(
-        {
-            "n_train_ranges": len(train),
-            "n_test_ranges": len(test),
-            "train_input_sum": float(x.sum()),
-            "train_input_sum_of_squares": float((x * x).sum()),
-            "loss_history": [float(v) for v in trained.history],
-            "test_scores": [float(v) for v in proba],
-            "roc_auc": result.roc_auc,
-            "balanced_accuracy": result.balanced_accuracy,
-            "precision_at_k": result.precision_at_k,
-        }
-    )
+    raw = {
+        "n_train_ranges": len(train),
+        "n_test_ranges": len(test),
+        "train_input_sum": float(x.sum()),
+        "train_input_sum_of_squares": float((x * x).sum()),
+        "loss_history": [float(v) for v in trained.history],
+        "test_scores": [float(v) for v in proba],
+        "roc_auc": result.roc_auc,
+        "balanced_accuracy": result.balanced_accuracy,
+        "precision_at_k": result.precision_at_k,
+    }
+    require_finite(raw)
+    quantities = frozen_quantities(raw)
     return Run(trained, tuple(train), tuple(test), result, quantities)
 
 
 # --- the golden file and the job summary ------------------------------------------------------
+
+
+def require_finite(raw: Mapping[str, Any]) -> None:
+    """Raise :class:`ValueError` naming every quantity of *raw* that holds a non-finite float."""
+    bad = [
+        key
+        for key, value in raw.items()
+        if not np.all(np.isfinite(np.asarray(value, dtype=np.float64)))
+    ]
+    if bad:
+        raise ValueError(f"non-finite training numbers, not frozen: {', '.join(sorted(bad))}")
 
 
 def frozen_quantities(raw: Mapping[str, Any]) -> dict[str, Any]:

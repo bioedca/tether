@@ -60,6 +60,19 @@ key only when that key holds a valid answer; anything else in the file is droppe
 trace-color write on a file with no consent answer leaves the update check *pending*, and the
 consent write keeps a stored palette.
 
+**The writes take turns, and a write never guesses at a file it cannot read**
+([#1254](https://github.com/bioedca/tether/issues/1254)). Two writers make two ways to lose the
+other's answer, which the review of #636 found: two instances that each read before either
+replaces the file, and a file that exists but cannot be read, which the reader treats as unset.
+So the read and the replace hold the operating-system lock that ADR-0122 gives
+`preferences.json` (#1171), on an empty file beside this one, `settings.json.lock`; it is the same
+code, not a second implementation. The lock belongs to the open handle, so it ends when an
+instance exits or crashes, and the lock file blocks nothing. A write that cannot take it within
+five seconds fails. A write whose read fails for any reason other than a missing file also fails,
+with `OSError`, and leaves the file as it was. Both failures are a failed write like a full disk,
+which the shell already reports on the status bar. Reading is unchanged: it takes no lock, never
+raises and never creates a file, so an unreadable file still reads as unset and never as consent.
+
 **Who reads it.** `create_shell` reads the stored palette before it builds the shell and
 applies it; unset is the default, `safe`. Nothing outside `tether.gui` imports the module, as
 before, and the read still imports no Qt, NumPy or HDF5.
@@ -75,12 +88,18 @@ a further key needs its own record. The window theme (**View → Theme**) is not
   the palette, which then reads as the default; that is the safe direction.
 - Bad / trade-off: the file is no longer single-purpose, so a reader of ADR-0095 alone has a
   stale picture of its contents; ADR-0095's index row and `docs/install.md` point here.
+- Bad / trade-off: a second file, `settings.json.lock`, stays beside the settings file. It is
+  empty and is what lets two instances write without dropping an answer (#1254).
+- Bad / trade-off: a settings file the user cannot read can no longer be written over by
+  Tether; the answer given then applies for the session only, until the file is readable or
+  removed.
 
 ## More information
 
 - Implementation: `src/tether/gui/app_settings.py` (`stored_trace_colors`, `record_trace_colors`),
   `src/tether/gui/theme.py` (`set_trace_palette`), `src/tether/gui/shell.py` (**View → Trace
   colors**), `src/tether/gui/app.py` (`create_shell`).
-- Tests: `tests/test_gui_trace_colors.py`, `tests/test_app_settings.py`.
+- Tests: `tests/test_gui_trace_colors.py`, `tests/test_app_settings.py` (the two writers that
+  race and the unreadable file of #1254, and the lock held by another instance).
 - User pages: `docs/reference/gui-theme.md` (*Select the trace colors*), `docs/install.md`
   (*Settings Tether keeps outside the install folder*).

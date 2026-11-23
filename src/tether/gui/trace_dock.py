@@ -98,6 +98,11 @@ class TraceView:
         from. Carried so the shell's accept/reject and one-click idealize (``I``)
         handlers can resolve the selected trace back to its store row; ``None``
         for a synthetic trace with no backing store.
+    analysis_window
+        Optional stored analysis window as ``(start, stop)`` frame indices **into
+        this trace** (``0 <= start < stop <= n_frames``), the frames the analysis
+        reads (§7.2). The dock marks it and draws the idealization overlay only
+        inside it. ``None`` when unknown, which the dock treats as the whole trace.
     """
 
     donor: np.ndarray
@@ -105,6 +110,7 @@ class TraceView:
     frame_time: float | None = None
     name: str | None = None
     molecule_key: str | None = None
+    analysis_window: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         # Defensive copies (``np.array`` always copies), so the stored arrays never
@@ -134,6 +140,9 @@ class TraceView:
         acceptor.setflags(write=False)
         object.__setattr__(self, "donor", donor)
         object.__setattr__(self, "acceptor", acceptor)
+        if self.analysis_window is not None:
+            window = _checked_window(self.analysis_window, int(donor.size))
+            object.__setattr__(self, "analysis_window", window)
 
     @property
     def n_frames(self) -> int:
@@ -160,6 +169,26 @@ class TraceView:
         if mode == "seconds" and self.frame_time is not None:
             return frames * float(self.frame_time)
         return frames
+
+
+def _checked_window(window: object, n_frames: int) -> tuple[int, int]:
+    """Return ``window`` as an ``(start, stop)`` int pair inside ``[0, n_frames]``.
+
+    Raises [`ValueError`][] unless it is two integers with ``0 <= start < stop <= n_frames``.
+    """
+    try:
+        start, stop = window  # type: ignore[misc]
+    except (TypeError, ValueError):
+        raise ValueError(f"analysis_window must be a (start, stop) pair, got {window!r}") from None
+    for value in (start, stop):
+        if isinstance(value, bool) or not isinstance(value, int | np.integer):
+            raise ValueError(f"analysis_window bounds must be integers, got {window!r}")
+    start, stop = int(start), int(stop)
+    if not 0 <= start < stop <= n_frames:
+        raise ValueError(
+            f"analysis_window must satisfy 0 <= start < stop <= {n_frames}, got ({start}, {stop})"
+        )
+    return start, stop
 
 
 def _marginal_histogram(
@@ -264,6 +293,10 @@ class TraceDock:
         # analysis window), or None when nothing is idealized. Kept so a seconds/
         # frame-index toggle re-lays the overlay on the new x-axis (see _render).
         self._idealized: np.ndarray | None = None
+        # The stored analysis window drawn for the current trace, as trace-relative
+        # (start, stop) frames, or None (the whole trace). set_trace takes it from the
+        # trace; set_analysis_window replaces it after a curation edit (#359).
+        self._window: tuple[int, int] | None = None
         # Preference; the *effective* mode also depends on whether the current
         # trace carries a frame_time (a frame-index-only trace forces "frames").
         self._time_mode: TimeMode = "seconds" if seconds_by_default else "frames"
@@ -350,6 +383,15 @@ class TraceDock:
         # Reserved idealization step overlay (empty/hidden until M2 S6).
         self._idealization_curve = self._fret_plot.plot([], [], stepMode="center")
         self._idealization_curve.setVisible(False)
+        # The analysis-window bounds on the FRET panel: a line at the first frame
+        # inside the window and one at the first frame after it (#359).
+        self._window_lines = (
+            pg.InfiniteLine(pos=0.0, angle=90, movable=False),
+            pg.InfiniteLine(pos=0.0, angle=90, movable=False),
+        )
+        for line in self._window_lines:
+            self._fret_plot.addItem(line, ignoreBounds=True)
+            line.setVisible(False)
         self._crosscorr_curve = self._crosscorr_plot.plot([], [])
         self._set_crosscorr_axis_label()
 
@@ -378,6 +420,9 @@ class TraceDock:
         reference = pg.mkPen(active.color("plot-axis"), width=1.0, style=self._dash_line())
         self._crosscorr_zero.setPen(reference)
         self._crosscorr_lag0.setPen(reference)
+        bound = pg.mkPen(active.trace("idealized"), width=1.0, style=self._dash_line())
+        for line in self._window_lines:
+            line.setPen(bound)
         self._crosscorr_text.setColor(active.color("text"))
         for bars in (self._intensity_bars, self._fret_bars):
             if bars is not None:
@@ -483,6 +528,19 @@ class TraceDock:
         return self._idealization_curve
 
     @property
+    def analysis_window(self) -> tuple[int, int] | None:
+        """The analysis window drawn, as trace-relative ``(start, stop)`` frames, or ``None``.
+
+        ``None`` means no window is known and the whole trace is shown as analysed.
+        """
+        return self._window
+
+    @property
+    def window_lines(self) -> tuple[pg.InfiniteLine, pg.InfiniteLine]:
+        """The FRET panel's two analysis-window bound lines (hidden with no window)."""
+        return self._window_lines
+
+    @property
     def idealized_path(self) -> np.ndarray | None:
         """The current per-frame idealization overlay array, or ``None`` if unset."""
         return self._idealized
@@ -514,6 +572,7 @@ class TraceDock:
         # A new molecule invalidates any prior idealization overlay (_render below
         # hides it via _render_idealization); one-click idealize repopulates it.
         self._idealized = None
+        self._window = trace.analysis_window
         # The cross-correlation depends only on the trace, so it is computed once
         # here; a time-mode toggle only re-lays its lag axis (_render_crosscorr).
         self._crosscorr, self._crosscorr_message = self._compute_crosscorr(trace)
@@ -541,10 +600,28 @@ class TraceDock:
         if self._trace is not None:
             self._render()
 
+    def set_analysis_window(self, window: tuple[int, int] | None) -> None:
+        """Redraw the current trace's analysis window after it was edited (#359).
+
+        ``window`` is trace-relative ``(start, stop)``, as
+        [`TraceView.analysis_window`][tether.gui.trace_dock.TraceView]; ``None`` shows
+        the whole trace. The bound lines move and the idealization overlay is redrawn
+        inside the new bounds, so the window on screen is the stored one. Raises if no
+        trace is shown or the window does not fit it.
+        """
+        if self._trace is None:
+            raise RuntimeError("set_trace before its analysis window")
+        self._window = None if window is None else _checked_window(window, self._trace.n_frames)
+        self._render_window()
+        self._render_idealization()
+
     def clear(self) -> None:
         """Remove the current trace and blank every curve/histogram."""
         self._trace = None
         self._idealized = None
+        self._window = None
+        for line in self._window_lines:
+            line.setVisible(False)
         for curve in (self._donor_curve, self._acceptor_curve, self._total_curve, self._fret_curve):
             curve.setData([], [])
         self._idealization_curve.setData([], [])
@@ -622,10 +699,27 @@ class TraceDock:
         self._intensity_bars = self._draw_bars(
             self._intensity_hist, self._intensity_bars, i_counts, i_centers, i_width
         )
-        # Re-lay the idealization overlay on the (possibly new) x-axis so a
-        # seconds/frame-index toggle moves it in lock-step with the FRET curve.
+        # Re-lay the idealization overlay and the window bounds on the (possibly new)
+        # x-axis so a seconds/frame-index toggle moves them with the FRET curve.
+        self._render_window()
         self._render_idealization()
         self._render_crosscorr()
+
+    def _render_window(self) -> None:
+        """Place the two bound lines at the window's first frame and first frame after it.
+
+        Each line sits on a frame edge (half a step before the frame), the same edges
+        the idealization step overlay is drawn between. No window hides both lines.
+        """
+        window = self._window
+        if window is None or self._trace is None:
+            for line in self._window_lines:
+                line.setVisible(False)
+            return
+        step = self._axis_step()
+        for line, frame in zip(self._window_lines, window, strict=True):
+            line.setPos((frame - 0.5) * step)
+            line.setVisible(True)
 
     def _compute_crosscorr(self, trace: TraceView) -> tuple[CrossCorrelation | None, str | None]:
         """Return ``(curve, None)`` for ``trace``, or ``(None, note)`` when there is none.
@@ -699,6 +793,12 @@ class TraceDock:
         an all-NaN path) hides the reserved curve.
         """
         arr = self._idealized
+        if arr is not None and self._window is not None:
+            # Only the stored window is drawn: after a window edit the overlay shows
+            # the fitted levels inside the new bounds and nothing outside them (#359).
+            inside = np.zeros(arr.size, dtype=bool)
+            inside[self._window[0] : self._window[1]] = True
+            arr = np.where(inside, arr, np.nan)
         if arr is None or self._trace is None or not np.isfinite(arr).any():
             self._idealization_curve.setData([], [])
             self._idealization_curve.setVisible(False)

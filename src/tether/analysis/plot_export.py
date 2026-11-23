@@ -250,23 +250,31 @@ def series_style(index: int) -> SeriesStyle:
     """The style of the series at position ``index`` of a figure (`SERIES_COLOR_CYCLE`).
 
     The cycle is deterministic: the same position always gets the same style, so
-    re-rendering one composition gives the same figure. Colours change first, then the
-    line style; after 16 series the cycle starts again.
+    re-rendering one composition gives the same figure. Colors change first, then the
+    line style. After 16 series the cycle starts again.
 
     Parameters
     ----------
-    index
-        The zero-based position of the series in the figure's ordered sequence.
+    index : int
+        The zero-based position of the series in the ordered sequence of the figure.
 
     Returns
     -------
     SeriesStyle
-        The colour, line style and bar hatch of that series.
+        The color (from [`SERIES_COLORS`][]), the line style (from
+        [`SERIES_LINESTYLES`][]) and the bar hatch of that series.
 
     Raises
     ------
     ValueError
-        ``index`` is negative.
+        If ``index`` is negative.
+
+    Examples
+    --------
+    >>> from tether.analysis.plot_export import series_style
+    >>> style = series_style(4)
+    >>> style.color == series_style(0).color, style.linestyle
+    (True, '--')
     """
     if index < 0:
         raise ValueError(f"a series index cannot be negative, got {index}")
@@ -454,44 +462,81 @@ def export_figure(
 
     Parameters
     ----------
-    figure
-        The rendered figure (typically from a ``render_*`` helper).
-    out_stem
-        The output path *without* an extension; each format appends its own
-        (``<stem>.pdf``/``.svg``/``.png``). The sidecar is ``<stem>.provenance.json``.
-    tether_export
-        The export kind (e.g. ``"plot:tdp"``), recorded in the stamp and metadata.
-    source
-        The source project / dataset identifier for the provenance sidecar.
-    parameters
-        The plot parameters to record (bins, ranges, model name, …) — the §7.9
-        *"stamped with provenance and parameters"* payload. How the ``render_*``
-        helper drew the data (for example the TDP ``color_scale``) is added under
-        ``"display"`` from the figure itself; a ``"display"`` entry here that
-        contradicts the figure raises `ValueError`. A figure drawn from a sequence
-        of ``(label, result)`` series adds ``"series"``: one record per series, in figure
-        order, with its ``label``, its ``result`` type, the ``parameters`` that result
-        carries and its ``display`` record. To record more per series (the selection,
-        its levers, its frame time), pass ``parameters["series"]`` as a list of one dict
-        per series; each is merged into its record, and a key that contradicts the record
-        raises `ValueError`.
-    title
-        Optional human title embedded in the document metadata; defaults to
+    figure : matplotlib.figure.Figure
+        The figure to write, usually from one of the ``render_*`` functions.
+    out_stem : str or os.PathLike
+        The output path with no extension. Each format adds its own extension
+        (``<stem>.pdf``, ``<stem>.svg``, ``<stem>.png``). The provenance file is
+        ``<stem>.provenance.json``.
+    tether_export : str
+        The export kind, for example ``"plot:tdp"``. The stamp and the file metadata
+        record it.
+    source : str
+        The name of the source project or data set, recorded in the provenance file.
+    parameters : dict of str to object
+        The plot parameters to record, such as the bins, the ranges and the model name.
+        This is the *"stamped with provenance and parameters"* record of PRD §7.9. The
+        function adds how the ``render_*`` function drew the data (for example the TDP
+        ``color_scale``) under ``"display"``, read from the figure itself. A
+        ``"display"`` entry given here may repeat that record but not contradict it.
+        A figure drawn from a sequence of ``(label, result)`` series adds
+        ``"series"``: one record for each series, in figure order, with its ``label``,
+        its ``result`` type, the ``parameters`` that result carries and its ``display``
+        record. To record more for each series (the selection, its levers, its frame
+        time), pass ``parameters["series"]`` as one dict per series in a list or tuple.
+        Each dict is merged into the record of its series and may not contradict it.
+    title : str or None, optional
+        The title in the document metadata. The default ``None`` uses
         ``tether_export``.
-    formats
-        Which of ``{"pdf", "svg", "png"}`` to write (default all three).
-    dpi
-        Raster (PNG) resolution; ignored by the vector formats.
-    stamp
-        Whether to draw the visible on-figure footer (default ``True``).
-    created_utc
-        Optional fixed ISO-8601 UTC timestamp (for reproducible exports); defaults
-        to *now*.
+    formats : tuple of str, optional
+        The formats to write, a subset of ``("pdf", "svg", "png")``. The default
+        [`DEFAULT_PLOT_FORMATS`][] writes all three.
+    dpi : int, optional
+        The resolution in dots per inch for PNG and rasterized content within PDF or SVG.
+        The default is [`DEFAULT_EXPORT_DPI`][] (200 dots per inch).
+    stamp : bool, optional
+        Whether to draw the visible provenance footer on the figure. The default is
+        ``True``.
+    created_utc : str or None, optional
+        A fixed ISO-8601 UTC timestamp for the stamp. With it, the export of a freshly
+        rendered, equal figure gives the same files again. Export each figure once: with
+        ``stamp=True`` every call draws one more footer on the figure, so a second
+        export of the same figure differs. The default ``None`` uses the current time.
 
     Returns
     -------
     PlotExportResult
-        The stem, the ``{format: path}`` map, and the provenance sidecar path.
+        The stem, the map of each format to the path written, and the path of the
+        provenance file.
+
+    Raises
+    ------
+    ValueError
+        If ``formats`` is empty or names a format other than ``"pdf"``, ``"svg"`` or
+        ``"png"``. A non-``None`` ``parameters["display"]`` value must be a dict and
+        agree with the figure. For a named-series figure, ``parameters["series"]``
+        must be ``None`` or a list or tuple with one dict per drawn series.
+        Each dict must agree with that series as drawn.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import apparent_e_histogram
+    >>> from tether.analysis.plot_export import export_figure, render_histogram1d
+    >>> fig = render_histogram1d(apparent_e_histogram(np.array([0.2, 0.3, 0.7, 0.8])))
+    >>> with tempfile.TemporaryDirectory() as tmp:
+    ...     result = export_figure(
+    ...         fig,
+    ...         Path(tmp) / "a1",
+    ...         tether_export="plot:a1",
+    ...         source="demo",
+    ...         parameters={"bins": 50},
+    ...         created_utc="2026-01-01T00:00:00+00:00",
+    ...     )
+    ...     print(result.formats, result.provenance_path.name)
+    ('pdf', 'svg', 'png') a1.provenance.json
     """
     unknown = set(formats) - set(DEFAULT_PLOT_FORMATS)
     if unknown:
@@ -903,36 +948,61 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
-    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
-    percentile band is drawn as a shaded region). An optional
-    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
-    model's per-state Gaussians and their sum.
-
-    **Several series** are overlaid on one axis: each is an unfilled step outline in its
-    `series_style`, labelled with its label and ``N``; a bootstrap band is shaded in the
-    series colour. A model overlay of a series is drawn as its total only, dotted in the
-    series colour; the per-state components are left out, because their state colours
-    would read as more series.
+    **Several series** are overlaid on one axis. Each is an unfilled step outline in its
+    [`series_style`][], labeled with its label and, when it is known, ``N``, and a
+    bootstrap band is shaded in the series color. The model overlay of a series is
+    drawn as its total only, dotted in the series color. The per-state components are
+    left out, because their state colors would read as more series.
 
     Parameters
     ----------
-    hist
-        One histogram, or an ordered sequence of ``(label, histogram)`` series. A
-        one-series sequence draws the same figure as the bare histogram.
-    overlay
-        For one histogram, one model overlay or ``None``. For several series, a sequence
-        of one overlay (or ``None``) per series, in series order.
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    hist : Histogram1D or HistogramBootstrapCI, or sequence of (str, histogram)
+        The histogram to draw: a bare
+        [`Histogram1D`][tether.analysis.histogram.Histogram1D], or a
+        [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI], whose
+        per-bin percentile band is drawn as a shaded region. Or an ordered sequence of
+        ``(label, histogram)`` series: a one-series sequence draws the same figure as
+        the bare histogram. Apparent FRET efficiency is unitless.
+    overlay : ModelGaussianOverlay or None, or sequence of them, optional
+        A [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] to draw
+        over the histogram: the Gaussian of each state of the idealized model, and their
+        sum. With a series sequence, pass one overlay (or ``None``) per series,
+        in series order. The default ``None`` draws no overlay.
+    title : str, optional
+        The axes title. The default is ``"FRET-efficiency histogram (A1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        Two series differ in their bin edges, value range or density normalization, or a
-        single overlay was given for several series.
+        If the series sequence is empty, a label is blank, repeated or not a string, or
+        bin edges, value ranges, or density normalization differ. An overlay sequence
+        must have one entry per series. One overlay cannot serve several series.
+    TypeError
+        If ``hist`` is neither a histogram nor an ordered sequence of ``(label, histogram)``
+        pairs, or ``overlay`` is outside the types described above.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import apparent_e_histogram
+    >>> from tether.analysis.plot_export import render_histogram1d
+    >>> hist = apparent_e_histogram(np.array([0.2, 0.3, 0.3, 0.7, 0.8]))
+    >>> fig = render_histogram1d(hist)
+    >>> len(fig.axes)
+    1
+    >>> other = apparent_e_histogram(np.array([0.6, 0.7, 0.7, 0.8]))
+    >>> fig = render_histogram1d([("before", hist), ("after", other)])
+    >>> [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    ['before', 'after']
     """
     series = _as_series(
         hist, (Histogram1D, HistogramBootstrapCI), "Histogram1D or HistogramBootstrapCI"
@@ -1094,27 +1164,55 @@ def render_histogram2d(
 ) -> Figure:
     """Render the A2 2-D time-vs-signal occupancy heatmap (Appendix C A2).
 
-    **Several series** are drawn as small multiples, one panel per series in series order
-    and titled with its label: one heatmap overplotted on another hides both. The panels
-    share their axes and one colour scale, so a colour means the same value in every
-    panel, and one colour bar serves them all.
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label: one heatmap drawn over another hides both. The
+    panels share their axes and one color scale, so a color means the same value in
+    every panel, and one color bar serves them all.
 
     Parameters
     ----------
-    hist
-        One heatmap, or an ordered sequence of ``(label, heatmap)`` series. A one-series
-        sequence draws the same figure as the bare heatmap.
-    title
-        The axes title; for several series, the figure title above the panels.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one heatmap and to a
-        size that fits the panels for several.
+    hist : Histogram2D or sequence of (str, Histogram2D)
+        The heatmap to draw, from
+        [`time_signal_histogram2d`][tether.analysis.histogram.time_signal_histogram2d] or
+        [`population_time_signal_histogram2d`][tether.analysis.histogram.population_time_signal_histogram2d],
+        or an ordered sequence of ``(label, heatmap)`` series. A one-series sequence
+        draws the same figure as the bare heatmap. The time axis is drawn in seconds
+        when its ``time_dt`` (seconds per frame) is not ``1.0``, and in frames
+        otherwise. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Time-vs-signal heatmap (A2)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one heatmap, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the heatmap axes (one
+        per series) and one color bar.
 
     Raises
     ------
     ValueError
-        Two series differ in their time or signal bin edges, frame time, signal range or
+        If ``hist`` is an empty sequence, or a series label is empty or used twice, or if
+        two series differ in their time or signal bin edges, frame time, signal range or
         density normalization.
+    TypeError
+        If ``hist`` is neither a heatmap nor an ordered sequence of ``(label, heatmap)``
+        pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import time_signal_histogram2d
+    >>> from tether.analysis.plot_export import render_histogram2d
+    >>> hist = time_signal_histogram2d([np.array([0.2, 0.2, 0.8, 0.8])])
+    >>> fig = render_histogram2d(hist)
+    >>> len(fig.axes), fig.axes[0].get_xlabel()
+    (2, 'Frame')
     """
     series = _as_series(hist, (Histogram2D,), "Histogram2D")
     if series is None or len(series) == 1:
@@ -1238,42 +1336,71 @@ def render_transition_density(
 ) -> Figure:
     """Render the B1 real transition-density plot: initial vs final idealized E.
 
-    **Several series** are drawn as small multiples, one panel per series in series order
-    and titled with its label, because one density overplotted on another hides both. The
-    panels share their axes and one colour scale (log or linear, over the bins of every
-    panel), so a colour means the same density in every panel, and one colour bar serves
-    them all.
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label, because one density drawn over another hides
+    both. The panels share their axes and one color scale (log or linear, over the bins
+    of every panel), so a color means the same density in every panel, and one color
+    bar serves them all.
 
     Parameters
     ----------
-    tdp
-        The binned transition density to draw, or its smoothed view from
+    tdp : TransitionDensityPlot or SmoothedTransitionDensity, or sequence of (str, density)
+        The binned transition density to draw, from
+        [`transition_density`][tether.analysis.tdp.transition_density] or
+        [`population_transition_density`][tether.analysis.tdp.population_transition_density],
+        or its smoothed view from
         [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density]. The
-        counts are drawn bin by bin; the smoothed view is drawn as an image on its
-        interpolation grid, as the published ``checkTDP.py`` draws it, and its smoothing
-        settings are recorded in the provenance sidecar under
+        counts are drawn bin by bin. The smoothed view is drawn as an image on its
+        interpolation grid, as the published ``checkTDP.py`` draws it, and
+        [`export_figure`][] records its smoothing settings in the provenance file under
         ``parameters["display"]["smoothing"]``. Or an ordered sequence of
         ``(label, density)`` series: a one-series sequence draws the same figure as the
-        bare density, and several series must all be binned densities.
-    title
-        The axes title; for several series, the figure title above the panels.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one density and to a
-        size that fits the panels for several.
-    color_scale
-        ``"log"`` (default, [`DEFAULT_TDP_COLOR_SCALE`][]) or ``"linear"``. PRD
-        Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
-        beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
-        colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
-        drawn array is ``tdp.counts`` (or the smoothed ``tdp.values``) unchanged — and
-        [`export_figure`][] records it in the provenance sidecar under
+        bare density, and several series must all be binned densities. Apparent FRET
+        efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Transition-density plot (B1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one density, and a size that fits
+        the panels for several series.
+    color_scale : str, optional
+        ``"log"`` or ``"linear"``. The default is [`DEFAULT_TDP_COLOR_SCALE`][]
+        (``"log"``). PRD Appendix C B1 names the TDP log-normalized, so a rare
+        transition stays visible beside a dominant one. The log scale is zero-safe: an
+        empty bin is drawn in the floor color of the color map, never as ``-inf`` or a
+        hole. The scale changes only the display: the drawn array is ``tdp.counts`` (or
+        the smoothed ``tdp.values``) unchanged. [`export_figure`][] records the scale in
+        the provenance file under
         ``parameters["display"]["color_scale"]``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the plot axes (one per
+        series) and one color bar.
 
     Raises
     ------
     ValueError
-        ``color_scale`` is unknown, two series differ in their signal bin edges, signal
-        range or density normalization, or one of several series is a smoothed view.
+        If ``tdp`` is an empty sequence, or a series label is empty or used twice, or if
+        ``color_scale`` is not one of [`TDP_COLOR_SCALES`][], two series differ in their
+        signal bin edges, signal range or density normalization, or one of several series is
+        a smoothed view.
+    TypeError
+        If ``tdp`` is neither a density nor an ordered sequence of ``(label, density)``
+        pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_transition_density
+    >>> from tether.analysis.tdp import transition_density
+    >>> tdp = transition_density([np.array([0.2, 0.2, 0.8, 0.8, 0.2])])
+    >>> fig = render_transition_density(tdp, color_scale="linear")
+    >>> len(fig.axes)
+    2
     """
     series = _as_series(
         tdp, (TransitionDensityPlot, SmoothedTransitionDensity), "TransitionDensityPlot"
@@ -1432,32 +1559,74 @@ def render_dwell_survival(
     title: str | None = None,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the B2 dwell-time survival curve for one state, with its exponential fit
-    and (when fitted) a residuals subplot.
+    """Render the B2 dwell-time survival curve of one state, with its exponential fit.
 
-    **Several series** are overlaid on one log axis: each series' survival markers and fit
-    curve take its colour, the fit its line style, and the markers (survival and residual)
-    a shape that steps with the line style, so an unfitted fifth series is not drawn like
-    the first. The residuals of every fitted series share the residual panel. The legend
-    names each series' state and ``N``; the note lists each fit's rates and each series'
-    dwell count and idealized FRET level.
+    When the fit succeeded, a second axes below the curve shows the fit residuals.
+
+    **Several series** are overlaid on one log axis. The survival markers and the fit
+    curve of each series take its color, the fit takes its line style, and the markers
+    (survival and residual) take a shape that steps with the line style, so an unfitted
+    fifth series is not drawn like the first. The residuals of every fitted series share
+    the residual panel. The legend names the state and ``N`` of each series, and the
+    note lists the rates of each fit and the dwell count and idealized FRET level of
+    each series.
 
     Parameters
     ----------
-    analysis
-        One dwell analysis, or an ordered sequence of ``(label, analysis)`` series. A
-        one-series sequence draws the same figure as the bare analysis.
-    title
-        The axes title; defaults to one that names the state (for several series,
-        ``"Dwell survival (B2)"``).
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    analysis : DwellTimeAnalysis or sequence of (str, DwellTimeAnalysis)
+        The dwell-time analysis of one state, from
+        [`population_dwell_times`][tether.analysis.dwell.population_dwell_times], or an
+        ordered sequence of ``(label, analysis)`` series. A one-series sequence draws
+        the same figure as the bare analysis. The time axis is drawn in seconds when its
+        ``dt`` (seconds per frame) is not ``1.0``, and in frames otherwise. The survival
+        is unitless, and each fitted rate ``k`` is in ``1 / seconds`` or ``1 / frames``
+        to match.
+    title : str or None, optional
+        The axes title. The default ``None`` uses
+        ``"Dwell survival — state <state> (B2)"``, or ``"Dwell survival (B2)"`` for
+        several series.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has two axes when a fit
+        succeeded, and one otherwise.
 
     Raises
     ------
     ValueError
-        Two series differ in their frame time ``dt``, so their dwell times are not on one
-        axis.
+        If ``analysis`` is an empty sequence, or a series label is empty or used twice, or
+        if two series differ in their frame time ``dt``, so that their dwell times are not
+        on one axis.
+    TypeError
+        If ``analysis`` is neither a dwell analysis nor an ordered sequence of ``(label,
+        dwell analysis)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.dwell import DwellTimeAnalysis, fit_survival, survival_curve
+    >>> from tether.analysis.plot_export import render_dwell_survival
+    >>> lengths = np.array([1, 2, 2, 3, 5])
+    >>> tau, survival = survival_curve(lengths)
+    >>> analysis = DwellTimeAnalysis(
+    ...     state=0,
+    ...     level=0.2,
+    ...     dt=1.0,
+    ...     dwell_lengths=lengths,
+    ...     n_dwells=5,
+    ...     n_molecules=2,
+    ...     tau=tau,
+    ...     survival=survival,
+    ...     fit=fit_survival(tau, survival),
+    ... )
+    >>> fig = render_dwell_survival(analysis)
+    >>> len(fig.axes), fig.axes[-1].get_xlabel()
+    (2, 'Dwell time (frames)')
     """
     series = _as_series(analysis, (DwellTimeAnalysis,), "DwellTimeAnalysis")
     if series is None or len(series) == 1:
@@ -1616,28 +1785,58 @@ def render_transition_prob(
     title: str | None = None,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the B3 transition-probability histogram for one ``init → final`` pair,
-    with the optional Gaussian-KDE overlay.
+    """Render the B3 transition-probability histogram of one ``init → final`` pair.
+
+    When the histogram carries a Gaussian kernel density estimate (KDE), the estimate is
+    drawn over the bars.
 
     **Several series** are overlaid on one axis as unfilled step outlines in their
-    `series_style`, each labelled with its label and ``N``; a series' KDE is drawn in its
-    colour. The series must be histograms of the same pair, because the axis names one.
+    [`series_style`][], each labeled with its label and ``N``, and the KDE of a series
+    is drawn in its color. The series must be histograms of the same pair, because the
+    axis names one.
 
     Parameters
     ----------
-    hist
-        One histogram, or an ordered sequence of ``(label, histogram)`` series. A
-        one-series sequence draws the same figure as the bare histogram.
-    title
-        The axes title; defaults to one that names the pair.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    hist : TransitionProbHistogram or sequence of (str, TransitionProbHistogram)
+        The per-molecule transition probabilities to draw, from
+        [`transition_prob_histogram`][tether.analysis.transition_prob.transition_prob_histogram]
+        or
+        [`population_transition_prob_histogram`][tether.analysis.transition_prob.population_transition_prob_histogram],
+        or an ordered sequence of ``(label, histogram)`` series. A one-series sequence
+        draws the same figure as the bare histogram. A probability is unitless.
+    title : str or None, optional
+        The axes title. The default ``None`` uses
+        ``"Transition-probability P(init → final) (B3)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        Two series differ in their bin edges, probability range, density normalization or
+        If ``hist`` is an empty sequence, or a series label is empty or used twice, or if
+        two series differ in their bin edges, probability range, density normalization or
         ``init → final`` pair.
+    TypeError
+        If ``hist`` is neither a histogram nor an ordered sequence of ``(label, histogram)``
+        pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_transition_prob
+    >>> from tether.analysis.transition_prob import transition_prob_histogram
+    >>> paths = [np.array([0, 0, 1, 1, 0]), np.array([0, 1, 1, 0, 0])]
+    >>> hist = transition_prob_histogram(paths, init_state=0, final_state=1)
+    >>> fig = render_transition_prob(hist)
+    >>> len(fig.axes)
+    1
     """
     series = _as_series(hist, (TransitionProbHistogram,), "TransitionProbHistogram")
     if series is None or len(series) == 1:
@@ -1741,24 +1940,48 @@ def render_state_number(
 ) -> Figure:
     """Render the C1 state-number bar chart: molecules by number of occupied states.
 
-    **Several series** are drawn as grouped bars: at each state count, one bar per series
-    side by side in series order, in its `series_style` colour (and hatch past the fourth
-    series), each series labelled with its label and ``N``.
+    **Several series** are drawn as grouped bars: at each state count, one bar per
+    series side by side in series order, in the color of its [`series_style`][] (and
+    its hatch past the fourth series), each series labeled with its label and ``N``.
 
     Parameters
     ----------
-    counts
-        One distribution, or an ordered sequence of ``(label, distribution)`` series. A
-        one-series sequence draws the same figure as the bare distribution.
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    counts : StateNumberCounts or sequence of (str, StateNumberCounts)
+        The molecule count of each number of occupied states, from
+        [`state_number_counts`][tether.analysis.state_number.state_number_counts] or
+        [`population_state_number`][tether.analysis.state_number.population_state_number],
+        or an ordered sequence of ``(label, distribution)`` series. A one-series
+        sequence draws the same figure as the bare distribution.
+    title : str, optional
+        The axes title. The default is ``"State-number distribution (C1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        Two series count different state numbers (their ``states`` differ).
+        If ``counts`` is an empty sequence, or a series label is empty or used twice, or if
+        two series count different state numbers (their ``states`` differ).
+    TypeError
+        If ``counts`` is neither a distribution nor an ordered sequence of ``(label,
+        distribution)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_state_number
+    >>> from tether.analysis.state_number import state_number_counts
+    >>> counts = state_number_counts([np.array([0, 1, 1]), np.array([0, 0, 0])])
+    >>> fig = render_state_number(counts)
+    >>> len(fig.axes)
+    1
     """
     series = _as_series(counts, (StateNumberCounts,), "StateNumberCounts")
     if series is None or len(series) == 1:
@@ -1841,37 +2064,66 @@ def render_raw_fret_cloud(
     max_points: int = 20000,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the raw FRET cloud QC view: the pooled ``(time, apparent-E)`` scatter with
-    the KDE density surface and highest-density-region contours when present.
+    """Render the raw FRET cloud QC view: the pooled ``(time, apparent-E)`` scatter.
 
-    ``max_points`` caps the scatter overlay for a manageable vector file; the density
-    surface (when computed) is unaffected by that cap — but it was fit by
-    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
-    (``n_out_of_range`` counts the rest).
+    When the cloud carries them, the kernel density estimate (KDE) surface and the
+    highest-density-region contours are drawn under the scatter.
 
-    **Several series** are drawn as small multiples, one panel per series in series order
-    and titled with its label: two clouds and two density surfaces overplotted hide each
-    other. The panels share their axes and one colour scale for the density surfaces, and
-    ``max_points`` caps each panel's scatter.
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label: two clouds and two density surfaces drawn over
+    each other hide each other. The panels share their axes and one color scale for
+    the density surfaces.
 
     Parameters
     ----------
-    cloud
-        One cloud, or an ordered sequence of ``(label, cloud)`` series. A one-series
-        sequence draws the same figure as the bare cloud.
-    title
-        The axes title; for several series, the figure title above the panels.
-    max_points
-        Cap on each scatter overlay.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one cloud and to a
-        size that fits the panels for several.
+    cloud : RawFretCloud or sequence of (str, RawFretCloud)
+        The pooled cloud to draw, from
+        [`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud] or
+        [`population_raw_fret_cloud`][tether.analysis.cloud.population_raw_fret_cloud],
+        or an ordered sequence of ``(label, cloud)`` series. A one-series sequence draws
+        the same figure as the bare cloud. The time axis is drawn in seconds when its
+        ``time_dt`` (seconds per frame) is not ``1.0``, and in frames otherwise.
+        Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Raw FRET cloud (QC)"``.
+    max_points : int, optional
+        The most points the scatter draws, so that a vector file stays a manageable
+        size. Above it the scatter shows every n-th point. For several series the cap
+        applies to the scatter of each panel. The cap does not change the density
+        surface, which [`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud] fit on
+        the in-range points only (``n_out_of_range`` counts the rest). The default is
+        20000.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one cloud, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the scatter axes (one
+        per series), and a color bar when a cloud carries a density surface.
 
     Raises
     ------
     ValueError
-        Two series differ in their time or signal bin edges, their time or signal range,
-        or their frame time.
+        If ``cloud`` is an empty sequence, or a series label is empty or used twice, or if
+        two series differ in their time or signal bin edges, their time or signal range, or
+        their frame time.
+    TypeError
+        If ``cloud`` is neither a cloud nor an ordered sequence of ``(label, cloud)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import raw_fret_cloud
+    >>> from tether.analysis.plot_export import render_raw_fret_cloud
+    >>> traces = [np.array([0.2, 0.3, 0.7, 0.8]), np.array([0.25, 0.75, 0.7, 0.3])]
+    >>> fig = render_raw_fret_cloud(raw_fret_cloud(traces, kde=False))
+    >>> len(fig.axes)
+    1
     """
     series = _as_series(cloud, (RawFretCloud,), "RawFretCloud")
     if series is None or len(series) == 1:
@@ -2009,25 +2261,51 @@ def render_cross_correlation(
     title: str = "Donor–acceptor cross-correlation",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the donor–acceptor cross-correlation curve vs lag.
+    """Render the donor–acceptor cross-correlation curve against the lag.
 
-    **Several series** are overlaid on one axis, each curve in its `series_style` and
-    labelled with its label and, when known, ``N``.
+    **Several series** are overlaid on one axis, each curve in its [`series_style`][]
+    and labeled with its label and, when it is known, ``N``.
 
     Parameters
     ----------
-    xc
-        One cross-correlation, or an ordered sequence of ``(label, cross-correlation)``
-        series. A one-series sequence draws the same figure as the bare curve.
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    xc : CrossCorrelation or sequence of (str, CrossCorrelation)
+        The cross-correlation to draw, from
+        [`cross_correlation`][tether.analysis.crosscorr.cross_correlation] or
+        [`population_cross_correlation`][tether.analysis.crosscorr.population_cross_correlation],
+        or an ordered sequence of ``(label, cross-correlation)`` series. A one-series
+        sequence draws the same figure as the bare curve. The lag is in frames, and the
+        Pearson-normalized correlation is unitless.
+    title : str, optional
+        The axes title. The default is ``"Donor–acceptor cross-correlation"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        Two series differ in their lags or their normalization.
+        If ``xc`` is an empty sequence, or a series label is empty or used twice, or if two
+        series differ in their lags or their normalization.
+    TypeError
+        If ``xc`` is neither a cross-correlation nor an ordered sequence of ``(label,
+        cross-correlation)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.crosscorr import cross_correlation
+    >>> from tether.analysis.plot_export import render_cross_correlation
+    >>> donor = np.array([1.0, 2.0, 3.0, 2.0, 1.0])
+    >>> acceptor = np.array([3.0, 2.0, 1.0, 2.0, 3.0])
+    >>> fig = render_cross_correlation(cross_correlation(donor, acceptor, max_lag=2))
+    >>> fig.axes[0].get_xlabel()
+    'Lag (frames)'
     """
     series = _as_series(xc, (CrossCorrelation,), "CrossCorrelation")
     if series is None or len(series) == 1:
@@ -2110,40 +2388,76 @@ def render_per_condition_histograms(
 ) -> Figure:
     """Render the §7.7 per-condition overlay: every condition's A1 histogram on one axis.
 
-    Each condition is drawn as an unfilled step outline on the overlay's shared
-    [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid, in
-    the overlay's own (deterministic) order, and labelled with its condition id and its
-    molecule count ``N``. Colours follow the ``tab10`` palette, and past ten conditions
-    the line style changes too, so up to 40 conditions no two curves share both a colour
-    and a line style. Past 40 the pairs repeat (condition 41 is drawn like condition 1),
-    and only the legend labels tell those curves apart.
+    Each condition is drawn as an unfilled step outline on the shared
+    [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid of the
+    overlay, in the overlay's own (deterministic) order. Its legend label gives its
+    condition id and its molecule count ``N``. Colors follow the ``tab10`` palette. Past
+    ten conditions the line style changes too, so that up to 40 conditions no two curves
+    share both a color and a line style. Past 40 the pairs repeat (condition 41 is drawn
+    like condition 1), and only the legend labels tell those curves apart.
 
-    **Several series** are drawn as small multiples, one panel per series in series order
-    and titled with its label: each series is already an overlay of conditions, so a
-    second overlay on the same axis would need a second visual channel to tell selection
-    from condition. A condition keeps one colour and line style in every panel, assigned
-    in the order the conditions first appear across the series, and the panels share
-    their axes.
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label: each series is already an overlay of conditions,
+    so a second overlay on the same axis would need a second visual channel to tell
+    selection from condition. A condition keeps one color and line style in every
+    panel, assigned in the order the conditions first appear across the series, and the
+    panels share their axes.
 
     Parameters
     ----------
-    overlay
+    overlay : PerConditionHistograms or sequence of (str, PerConditionHistograms)
         The per-condition histograms to draw, from
         [`per_condition_apparent_e_histograms`][tether.analysis.histogram.per_condition_apparent_e_histograms],
-        or an ordered sequence of ``(label, overlay)`` series. A one-series sequence draws
-        the same figure as the bare overlay.
-    title
-        The axes title; for several series, the figure title above the panels.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one overlay and to a
-        size that fits the panels for several.
+        or an ordered sequence of ``(label, overlay)`` series. A one-series sequence
+        draws the same figure as the bare overlay. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Per-condition FRET-efficiency histograms (A1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one overlay, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        A condition's histogram is not binned on the overlay's shared grid, so it
-        cannot be drawn on the same axis without misplacing its bins; or two series differ
-        in their bin edges, value range or density normalization.
+        If ``overlay`` is an empty sequence, or a series label is empty or used twice, or if
+        the histogram of a condition is not binned on the shared grid of its overlay, so
+        that it cannot be drawn on the same axis without misplacing its bins, or two series
+        differ in their bin edges, value range or density normalization.
+    TypeError
+        If ``overlay`` is neither a overlay nor an ordered sequence of ``(label, overlay)``
+        pairs.
+
+    Examples
+    --------
+    >>> from dataclasses import replace
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import (
+    ...     ConditionHistogram,
+    ...     PerConditionHistograms,
+    ...     apparent_e_histogram,
+    ... )
+    >>> from tether.analysis.plot_export import render_per_condition_histograms
+    >>> low = replace(apparent_e_histogram(np.array([0.2, 0.3, 0.3])), n_molecules=2)
+    >>> high = replace(apparent_e_histogram(np.array([0.7, 0.7, 0.8])), n_molecules=3)
+    >>> overlay = PerConditionHistograms(
+    ...     histograms=(ConditionHistogram("low", low), ConditionHistogram("high", high)),
+    ...     bin_edges=low.bin_edges,
+    ...     value_range=low.value_range,
+    ...     density=True,
+    ...     per_molecule_equal_weight=False,
+    ...     intensity_quantity="corrected",
+    ... )
+    >>> fig = render_per_condition_histograms(overlay)
+    >>> [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    ['low (N = 2)', 'high (N = 3)']
     """
     series = _as_series(overlay, (PerConditionHistograms,), "PerConditionHistograms")
     if series is None or len(series) == 1:
@@ -2259,28 +2573,57 @@ def render_transition_sync_histogram2d(
     column. The annotation names the selected ``from → to`` states (``any`` for ``-1``)
     and the transition and molecule counts.
 
-    **Several series** are drawn as small multiples, one panel per series in series order
-    and titled with its label: one heatmap overplotted on another hides both. The panels
-    share their axes and one colour scale, and one colour bar serves them all.
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label: one heatmap drawn over another hides both. The
+    panels share their axes and one color scale, and one color bar serves them all.
 
     Parameters
     ----------
-    hist
+    hist : TransitionSyncHistogram2D or sequence of (str, TransitionSyncHistogram2D)
         The transition-aligned heatmap to draw, from
+        [`transition_sync_histogram2d`][tether.analysis.histogram.transition_sync_histogram2d]
+        or
         [`population_transition_sync_histogram2d`][tether.analysis.histogram.population_transition_sync_histogram2d],
-        or an ordered sequence of ``(label, heatmap)`` series. A one-series sequence draws
-        the same figure as the bare heatmap.
-    title
-        The axes title; for several series, the figure title above the panels.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one heatmap and to a
-        size that fits the panels for several.
+        or an ordered sequence of ``(label, heatmap)`` series. A one-series sequence
+        draws the same figure as the bare heatmap. The time axis is drawn in seconds
+        when its ``time_dt`` (seconds per frame) is not ``1.0``, and in frames
+        otherwise. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Transition-synchronized heatmap (A2b)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one heatmap, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the heatmap axes (one
+        per series) and one color bar.
 
     Raises
     ------
     ValueError
-        Two series differ in their time or signal bin edges, frame time, signal range or
+        If ``hist`` is an empty sequence, or a series label is empty or used twice, or if
+        two series differ in their time or signal bin edges, frame time, signal range or
         density normalization.
+    TypeError
+        If ``hist`` is neither a heatmap nor an ordered sequence of ``(label, heatmap)``
+        pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import transition_sync_histogram2d
+    >>> from tether.analysis.plot_export import render_transition_sync_histogram2d
+    >>> path = np.array([0, 0, 0, 1, 1, 1])
+    >>> signal = np.where(path == 0, 0.2, 0.8)
+    >>> hist = transition_sync_histogram2d([(path, signal)], from_state=0, to_state=1)
+    >>> fig = render_transition_sync_histogram2d(hist)
+    >>> fig.axes[0].get_xlabel()
+    'Frames from transition'
     """
     series = _as_series(hist, (TransitionSyncHistogram2D,), "TransitionSyncHistogram2D")
     if series is None or len(series) == 1:
@@ -2392,40 +2735,65 @@ def render_alpha_shape(
     region ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]), or ``alpha``
     was too small to keep any triangle. A boundary is never fabricated.
 
-    **Several series** are overlaid on one axis, because comparing where two populations
-    have support is what the boundary is for: each boundary in its `series_style`, each
-    series' cloud (when given) scattered faintly in its colour, and one note line per
-    series.
+    **Several series** are overlaid on one axis, because comparing where two
+    populations have support is what the boundary is for: each boundary in its
+    [`series_style`][], the cloud of each series (when given) scattered faintly in its
+    color, and one note line per series.
 
     Parameters
     ----------
-    shape
+    shape : AlphaShape or sequence of (str, AlphaShape)
         The α-shape to draw, from
+        [`alpha_shape`][tether.analysis.cloud.alpha_shape] or
         [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape],
         or an ordered sequence of ``(label, shape)`` series. A one-series sequence draws
-        the same figure as the bare shape.
-    cloud
-        Optional [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] the shape was
-        computed from. When given, its points are drawn underneath (decimated to
-        ``max_points``), its ranges set the axis limits and its ``time_dt`` the time unit.
-        For several series, a sequence of one cloud (or ``None``) per series.
-    time_dt
-        Frame duration of the shape's time coordinate, for the axis label when no
-        ``cloud`` is given: ``Time (s)`` when it is not ``1.0``, otherwise ``Frame``.
-        Defaults to the cloud's ``time_dt``, else ``1.0``.
-    title
-        The axes title.
-    max_points
-        Cap on the scatter overlay drawn from ``cloud``; the boundary is never thinned.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        the same figure as the bare shape. Apparent FRET efficiency is unitless.
+    cloud : RawFretCloud or None, or sequence of them, optional
+        The [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] that the shape was
+        computed from. When it is given, its points are drawn underneath (thinned to
+        ``max_points``), its ranges set the axis limits, and its ``time_dt`` sets the
+        time unit. With a series sequence, pass one cloud (or ``None``) per series,
+        in series order. The default ``None`` draws the boundary alone.
+    time_dt : float or None, optional
+        The frame duration of the time coordinate of the shape, in seconds per frame.
+        It sets the axis label when no ``cloud`` is given: ``Time (s)`` when it is not
+        ``1.0``, and ``Frame`` otherwise. The default ``None`` uses the ``time_dt`` of
+        ``cloud``, or ``1.0`` when there is no cloud.
+    title : str, optional
+        The axes title. The default is ``"FRET-cloud support (alpha shape)"``.
+    max_points : int, optional
+        The most points of ``cloud`` that the scatter draws. The boundary is never
+        thinned. The default is 20000.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        ``time_dt`` contradicts the given ``cloud``'s ``time_dt``; or, for several
-        series, a single cloud was given, or two series differ in their frame time or
-        (where both have a cloud) their time or signal range.
+        If the series sequence is empty, a label is blank, repeated or not a string, or
+        ``time_dt`` contradicts a cloud. A cloud sequence must match the series count,
+        and a single cloud cannot serve several series. Series must share a frame time.
+        Any two series with clouds must also share time and signal ranges.
+    TypeError
+        If ``shape`` or ``cloud`` is outside the types described above.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import alpha_shape
+    >>> from tether.analysis.plot_export import render_alpha_shape
+    >>> t, e = np.meshgrid(np.linspace(0.0, 1.0, 5), np.linspace(0.0, 1.0, 5))
+    >>> shape = alpha_shape(np.column_stack([t.ravel(), e.ravel()]), alpha=1.0)
+    >>> fig = render_alpha_shape(shape, time_dt=0.1)
+    >>> fig.axes[0].get_xlabel()
+    'Time (s)'
     """
     series = _as_series(shape, (AlphaShape,), "AlphaShape")
     clouds = _aligned(
@@ -2615,23 +2983,50 @@ def render_state_number_elbow(
     of record (the HMM model view is that), and the annotation says so. A curve with no
     interior elbow is drawn without a marker and annotated "no elbow".
 
-    **Several series** are overlaid on one axis, each curve in its `series_style` with its
-    elbow (when it has one) circled in its colour, and one note line per series. The
-    chords are left out, because a dashed chord per series would read as more series.
-    The probed ``k`` may differ between series: ``k`` is a count, not a binned grid, so the
-    axis carries every ``k`` any series probed.
+    **Several series** are overlaid on one axis, each curve in its [`series_style`][]
+    with its elbow (when it has one) circled in its color, and one note line per series.
+    The chords are left out, because a dashed chord per series would read as more
+    series. The probed ``k`` may differ between series: ``k`` is a count, not a binned
+    grid, so the axis carries every ``k`` that any series probed.
 
     Parameters
     ----------
-    elbow
+    elbow : StateNumberElbow or sequence of (str, StateNumberElbow)
         The elbow curve to draw, from
+        [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] or
         [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow],
         or an ordered sequence of ``(label, curve)`` series. A one-series sequence draws
-        the same figure as the bare curve.
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        the same figure as the bare curve. The RMSE is in apparent FRET efficiency,
+        which is unitless.
+    title : str, optional
+        The axes title. The default is ``"State-number hint (k-vs-RMSE elbow)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it.
+
+    Raises
+    ------
+    ValueError
+        If ``elbow`` is an empty sequence, or a series label is empty or used twice.
+    TypeError
+        If ``elbow`` is neither a curve nor an ordered sequence of ``(label, curve)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import k_rmse_elbow
+    >>> from tether.analysis.plot_export import render_state_number_elbow
+    >>> values = np.array([0.2, 0.21, 0.19, 0.5, 0.51, 0.49, 0.8, 0.81, 0.79])
+    >>> elbow = k_rmse_elbow(values, k_max=5)
+    >>> fig = render_state_number_elbow(elbow)
+    >>> len(fig.axes)
+    1
     """
     series = _as_series(elbow, (StateNumberElbow,), "StateNumberElbow")
     if series is None or len(series) == 1:
@@ -2754,29 +3149,72 @@ def render_population_anticorrelation(
 ) -> Figure:
     """Render the population's anticorrelation events as a per-molecule raster (§7.7).
 
-    One row per scanned molecule, in the population's store order (top to bottom), with
-    each event drawn as a bar over its ``[start, stop)`` frame span and coloured by its
-    peak strength ``|lag-0|``; a tick marks each event's peak frame. A molecule scanned
-    with no event keeps its empty row, so the raster shows how many molecules carried
-    none. Rows are labelled by ``molecule_key`` up to 30 molecules, by index above that.
+    The raster has one row for each scanned molecule, in the store order of the
+    population (top to bottom). Each event is drawn as a bar over its ``[start, stop)``
+    frame span, colored by its peak strength ``|lag-0|``, and a tick marks the peak frame
+    of each event. A molecule scanned with no event keeps its empty row, so the raster
+    shows how many molecules had none. Up to 30 molecules, each row is labeled by its
+    ``molecule_key``. Above 30, the rows are labeled by index.
 
-    **Several series** are drawn as small multiples stacked top to bottom in series order,
-    one raster per series titled with its label: a row is one molecule of one series, so
-    two rasters cannot share rows. The panels share the frame axis and the one
-    ``|lag-0|`` colour bar.
+    **Several series** are drawn as small multiples stacked top to bottom in series
+    order, one raster per series, each titled with its label: a row is one molecule of
+    one series, so two rasters cannot share rows. The panels share the frame axis and
+    the one ``|lag-0|`` color bar.
 
     Parameters
     ----------
-    population
+    population : PopulationAnticorrelation or sequence of (str, PopulationAnticorrelation)
         The per-molecule scans to draw, from
         [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events],
         or an ordered sequence of ``(label, population)`` series. A one-series sequence
-        draws the same figure as the bare population.
-    title
-        The axes title; for several series, the figure title above the panels.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][] for one population and
-        to a size that fits the stacked panels for several.
+        draws the same figure as the bare population. The frame axis is in frames of
+        the analysis window, and the correlation is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Donor–acceptor anticorrelation events"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one population, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the raster axes (one
+        per series) and one color bar.
+
+    Raises
+    ------
+    ValueError
+        If ``population`` is an empty sequence, or a series label is empty or used twice.
+    TypeError
+        If ``population`` is neither a population nor an ordered sequence of ``(label,
+        population)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.anticorrelation import (
+    ...     MoleculeAnticorrelation,
+    ...     PopulationAnticorrelation,
+    ...     find_anticorrelation_events,
+    ... )
+    >>> from tether.analysis.plot_export import render_population_anticorrelation
+    >>> donor = 500.0 + np.arange(60.0)
+    >>> scan = find_anticorrelation_events(donor, 0.5 * donor)
+    >>> population = PopulationAnticorrelation(
+    ...     molecules=(MoleculeAnticorrelation("m0", scan),),
+    ...     window=scan.window,
+    ...     step=scan.step,
+    ...     min_magnitude=scan.min_magnitude,
+    ...     min_windows=scan.min_windows,
+    ...     n_molecules=1,
+    ...     n_events=scan.n_events,
+    ... )
+    >>> fig = render_population_anticorrelation(population)
+    >>> [label.get_text() for label in fig.axes[0].get_yticklabels()]
+    ['m0']
     """
     series = _as_series(population, (PopulationAnticorrelation,), "PopulationAnticorrelation")
     if series is None or len(series) == 1:

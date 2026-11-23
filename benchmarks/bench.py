@@ -120,12 +120,22 @@ def _cmd_one(args: argparse.Namespace) -> int:
     return 0
 
 
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill ``proc`` and its process group on POSIX."""
+    if hasattr(os, "killpg"):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+    proc.kill()
+
+
 def run_child(cmd: list[str], timeout: float = CHILD_TIMEOUT_S) -> dict:
     """Run one measurement command and return its last JSON line, or an ``error`` record.
 
     The child gets its own process group, so a timeout also stops what it started (the
     sidecar fit runs in a grandchild); otherwise an orphan could hold the output pipe open
-    and keep this call waiting after the child itself was killed.
+    and keep this call waiting after the child itself was killed. Any other exception while
+    waiting -- Ctrl+C, which the child in its own session never receives -- stops the group
+    the same way and is then re-raised, so no measurement outlives the runner (#1098).
     """
     proc = subprocess.Popen(
         cmd,
@@ -137,13 +147,15 @@ def run_child(cmd: list[str], timeout: float = CHILD_TIMEOUT_S) -> dict:
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        if hasattr(os, "killpg"):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
-        proc.kill()
+        _kill_group(proc)
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.communicate(timeout=10)
         return {"error": f"timed out after {timeout:g} s"}
+    except BaseException:
+        # Closing the pipes and waiting avoids repeating a failing read.
+        with proc:
+            _kill_group(proc)
+        raise
     lines = stdout.strip().splitlines()
     try:
         return json.loads(lines[-1])

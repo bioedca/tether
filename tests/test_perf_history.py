@@ -340,7 +340,10 @@ def test_a_stage_a_record_did_not_measure_is_a_gap_and_not_zero(tmp_path) -> Non
     assert export_m[0] == (106 << 20) / 2**30 and math.isnan(export_m[1])
     save_t, save_m = plot.stage_values(records, "save")
     assert math.isnan(save_t[2]) and math.isnan(save_m[2]) and save_t[1] == 3 * 50.0
-    empty = plot.stage_values([{"acquisitions": {}}], "extract")
-    assert all(math.isnan(v) for values in empty for v in values)
+    empty_t, empty_m = plot.stage_values([{"acquisitions": {}}], "extract")
+    # One point per record, and that point a gap: `all()` over two empty series is vacuously
+    # true, so the length is what makes a dropped record fail here (#1227).
+    assert len(empty_t) == 1 and len(empty_m) == 1
+    assert math.isnan(empty_t[0]) and math.isnan(empty_m[0])
     out = plot.plot(history, tmp_path / "history.png")
     assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

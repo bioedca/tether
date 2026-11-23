@@ -77,6 +77,15 @@ the page and the source disagree, the source wins, because the source wrote the 
 Only the layout of that generation of MASH-FRET is read: ``fix`` and ``prmTT`` at the top level.
 A later layout (a ``TP`` structure, as in the MASH-FRET 1.3.4 file of the same record) raises
 :class:`UnsupportedProject`, so a test never reads a field from the wrong place.
+
+:func:`read_crosstalk_project` (#870) reads the cross-talk fields of one project in that later
+layout: ``2chan2exc.mash`` of the MASH-FRET repository, which "1.3.2 (prev. commit: 3471fdf3)"
+wrote with non-zero coefficients. There ``fix`` is ``TP.fix`` and the intensity arrays keep the
+meaning above. ``crossCorr.m`` at ``3471fdf3`` first subtracts ``fix{4}{1}(c,n)·I_bgCorr`` of
+channel ``c`` from the ``n``-th other channel on every laser, as above; then, for each channel
+``c`` with its own laser ``l0``, it subtracts ``fix{4}{2}(n,c)·I_corr(:,c,l0)`` from the same
+channel at the ``n``-th other laser, where ``I_corr`` is the trace after the first step. So under
+the acceptor's own laser the acceptor holds the leakage correction only.
 """
 
 from __future__ import annotations
@@ -90,9 +99,11 @@ import scipy.io as sio
 
 __all__ = [
     "Bootstrap",
+    "CrosstalkProject",
     "MashProject",
     "TagAnalysis",
     "UnsupportedProject",
+    "read_crosstalk_project",
     "read_project",
     "read_tag_analysis",
     "stored_histogram_tags",
@@ -268,6 +279,74 @@ class Bootstrap:
     def populations(self) -> np.ndarray:
         """``(S, J)``: the population of each Gaussian in each sample."""
         return self.samples[:, 3::4]
+
+
+@dataclass(frozen=True)
+class CrosstalkProject:
+    """The cross-talk fields of a MASH-FRET project in the ``TP`` layout (#870)."""
+
+    version: str
+    commit: str | None
+    n_channels: int
+    excitations: np.ndarray  # (nL,) laser wavelengths, nm
+    chan_exc: np.ndarray  # (nC,) wavelength of each channel's direct laser, 0 for none
+    labels: tuple[str, ...]
+    fret_pairs: np.ndarray  # (nF, 2) donor, acceptor channel, 0-based
+    leakage: np.ndarray  # (nC, nC-1) TP.fix{4}{1}
+    direct_excitation: np.ndarray  # (nL-1, nC) TP.fix{4}{2}
+    background_corrected: np.ndarray  # (L, nC*M, nL)
+    crosstalk_corrected: np.ndarray  # (L, nC*M, nL)
+
+    @property
+    def n_molecules(self) -> int:
+        return self.background_corrected.shape[1] // self.n_channels
+
+    def laser_of(self, channel: int) -> int:
+        """The slice of the third axis that holds *channel*'s emitter under its own laser."""
+        hits = np.flatnonzero(self.excitations == self.chan_exc[channel])
+        if hits.size == 0:
+            raise ValueError(f"channel {channel} has no emitter-specific laser")
+        return int(hits[0])
+
+    def trace(self, array: np.ndarray, molecule: int, channel: int, laser: int) -> np.ndarray:
+        """One intensity trace of *array* (one of the two intensity arrays)."""
+        return array[:, molecule * self.n_channels + channel, laser]
+
+
+def read_crosstalk_project(path: Path | str) -> CrosstalkProject:
+    """Read the cross-talk fields of a MASH-FRET project whose settings sit in ``TP``."""
+    raw = sio.loadmat(str(path), squeeze_me=False, struct_as_record=False)
+    if "TP" not in raw or "fix" in raw:
+        raise UnsupportedProject(f"{Path(path).name}: no TP structure; use read_project")
+    version = _text(raw["MASH_version"])
+    commit = _COMMIT.search(version)
+    n_channels = int(_num(raw["nb_channel"]).ravel()[0])
+    excitations = _num(raw["excitations"]).ravel()
+    n_lasers = int(_num(raw["nb_excitations"]).ravel()[0])
+    if excitations.size != n_lasers:
+        raise UnsupportedProject(f"{excitations.size} excitations for {n_lasers} lasers")
+    factors = _cell(_cell(raw["TP"][0, 0].fix)[3])  # TP.fix{4} = {bleedthrough, direct exc.}
+    arrays = {
+        name: _intensity(raw, name, n_lasers)
+        for name in ("intensities_bgCorr", "intensities_crossCorr")
+    }
+    if arrays["intensities_bgCorr"].shape != arrays["intensities_crossCorr"].shape:
+        raise UnsupportedProject("bgCorr and crossCorr differ in shape")
+    if arrays["intensities_bgCorr"].shape[1] % n_channels:
+        raise UnsupportedProject("the intensity columns are not nC x the molecule count")
+    return CrosstalkProject(
+        version=version,
+        commit=commit.group(1) if commit else None,
+        n_channels=n_channels,
+        excitations=excitations,
+        chan_exc=_num(raw["chanExc"]).ravel()[:n_channels],
+        labels=tuple(_text(x) for x in _cell(raw["labels"])[:n_channels]),
+        fret_pairs=_num(raw["FRET"]).reshape(-1, 2).astype(int) - 1,
+        leakage=_num(factors[0]).reshape(n_channels, max(n_channels - 1, 0)),
+        direct_excitation=_num(factors[1]).reshape(max(n_lasers - 1, 0), n_channels),
+        background_corrected=arrays["intensities_bgCorr"],
+        crosstalk_corrected=arrays["intensities_crossCorr"],
+    )
 
 
 @dataclass(frozen=True)

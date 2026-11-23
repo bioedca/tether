@@ -383,6 +383,11 @@ In a readable file, Tether reads each value on its own. An unknown trace-color v
 default colors and keeps a valid answer to the update question. An unknown answer keeps the
 trace colors. A change of trace colors never writes an answer to the update question.
 
+Beside the file sits an empty file, `settings.json.lock`. It lets two open Tether windows take
+turns saving, so neither loses what the other saved. If the settings file is there but Tether
+cannot read it, for example because of its permissions, Tether does not save over it: a new
+answer or color applies until Tether closes, and the status bar says it was not saved.
+
 ### For a site administrator: turn the update check off for every user
 
 On a shared computer, an administrator can turn the update check off for every user of the

@@ -48,8 +48,9 @@ def reference() -> dict:
 
 
 @pytest.fixture(scope="module")
-def samples() -> list[ref.Sample]:
-    return ref.load_samples()
+def samples(reference) -> list[ref.Sample]:
+    # The file the reference names, not a constant beside it (#1226).
+    return ref.load_samples(reference["dataset"]["id"])
 
 
 @pytest.fixture(scope="module")

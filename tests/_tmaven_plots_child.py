@@ -31,12 +31,14 @@ import matplotlib.pyplot as plt  # noqa: E402
 plt.switch_backend("Agg")
 import numba  # noqa: E402
 import numpy as np  # noqa: E402
+import scipy  # noqa: E402
 from tmaven.controllers.analysis_plots import data_hist2d as h2d  # noqa: E402
+from tmaven.controllers.modeler import dwells as tm_dwells  # noqa: E402
 from tmaven.controllers.modeler.dwells import calculate_dwells, survival  # noqa: E402
 from tmaven.maven import maven_class  # noqa: E402
 
 PAIRS = ((-1, -1), (0, -1), (-1, 2), (1, 2), (2, 1))  # A2b (from, to) selections
-FITS = ("Single Exponential", "Double Exponential", "Stretched Exponential")
+FITS = ("Single Exponential", "Double Exponential", "Stretched Exponential", "Triple Exponential")
 TM_PAIRS = ((0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2))  # B3 (init, final)
 
 
@@ -110,16 +112,32 @@ def main(smd: str, model: str, out_path: str) -> None:
         for s, lengths in mod.dwells.items():
             out[f"b2_dw_{int(first)}_{s}"] = np.sort(np.asarray(lengths, dtype=np.int64))
     calculate_dwells(mod, False)
+    # optimize_double_surv and optimize_triple_surv sort ks and As but leave `error` in the
+    # order of curve_fit's parameters (#756, ADR-0097). Record each popt so the test can pair
+    # every error with its own parameter; the wrapper changes nothing tMAVEN computes.
+    popts: list[np.ndarray] = []
+    sopt = tm_dwells.sopt
+
+    def _curve_fit(*args, **kwargs):
+        popt, pcov = sopt.curve_fit(*args, **kwargs)
+        popts.append(np.array(popt))
+        return popt, pcov
+
+    tm_dwells.sopt = SimpleNamespace(curve_fit=_curve_fit)
     for s in range(mod.nstates):
         tau, surv = survival(np.array(mod.dwells[str(s)]))
         out[f"b2_tau_{s}"], out[f"b2_surv_{s}"] = tau, surv
         for j, ftype in enumerate(FITS):
+            popts.clear()
             m.modeler.run_dwell_analysis(ftype, s)
-            r = m.modeler.model.rates[s]
-            out[f"b2_fit_{j}_{s}_k"], out[f"b2_fit_{j}_{s}_a"] = r["ks"], r["As"]
-            out[f"b2_fit_{j}_{s}_r2"] = np.array(r["R2"])
+            r, key = m.modeler.model.rates[s], f"b2_fit_{j}_{s}"
+            out[key + "_k"], out[key + "_a"] = r["ks"], r["As"]
+            out[key + "_r2"] = np.array(r["R2"])
+            out[key + "_err"], (out[key + "_popt"],) = np.asarray(r["error"]), popts
             if "betas" in r:
-                out[f"b2_fit_{j}_{s}_beta"] = np.asarray(r["betas"])
+                out[key + "_beta"] = np.asarray(r["betas"])
+    tm_dwells.sopt = sopt
+    out["b2_stack"] = np.array(f"numpy {np.__version__}, scipy {scipy.__version__}")
 
     # D1: the trace viewer's calc_trajectory and calc_model_traj, for every molecule.
     view = SimpleNamespace(gui=SimpleNamespace(maven=m), plot_mode="smFRET")
