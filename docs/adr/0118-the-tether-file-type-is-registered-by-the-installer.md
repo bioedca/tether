@@ -86,8 +86,9 @@ system against an in-memory registry.
   declares it in `CFBundleDocumentTypes` with the role `Editor` and the rank `Owner`. No public
   type is claimed. The existing `lsregister -f` registers it, and `macos_app remove` with
   `lsregister -u` takes it away with the bundle. macOS gives the file to the application as a
-  file-open event, not as an argument: `tether.gui.app` installs an event filter on the
-  `QApplication` as soon as it exists, keeps a path that arrives before the shell is built, and
+  file-open event, not as an argument: on macOS only, `tether.gui.app` installs an event filter
+  on the `QApplication` as soon as it exists (on Windows and Linux no such event comes, and a
+  filter that sees every event of the process would only cost time, #1202), keeps a path that arrives before the shell is built, and
   then gives each path to `TetherShell.load_project`. A path that arrives while a modal dialog,
   a popup menu or another nested event loop runs waits until that loop has ended, because the
   code that opened the dialog continues on the open project after it returns.

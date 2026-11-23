@@ -17,14 +17,20 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.batch
 
+::: tether.services.curation
+
 ::: tether.services.extract
 
 ::: tether.services.idealize
 
 ::: tether.services.maps
 
+::: tether.services.movies
+
 ::: tether.services.notices
 
 ::: tether.services.profile
 
 ::: tether.services.registry
+
+::: tether.services.status

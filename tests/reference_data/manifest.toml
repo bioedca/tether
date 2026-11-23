@@ -2583,6 +2583,35 @@ sha256 = "1d3fdcfd927cd384fadfe9cc3cbf90f4de0c71ed50cdd7cf8ae12aeffa385a50"
 tier = "git"
 citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
 
+# --- A MASH-FRET test project with a non-zero leakage coefficient: github.com/RNA-FRETools/MASH-FRET
+# at commit b577928, GPL-3.0-only (#870). The project (2.0 MB) is larger than a git file, so the
+# required matrix reads an extract (scripts/make_mashfret_leakage_fixture.py says what it keeps).
+
+[[dataset]]
+id = "mashfret-2chan2exc-project"
+source = "accession:github:RNA-FRETools/MASH-FRET@b577928ecf2bd9040dda6f66ad0035567785e5e1"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/blob/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+license = "GPL-3.0-only"
+file = "2chan2exc.mash"
+size = 2008685
+sha256 = "adac4b599652fb264caae52613eb81bb66cc40915ea137d648931ccacfa913c6"
+tier = "download"
+download_url = "https://raw.githubusercontent.com/RNA-FRETools/MASH-FRET/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+citation = "Hadzic MCAS, Kowerko D, König SLB, Börner R, Steffen FD, Sigel RKO. MASH-FRET (test project 2chan2exc.mash). GitHub RNA-FRETools/MASH-FRET, commit b577928 (2021-11-24). Software paper: Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. PLoS ONE 13(4):e0195277 (2018), doi:10.1371/journal.pone.0195277"
+
+[[dataset]]
+id = "mashfret-2chan2exc-leakage-extract"
+source = "accession:github:RNA-FRETools/MASH-FRET@b577928ecf2bd9040dda6f66ad0035567785e5e1"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/blob/b577928ecf2bd9040dda6f66ad0035567785e5e1/MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash"
+license = "GPL-3.0-only"
+file = "tests/fixtures/mashfret_2chan2exc_leakage_extract.mat"
+size = 277650
+sha256 = "e4ddd2ee884269433814cf39f96935c9b0fe3c8eb6cd3321fa1db96a5e1476fb"
+tier = "git"
+extract_of = ["mashfret-2chan2exc-project"]
+extract_script = "scripts/make_mashfret_leakage_fixture.py"
+citation = "Hadzic MCAS, Kowerko D, König SLB, Börner R, Steffen FD, Sigel RKO. MASH-FRET (test project 2chan2exc.mash). GitHub RNA-FRETools/MASH-FRET, commit b577928 (2021-11-24). Software paper: Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. PLoS ONE 13(4):e0195277 (2018), doi:10.1371/journal.pone.0195277"
+
 # --- Weninger laboratory, trinucleotide-repeat hairpins: Zenodo 10.5281/zenodo.7853531 (a copy of
 # Dryad doi:10.5061/dryad.ht76hdrkc), CC0-1.0 (#798). The archive is too large for the download
 # tier, so it is a workstation record at its path below the data folder; no workstation check

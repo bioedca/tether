@@ -44,6 +44,10 @@ STATUS_PREFIX = "TETHER_SIDECAR_STATUS "
 #: [vandeMeent2014] — the second global/population idealizer the M6 analysis
 #: suite offers (PRD §4.2, §10); it pools information across molecules to infer a
 #: consensus kinetic model and writes the same Appendix-D.2 ``model`` group.
+#: ``vbgmm`` is tMAVEN's plain variational-Bayes Gaussian mixture with a fixed number
+#: of states (issue #1076): no HMM and no model selection. Campos-Chavez et al. 2024
+#: fitted their Two-state population with it (ADR-0106); ``vbgmm_vbhmm`` is not that
+#: routine, since it chooses the number of states itself.
 _DISPATCH = {
     "vbconhmm": ("run_vbconhmm", "modeler.vbconhmm.nstates"),
     "vbconhmm_modelselection": ("run_vbconhmm_modelselection", None),
@@ -51,6 +55,7 @@ _DISPATCH = {
     "ebhmm_modelselection": ("run_ebhmm_modelselection", None),
     "vbgmm_vbhmm": ("run_vbgmm_vbhmm_modelselection", None),
     "kmeans_vbhmm": ("run_kmeans_vbhmm", "modeler.vbhmm.nstates"),
+    "vbgmm": ("run_vbgmm", "modeler.vbgmm.nstates"),
 }
 
 

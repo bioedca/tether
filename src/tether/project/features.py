@@ -54,6 +54,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from os import PathLike
 
+    from h5py import File
+
     from tether.ml.similarity import Neighbor, SimilarityIndex
     from tether.project.core import Project
 
@@ -132,11 +134,33 @@ WINDOW_WRITE_GUARD = threading.RLock()
 """Serializes, inside one process, the feature-table write with analysis-window edits.
 
 `_write_features_table` checks the
-windows and creates ``/features/table`` while holding it, and the window setters in
-[`tether.project.molecule_edits`][] hold it for their whole write, so no window edit can
-land between that check and the table it guards. Across processes the HDF5 file lock
+windows and creates ``/features/table`` while holding it, and every analysis-window writer
+(the setters in [`tether.project.molecule_edits`][],
+[`compute_photobleach`][tether.project.photobleach.compute_photobleach] and the tMAVEN
+merge-back in [`tether.project.handoff`][]) holds it for its whole write, so no window edit
+can land between that check and the table it guards. Across processes the HDF5 file lock
 already refuses a second ``r+`` open while one is held.
 """
+
+
+def invalidate_features(f: object, molecule_ids: set[str]) -> None:
+    """Delete ``/features/table`` when it holds a row for any of ``molecule_ids``.
+
+    The one rule every analysis-window writer applies, inside its own ``r+`` handle and
+    under ``WINDOW_WRITE_GUARD``, before it writes the new windows. The table is a
+    recomputable cache of each molecule's windowed traces, so a window change makes that
+    molecule's row stale. Deleting the table makes
+    [`feature_matrix`][tether.project.features.feature_matrix] raise "run compute_features
+    first" rather than serve features from frames that are no longer the stored window. A
+    table with no row for a changed molecule is kept, and an empty ``molecule_ids`` (no
+    window changed) touches nothing.
+    """
+    if not molecule_ids or FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        return
+    group = f[FEATURES_GROUP]
+    featured = {_to_str(mid) for mid in group[TABLE]["molecule_id"]}
+    if featured & molecule_ids:
+        del group[TABLE]
 
 
 def _windowed_rows(
@@ -499,19 +523,22 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
 
     path = project.path if isinstance(project, _Project) else Path(project)
     with h5py.File(path, "r") as f:
-        if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
-            raise KeyError(
-                f"no /features/{TABLE} in {Path(path).name} (run compute_features first)"
-            )
-        dataset = f[FEATURES_GROUP][TABLE]
-        table = dataset[:]
-        names_attr = dataset.attrs.get("feature_names")
-        feature_names = (
-            tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
-        )
-        intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
-        app_version = _to_str(dataset.attrs.get("app_version", ""))
-        created_utc = _to_str(dataset.attrs.get("created_utc", ""))
+        return _feature_matrix_in(f, path)
+
+
+def _feature_matrix_in(f: File, path: Path) -> StoredFeatures:
+    """Read a cached matrix from an already-open project snapshot."""
+    if FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        raise KeyError(f"no /features/{TABLE} in {Path(path).name} (run compute_features first)")
+    dataset = f[FEATURES_GROUP][TABLE]
+    table = dataset[:]
+    names_attr = dataset.attrs.get("feature_names")
+    feature_names = (
+        tuple(json.loads(_to_str(names_attr))) if names_attr is not None else FEATURE_NAMES
+    )
+    intensity_quantity = _to_str(dataset.attrs.get("intensity_quantity", "corrected"))
+    app_version = _to_str(dataset.attrs.get("app_version", ""))
+    created_utc = _to_str(dataset.attrs.get("created_utc", ""))
 
     molecule_ids = [_to_str(x) for x in table["molecule_id"]]
     molecule_keys = [_to_str(x) for x in table["molecule_key"]]

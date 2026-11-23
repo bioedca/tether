@@ -376,6 +376,103 @@ def test_a_hard_linked_alias_of_the_source_is_refused(source, tmp_path) -> None:
     assert _digest(path) == before
 
 
+def _link_or_skip(target, alias) -> None:
+    try:
+        os.link(target, alias)
+    except OSError:  # pragma: no cover - a file system without hard links
+        pytest.skip("hard links are not available here")
+
+
+@pytest.mark.parametrize(
+    ("form", "names"),
+    [
+        ("table", ["exp.csv", "other.csv"]),
+        ("traces", [f"exp{TRACES_SUFFIX}", f"other{TRACES_SUFFIX}"]),
+    ],
+)
+@pytest.mark.parametrize("kind", ["output", "provenance"])
+def test_two_outputs_that_are_one_file_are_refused(
+    source, tmp_path, capsys, form, names, kind
+) -> None:
+    """Two planned outputs hard-linked to one file: the second would truncate the first (#1217)."""
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    suffix = _SIDECAR if kind == "provenance" else ""
+    first, second = (folder / (name + suffix) for name in names)
+    first.write_text("kept", encoding="utf-8")
+    _link_or_skip(first, second)
+
+    argv = ["export", form, str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 1
+
+    assert first.read_text(encoding="utf-8") == "kept"
+    assert first.samefile(second)
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 1
+    assert err[0].startswith(f"tether export {form}: ")
+    assert "are the same file" in err[0]
+    # Refused before the first export: nothing else was written.
+    assert sorted(p.name for p in folder.iterdir()) == sorted([first.name, second.name])
+
+
+def test_an_output_hard_linked_to_its_own_provenance_file_is_refused(source, tmp_path) -> None:
+    path, _ = source
+    out = tmp_path / "molecules.csv"
+    out.write_text("kept", encoding="utf-8")
+    _link_or_skip(out, tmp_path / ("molecules.csv" + _SIDECAR))
+
+    assert main(["export", "table", str(path), "-o", str(out), "--overwrite"]) == 1
+    assert out.read_text(encoding="utf-8") == "kept"
+
+
+def test_independent_existing_outputs_are_still_replaced(source, tmp_path) -> None:
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    for name in ("exp.csv", "other.csv"):
+        (folder / name).write_text("old", encoding="utf-8")
+
+    argv = ["export", "table", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 0
+    assert (folder / "exp.csv").read_text(encoding="utf-8") != "old"
+    assert (folder / "other.csv").read_text(encoding="utf-8") != "old"
+
+
+def test_subset_still_replaces_a_hard_linked_pair(source, tmp_path) -> None:
+    """``subset`` writes through a temporary file and a rename, which breaks the link."""
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    first = folder / "exp-subset.tether"
+    first.write_text("old", encoding="utf-8")
+    _link_or_skip(first, folder / "other-subset.tether")
+
+    argv = ["export", "subset", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 0
+    assert not first.samefile(folder / "other-subset.tether")
+
+
+def test_subset_provenance_files_that_are_one_file_are_refused(source, tmp_path, capsys) -> None:
+    """``subset`` writes its provenance file in place, so a linked pair would lose one."""
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    first = folder / ("exp-subset.tether" + _SIDECAR)
+    first.write_text("kept", encoding="utf-8")
+    _link_or_skip(first, folder / ("other-subset.tether" + _SIDECAR))
+
+    argv = ["export", "subset", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 1
+    assert first.read_text(encoding="utf-8") == "kept"
+    assert not (folder / "exp-subset.tether").exists()
+    assert "are the same file" in capsys.readouterr().err
+
+
 # --------------------------------------------------------------------------- #
 # Several projects
 # --------------------------------------------------------------------------- #

@@ -16,6 +16,12 @@ highest evidence -- vbFRET's own procedure. The settings of the papers that tMAV
 at most 5 states and the prior ``beta = 0.5``. vbFRET's ``mu = 1.5`` has no tMAVEN counterpart
 (tMAVEN puts the prior means at percentiles of the data), so it stays tMAVEN's. The seed makes
 the fit reproducible on one build (:func:`tether.idealize._sidecar_runner.seed_random_streams`).
+
+tMAVEN's default ``modeler.clip`` stays on, as a tMAVEN user gets it: before the fit,
+``clip_traces`` replaces each frame below ``modeler.clip_min``, above ``modeler.clip_max`` or NaN
+with a uniform random draw from that range (#1001). vbFRET_nov12, which made the stored paths,
+replaced none. So the child records, for each trace, the frames inside its pre/post window that
+the clip changed (``clipped``), and the clip settings in effect (``settings``).
 """
 
 from __future__ import annotations
@@ -41,6 +47,14 @@ SETTINGS = {
 }
 
 
+def _clip_settings(m) -> dict:
+    """tMAVEN's clip settings in effect: the defaults, since ``SETTINGS`` sets none of them."""
+    return {
+        key: (bool(m.prefs[key]) if key == "modeler.clip" else float(m.prefs[key]))
+        for key in ("modeler.clip", "modeler.clip_min", "modeler.clip_max")
+    }
+
+
 def main(smd: str, out_path: str, seed: int) -> None:
     m = maven_class()
     m.io.load_smdtmaven_hdf5(smd, "dataset")
@@ -50,9 +64,20 @@ def main(smd: str, out_path: str, seed: int) -> None:
     from tmaven.controllers.modeler.hmm_vb import tracelevel_vbhmm_modelselection
 
     modeler, data = m.modeler, m.data
-    success, keep, y = modeler.get_traces(m.prefs["modeler.dtype"])
+    dtype = m.prefs["modeler.dtype"]
+    # get_data builds a new array on each call, and get_traces clips its own one, so this copy
+    # holds the values before the clip.
+    _, unclipped = modeler.get_data(dtype)
+    success, keep, y = modeler.get_traces(dtype)
     if not success or not keep.all():
         raise RuntimeError("tMAVEN did not take every trace")
+    nmol, nt = int(data.nmol), int(data.nt)
+    clipped = np.zeros((nmol, nt), dtype=bool)
+    for i, fit_input in enumerate(y):  # every trace is kept, so y[i] is trace i
+        pre, post = int(data.pre_list[i]), int(data.post_list[i])
+        before = unclipped[i, pre:post]
+        same = (fit_input == before) | (np.isnan(fit_input) & np.isnan(before))
+        clipped[i, pre:post] = ~same
     # Each trace: a VB HMM for k = 1 .. nstates, the k with the highest evidence kept.
     trace_level, idealized, ran = tracelevel_vbhmm_modelselection(
         y,
@@ -66,7 +91,6 @@ def main(smd: str, out_path: str, seed: int) -> None:
         data.post_list,
         m.prefs["modeler.dtype"],
     )
-    nmol = int(data.nmol)
     means = np.full((nmol, 5), np.nan)
     nstates = np.zeros(nmol, dtype=np.int64)
     for i in ran:
@@ -78,7 +102,10 @@ def main(smd: str, out_path: str, seed: int) -> None:
         idealized=np.asarray(idealized, dtype=np.float64),
         nstates=nstates,
         means=means,
-        settings=np.array(json.dumps({**SETTINGS, "seed": seed}, sort_keys=True)),
+        clipped=clipped,
+        settings=np.array(
+            json.dumps({**SETTINGS, **_clip_settings(m), "seed": seed}, sort_keys=True)
+        ),
     )
 
 

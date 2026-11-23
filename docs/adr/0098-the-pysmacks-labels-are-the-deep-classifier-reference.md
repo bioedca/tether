@@ -85,7 +85,8 @@ difference between two runs was 4.6e-6, in the score of a test range, between an
 EPYC 7763 run; in the loss it was 5.6e-7. The limit is ten times the largest difference, rounded
 up to one significant digit. The golden file holds run 2 (EPYC 7763, the most frequent type). A deliberate change
 runs `scripts/update_deep_golden.py` in the deep env and pastes its old/new table with a `Cause:`
-line; the `golden-table` workflow checks the pull request body as it does for ADR-0080.
+line; the script needs `TETHER_REFERENCE_DOWNLOAD=1` when the dataset is not cached yet (#1226).
+The `golden-table` workflow checks the pull request body as it does for ADR-0080.
 
 **The floor.** Ten training seeds (0 to 9) on the same split gave ROC AUC values of
 0.9849, 0.9741, 0.9806, 0.9892, 0.9914, 0.9892, 0.9871, 0.9978, 0.9892 and 0.9914 (mean

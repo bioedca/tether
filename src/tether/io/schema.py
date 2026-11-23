@@ -30,6 +30,10 @@ Design notes
   their per-record payloads are additive data added when extraction / idealization
   / curation lands (M1+). ``/idealization/{model}`` will mirror the tMAVEN model
   schema (PRD Appendix D.2) as additive data.
+* **Version 2 adds ``/generations/table``** (#921, ADR-0136), one row per trace
+  generation of a movie. A file stamped 1 lacks it and is still complete
+  (`_missing_skeleton` asks for a table only of the versions that declare it);
+  [`upgrade_to_generations`][] adds it when a writer records the first generation.
 * **The ``<file>.lock`` single-writer marker is a sidecar file**, part of the §5.4
   concurrency lifecycle (M2), not the in-HDF5 schema — it is not written here.
 """
@@ -49,7 +53,13 @@ if TYPE_CHECKING:
 
 #: Monotonic on-disk schema version. Bumped *only* by a deliberate structural
 #: change (ADR + regenerated golden, PRD §12.6); the guard refuses a decrement.
-SCHEMA_VERSION = 1
+#: Version 2 adds the ``/generations`` table of trace generations (#921, ADR-0136).
+SCHEMA_VERSION = 2
+
+#: The first ``schema_version`` whose skeleton has the ``/generations`` table. A store
+#: stamped older is still a complete project without it (it reads as generation 1 of
+#: each movie, ADR-0136), so the skeleton check asks for it only from this version on.
+GENERATIONS_SINCE = 2
 
 #: Root ``format`` identity attribute distinguishing a ``.tether`` project store.
 FORMAT_TAG = "tether-project"
@@ -167,13 +177,38 @@ CONDITIONS_DTYPE = np.dtype(
     ]
 )
 
+#: ``/generations/table`` — one row per trace generation of a movie (#921, ADR-0136):
+#: the movie, its per-movie ``generation`` number (1, 2, ...), a project-unique
+#: ``generation_id``, the UTC time, the ``inputs`` that made it (JSON: source, geometry,
+#: layout, map, colocalization rule, options), its molecule count, the ``molecule_key``
+#: values carried from the previous generation (JSON list), the ``match_px`` that
+#: decided "did not move" for them, and the app version. Append-only.
+GENERATIONS_DTYPE = np.dtype(
+    [
+        ("movie_id", _str()),
+        ("generation", "<i4"),
+        ("generation_id", _str()),
+        ("created_utc", _str()),
+        ("inputs", _str()),
+        ("n_molecules", "<i4"),
+        ("carried_keys", _str()),
+        ("match_px", "<f8"),
+        ("app_version", _str()),
+    ]
+)
+
 #: Rich entities: a group containing a 0-row compound ``table`` dataset.
 _RICH_TABLES: dict[str, np.dtype] = {
     "movies": MOVIES_DTYPE,
     "molecules": MOLECULES_DTYPE,
     "conditions": CONDITIONS_DTYPE,
     "labels": LABELS_DTYPE,
+    "generations": GENERATIONS_DTYPE,
 }
+
+#: The rich tables a store stamped before a given version does not have: name -> the
+#: first ``schema_version`` that declares it.
+_RICH_TABLES_SINCE: dict[str, int] = {"generations": GENERATIONS_SINCE}
 
 #: Empty container groups; their payloads are additive data (M1+).
 _CONTAINER_GROUPS: tuple[str, ...] = (
@@ -242,6 +277,23 @@ def read_schema_version(path: str | Path) -> int:
         return int(f.attrs["schema_version"])
 
 
+def upgrade_to_generations(f: h5py.File) -> None:
+    """Give an open, writable store stamped before version 2 its ``/generations`` table.
+
+    Called by a writer that is about to record a trace generation (ADR-0136). It
+    creates the empty table and stamps the file with [`SCHEMA_VERSION`][], so an app
+    that predates generations refuses it rather than ignoring the record. No existing
+    data is rewritten. A store that already has the table is left as it is.
+    """
+    if not isinstance(f.get("generations"), h5py.Group):
+        f.create_group("generations", track_order=True)
+    group = f["generations"]
+    if TABLE not in group:
+        group.create_dataset(TABLE, shape=(0,), maxshape=(None,), dtype=GENERATIONS_DTYPE)
+    if int(f.attrs["schema_version"]) < SCHEMA_VERSION:
+        f.attrs["schema_version"] = SCHEMA_VERSION
+
+
 def assert_compatible(file_version: int) -> None:
     """Refuse a file newer than this app's schema (PRD §5.4).
 
@@ -257,16 +309,20 @@ def assert_compatible(file_version: int) -> None:
         )
 
 
-def _missing_skeleton(f: h5py.File) -> list[str]:
+def _missing_skeleton(f: h5py.File, version: int = SCHEMA_VERSION) -> list[str]:
     """Return the frozen top-level §5.1 skeleton paths absent from an open file.
 
     Validates only the *top-level* structure [`create_project`][] writes — the
     rich-entity groups + their 0-row ``table`` datasets and the empty container
     groups — using the same single-source-of-truth constants. (Deep field-level
-    structure is the separate ``schema-guard`` gate's job, on the *writer*.)
+    structure is the separate ``schema-guard`` gate's job, on the *writer*.) A table
+    that a later ``schema_version`` added is required only of a file stamped with
+    that version or newer, so an older store stays a complete project (ADR-0136).
     """
     missing: list[str] = []
     for name in _RICH_TABLES:
+        if version < _RICH_TABLES_SINCE.get(name, 0):
+            continue
         group = f.get(name)
         if not isinstance(group, h5py.Group):
             missing.append(f"/{name}")
@@ -305,12 +361,15 @@ def assert_is_compatible_project(path: str | Path) -> int:
             version = f.attrs.get("schema_version")
             if version is None:
                 raise ValueError(f"{path} is missing the schema_version stamp")
-            missing = _missing_skeleton(f)
+            try:
+                version = int(version)
+            except (TypeError, ValueError):
+                raise ValueError(f"{path} has an unreadable schema_version stamp") from None
+            missing = _missing_skeleton(f, version)
             if missing:
                 raise ValueError(
                     f"{path} is not a complete .tether project; missing: {', '.join(missing)}"
                 )
-            version = int(version)
     except OSError as exc:
         raise ValueError(f"{path} is not a readable .tether HDF5 project") from exc
     assert_compatible(version)

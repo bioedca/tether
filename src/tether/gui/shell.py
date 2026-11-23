@@ -7,9 +7,11 @@ contract: it hosts the pyqtgraph trace dock ([`tether.gui.trace_dock`][]) plus
 the focus surfaces the curation keys must reach past — a molecule list, a movie
 switcher, and the **editable category field** (a text-entry that is exempt from
 the keymap, §7.6) — and installs the application-level
-[`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. The embedded napari movie panel
-(#356) and the real round-trip navigation (#357) are not wired in yet; this shell
-is deliberately small so those issues extend it.
+[`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
+the movie switcher from ``/movies``, and the embedded napari movie panel
+([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
+donor and acceptor spots as a dock of Curate and correct (#356). The real round-trip
+navigation between a trace and its spot (#357) is not wired in yet.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -33,6 +35,14 @@ the section is current, between the window's own File menu and its View and Help
 The curation keys act only in a section whose ``keymap_scope`` is
 [`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
 event filter lets them through to the native widgets, and the cheat-sheet lists no key.
+
+The keymap is the user's (#635): the shell starts with the keymap saved at
+``keymap_file`` (``tether-gui`` passes
+[`default_keymap_path`][tether.gui.curation.default_keymap_path]), falling back to the
+defaults with one status message when that file cannot be used, and
+**Curation → Edit keyboard shortcuts…** opens the
+[`KeymapEditor`][tether.gui.keymap_editor.KeymapEditor], whose Save puts the new keys in
+effect at once and writes the file.
 
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
@@ -63,12 +73,20 @@ from tether.gui.curation import (
     CurationEventFilter,
     CurationHandlers,
     Keymap,
+    KeymapError,
 )
 from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
 from tether.gui.task_service import TaskService
+from tether.services.curation import (
+    resolved_frame_range,
+    resolved_window,
+    stored_molecule,
+    stored_rows,
+    summed_bleach_frame,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from os import PathLike
     from typing import Protocol
 
@@ -77,11 +95,13 @@ if TYPE_CHECKING:
 
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
+    from tether.services.curation import StoredMolecule
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
     #: outside its analysis window), or ``None`` when nothing was produced. The
@@ -146,19 +166,11 @@ _APP_NAME = "Tether"
 #: The curation commands the shell does not implement yet (#345). Their keys stay
 #: bound, so a press reports ``… unavailable: …`` instead of a success it did not
 #: earn, and the cheat sheet marks them ``(unavailable)``. Jump becomes real in
-#: #357, the grid in #364, and the category / analysis-window / photobleach edits
-#: in #359; each removes its entry here in the PR that implements it.
+#: #357 and the grid in #364; each removes its entry here in the PR that implements
+#: it. The category, analysis-window and photobleach keys write the project (#359).
 DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset(
     {
         CurationAction.JUMP,
-        CurationAction.ASSIGN_CATEGORY,
-        CurationAction.CLEAR_CATEGORY,
-        CurationAction.WINDOW_START_DEC,
-        CurationAction.WINDOW_START_INC,
-        CurationAction.WINDOW_END_DEC,
-        CurationAction.WINDOW_END_INC,
-        CurationAction.RESET_WINDOW,
-        CurationAction.PHOTOBLEACH,
         CurationAction.GRID,
     }
 )
@@ -263,6 +275,33 @@ def _set_standard_shortcuts(action: Any, standard_key: Any, fallback: str) -> No
     if all(key.toString() != extra.toString() for key in keys):
         keys.append(extra)
     action.setShortcuts(keys)
+
+
+def _movie_panel_unavailable() -> str | None:
+    """Why no napari movie panel can be built in this process, or ``None`` (#356).
+
+    A napari ``Viewer`` needs an OpenGL context for its canvas, and the offscreen Qt
+    platform on macOS has none: building one there ends the process, which no ``except``
+    can catch. That one combination is refused up front; elsewhere the panel is built
+    and a failure is reported by the caller.
+    """
+    import importlib.util
+    import sys
+
+    from pyqtgraph.Qt import QtGui
+
+    if importlib.util.find_spec("napari") is None:
+        return "napari is not installed"
+    if sys.platform == "darwin" and QtGui.QGuiApplication.platformName() == "offscreen":
+        return "the offscreen display platform on macOS has no OpenGL"
+    return None
+
+
+def _new_movie_panel() -> Any:
+    """A new headless [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel] to dock."""
+    from tether.gui.movie_panel import NapariMoviePanel
+
+    return NapariMoviePanel(title="Tether — movie", show=False)
 
 
 def _local_paths(mime: Any) -> list[Path]:
@@ -469,6 +508,28 @@ class CheatSheetOverlay:
         self._dialog.show()
 
 
+def _load_keymap(path: Path | None) -> tuple[Keymap, str | None]:
+    """The keymap saved at ``path`` and ``None``, or the defaults and why the file failed.
+
+    No path or no file gives the defaults silently. A file that cannot be used gives the
+    defaults and one message; the file is never rewritten here, only by a Save (#635).
+    """
+    defaults = Keymap.default()
+    if path is None:
+        return defaults, None
+    try:
+        path.stat()
+        return Keymap.load(path, defaults=defaults), None
+    except (FileNotFoundError, NotADirectoryError):
+        return defaults, None
+    except (OSError, KeymapError) as exc:
+        logging.getLogger("tether.gui").warning("keymap file %s not used: %s", path, exc)
+        return defaults, (
+            f"Keyboard shortcuts: {path} could not be used: {exc}. The default keys are in "
+            "effect, and the file was left as it is."
+        )
+
+
 def _read_lock_recovery(path: str | PathLike[str]) -> Any | None:
     """[`lock_recovery`][tether.project.lock.lock_recovery], or ``None`` if unreadable."""
     from tether.project.lock import lock_recovery
@@ -521,7 +582,9 @@ class TetherShell:
     ``qtbot`` provide one). Installs the curation event filter on the application
     so the four bare keys reach the controller from any of the child surfaces,
     holds the loaded project's single-writer lock for the GUI session, persists
-    accept/reject/un-reject for the selected molecule when that lock is available,
+    accept/reject/un-reject, the category and the analysis window (``0``–``9``,
+    ``-``/``=``/``[``/``]``, ``R``, ``P``, #359) for the selected molecule when that
+    lock is available,
     falls back to read-only browsing otherwise, reports deferred commands explicitly
     unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
     the selected molecule through
@@ -535,7 +598,9 @@ class TetherShell:
     the Curation, Hand-off and Conditions menus act only there (#342). After a stored
     accept or reject the next listed molecule is selected, so one key both decides
     and moves on; ``advance_after_curation=False`` keeps the selection in place
-    instead. Use as a context manager or call [`close`][].
+    instead. ``keymap_file`` is where the curation keymap is loaded from at start and
+    saved to by the shortcut editor (#635); ``None`` starts with the defaults and saves
+    nothing. Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -549,6 +614,7 @@ class TetherShell:
         conditions: Project | None = None,
         advance_after_curation: bool = True,
         preferences_file: Path | None = None,
+        keymap_file: Path | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -624,6 +690,18 @@ class TetherShell:
         self._overlap_seam = overlap
         self._overlap_dock: Any | None = None
         self._overlap_dock_widget: Any | None = None
+        # The embedded napari movie panel (#356, PRD §7.3). It is built when an opened
+        # project has a movie whose file can be opened, docked in Curate and correct, and
+        # torn down with the project, so a bare shell never builds a napari Viewer. The
+        # shell's movie switcher, not the panel's own, chooses the movie: the shell owns
+        # the switcher (it is a focus surface of the curation keys), and the panel's
+        # ``switcher`` property is never built. ``_movie_rows`` maps a switcher row to the
+        # panel's index of that movie; a movie that cannot be shown has no entry.
+        self._movie_panel: Any | None = None
+        self._movie_dock_widget: Any | None = None
+        self._movie_readers: list[Any] = []
+        self._project_movies: list[Any] = []
+        self._movie_rows: dict[int, int] = {}
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -680,6 +758,8 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The readiness of each stage of the open project (#896), read on each open.
+        self._readiness: Any | None = None
         # The intensity_quantity that open used, so a lock recovery reopens the same
         # trace layer rather than load_project's default (#1097).
         self._intensity_quantity = "corrected"
@@ -699,10 +779,12 @@ class TetherShell:
         # field. The category field is the text-entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
-        # No invented movie id: the box stays empty, and it is disabled while no
-        # project is open (#1031). Filling it from /movies is #356.
+        # No invented movie id: the box lists the open project's /movies rows (#356),
+        # stays empty, and is disabled while no project is open (#1031).
         self._movie_switcher = QtWidgets.QComboBox()
+        self._movie_switcher.setAccessibleName("Movie")
         self._movie_switcher.setEnabled(False)
+        self._movie_switcher.currentIndexChanged.connect(self._on_movie_switched)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
         self._category_field = QtWidgets.QLineEdit()
@@ -813,7 +895,12 @@ class TetherShell:
         self._unreject_button.clicked.connect(
             lambda: self._controller.dispatch(Command(CurationAction.UNREJECT))
         )
-        self._keymap = Keymap.default()
+        # The saved keymap (#635): tether-gui passes default_keymap_path(); a bare or test
+        # shell passes nothing and starts with the defaults. A file that cannot be used
+        # gives the defaults and one message, and stays as it is on disk.
+        self._keymap_file = keymap_file
+        self._keymap, self._keymap_error = _load_keymap(keymap_file)
+        self._keymap_editor: Any | None = None
         self._event_filter = CurationEventFilter(
             self._controller,
             self._keymap,
@@ -1023,7 +1110,9 @@ class TetherShell:
         # The stored layout, last: every dock built at startup exists by now (#628).
         self._restore_layout()
 
-        self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
+        # The one message of an unusable keymap file (#635), else the ready line, which
+        # names the current accept and reject keys rather than the defaults.
+        self._window.statusBar().showMessage(self._keymap_error or self._ready_message())
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -1320,6 +1409,8 @@ class TetherShell:
         """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
         self._act_shortcuts = menu.addAction("Keyboard &shortcuts…")
         self._act_shortcuts.triggered.connect(self.show_cheatsheet)
+        self._act_edit_shortcuts = menu.addAction("&Edit keyboard shortcuts…")
+        self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
 
@@ -1358,8 +1449,28 @@ class TetherShell:
 
     @property
     def movie_switcher(self) -> QtWidgets.QComboBox:
-        """The browser-panel ``QComboBox`` of movie ids (a keymap-reachable focus surface)."""
+        """The browser-panel ``QComboBox`` of the open project's movies (#356).
+
+        One item per ``/movies`` row, in table order, labelled with the movie's file name;
+        the item data is the ``movie_id``. A movie that cannot be shown is listed disabled,
+        with the reason. Choosing a movie shows it in the [`movie_panel`][]. It is a
+        keymap-reachable focus surface of the curation keys.
+        """
         return self._movie_switcher
+
+    @property
+    def movie_panel(self) -> Any | None:
+        """The embedded [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel], or ``None``.
+
+        ``None`` while no project is open, for an analysis-only project, and for a project
+        none of whose movies can be opened here (#356).
+        """
+        return self._movie_panel
+
+    @property
+    def movie_dock(self) -> QtWidgets.QDockWidget | None:
+        """The Curate and correct dock holding the movie panel's window, or ``None``."""
+        return self._movie_dock_widget
 
     @property
     def browser_dock(self) -> QtWidgets.QDockWidget:
@@ -1487,6 +1598,16 @@ class TetherShell:
         return self._keymap
 
     @property
+    def keymap_file(self) -> Path | None:
+        """The file the keymap is loaded from and saved to, or ``None`` (#635)."""
+        return self._keymap_file
+
+    @property
+    def keymap_error(self) -> str | None:
+        """Why the keymap file could not be used at start, or ``None`` (#635)."""
+        return self._keymap_error
+
+    @property
     def event_filter(self) -> CurationEventFilter:
         """The application-level [`CurationEventFilter`][] this shell installs (§7.3)."""
         return self._event_filter
@@ -1576,6 +1697,181 @@ class TetherShell:
         self._overlap_dock_widget = self._attach_section_dock(
             CURATE_SECTION, "Overlap", self._overlap_dock.widget, DockArea.RIGHT
         )
+
+    # --- the embedded napari movie panel (#356, PRD §7.3) -----------------------
+
+    def _wire_movies(self, movies: Any) -> str | None:
+        """Fill the movie switcher from ``movies`` and show the openable ones in a movie panel.
+
+        ``movies`` is the project's [`ProjectMovies`][tether.services.movies.ProjectMovies]:
+        its rows, in ``/movies`` order, and the aperture radius. An analysis-only project
+        passes none, which leaves the switcher empty and disabled and builds no panel. Each
+        movie whose file opens is added to one
+        [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel] with a
+        [`MovieOverlay`][tether.gui.movie_panel.MovieOverlay] of its own molecules at that
+        radius (the stored extraction ``disk_radius``, or the documented default when the
+        project stores none). The panel's Qt window becomes a dock of Curate and correct.
+
+        Returns a note for the open's status message when a recorded movie file cannot be
+        shown, or the panel cannot be built here, else ``None``. A movie whose ``uri`` is
+        empty records no file, so it is listed (disabled) without a note. A movie whose
+        spots cannot be placed (no channel geometry recorded) is shown without spots, and
+        its switcher entry says so.
+        """
+        from pyqtgraph.Qt import QtCore
+
+        self._project_movies = list(movies.movies)
+        switcher = self._movie_switcher
+        switcher.blockSignals(True)
+        try:
+            switcher.clear()
+            for row, movie in enumerate(self._project_movies):
+                why = movie.unavailable or movie.no_spots
+                label = f"{movie.name} ({why})" if why else movie.name
+                switcher.addItem(label, movie.movie_id)
+                tooltip = str(movie.path) if movie.path is not None else movie.unavailable
+                switcher.setItemData(row, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
+                if not movie.available:
+                    self._disable_movie_row(row)
+        finally:
+            switcher.blockSignals(False)
+        switcher.setEnabled(bool(self._project_movies))
+
+        recorded = [m for m in self._project_movies if m.path is not None]
+        not_shown = [m for m in recorded if not m.available]
+        openable = [row for row, m in enumerate(self._project_movies) if m.available]
+        notes: list[str] = []
+        if openable:
+            reason = _movie_panel_unavailable()
+            panel = None
+            if reason is None:
+                try:
+                    panel = _new_movie_panel()
+                except Exception as exc:  # noqa: BLE001 - no movie panel is not a failed open
+                    reason = str(exc) or type(exc).__name__
+            if panel is None:
+                note = f"movie panel unavailable: {reason}"
+                notes.append(note)
+                # A row that cannot show its movie is not offered as if it could.
+                for row in openable:
+                    switcher.setItemData(row, note, QtCore.Qt.ItemDataRole.ToolTipRole)
+                    self._disable_movie_row(row)
+            else:
+                not_shown += self._add_movies(panel, openable, movies.aperture_radius)
+                self._attach_movie_panel(panel)
+        if not_shown:
+            notes.insert(0, f"{len(not_shown)} of {len(recorded)} movie(s) not shown")
+        return "; ".join(notes) or None
+
+    def _add_movies(self, panel: Any, rows: list[int], radius: float) -> list[Any]:
+        """Open the movie of each switcher row in ``rows`` into ``panel``; return the failures.
+
+        A movie that does not open (a file the reader refuses) or that the panel cannot
+        prepare (its first frame cannot be displayed) is disabled in the switcher with the
+        reason, its reader is closed, and the others are still shown.
+        """
+        from tether.gui.movie_panel import MovieOverlay
+        from tether.services.movies import open_project_movie
+
+        failed: list[Any] = []
+        for row in rows:
+            movie = self._project_movies[row]
+            reader = None
+            try:
+                reader = open_project_movie(movie)
+                # A movie whose spots cannot be placed on the frame is shown without any.
+                overlay = (
+                    None
+                    if movie.no_spots
+                    else MovieOverlay(
+                        donor_xy=movie.donor_xy,
+                        acceptor_xy=movie.acceptor_xy,
+                        aperture_radius=radius,
+                    )
+                )
+                index = panel.add_movie(reader, overlay=overlay, name=movie.movie_id)
+            except Exception:  # noqa: BLE001 - one unshowable movie must not fail the open
+                if reader is not None:
+                    with suppress(Exception):
+                        reader.close()
+                failed.append(movie)
+                self._movie_switcher.setItemText(row, f"{movie.name} (cannot be opened)")
+                self._disable_movie_row(row)
+                continue
+            self._movie_readers.append(reader)
+            self._movie_rows[row] = index
+        return failed
+
+    def _attach_movie_panel(self, panel: Any) -> None:
+        """Dock ``panel``'s Qt window in Curate and correct and select its active movie.
+
+        napari's own menu bar is hidden: inside the Tether window its actions would carry
+        shortcuts (``Ctrl+W``, ``Ctrl+Q``) that collide with the File menu's, and a hidden
+        menu bar's actions do not fire. The viewer itself (canvas, layer list, layer
+        controls) shows as it does in napari.
+        """
+        if not self._movie_rows:
+            panel.close()
+            return
+        self._movie_panel = panel
+        window = panel.qt_window
+        window.menuBar().hide()
+        self._movie_dock_widget = self._attach_section_dock(
+            CURATE_SECTION, "Movie", window, DockArea.RIGHT
+        )
+        # Floated, the dock is its own window; the curation keys still act there.
+        self._event_filter.add_scope_widget(self._movie_dock_widget)
+        # Select the row of the movie the panel shows, so the switcher names that movie.
+        active = [row for row, index in self._movie_rows.items() if index == panel.active_index]
+        first_row = active[0] if active else min(self._movie_rows, key=self._movie_rows.__getitem__)
+        self._movie_switcher.blockSignals(True)
+        self._movie_switcher.setCurrentIndex(first_row)
+        self._movie_switcher.blockSignals(False)
+
+    def _disable_movie_row(self, row: int) -> None:
+        """Make switcher row ``row`` unselectable (its movie cannot be shown)."""
+        item = self._movie_switcher.model().item(row)
+        if item is not None:
+            item.setEnabled(False)
+
+    def _on_movie_switched(self, row: int) -> None:
+        """Show the movie of switcher row ``row`` in the movie panel (#356)."""
+        panel = self._movie_panel
+        index = self._movie_rows.get(row)
+        if panel is None or index is None:
+            return
+        try:
+            panel.set_active_movie(index)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Movie switch failed: {exc}")
+            return
+        self._status(f"Movie {self._project_movies[row].name}")
+
+    def _reset_movie_panel(self) -> None:
+        """Close the movie panel and its readers, remove its dock, and empty the switcher."""
+        panel, dock_widget = self._movie_panel, self._movie_dock_widget
+        self._movie_panel = None
+        self._movie_dock_widget = None
+        if dock_widget is not None:
+            self._event_filter.remove_scope_widget(dock_widget)
+            self._detach_section_dock(dock_widget)
+        if panel is not None:
+            # Take napari's window out of the dock first, so the viewer closes its own
+            # top-level window, as it does outside Tether.
+            panel.qt_window.setParent(None)
+            panel.close()
+        if dock_widget is not None:
+            dock_widget.deleteLater()
+        for reader in self._movie_readers:
+            with suppress(Exception):
+                reader.close()
+        self._movie_readers.clear()
+        self._movie_rows.clear()
+        self._project_movies = []
+        self._movie_switcher.blockSignals(True)
+        self._movie_switcher.clear()
+        self._movie_switcher.blockSignals(False)
+        self._movie_switcher.setEnabled(False)
 
     # --- what this computer remembers between launches (#628, ADR-0122) -------
 
@@ -1872,15 +2168,18 @@ class TetherShell:
         [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
         waits on, refuses over, or changes a conflict copy.
 
-        The curation category vocabulary, the movie switcher, and the napari movie panel
-        / round-trip navigation are **not** re-wired here (the movie panel lands in #356
-        and the round-trip in #357, and the per-condition category list is edited through the
-        ``&Conditions`` dialog); this loader wires the trace-level curate + analyze
-        surfaces the produced project supports today.
+        The movie switcher lists the project's ``/movies`` rows, and the movies whose files
+        can be opened are shown in the embedded napari movie panel, a dock of Curate and
+        correct, with each movie's donor and acceptor spots at the stored aperture radius
+        (#356; [`movie_panel`][]). An analysis-only import leaves the panel unbuilt and the
+        switcher empty. The curation category vocabulary and the trace↔movie round-trip
+        navigation are **not** re-wired here (the round-trip lands in #357, and the
+        per-condition category list is edited through the ``&Conditions`` dialog).
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
         from tether.project.lock import LockedError
+        from tether.services.movies import ProjectMovies, read_project_movies
         from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
@@ -1921,6 +2220,14 @@ class TetherShell:
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
             histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
+            # The movie panel's data (#356): the /movies rows with their spots, and the
+            # stored aperture radius the overlap view uses too. An analysis-only project
+            # leaves the panel unwired (PRD §7.8), whatever /movies holds.
+            movies = (
+                ProjectMovies(movies=(), aperture_radius=0.0)
+                if analysis_only
+                else read_project_movies(proj_path)
+            )
             idealizer_candidate = make_store_idealizer(project, require_held_lock=True)
             # Export is read-only with respect to the source project, so retain this
             # seam even when the canonical store must open browse-only.
@@ -2065,9 +2372,10 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self.refresh_readiness()
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
-        self._movie_switcher.setEnabled(True)
+        movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -2089,6 +2397,8 @@ class TetherShell:
         ]
         mode_suffix = f" ({', '.join(modes)})" if modes else ""
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
+        if movie_note is not None:
+            detail = f"{detail}; {movie_note}"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
         # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
@@ -2445,8 +2755,9 @@ class TetherShell:
             return True
 
     def _reset_store_docks(self) -> None:
-        """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
+        """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
         self._histogram_refresh_timer.stop()
+        self._reset_movie_panel()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
             ("_overlap_dock", "_overlap_dock_widget"),
@@ -2492,6 +2803,29 @@ class TetherShell:
         """The path of the open project, or ``None`` when no project is open."""
         return self._project_path
 
+    @property
+    def readiness(self) -> Any | None:
+        """The readiness record of the open project, or ``None`` (#896).
+
+        It is [`project_status`][tether.services.status.project_status], the function that
+        ``tether status`` prints, read when the project opened or at the last
+        [`refresh_readiness`][]. ``None`` when no project is open or the read failed.
+        """
+        return self._readiness
+
+    def refresh_readiness(self) -> Any | None:
+        """Read the readiness of the open project again and return it (#896)."""
+        from tether.services.status import project_status
+
+        if self._project_path is None:
+            self._readiness = None
+        else:
+            try:
+                self._readiness = project_status(self._project_path)
+            except Exception:  # noqa: BLE001 - an open never fails on this read
+                self._readiness = None
+        return self._readiness
+
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.
 
@@ -2520,8 +2854,8 @@ class TetherShell:
         self._conditions = None
         self._reset_store_docks()
         self._project_path = None
+        self._readiness = None
         self._act_close_project.setEnabled(False)
-        self._movie_switcher.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
         self.set_section(CURATE_SECTION)
@@ -2616,9 +2950,113 @@ class TetherShell:
         self._cheatsheet.show()
         return self._cheatsheet
 
+    def show_keymap_editor(self) -> KeymapEditor:
+        """Open the keyboard-shortcut editor over the live keymap (#635).
+
+        **Save** puts the edited keymap in effect at once and writes the keymap file.
+        """
+        from tether.gui.keymap_editor import KeymapEditor
+
+        if self._keymap_editor is not None:
+            self._keymap_editor.dialog.close()
+            self._keymap_editor.dialog.deleteLater()
+        self._keymap_editor = KeymapEditor(
+            self._keymap,
+            parent=self._window,
+            on_save=self.apply_keymap,
+            taken=self._menu_chords(),
+            unavailable=DEFERRED_ACTIONS,
+            file_path=self._keymap_file,
+        )
+        self._keymap_editor.show()
+        return self._keymap_editor
+
+    def apply_keymap(self, keymap: Keymap) -> bool:
+        """Put ``keymap``'s bindings in effect now and save them; ``True`` if saved.
+
+        The live keymap object is updated in place, so the event filter and the
+        cheat-sheet read the new keys at once. A failed write keeps the new keys for this
+        session and says so in the status bar; it never raises.
+        """
+        self._keymap.bindings = dict(keymap.bindings)
+        self._cheatsheet.refresh()
+        if self._keymap_file is None:
+            self._status("Keyboard shortcuts changed for this session (no keymap file to save to)")
+            return False
+        try:
+            self._keymap.save(self._keymap_file)
+        except OSError as exc:
+            self._status(f"Keyboard shortcuts changed for this session, but not saved: {exc}")
+            return False
+        self._status(f"Keyboard shortcuts saved to {self._keymap_file}")
+        return True
+
+    def _menu_chords(self) -> dict[tuple[int, int], str]:
+        """Every single-key shortcut the window's menus own, with the command's name.
+
+        That is each menu command's shortcut and each menu-bar title's mnemonic (Alt+F for
+        File on Windows and Linux; macOS has none), since Qt hands both to the menu before
+        the curation filter sees the key.
+        """
+        from pyqtgraph.Qt import QtGui
+
+        from tether.gui.curation import _as_int
+
+        chords: dict[tuple[int, int], str] = {}
+
+        def add(sequence: Any, name: str) -> None:
+            if sequence.count() != 1:
+                return
+            combined = sequence[0]
+            chord = (_as_int(combined.key()), _as_int(combined.keyboardModifiers()))
+            chords.setdefault(chord, name)
+
+        for action in self._window.findChildren(QtGui.QAction):
+            name = action.text().replace("&", "").rstrip("…") or "a menu command"
+            for sequence in action.shortcuts():
+                add(sequence, name)
+        for action in self._window.menuBar().actions():
+            title = action.text().replace("&", "")
+            add(QtGui.QKeySequence.mnemonic(action.text()), f"{title} menu")
+        return chords
+
+    def _ready_message(self) -> str:
+        """The start-up status line, naming the current accept and reject keys (#635)."""
+        from tether.gui.keymap_editor import chord_label
+
+        parts = []
+        for action, verb in ((CurationAction.ACCEPT, "accept"), (CurationAction.REJECT, "reject")):
+            chords = sorted(self._keymap.chords_for(Command(action)), key=lambda c: (c[1], c[0]))
+            if chords:
+                parts.append(f"{chord_label(*chords[0])} {verb}")
+        return "Ready — " + " · ".join(parts) if parts else "Ready"
+
+    def _picker_categories(self) -> list[str]:
+        """The category list the overflow picker offers.
+
+        A writable project supplies the selected molecule's persisted class lookup.
+        Without one, use the shell's ``categories`` argument.
+        """
+        project = self._curation_project
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if project is None or trace is None or trace.molecule_key is None:
+            return list(self._categories)
+        try:
+            stored = stored_molecule(project.path, trace.molecule_key, row=row)
+            classes = project.class_lookup(stored.condition_id).classes
+            return [classes[index] for index in sorted(classes)]
+        except Exception as exc:  # noqa: BLE001 - show the lookup failure without guessing
+            self._status(f"Category lookup failed: {exc}")
+            return []
+
     def show_overflow_picker(self) -> OverflowCategoryPicker:
-        """Open the overflow category picker; on accept, dispatch the assignment."""
-        picker = OverflowCategoryPicker(self._categories, parent=self._window)
+        """Open the overflow category picker; on accept, dispatch the assignment.
+
+        It lists the selected molecule's condition's categories beyond the ``1``–``9``
+        keys, and the chosen class is stored like a number key's (#359).
+        """
+        picker = OverflowCategoryPicker(self._picker_categories(), parent=self._window)
         chosen = picker.exec()
         if chosen is not None:
             self._controller.dispatch(Command(CurationAction.ASSIGN_CATEGORY, chosen))
@@ -2704,7 +3142,16 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Return-leg import failed: {exc}")
             return None
-        self._status(_applied_summary(applied))
+        summary = _applied_summary(applied)
+        if store_session and applied.windows_applied:
+            assert self._session_project is not None  # store_session
+            try:
+                keys_by_id = {trace.molecule_id: trace.molecule_key for trace in report.matched}
+                keys = (keys_by_id[molecule_id] for molecule_id in applied.windows_applied)
+                self._show_stored_windows(self._session_project.path, keys)
+            except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
+                summary = f"{summary}; the trace view could not reread the windows: {exc}"
+        self._status(summary)
         return applied
 
     def _hand_off_dialog(self) -> None:
@@ -3000,21 +3447,11 @@ class TetherShell:
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
             assign_category=self._assign_category,
-            clear_category=lambda: self._unavailable(
-                "Category clearing", "category persistence is not implemented"
-            ),
-            window_start=lambda _d: self._unavailable(
-                "Analysis-window editing", "GUI persistence is not implemented"
-            ),
-            window_end=lambda _d: self._unavailable(
-                "Analysis-window editing", "GUI persistence is not implemented"
-            ),
-            reset_window=lambda: self._unavailable(
-                "Analysis-window reset", "GUI persistence is not implemented"
-            ),
-            photobleach=lambda: self._unavailable(
-                "Photobleach detection", "GUI persistence is not implemented"
-            ),
+            clear_category=self._clear_category,
+            window_start=lambda delta: self._nudge_window(0, delta),
+            window_end=lambda delta: self._nudge_window(1, delta),
+            reset_window=self._reset_window,
+            photobleach=self._photobleach,
             grid=lambda: self._unavailable("Grid toggle", "the grid display is not implemented"),
         )
 
@@ -3033,21 +3470,10 @@ class TetherShell:
             CurationAction.UNREJECT: ("Un-reject", "Un-rejected"),
         }
         verb, completed = labels[action]
-        if self._idealization_blocks_write(verb):
+        selection = self._writable_selection(verb)
+        if selection is None:
             return
-        if self._curation_project is not None:
-            self._refresh_project_lock()
-        project = self._curation_project
-        if project is None:
-            reason = self._curation_read_only_reason or "load a writable project first"
-            prefix = "project is read-only: " if self._curation_read_only_reason else ""
-            self._status(f"{verb} unavailable: {prefix}{reason}")
-            return
-        row = self._molecule_list.currentRow()
-        trace = self._traces[row] if 0 <= row < len(self._traces) else None
-        if trace is None or trace.molecule_key is None:
-            self._status(f"{verb} failed: select a project molecule first")
-            return
+        project, row, trace, nonce = selection
 
         try:
             writers = {
@@ -3055,6 +3481,7 @@ class TetherShell:
                 CurationAction.REJECT: project.reject,
                 CurationAction.UNREJECT: project.unreject,
             }
+            self._guard_session_write(project, nonce)
             result = writers[action](trace.molecule_key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
@@ -3104,16 +3531,278 @@ class TetherShell:
             "the next trace; Un-reject and the category keys keep the same trace."
         )
 
+    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
+        """The writable project, list row, trace and lock nonce a curation write acts on.
+
+        Refuses writes during background idealization, in a read-only project,
+        or without a selected project molecule. Pass the returned lock nonce to
+        [`_guard_session_write`][] immediately before writing.
+        """
+        if self._idealization_blocks_write(verb):
+            return None
+        if self._curation_project is not None:
+            self._refresh_project_lock()
+        project = self._curation_project
+        nonce = None
+        if project is not None:
+            try:
+                nonce = project._assert_held_lock()
+            except Exception:  # noqa: BLE001 - fail closed: any doubt about ownership refuses
+                self._refresh_project_lock()
+                project = self._curation_project
+        if project is None or nonce is None:
+            reason = self._curation_read_only_reason or "load a writable project first"
+            prefix = "project is read-only: " if self._curation_read_only_reason else ""
+            self._status(f"{verb} unavailable: {prefix}{reason}")
+            return None
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if trace is None or trace.molecule_key is None:
+            self._status(f"{verb} failed: select a project molecule first")
+            return None
+        return project, row, trace, nonce
+
+    def _guard_session_write(self, project: Project, nonce: str) -> None:
+        """Require the lock epoch ``nonce`` [`_writable_selection`][] read, just before a write.
+
+        Another writer can take the lock while the bleach detector runs. The nonce
+        guards against that even if the other writer has since released the lock.
+        A lost lock turns the shell read-only and raises.
+        """
+        try:
+            project._assert_held_lock(expected_nonce=nonce)
+        except Exception:
+            self._refresh_project_lock()
+            raise
+
     def _assign_category(self, integer_class: int) -> None:
-        name = (
-            self._categories[integer_class - 1]
-            if 1 <= integer_class <= len(self._categories)
-            else "?"
+        """Store class ``integer_class`` of the molecule's condition list as its category.
+
+        The condition's persisted [`ClassLookup`][tether.project.conditions.ClassLookup]
+        maps class ``N`` to its ``N``-th category. An unmapped class leaves the store and
+        the selection unchanged.
+        """
+        verb = f"Category {integer_class} assignment"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace, nonce = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key, row=row)
+            classes = project.class_lookup(stored.condition_id).classes
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        name = classes.get(integer_class)
+        if name is None:
+            count = f"{len(classes)} " + ("category" if len(classes) == 1 else "categories")
+            self._status(f"{verb} unavailable: its condition has {count}")
+            return
+        try:
+            self._guard_session_write(project, nonce)
+            project.set_category(key, name, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        self._status(f"Category {integer_class} ({name}) set for {trace.name or key}")
+
+    def _clear_category(self) -> None:
+        """Clear the selected molecule's category to *uncategorized* (``0``, §7.3)."""
+        verb = "Category clearing"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, _row, trace, nonce = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            self._guard_session_write(project, nonce)
+            project.clear_category(key, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        self._status(f"Category cleared for {trace.name or key}")
+
+    def _nudge_window(self, bound: int, delta: int) -> None:
+        """Move the analysis window's start (``bound`` 0) or end (``bound`` 1) by ``delta``.
+
+        The window is ``[start, stop)`` in absolute frames. A nudge that would leave the
+        molecule's ``frame_range`` or empty the window is refused and stores nothing; a
+        stored one redraws the dock's window and idealization overlay (§7.3).
+        """
+        verb = "Analysis-window editing"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace, nonce = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key, row=row)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        start, stop = stored.window
+        wanted = [start, stop]
+        wanted[bound] += delta
+        lo, hi = stored.frame_range
+        name = "start" if bound == 0 else "end"
+        if wanted[0] >= wanted[1]:
+            reason = "the window must keep at least one frame"
+        elif wanted[0] < lo or wanted[1] > hi:
+            reason = f"the window {name} is at the trace {name}"
+        else:
+            reason = None
+        if reason is not None:
+            self._status(f"Analysis window unchanged at [{start}, {stop}): {reason}")
+            return
+        self._write_window(
+            project,
+            nonce,
+            row,
+            trace,
+            lambda: project.set_analysis_window(key, *wanted, **self._labeler_kwargs()),
+            verb,
+            "Analysis window",
         )
-        self._unavailable(
-            f"Category {integer_class} ({name}) assignment",
-            "category persistence is not implemented",
+
+    def _reset_window(self) -> None:
+        """Restore the analysis window to the molecule's whole ``frame_range`` (``R``)."""
+        verb = "Analysis-window reset"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace, nonce = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        self._write_window(
+            project,
+            nonce,
+            row,
+            trace,
+            lambda: project.reset_analysis_window(key, **self._labeler_kwargs()),
+            verb,
+            "Analysis window reset to",
         )
+
+    def _photobleach(self) -> None:
+        """Detect the summed-intensity photobleach and end the analysis window there (``P``).
+
+        Runs the native single-step detector
+        ([`detect_photobleach`][tether.fret.photobleach.detect_photobleach]) on the
+        molecule's background-subtracted (``corrected``) donor and acceptor over its
+        ``frame_range``, as [`compute_photobleach`][tether.project.photobleach.compute_photobleach]
+        does, and stores ``[start, first bleach)`` with the window's start kept — tMAVEN's
+        ``P`` moves only the end. With no bleach the end is the trace end. A bleach at or
+        before the window start is refused. It is a manual window, so a later project
+        photobleach pass leaves it alone; the per-channel ``bleach_frames`` the
+        corrections read are not changed here.
+        """
+        verb = "Photobleach detection"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace, nonce = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key, row=row)
+            bleach = summed_bleach_frame(project.path, stored)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        start = stored.window[0]
+        if bleach <= start:
+            self._status(
+                f"{verb} unavailable: the summed intensity bleaches at frame {bleach}, "
+                f"not after the window start {start}"
+            )
+            return
+        found = (
+            f"Photobleach at frame {bleach}:"
+            if bleach < stored.frame_range[1]
+            else "No photobleach step found:"
+        )
+        self._write_window(
+            project,
+            nonce,
+            row,
+            trace,
+            lambda: project.set_analysis_window(key, start, bleach, **self._labeler_kwargs()),
+            verb,
+            f"{found} analysis window",
+        )
+
+    def _write_window(
+        self,
+        project: Project,
+        nonce: str,
+        row: int,
+        trace: TraceView,
+        write: Callable[[], object],
+        verb: str,
+        done: str,
+    ) -> None:
+        """Run one analysis-window write, then show the window the project now stores.
+
+        The window is read back from the project rather than assumed from the request,
+        so the dock's bounds and overlay always agree with ``/molecules.analysis_window``.
+        """
+        key = trace.molecule_key
+        assert key is not None  # every caller passed _writable_selection
+        try:
+            self._guard_session_write(project, nonce)
+            write()
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        self._queue_open_histogram_refresh()
+        try:
+            by_row = self._show_stored_windows(project.path, (key,))
+        except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
+            self._status(
+                f"Analysis window saved for {trace.name or key}, "
+                f"but the trace view could not reread it: {exc}"
+            )
+            return
+        selected = by_row.get(row) or next(iter(by_row.values()))
+        start, stop = selected.window
+        self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
+
+    def _show_stored_windows(
+        self, path: str | Path, keys: Iterable[str]
+    ) -> dict[int, StoredMolecule]:
+        """Give each listed trace of ``keys`` its stored analysis window; return them by row.
+
+        A window setter writes every row that carries a key, each clamped to its own
+        ``frame_range``, so each listed row takes its own stored window back, and a
+        listed row the store does not hold takes its key's first. The current trace's
+        dock bounds and overlay are redrawn. Raises ``KeyError`` when no row carries
+        any of ``keys``.
+        """
+        from dataclasses import replace
+
+        stored = stored_rows(path, keys)
+        if not stored:
+            raise KeyError(f"no molecule with any of the molecule_keys in {Path(path).name}")
+        by_row = {m.row: m for m in stored}
+        first: dict[str, StoredMolecule] = {}
+        for m in stored:
+            first.setdefault(m.molecule_key, m)
+        current = self._molecule_list.currentRow()
+        for i, listed in enumerate(self._traces):
+            mine = by_row.get(i)
+            if mine is None or mine.molecule_key != listed.molecule_key:
+                mine = first.get(listed.molecule_key or "")
+            if mine is None:
+                continue
+            window = _relative_window(mine.frame_range[0], listed.n_frames, mine.window)
+            self._traces[i] = replace(listed, analysis_window=window)
+            if i == current and self._trace_dock.trace is not None:
+                self._trace_dock.set_analysis_window(window)
+        return by_row
 
     def _unavailable(self, feature: str, reason: str) -> None:
         """Report a deferred GUI command without claiming it changed project data."""
@@ -3311,6 +4000,7 @@ class TetherShell:
             self._histogram_dock.close()
         if self._overlap_dock is not None:
             self._overlap_dock.close()
+        self._reset_movie_panel()
         self._trace_dock.close()
         if close_window:
             self._window.close()
@@ -3709,26 +4399,37 @@ def traces_from_store(
     key_col = molecules["molecule_key"]
     movie_col = molecules["movie_id"]
     frame_range = molecules["frame_range"]
+    analysis_window = molecules["analysis_window"]
 
     def _decode(value: object) -> str:
         return value.decode() if isinstance(value, bytes) else str(value)
 
     views: list[TraceView] = []
     for i in range(molecules.shape[0]):
-        lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
-        if hi <= lo:  # unset [0, 0] -> the full native row extent
-            lo, hi = 0, max_t
+        lo, hi = resolved_frame_range(frame_range[i], max_t)
         donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
+        window = resolved_window(analysis_window[i], (lo, hi))
         views.append(
             TraceView(
                 donor=donor,
                 acceptor=acceptor,
                 frame_time=frame_times.get(_decode(movie_col[i])),
                 molecule_key=_decode(key_col[i]),
+                analysis_window=_relative_window(lo, int(donor.size), window),
             )
         )
     return views
+
+
+def _relative_window(offset: int, n_frames: int, window: tuple[int, int]) -> tuple[int, int] | None:
+    """An absolute window as frames into a trace that starts at ``offset``, or ``None``.
+
+    Clipped to the trace's ``n_frames``; ``None`` when nothing of it lies inside.
+    """
+    start = min(max(window[0] - offset, 0), n_frames)
+    stop = min(max(window[1] - offset, 0), n_frames)
+    return (start, stop) if start < stop else None
 
 
 def launch() -> None:  # pragma: no cover - interactive smoke entry point

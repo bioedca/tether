@@ -11,7 +11,8 @@ project so its retrain sees them (PRD §7.5/§7.10):
 
 * **append-only** — the contributor's human ``/labels`` rows are *appended* to the owner's
   ``/labels/table`` (never rewriting or deleting an existing row), carrying their original
-  ``labeler`` / ``timestamp`` / ``source_file`` provenance so who-labeled-what survives the merge;
+  ``labeler`` / ``timestamp`` / ``source_file`` provenance so who-labeled-what survives the merge,
+  and each uniquely matched ``/labels/reject_log`` reason follows its label row (#1051);
 * **joined on** ``molecule_key`` — the stable cross-file content identity (movie ``sha256`` +
   quantized ``donor_xy``, §5.1/§7.10) is the only join key; a split-file row whose ``molecule_key``
   is absent from the owner's ``/molecules`` cannot be attributed and is **surfaced** (never silently
@@ -47,7 +48,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tether.io.schema import LABELS_DTYPE, TABLE
-from tether.project.labels import LABEL_SOURCE_HUMAN, CurationLabel
+from tether.project.labels import (
+    LABEL_SOURCE_HUMAN,
+    REJECT_EVENT,
+    REJECT_LOG,
+    RESTORE_EVENT,
+    CurationLabel,
+    _reject_log_dtype,
+)
 
 if TYPE_CHECKING:
     from os import PathLike
@@ -71,6 +79,16 @@ _UNCURATED = int(CurationLabel.UNCURATED)
 #: rewritten to the owner's authoritative value on append, so neither identifies the event.
 _EVENT_FIELDS = ("molecule_key", "labeler", "timestamp", "source_file", "source", "label_value")
 
+#: The ``/labels/reject_log`` fields that join a reason row to its ``/labels`` row (ADR-0104).
+_REJECT_JOIN_FIELDS = ("molecule_key", "labeler", "timestamp")
+#: The ``/labels/reject_log`` fields that identify one reason row, for an idempotent re-pull.
+#: ``condition_id`` is excluded for the reason ``_EVENT_FIELDS`` excludes it: it is rewritten to
+#: the owner's value on append.
+_REJECT_EVENT_FIELDS = ("molecule_key", "event", "reason", "note", "value", "labeler", "timestamp")
+#: The ``/labels.label_value`` of the label row a reject-log ``event`` belongs to: a reject row
+#: joins a reject, a restore row joins the ``UNCURATED`` row an un-reject writes.
+_LABEL_VALUE_OF_EVENT = {REJECT_EVENT: int(CurationLabel.REJECT), RESTORE_EVENT: _UNCURATED}
+
 
 def _project_path(project: ProjectRef) -> Path:
     from tether.project.core import Project as _Project  # noqa: PLC0415
@@ -86,6 +104,92 @@ def _to_str(value: object) -> str:
 def _event_key(row: np.ndarray) -> tuple:
     """The provenance-identity tuple of one ``/labels`` row (its `_EVENT_FIELDS` values)."""
     return tuple(int(row[f]) if f == "label_value" else _to_str(row[f]) for f in _EVENT_FIELDS)
+
+
+def _join_key(row: np.ndarray) -> tuple[str, ...]:
+    """The ``molecule_key`` + ``labeler`` + ``timestamp`` of a ``/labels`` or reject-log row."""
+    return tuple(_to_str(row[f]) for f in _REJECT_JOIN_FIELDS)
+
+
+def _reject_event_key(row: np.ndarray) -> tuple:
+    """The identity tuple of one ``/labels/reject_log`` row (a NaN ``value`` compares equal)."""
+    import math  # noqa: PLC0415
+
+    def field(name: str) -> object:
+        if name != "value":
+            return _to_str(row[name])
+        value = float(row[name])
+        return None if math.isnan(value) else value
+
+    return tuple(field(f) for f in _REJECT_EVENT_FIELDS)
+
+
+def _append_reject_log_rows(
+    labels_group: object, src_log: np.ndarray | None, matched: list[np.ndarray]
+) -> int:
+    """Append the contributor's reject-log rows that belong to its matched label rows (#1051).
+
+    ``matched`` is every contributor human ``/labels`` row the merge attributes to an owner
+    molecule, appended now or already present from an earlier pull. A reason row belongs to one of
+    them when the two share ``molecule_key``, ``labeler`` and ``timestamp`` (the ADR-0104 join) and
+    the label row is the decision the reason's ``event`` records (a reject row joins a reject, a
+    restore row the un-reject's ``UNCURATED`` row). It takes that label row's owner
+    ``condition_id``, so the pair still agree after the merge. A row already in the owner's log is
+    skipped, so a re-pull appends nothing, while a pull interrupted between the label and the reason
+    writes completes on the next one. Where that join names more than one matched label row of the
+    same decision, no reason can say which of them it belongs to (for two rejects the source's
+    [`tether.project.labels.reject_record_of`][] returns ``None``), so its reasons are not copied:
+    the label dedup could collapse those rows into one and attach a reason to it. The owner's log is
+    created on the first row, as [`tether.project.labels.reject`][] creates it. Returns the number
+    of rows appended.
+    """
+    from collections import Counter  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+
+    if src_log is None or src_log.shape[0] == 0 or not matched:
+        return 0
+
+    def decision_key(row: np.ndarray) -> tuple:
+        return (*_join_key(row), int(row["label_value"]))
+
+    n_labels_of = Counter(decision_key(row) for row in matched)
+    condition_of = {
+        decision_key(row): _to_str(row["condition_id"])
+        for row in matched
+        if n_labels_of[decision_key(row)] == 1
+    }
+    existing = (
+        {_reject_event_key(row) for row in labels_group[REJECT_LOG][:]}
+        if REJECT_LOG in labels_group
+        else set()
+    )
+    dtype = labels_group[REJECT_LOG].dtype if REJECT_LOG in labels_group else _reject_log_dtype()
+    new_rows: list[np.ndarray] = []
+    for row in src_log:
+        label_value = _LABEL_VALUE_OF_EVENT.get(_to_str(row["event"]))
+        join = (*_join_key(row), label_value)
+        if label_value is None or join not in condition_of:
+            continue
+        ev = _reject_event_key(row)
+        if ev in existing:
+            continue
+        existing.add(ev)
+        out = np.zeros(1, dtype=dtype)
+        for name in dtype.names:
+            if name in src_log.dtype.names:
+                out[name] = row[name]
+        out["condition_id"] = condition_of[join]
+        new_rows.append(out)
+    if not new_rows:
+        return 0
+    if REJECT_LOG not in labels_group:
+        labels_group.create_dataset(REJECT_LOG, shape=(0,), maxshape=(None,), dtype=dtype)
+    log = labels_group[REJECT_LOG]
+    n0 = log.shape[0]
+    log.resize((n0 + len(new_rows),))
+    log[n0:] = np.concatenate(new_rows)
+    return len(new_rows)
 
 
 @dataclass(frozen=True)
@@ -150,6 +254,10 @@ class MergeReport:
     #: Count of ``/labels`` rows whose ``weight`` was recomputed centrally after the append (``0``
     #: when ``recompute_weights=False``).
     weights_recomputed: int
+    #: Count of contributor ``/labels/reject_log`` rows appended to the owner's log: the reasons of
+    #: the pulled rejects and restores, joined on ``molecule_key`` + ``labeler`` + ``timestamp``
+    #: (ADR-0104). ``0`` on a re-pull of a completed merge, and when the split file has no log.
+    reject_log_appended: int
 
     @property
     def n_conflicts(self) -> int:
@@ -182,6 +290,12 @@ def merge_labels(
     the merged set ([`tether.project.weighting.recompute_label_weights`][]), so per-split-file
     weights are superseded (§5.1). Re-pulling the same split file is **idempotent**: rows already
     present (same provenance) are skipped, and adoption/agreement are unchanged on a second run.
+
+    Merge-back appends a split-file ``/labels/reject_log`` row when its ``molecule_key``,
+    ``labeler`` and ``timestamp`` identify exactly one matched human label of the corresponding
+    decision (ADR-0104). The new row takes the owner's ``condition_id``. Existing rows and
+    ambiguous joins are skipped (#1051). The append-only owner log retains earlier rows even
+    when a later pull makes their join ambiguous (#1291).
 
     Only ``source == "human"`` rows are pulled; the provisional seed sources are the owner's own
     priors (ADR-0038) and are counted, not merged. A source row whose ``molecule_key`` is not in the
@@ -227,6 +341,7 @@ def merge_labels(
             raise KeyError(f"{source_path.name} has no /labels group") from exc
         if _MOLECULES not in sf:
             raise KeyError(f"{source_path.name} has no /molecules group")
+        src_log = sf[_LABELS][REJECT_LOG][:] if REJECT_LOG in sf[_LABELS] else None
 
     is_human_src = np.array(
         [_to_str(s) == LABEL_SOURCE_HUMAN for s in src_rows["source"]], dtype=bool
@@ -260,6 +375,8 @@ def merge_labels(
         # Partition the contributor's human rows: matched-new (append) / duplicate / unmatched /
         # ambiguous.
         matched_new: list[np.ndarray] = []
+        # Every attributed human row, new or already present: the reasons join these (#1051).
+        matched_all: list[np.ndarray] = []
         skipped_duplicate = 0
         unmatched: set[str] = set()
         ambiguous: set[str] = set()
@@ -292,6 +409,7 @@ def merge_labels(
             # Dedup against both the owner's pre-merge log AND rows already accepted in this batch
             # (a chained/replayed split file can carry two identical-provenance rows): add each
             # accepted key back so within-batch duplicates are skipped too (exact `appended`).
+            matched_all.append(row)
             ev = _event_key(row)
             if ev in existing_events:
                 skipped_duplicate += 1
@@ -309,6 +427,8 @@ def merge_labels(
             n0 = labels_table.shape[0]
             labels_table.resize((n0 + appended,))
             labels_table[n0:] = new_block
+        # The reasons of the contributor's rejects and restores follow their label rows (#1051).
+        reject_log_appended = _append_reject_log_rows(f[_LABELS], src_log, matched_all)
 
         # 2) Classify each matched molecule's contributor current decision vs the owner's, and adopt
         #    the non-conflicting new decisions into curation_label (never touch a conflict).
@@ -355,4 +475,5 @@ def merge_labels(
         skipped_non_human=skipped_non_human,
         skipped_duplicate=skipped_duplicate,
         weights_recomputed=weights_recomputed,
+        reject_log_appended=reject_log_appended,
     )

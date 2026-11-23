@@ -137,6 +137,24 @@ def test_the_two_export_routes_count_as_one_acquisition() -> None:
     assert all(_lab_golden.NEUTRAL_ID.fullmatch(nid) for nid in [*ids, direct])
 
 
+def test_the_vendor_route_acquisitions_are_turned_back_to_their_map() -> None:
+    """#887: the vendor-route TIFFs of one series are turned against the map of that series."""
+    turned = _lab_golden.TURNED_AGAINST_MAP
+    assert turned == {"lab-10", "lab-12"}
+    assert turned <= set(_lab_golden.LAB_ACQUISITIONS)
+    assert set(_lab_golden.EXPORT_ROUTES) <= turned  # the route whose turn was measured
+    assert not turned & set(_lab_golden.EXPORT_ROUTES.values())  # a direct route is not turned
+    frame = np.arange(12).reshape(3, 4)
+    vendor = np.rot90(frame, k=_lab_golden.EXPORT_ROUTE_ROTATION)
+    for nid in _lab_golden.LAB_ACQUISITIONS:
+        k = _lab_golden.map_turns(nid)
+        if nid in turned:
+            assert np.array_equal(np.rot90(vendor, k=k), frame), nid
+        else:
+            assert k == 0, nid
+    assert _lab_golden.map_turns("lab-11") == 0
+
+
 def test_the_movie_role_falls_back_to_the_default_role() -> None:
     assert _lab_golden.movie_role(["movie", "tmap"]) == "movie"
     assert _lab_golden.movie_role(["file", "tmap"]) == "file"
@@ -192,6 +210,23 @@ def test_a_movie_turned_and_turned_back_gives_the_same_molecules_and_traces(
     assert code == 0 and turned is not None
     diff = _lab_golden.compare_export_routes(turned, project)
     assert diff["n_unmatched"] == 0 and diff["max_trace_diff"] == 0.0
+
+
+def test_a_movie_turned_against_its_map_is_turned_back_before_extraction(
+    synthetic, tmp_path: Path
+) -> None:
+    """#887: with ``map_turns``, a vendor-route movie gives the numbers of the direct movie."""
+    quantities, project = synthetic
+    movie = project.parents[2] / _golden_movie_name()
+    (tmp_path / "vendor").mkdir()
+    vendor = _lab_golden.rotate_movie(movie, tmp_path / "vendor", _lab_golden.EXPORT_ROUTE_ROTATION)
+    nid = next(iter(_lab_golden.EXPORT_ROUTES))
+    turned = _lab_golden.lab_quantities(
+        vendor, None, tmp_path / "run", turns=_lab_golden.map_turns(nid)
+    )
+    assert turned == quantities
+    assert vendor.is_file()  # the input stays; only the turned copy is deleted
+    assert not list((tmp_path / "run" / "turned").iterdir())
 
 
 def _golden_movie_name() -> str:
@@ -303,10 +338,12 @@ def test_the_update_script_writes_after_every_id_ran_and_prints_no_name(
     data = _data_dir(tmp_path)
     golden_dir = tmp_path / "golden"
     seen: list[str] = []
+    turns: dict[str, int] = {}
 
-    def fake(movie: Path, tmap: Path, workdir: Path) -> dict:
+    def fake(movie: Path, tmap: Path, workdir: Path, **kw) -> dict:
         assert movie.is_file() and tmap.suffix == ".tmap"
         seen.append(movie.name)
+        turns[movie.name.removesuffix("-ZETA.tif")] = kw["turns"]
         if len(seen) == len(_lab_golden.LAB_ACQUISITIONS) and fail[0]:
             raise RuntimeError(f"cannot read {movie}")
         return _good_quantities()
@@ -320,10 +357,11 @@ def test_the_update_script_writes_after_every_id_ran_and_prints_no_name(
     fail[0] = False
     assert update.main(args) == 0
     assert sorted(p.stem for p in golden_dir.iterdir()) == list(_lab_golden.LAB_ACQUISITIONS)
+    assert turns == {nid: _lab_golden.map_turns(nid) for nid in _lab_golden.LAB_ACQUISITIONS}
     assert update.main([*args, "--check"]) == 0
     q = _good_quantities()
     q["molecules.count"] = 4
-    monkeypatch.setattr(update._lab_golden, "lab_quantities", lambda *a: q)
+    monkeypatch.setattr(update._lab_golden, "lab_quantities", lambda *a, **k: q)
     assert update.main([*args, "--check", "--only", "lab-02"]) == 1
     out = capsys.readouterr()
     text = out.out + out.err

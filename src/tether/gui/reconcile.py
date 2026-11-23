@@ -17,10 +17,10 @@ Design notes:
 
 * **Accept per facet.** Each matched trace with a change gets an *Accept window* and
   an *Accept class* checkbox, enabled only for the facet that actually changed. A
-  non-zero tMAVEN class has no free-text category mapping until the M4 editable list
-  (§7.6), so its ``class_change.applicable`` is ``False`` — the row is **surfaced**
-  (so the curator sees it) but its Accept box stays disabled (it cannot be committed
-  at M2, matching the headless layer).
+  tMAVEN class the molecule's condition lookup does not hold is **unmapped**
+  (ADR-0125), so its ``class_change.applicable`` is ``False`` — the row is
+  **surfaced** (so the curator sees it) but its Accept box stays disabled (it is
+  never committed, matching the headless layer).
 * **Idealization import** is a single project-level checkbox, enabled only when the
   preview carried a tMAVEN model (``report.has_idealization``).
 * **Unmatched traces** are shown read-only (reported, never guessed — §5.3).
@@ -72,7 +72,7 @@ def _window_text(trace: TraceReconcile) -> str:
 
 
 def _class_text(trace: TraceReconcile) -> str:
-    """Human text for a class change: the applicable proposal or the M4-deferred note."""
+    """Human text for a class change: the applicable proposal or the unmapped note."""
     cc = trace.class_change
     if cc is None:
         return "—"
@@ -80,7 +80,7 @@ def _class_text(trace: TraceReconcile) -> str:
         target = cc.proposed_category or "uncategorized"
         return f"class {cc.returned_class} → «{target}»"
     store = cc.store_category or "uncategorized"
-    return f"class {cc.returned_class} vs «{store}» (M4-deferred)"
+    return f"class {cc.returned_class} vs «{store}» (no category has this class)"
 
 
 class ReconcileDialog:
@@ -213,7 +213,7 @@ class ReconcileDialog:
 
     def decision(self) -> ReconcileDecision:
         """The accepted subset. Only *enabled* checked boxes count (a disabled box —
-        an unchanged facet or an M4-deferred class — is never committed)."""
+        an unchanged facet or an unmapped class — is never committed)."""
         accept_windows = tuple(
             t.molecule_id
             for t in self._rows

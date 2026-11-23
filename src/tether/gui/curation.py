@@ -36,6 +36,8 @@ without Qt (mirroring [`tether.gui.trace_dock`][]):
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -54,7 +56,9 @@ __all__ = [
     "CurationController",
     "CurationEventFilter",
     "CurationHandlers",
+    "RESERVED_KEYS",
     "Keymap",
+    "KeymapError",
     "action_description",
     "default_keymap_path",
     "is_text_entry",
@@ -65,15 +69,21 @@ __all__ = [
 #: tMAVEN class 0 is pinned to Tether's *uncategorized* null state (PRD §7.3 /
 #: §7.4): ``Space`` alone yields an accepted-but-uncategorized trace, and ``0``
 #: clears any named category back to it. Named categories are classes ``>= 1``.
+#: The same pin as [`tether.project.conditions.UNCATEGORIZED_CLASS`][], beside the
+#: persisted lookup; repeated here (and asserted equal by a test) so importing this
+#: Qt-free module stays free of h5py/numpy too.
 UNCATEGORIZED_CLASS = 0
 
 #: The keymap scope of the curation keys (#342). A section of the shell that declares it
 #: as its [`keymap_scope`][tether.gui.sections.SectionSpec] is where those keys act.
 CURATION_SCOPE = "curation"
 
-#: The number of categories addressable by the ``1``–``9`` hotkeys; categories
-#: beyond this are assigned via the overflow picker (exercised fully once the M4
-#: editable per-condition list lands).
+#: The number of categories addressable by the ``1``–``9`` hotkeys; a category
+#: beyond this is chosen in the overflow picker, which dispatches its class (the shell
+#: does not persist a category assignment yet). Hotkey ``n`` and the picker both
+#: name an integer class ``n``, the ``n``-th category: the rule the persisted
+#: [`ClassLookup`][tether.project.conditions.ClassLookup] stores (ADR-0125). The GUI
+#: may not import the core directly (ADR-0100), so a test pins the agreement.
 CATEGORY_SLOTS = 9
 
 
@@ -272,6 +282,21 @@ def _call(fn: Callable[..., Any] | None, *args: Any) -> None:
 # Qt-free once built and serializes to JSON directly.
 KeyChord = tuple[int, int]
 
+#: The key codes of ``C`` and ``V`` (``Qt.Key_C``, ``Qt.Key_V``; a letter's key code is its
+#: upper-case ASCII code, kept literal so the check needs no Qt). PRD §7.3 keeps them reserved
+#: no-ops, tMAVEN's split and collect, so no command may be bound to them with any modifier.
+RESERVED_KEYS = frozenset({0x43, 0x56})
+
+#: The largest Qt key code (``Qt.Key_unknown``) and the modifier bits a chord may carry
+#: (``Shift``, ``Ctrl``, ``Alt``, ``Meta``: the ones the event filter compares), as literals
+#: so a saved file is checked without Qt.
+_MAX_KEY_CODE = 0x01FFFFFF
+_MODIFIER_BITS = 0x02000000 | 0x04000000 | 0x08000000 | 0x10000000
+
+
+class KeymapError(ValueError):
+    """A saved keymap that cannot be used: unreadable, not JSON, or breaking a rule (#635)."""
+
 
 def _as_int(value: Any) -> int:
     """Coerce a PySide6 enum/flag (or a plain int) to its integer value.
@@ -327,6 +352,54 @@ class Keymap:
     def restore_defaults(self) -> None:
         """Reset every binding to the [`default`][] table."""
         self.bindings = Keymap.default().bindings
+
+    def conflict(self, command: Command, key: int, modifiers: int = 0) -> Command | None:
+        """The *other* command already bound to ``(key, modifiers)``, or ``None``.
+
+        A chord bound to ``command`` itself is no conflict, so moving a command to the key
+        it already has is allowed. The keymap belongs to one section (the curation scope,
+        #342), so one chord can never serve two commands (#635).
+        """
+        bound = self.bindings.get((_as_int(key), _as_int(modifiers)))
+        return bound if bound is not None and bound != command else None
+
+    def restore_default(self, command: Command, defaults: Keymap | None = None) -> Command | None:
+        """Give ``command`` its default chord(s) again; return the command in the way, if any.
+
+        When a default chord of ``command`` is now bound to another command, nothing
+        changes and that command is returned, so the caller can say which key to move
+        first. A command with no default chord is left as it is. ``defaults`` is the
+        [`default`][] table unless given.
+        """
+        table = defaults if defaults is not None else Keymap.default()
+        wanted = table.chords_for(command)
+        if not wanted:
+            return None
+        for key, modifiers in wanted:
+            blocker = self.conflict(command, key, modifiers)
+            if blocker is not None:
+                return blocker
+        self.bindings = {chord: cmd for chord, cmd in self.bindings.items() if cmd != command}
+        for key, modifiers in wanted:
+            self.bind(key, command, modifiers)
+        return None
+
+    def add_missing(self, defaults: Keymap) -> list[Command]:
+        """Bind every command of ``defaults`` that this keymap lacks; return those added.
+
+        A keymap saved by an older version has no row for a command added since (#635),
+        so that command gets its default chord(s). A default chord the saved keymap already
+        uses for another command is skipped, because one chord never serves two commands.
+        """
+        present = set(self.bindings.values())
+        added: list[Command] = []
+        for chord, cmd in defaults.bindings.items():
+            if cmd in present or chord in self.bindings:
+                continue
+            self.bindings[chord] = cmd
+            if cmd not in added:
+                added.append(cmd)
+        return added
 
     # --- construction --------------------------------------------------------
 
@@ -403,23 +476,89 @@ class Keymap:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Keymap:
-        """Rebuild a keymap from [`to_dict`][] output."""
+        """Rebuild a keymap from [`to_dict`][] output, refusing anything it would not write.
+
+        Raises [`KeymapError`][] for a value of the wrong shape or type, an unknown action,
+        an action with a wrong arg, a chord listed twice, ``C`` or ``V`` bound to anything
+        but the reserved no-op, or the reserved no-op on any other key (PRD §7.3). A file
+        that breaks a rule is refused whole rather than half used (#635).
+        """
+        if not isinstance(data, dict) or not isinstance(data.get("bindings"), list):
+            raise KeymapError("expected an object with a list of bindings")
         km = cls()
-        for row in data.get("bindings", []):
-            cmd = Command(CurationAction(row["action"]), row.get("arg"))
-            km.bindings[(int(row["key"]), int(row["modifiers"]))] = cmd
+        for index, row in enumerate(data["bindings"], start=1):
+            km._load_row(index, row)
         return km
 
+    def _load_row(self, index: int, row: Any) -> None:
+        where = f"binding {index}"
+        if not isinstance(row, dict):
+            raise KeymapError(f"{where} is not an object")
+        key, modifiers = row.get("key"), row.get("modifiers", 0)
+        # bool is an int subclass; a true/false key code is a broken file, not key 1. A key
+        # code past Qt's range or a modifier outside Shift/Ctrl/Alt/Meta is refused too: such
+        # a chord could never be pressed, and QKeySequence overflows on a value past 32 bits.
+        if (
+            type(key) is not int
+            or type(modifiers) is not int
+            or not 0 < key <= _MAX_KEY_CODE
+            or modifiers & ~_MODIFIER_BITS
+        ):
+            raise KeymapError(f"{where} has no valid key code and modifiers")
+        try:
+            command = Command(CurationAction(row.get("action")), row.get("arg"))
+        except (ValueError, TypeError) as exc:
+            raise KeymapError(f"{where}: {exc}") from None
+        if (key, modifiers) in self.bindings:
+            raise KeymapError(f"{where} binds a key that an earlier binding already uses")
+        reserved_key = key in RESERVED_KEYS
+        if reserved_key != (command.action is CurationAction.RESERVED):
+            raise KeymapError(f"{where}: C and V stay reserved no-ops and nothing else is")
+        self.bindings[(key, modifiers)] = command
+
     def save(self, path: str | Path) -> None:
-        """Persist the keymap to ``path`` as JSON (creating parent dirs)."""
+        """Persist the keymap to ``path`` as JSON (creating parent dirs).
+
+        The file is written next to its final name and then moved over it, so a failed
+        write never leaves half a keymap behind.
+        """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        text = json.dumps(self.to_dict(), indent=2)
+        fd, tmp = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp", dir=p.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(tmp, p)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
     @classmethod
-    def load(cls, path: str | Path) -> Keymap:
-        """Load a keymap saved by [`save`][]."""
-        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+    def load(cls, path: str | Path, *, defaults: Keymap | None = None) -> Keymap:
+        """Load a keymap saved by [`save`][]; raise [`KeymapError`][] if it cannot be used.
+
+        An unreadable file, text that is not JSON and every refusal of [`from_dict`][]
+        raise [`KeymapError`][]. With ``defaults``, each command the file lacks gets its
+        default chord(s) through [`add_missing`][] (a file saved before that command
+        existed).
+        """
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise KeymapError(f"the file cannot be read: {exc}") from None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise KeymapError(
+                f"the file is not valid JSON at line {exc.lineno}, column {exc.colno}"
+            ) from None
+        except (ValueError, RecursionError) as exc:  # a number too long or JSON nested too deeply
+            raise KeymapError(f"the file is not valid JSON: {exc}") from None
+        km = cls.from_dict(data)
+        if defaults is not None:
+            km.add_missing(defaults)
+        return km
 
     # --- cheat-sheet ---------------------------------------------------------
 
@@ -629,6 +768,19 @@ class CurationEventFilter:
         self._focus_dock = widget
 
     # --- install / remove ----------------------------------------------------
+
+    def add_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Let the curation keys act in ``widget`` when it is a floating top-level window.
+
+        For a shell-owned dock built after this filter, such as the movie dock (#356):
+        docked, it is inside the main window already; floated, it is its own window.
+        """
+        if not any(widget is w for w in self._scope_widgets):
+            self._scope_widgets = (*self._scope_widgets, widget)
+
+    def remove_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Undo [`add_scope_widget`][tether.gui.curation.CurationEventFilter.add_scope_widget]."""
+        self._scope_widgets = tuple(w for w in self._scope_widgets if w is not widget)
 
     def install(self, app: QtCore.QCoreApplication | None = None) -> None:
         """Install on ``app`` (default: the running ``QApplication``)."""

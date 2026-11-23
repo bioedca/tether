@@ -78,7 +78,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 movie = data.path(nid, _lab_golden.movie_role(data.roles(nid)))
                 tmap = data.path(nid, _lab_golden.MAP_ROLE)
-                new = _lab_golden.lab_quantities(movie, tmap, Path(tmp) / nid)
+                new = _lab_golden.lab_quantities(
+                    movie, tmap, Path(tmp) / nid, turns=_lab_golden.map_turns(nid)
+                )
             except Exception as exc:  # noqa: BLE001 - report the id and the kind, not the text
                 print(f"{nid}: failed ({type(exc).__name__}); nothing was written", file=sys.stderr)
                 return 2

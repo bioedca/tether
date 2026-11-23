@@ -10,7 +10,7 @@
       },
       "schema_version": {
         "dtype": "int",
-        "value": 1
+        "value": 2
       }
     }
   },
@@ -86,6 +86,64 @@
           {
             "dtype": "str:utf-8",
             "name": "tags",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    },
+    "/generations/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "movie_id",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "generation",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "generation_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "created_utc",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "inputs",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "n_molecules",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "carried_keys",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "match_px",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "app_version",
             "shape": []
           }
         ],
@@ -407,6 +465,7 @@
     "/calibration",
     "/conditions",
     "/features",
+    "/generations",
     "/idealization",
     "/labels",
     "/models",
@@ -416,5 +475,5 @@
     "/settings",
     "/traces"
   ],
-  "schema_version": 1
+  "schema_version": 2
 }

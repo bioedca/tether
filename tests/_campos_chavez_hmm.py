@@ -31,7 +31,6 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 
@@ -414,34 +413,6 @@ def match_share(raw: np.ndarray, donor: np.ndarray, max_shift: int = 2) -> tuple
             corr = s @ _zscore(columns[:, b : b + frames]).T / frames
             best = np.maximum(best, corr.max(axis=1))
     return float(np.mean(best >= MATCH_CORRELATION)), float(np.median(best))
-
-
-def read_stored_model(path: Path) -> SimpleNamespace:
-    """The members of a stored tMAVEN model that the comparison needs, read without Tether.
-
-    For model files that ``tether.idealize.driver.read_model`` cannot open: older tMAVEN saves
-    ``rates`` as an empty group (#1080). Only datasets are read.
-    """
-    import h5py
-
-    with h5py.File(path, "r") as f:
-        g = f["model"]
-
-        def member(name: str):
-            return g[name][()] if isinstance(g.get(name), h5py.Dataset) else None
-
-        mean = member("mean")
-        if mean is None:
-            raise ValueError(f"{path}: model group has no 'mean' dataset")
-        means = np.asarray(mean, dtype=np.float64).reshape(-1)
-        tmatrix = member("tmatrix")
-        ran = member("ran")
-    return SimpleNamespace(
-        nstates=means.size,
-        means=means,
-        tmatrix=None if tmatrix is None else np.asarray(tmatrix, dtype=np.float64),
-        ran=np.asarray([] if ran is None else ran, dtype=np.int64).reshape(-1),
-    )
 
 
 def fit_of(nstates: int, traces: int) -> str | None:

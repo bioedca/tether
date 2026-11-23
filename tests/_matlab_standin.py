@@ -37,6 +37,7 @@ def main(argv: list[str]) -> int:
         with open(job["inputs"][name], "a", encoding="utf-8") as fh:
             fh.write("changed while MATLAB ran\n")
     if job["params"].get("touch_clone"):
+        # The name may sit under a folder of the clone, or name a file the clone ignores (#1193).
         Path(job["tool_dir"], job["params"]["touch_clone"]).write_text(
             "settings\n", encoding="utf-8"
         )
