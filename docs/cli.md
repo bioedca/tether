@@ -417,7 +417,7 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  Tether extracts, in any case. Today these are `.tif`, `.tiff`, `.czi` and `.nd2`
+  extraction reads, in any case. Today these are `.tif`, `.tiff`, `.czi` and `.nd2`
   ([Movie containers](reference/movie-containers.md)). With `--recursive` it also gives the
   movies in its sub-folders. An original beside its TIFF export in one folder (`x.nd2` and
   `x.tif`, or `x.czi` and `x.tif`) is one movie, so the run stops before anything is

@@ -23,6 +23,7 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | --- | --- | --- |
 | TIFF | `.tif`, `.tiff` | Tether, with tifffile |
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
+| ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI and ND2
 ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
