@@ -1352,6 +1352,9 @@ class TetherShell:
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
         self._section = section_id
         self._sync_section_menus()
+        if section_id == "analyze":
+            # A fit made in another section may have added a model: read the choices again.
+            self._analysis_section.refresh()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea

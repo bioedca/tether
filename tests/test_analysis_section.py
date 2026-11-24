@@ -218,3 +218,52 @@ def test_an_unexpected_failure_is_shown_not_raised(section, modelled, monkeypatc
     section.add_series(PlotSeries(ALL_MOLECULES, None))
     assert section.figure is None
     assert section.empty_text == "FRET-efficiency histogram (A1) cannot be drawn: disk went away"
+
+
+def test_a_model_written_after_the_project_opened_can_be_chosen(
+    section, modelled, monkeypatch
+) -> None:
+    # Codex review on #1377: a fit made in Curate and correct after the project opened must
+    # reach the model choices, or the empty state would keep saying the project has none.
+    from tether.gui import analysis_section
+
+    path, _keys = modelled
+    real = analysis_section.idealization_models
+    monkeypatch.setattr(analysis_section, "idealization_models", lambda _project: [])
+    section.set_project(path)
+    section.set_plot("population_dwell_times")
+    section.add_series(PlotSeries(ALL_MOLECULES, None))
+    assert section.model_combo.count() == 0
+    assert not section.outcome.drawn  # no model chosen, so nothing is drawn
+
+    monkeypatch.setattr(analysis_section, "idealization_models", real)  # the fit lands
+    section.refresh()
+    assert section.model_name == MODEL
+    assert section.outcome.drawn and section.empty_text is None
+
+
+def test_showing_the_analyze_section_reads_the_model_choices_again(
+    qtbot, modelled, monkeypatch
+) -> None:
+    from tether.gui import analysis_section
+    from tether.gui.shell import TetherShell
+
+    path, _keys = modelled
+    real = analysis_section.idealization_models
+    monkeypatch.setattr(analysis_section, "idealization_models", lambda _project: [])
+    shell = TetherShell()
+    qtbot.addWidget(shell.window)
+    try:
+        assert shell.load_project(path) is not None, shell.status_message
+        page = shell.analysis_section
+        page.set_plot("population_dwell_times")
+        page.add_series(PlotSeries(ALL_MOLECULES, None))
+        assert page.model_combo.count() == 0
+        if shell.section == "analyze":
+            shell.set_section("curate")
+        monkeypatch.setattr(analysis_section, "idealization_models", real)  # the fit lands
+        shell.set_section("analyze")
+        assert page.model_name == MODEL
+        assert page.outcome.drawn
+    finally:
+        shell.close()

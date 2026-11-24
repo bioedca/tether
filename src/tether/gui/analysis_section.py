@@ -266,7 +266,7 @@ class AnalysisSection:
         self._project = None if project is None else Path(project)
         self._series.clear()
         self._layers.clear()
-        self._reload_models()
+        self._reload_models(reset_states=True)
         self._rebuild_add_menu()
         self.refresh()
 
@@ -315,11 +315,15 @@ class AnalysisSection:
     def refresh(self) -> PlotOutcome:
         """Draw the current plot over the layer list again, and return what was drawn.
 
-        A failure the registry does not name as a missing prerequisite still shows as the
-        reason in the preview, so the application never stops on a plot.
+        The model choices are read from the project again first, so a model that a fit or
+        a tMAVEN return leg wrote after the project opened can be chosen, and the current
+        choice is kept while the project still has it. A failure the registry does not name
+        as a missing prerequisite still shows as the reason in the preview, so the
+        application never stops on a plot.
         """
         if self._closed:
             return self._outcome
+        self._reload_models(reset_states=False)
         spec = plot_spec(self.plot_id)
         states = {name: box.value() for name, box in self._state_boxes.items()}
         try:
@@ -380,19 +384,26 @@ class AnalysisSection:
         self._add_button.setEnabled(has_project)
         self._remove_button.setEnabled(0 <= self._layers.currentRow() < len(self._series))
 
-    def _reload_models(self) -> None:
+    def _reload_models(self, *, reset_states: bool) -> None:
         models: list[str] = []
         if self._project is not None:
             try:
                 models = idealization_models(self._project)
             except Exception:  # noqa: BLE001 - an unreadable project lists no model
                 models = []
-        blocker = self._model_combo.blockSignals(True)
-        try:
-            self._model_combo.clear()
-            self._model_combo.addItems(models)
-        finally:
-            self._model_combo.blockSignals(blocker)
+        current = self._model_combo.currentText()
+        listed = [self._model_combo.itemText(i) for i in range(self._model_combo.count())]
+        if models != listed:
+            blocker = self._model_combo.blockSignals(True)
+            try:
+                self._model_combo.clear()
+                self._model_combo.addItems(models)
+                if current in models:
+                    self._model_combo.setCurrentIndex(models.index(current))
+            finally:
+                self._model_combo.blockSignals(blocker)
+        if not reset_states:
+            return
         for name, value in {"state": 0, "init_state": 0, "final_state": 1}.items():
             box = self._state_boxes[name]
             blocker = box.blockSignals(True)
