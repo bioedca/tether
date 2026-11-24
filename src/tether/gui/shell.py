@@ -2716,6 +2716,7 @@ class TetherShell:
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
+        self._close_correction_summary()
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
@@ -3207,6 +3208,7 @@ class TetherShell:
         self._overlap_seam = None
         self._conditions = None
         self._reset_store_docks()
+        self._close_correction_summary()
         self._project_path = None
         self._readiness = None
         self._sync_guided()
@@ -3703,6 +3705,18 @@ class TetherShell:
         It is the summary of the last correction pass, or ``None`` before the first one.
         """
         return self._correction_summary
+
+    def _close_correction_summary(self) -> None:
+        """Close the summary of the last pass when the project it describes goes (#1393).
+
+        The summary shows no project name or path, so a summary left open after the
+        project is closed, or after another one is opened, reads as the new project's.
+        """
+        summary = self._correction_summary
+        self._correction_summary = None
+        if summary is not None:
+            with suppress(RuntimeError):  # the window already deleted the dialog
+                summary.close()
 
     def _correction_pass_unavailable(self) -> str | None:
         """Why the correction pass cannot start now, or ``None`` when it can.

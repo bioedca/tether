@@ -429,3 +429,29 @@ def test_a_claim_moved_after_the_window_let_the_project_go_is_freed(shell, qtbot
     shell._finish_correction_pass(outcome, claimed=("path", "before"), rebound=gone)
     assert gone not in shell_mod._GUI_PROJECT_OWNERS
     assert shell._claimed_project_key is None
+
+
+def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
+    # #1393: the summary names no project, so it must not outlive the one it describes.
+    _loaded(shell, tmp_path)
+    summary = _run(shell, qtbot)
+    assert summary is not None and summary.dialog.isVisible()
+
+    assert shell.close_project()
+
+    assert not summary.dialog.isVisible()
+    assert shell.correction_summary is None
+
+
+def test_opening_another_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
+    _loaded(shell, tmp_path)
+    summary = _run(shell, qtbot)
+    assert summary is not None and summary.dialog.isVisible()
+
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    other = _store(other_dir)
+    assert shell.load_project(other.path) is not None
+
+    assert not summary.dialog.isVisible()
+    assert shell.correction_summary is None

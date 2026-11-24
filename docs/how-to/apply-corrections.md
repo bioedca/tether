@@ -166,7 +166,8 @@ An example is after you change those factors:
 
 The step runs in the background. While it runs, you cannot idealize or edit the project.
 When it ends, a window shows each count of the result. It also shows the correction state
-of the project.
+of the project. The window closes when you close the project or open another
+one, because it shows the result of this project only.
 
 This menu item does not estimate α or γ. It does not take a value of your own either. For
 those, use steps 1 and 3.
