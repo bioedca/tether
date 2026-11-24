@@ -96,6 +96,9 @@ class ReconciledMolecule:
         molecule this is the original curator, kept from the earlier generation.
     confirmed_by, confirmed_utc:
         For a carried molecule that a person confirmed, who and when; else ``""``.
+    confirmed:
+        Whether the carried molecule is linked to a review event in
+        ``/generations/label_reviews``. This, not the name, decides if it waits.
     """
 
     group: str
@@ -109,11 +112,12 @@ class ReconciledMolecule:
     labelled_utc: str = ""
     confirmed_by: str = ""
     confirmed_utc: str = ""
+    confirmed: bool = False
 
     @property
     def waiting(self) -> bool:
         """Whether this is a carried molecule that waits for confirmation."""
-        return self.group == CARRIED and not self.confirmed_by
+        return self.group == CARRIED and not self.confirmed
 
 
 @dataclass(frozen=True)
@@ -286,6 +290,7 @@ def _reconcile_in(f: Any, movie_id: str) -> GenerationReconciliation | None:
                 labelled_utc=when,
                 confirmed_by=by,
                 confirmed_utc=at,
+                confirmed=confirmed,
             )
         )
     lost = []
@@ -523,6 +528,7 @@ def confirm_carried(
         start = table.shape[0]
         table.resize((start + len(rows),))
         table[start:] = rows
-        generations.append_label_reviews(f, {m.molecule_id: start + i for i, m in enumerate(todo)})
         _append_reasons(f, rows, reasons)
+        # The review link is written last: until it is there, the molecule still waits.
+        generations.append_label_reviews(f, {m.molecule_id: start + i for i, m in enumerate(todo)})
     return ConfirmResult(tuple(m.molecule_key for m in todo), already, labeler, timestamp)

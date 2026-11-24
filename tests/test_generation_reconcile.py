@@ -198,6 +198,17 @@ def test_a_confirmed_reject_keeps_its_reason(tmp_path) -> None:
     assert (carried[dim].labeler, carried[dim].confirmed_by) == ("second", "reviewer")
 
 
+def test_a_confirmation_with_a_blank_name_is_still_a_confirmation(tmp_path) -> None:
+    project, movie, stayed, _moved = first_generation(tmp_path)
+    reextract(project, movie, LOW)
+    assert gr.confirm_carried(project, [stayed], labeler="", timestamp=T1).confirmed == (stayed,)
+    carried = gr.reconcile_generation(project, movie_id(project)).carried[0]
+    assert carried.confirmed and not carried.waiting
+    n = len(labels.read_labels(project))
+    assert gr.confirm_carried(project, [stayed], labeler="", timestamp=T1).already == (stayed,)
+    assert len(labels.read_labels(project)) == n
+
+
 def test_an_uncurated_carried_molecule_is_confirmed_too(tmp_path) -> None:
     project, movie, _stayed, _moved = first_generation(tmp_path)
     reextract(project, movie, LOW)
