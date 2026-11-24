@@ -107,8 +107,10 @@ LOW_CONFIDENCE_TAG = "low-confidence-registration"
 #: written before the field existed reads as version ``0``; it holds the same
 #: arrays. [`load_map`][] refuses a file whose version is newer than this one,
 #: because it may hold fields this Tether would silently drop. ADR-0128 records
-#: this rule.
-MAP_FORMAT_VERSION = 1
+#: this rule. Version 2 adds the map asset record (#916, ADR-0141): map id, origin,
+#: source ids, channel layout, quality record, optics text, pixel size, time and
+#: Tether version ([`tether.imaging.map_asset`][]).
+MAP_FORMAT_VERSION = 2
 
 #: The arrays every map file holds, whatever its version (each geometry prefix
 #: adds its own arrays only when that geometry is present).
@@ -641,17 +643,8 @@ def _poly_from_arrays(prefix: str, data: Any) -> PolyTransform2D:
     )
 
 
-def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
-    """Persist a [`RegistrationMap`][] to a ``.npz`` map file (Stage 10).
-
-    Stores explicit coefficients (both directions), geometry, the RMS residual and
-    gate, the control-point count, source, degree, provenance, and the map-file
-    ``format_version`` ([`MAP_FORMAT_VERSION`][]). **No raw images and no pickled
-    objects** -- everything is a plain array or a 0-d string, so the file reloads
-    with ``allow_pickle=False`` (the default). Map files are kept separate from
-    session ``.tether`` files (mirroring ``.tmap`` vs ``.tdat``).
-    """
-    path = Path(path)
+def _map_arrays(reg_map: RegistrationMap) -> dict[str, np.ndarray]:
+    """Return the arrays of a map file that hold ``reg_map`` (every version holds these)."""
     arrays: dict[str, np.ndarray] = {
         "format_version": np.array(MAP_FORMAT_VERSION, dtype=np.int64),
         "reference_channel": np.array(reg_map.reference_channel, dtype=np.int64),
@@ -667,10 +660,29 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
     arrays.update(_poly_arrays("moving_to_ref", reg_map.moving_to_ref))
     arrays.update(_geometry_to_arrays("reference_geometry", reg_map.reference_geometry))
     arrays.update(_geometry_to_arrays("moving_geometry", reg_map.moving_geometry))
-    np.savez(path, **arrays)
-    # np.savez appends ".npz" unless the suffix is *exactly* ".npz" -- mirror that
-    # so the returned path is the file actually written (e.g. "m.dat" -> "m.dat.npz").
-    return path if path.suffix == ".npz" else path.with_suffix(path.suffix + ".npz")
+    return arrays
+
+
+def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
+    """Persist a [`RegistrationMap`][] to a ``.npz`` map file (Stage 10).
+
+    Stores explicit coefficients (both directions), geometry, the RMS residual and
+    gate, the control-point count, source, degree, provenance, and the map-file
+    ``format_version`` ([`MAP_FORMAT_VERSION`][]). **No raw images and no pickled
+    objects** -- everything is a plain array or a 0-d string, so the file reloads
+    with ``allow_pickle=False`` (the default). Map files are kept separate from
+    session ``.tether`` files (mirroring ``.tmap`` vs ``.tdat``).
+
+    The file is a full map asset (#916, ADR-0141): a new map id, the origin, source
+    ids and quality record that the provenance gives, the time and the Tether version
+    ([`MapAsset.from_registration_map`][tether.imaging.map_asset.MapAsset.from_registration_map]).
+    To record a channel layout, an optics text or a pixel size as well, save a
+    [`MapAsset`][tether.imaging.map_asset.MapAsset] with
+    [`save_map_asset`][tether.imaging.map_asset.save_map_asset].
+    """
+    from tether.imaging.map_asset import MapAsset, save_map_asset  # noqa: PLC0415
+
+    return save_map_asset(MapAsset.from_registration_map(reg_map), path)
 
 
 def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationMap:

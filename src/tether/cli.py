@@ -294,6 +294,21 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         ),
     )
     extract.add_argument(
+        "--optics",
+        dest="map_optics",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "with --map: the optics text of this movie; a map whose own optics text "
+            "differs is refused unless --confirm-optics is given"
+        ),
+    )
+    extract.add_argument(
+        "--confirm-optics",
+        action="store_true",
+        help="with --map: use the map although its optics text differs from --optics",
+    )
+    extract.add_argument(
         "--tdat",
         default=None,
         metavar="PATH",
@@ -374,6 +389,8 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         tmap=args.tmap,
         tdat=args.tdat,
         map_path=args.map_path,
+        map_optics=args.map_optics,
+        confirm_optics=args.confirm_optics,
         count_only=args.count_only,
         **values,  # type: ignore[arg-type]
     )
@@ -950,6 +967,26 @@ def _add_map_parser(subparsers: argparse._SubParsersAction, summary: str) -> Non
         default=0.5,
         help="registration RMS-residual gate in px (default: 0.5)",
     )
+    create.add_argument(
+        "--optics",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "a text for the optics (objective, filters, camera, binning), kept in the map; "
+            "'tether extract --map --optics' compares it with a later movie's"
+        ),
+    )
+    create.add_argument(
+        "--pixel-size",
+        dest="pixel_size_um",
+        type=float,
+        default=None,
+        metavar="UM",
+        help=(
+            "the camera pixel size in micrometres, kept in the map; a movie with another "
+            "pixel size is refused (default: not known, not compared)"
+        ),
+    )
 
 
 def _map_request(args: argparse.Namespace) -> MapCreateRequest:
@@ -964,6 +1001,8 @@ def _map_request(args: argparse.Namespace) -> MapCreateRequest:
         projection=args.projection,
         donor_side=args.donor_side,
         rms_gate=args.rms_gate,
+        optics=args.optics or "",
+        pixel_size_um=args.pixel_size_um,
     )
 
 
@@ -979,6 +1018,7 @@ def _run_map(args: argparse.Namespace) -> int:
         f"Map -> {result.path}: RMS {result.rms_residual:.3f} px over {result.n_pairs} "
         f"bead pair(s), {result.coverage:.0%} of the field covered"
     )
+    print(f"  map id: {result.map_id}")
     if result.low_confidence:
         print(
             f"  warning: the RMS residual exceeds the {request.rms_gate} px gate; the map is "

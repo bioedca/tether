@@ -257,10 +257,12 @@ def test_calibration_and_settings_record_the_map_file(tmp_path, fitted) -> None:
 
     assert summary.registration_source == "map-file"
     provenance = _calibration_provenance(out, summary.calibration_id)
-    assert provenance["map_file"] == {
-        "name": map_file.name,
-        "sha256": hashlib.sha256(map_file.read_bytes()).hexdigest(),
-    }
+    record = provenance["map_file"]
+    assert record["name"] == map_file.name
+    assert record["sha256"] == hashlib.sha256(map_file.read_bytes()).hexdigest()
+    # The map asset's own id and origin are kept with it (#916).
+    assert record["map_id"].startswith("map:")
+    assert record["origin"] == "native-fit"
     # The transform's own origin is kept: this map was fitted natively.
     assert read_calibration(out, summary.calibration_id).source == reg_map.source == "native"
     profile = _profile(out)
@@ -273,7 +275,7 @@ def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_pat
     """A map file replaced while extraction starts cannot pair two files (Codex P2)."""
     reg_map, map_file = fitted
     first_bytes = map_file.read_bytes()
-    real_load_map = project_extract.load_map
+    real_load_map = project_extract.load_map_asset
 
     def replace_then_load(path, **kwargs):
         # Another session's ``tether map create --overwrite`` lands here, after the read.
@@ -281,7 +283,7 @@ def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_pat
         (tmp_path / "other.npz").replace(map_file)
         return real_load_map(path, **kwargs)
 
-    monkeypatch.setattr(project_extract, "load_map", replace_then_load)
+    monkeypatch.setattr(project_extract, "load_map_asset", replace_then_load)
     out = tmp_path / "snapshot.tether"
     summary = extract_movie(
         _write_movie(tmp_path / "movie_009.tif"),
@@ -344,7 +346,7 @@ def test_a_native_fit_records_no_map_file(tmp_path) -> None:
 def test_save_map_writes_the_format_version(fitted) -> None:
     _reg_map, map_file = fitted
     with np.load(map_file, allow_pickle=False) as data:
-        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 1
+        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 2
 
 
 def _rewrite(src: Path, dst: Path, **changes) -> Path:
