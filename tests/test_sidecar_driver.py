@@ -11,15 +11,26 @@ a developer runs it as the de-risk check. They are slow (cold Numba compile).
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 
 from _sidecar_gate import requires_sidecar
 from _vbgmm_reference import VbgmmDisagreement, deviations, disagreement, load_reference
-from tether.idealize import NO_STATE, read_smd, run_vbfret, states_from_idealized, write_smd
+from tether.idealize import (
+    NO_STATE,
+    _sidecar_runner,
+    read_smd,
+    run_vbfret,
+    states_from_idealized,
+    write_smd,
+)
 
 pytestmark = pytest.mark.sidecar
 
@@ -156,23 +167,12 @@ def test_vbgmm_key_fits_the_requested_states_reproducibly(tmp_path):
 
 
 @requires_sidecar
-@pytest.mark.xfail(
-    raises=VbgmmDisagreement,
-    strict=True,
-    reason=(
-        "tMAVEN 10f4230's plain vbGMM stops after two iterations on this fixture, because the "
-        "lower bound its convergence test reads goes down at every step; its state means are up "
-        "to 0.44 from the converged independent fit (#1302, ADR-0138, tracked in #1337). "
-        "Strict: a tMAVEN that "
-        "fits to convergence passes, and the XPASS fails until this marker is removed."
-    ),
-)
 def test_vbgmm_key_agrees_with_the_independent_reference(tmp_path, capsys):
     # The numbers come from scikit-learn's variational Gaussian mixture with tMAVEN's vbGMM
     # priors on the same pooled FRET (tests/_vbgmm_reference.py), fitted on the base side and
-    # committed, because the sidecar environment has no scikit-learn. Only a deviation over the
-    # approved tolerance is the expected failure; a fit that does not run, or a reference that
-    # names another fixture, fails the test as usual.
+    # committed, because the sidecar environment has no scikit-learn. The pinned tMAVEN's own
+    # loop stops after two iterations and fails this by 0.44 in the means; the key runs Tether's
+    # corrected loop instead (#1337, ADR-0139), which this checks it did.
     reference = load_reference()
     smd = tmp_path / "smd_4mol.hdf5"
     shutil.copyfile(FOUR_MOL, smd)
@@ -190,6 +190,7 @@ def test_vbgmm_key_agrees_with_the_independent_reference(tmp_path, capsys):
     )
     assert result.status["ok"] is True
     assert result.status["method"] == "run_vbgmm"
+    assert result.status["vbgmm_loop"] == "tether"
     model = result.model
     assert model.nstates == settings["nstates"]
     assert model.frac is not None and model.frac.shape == (settings["nstates"],)
@@ -200,3 +201,62 @@ def test_vbgmm_key_agrees_with_the_independent_reference(tmp_path, capsys):
     problem = disagreement(model.means, model.frac, reference)
     if problem is not None:
         raise VbgmmDisagreement(problem)
+
+
+#: One fit through the runner in a fresh sidecar process, with tMAVEN's own vbGMM loop or not.
+_RUNNER_FIT = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import _sidecar_runner as runner
+status = runner.run(sys.argv[2], "dataset", "vbgmm", 3, sys.argv[3], 1, 1076,
+                    tmaven_vbgmm_loop=sys.argv[4] == "tmaven")
+print(runner.STATUS_PREFIX + json.dumps(status))
+"""
+
+
+def _fit_through_the_runner(tmp_path, loop):
+    smd = tmp_path / "smd_4mol.hdf5"
+    shutil.copyfile(FOUR_MOL, smd)
+    out = tmp_path / f"vbgmm_{loop}.hdf5"
+    done = subprocess.run(
+        [
+            os.environ["TETHER_SIDECAR_PYTHON"],
+            "-c",
+            _RUNNER_FIT,
+            str(Path(_sidecar_runner.__file__).parent),
+            str(smd),
+            str(out),
+            loop,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=1800,
+        check=True,
+    )
+    line = [x for x in done.stdout.splitlines() if x.startswith(_sidecar_runner.STATUS_PREFIX)]
+    status = json.loads(line[-1][len(_sidecar_runner.STATUS_PREFIX) :])
+    assert status["vbgmm_loop"] == loop
+    with h5py.File(out, "r") as f:
+        iteration = int(np.asarray(f["model/iteration"][()]))
+        bound = np.asarray(f["model/likelihood"][()], dtype="float64")[:, 0]
+    return iteration, bound
+
+
+# The ``vbgmm`` key runs Tether's corrected loop; ``tmaven_vbgmm_loop=True`` keeps the pinned
+# tMAVEN's own, for the check that reproduces a fit published with tMAVEN (ADR-0106). That loop's
+# bound falls at every step and it ends at iteration 2 (#1337); the corrected one runs on and its
+# bound never falls.
+
+
+@requires_sidecar
+def test_vbgmm_key_runs_the_corrected_loop(tmp_path):
+    iteration, bound = _fit_through_the_runner(tmp_path, "tether")
+    assert iteration > 2
+    assert np.all(np.diff(bound) >= -1e-9 * np.abs(bound[1:]))
+
+
+@requires_sidecar
+def test_vbgmm_key_can_still_run_tmavens_own_loop(tmp_path):
+    iteration, bound = _fit_through_the_runner(tmp_path, "tmaven")
+    assert iteration == 2
+    assert np.all(np.diff(bound) < 0)

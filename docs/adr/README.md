@@ -188,6 +188,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0135](0135-a-merge-queue-of-our-own-tests-each-pull-request-on-the-ones-ahead-of-it.md) | A merge queue of our own tests each pull request on top of the ones ahead of it | accepted | §12.3 (branch protection and how a merge is bound), §12.6 (CI) |
 | [0136](0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md) | A new extraction of a movie is a new trace generation, and the previous one is archived unchanged | accepted | §5 (data model), §9.1 (additive-only schema), §7.1, §7.5 (FR-ML), §11.2 |
 | [0138](0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md) | An independent scikit-learn fit is the reference for the `vbgmm` key, and the pinned tMAVEN fails it | accepted | §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
+| [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 
 <!-- gen:adr-index end -->
 
