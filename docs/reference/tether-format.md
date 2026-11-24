@@ -302,13 +302,14 @@ which keeps the value from the file.
 | `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
 | `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap` or a map file, `user` for a native extraction (`--donor-side`). A re-extraction sets it again from the sources of that run (#1309). |
 
-`extract_movie` writes the group. A re-extraction (`reextract_movie`) writes only a new
-`channel_roles_origin` and keeps the other attributes of the movie; for a row with no group it
-first reads them by the rule below. Some rows have no group: a store written before #911,
+`extract_movie` writes the group. Some rows have no group: a store written before #911,
 or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
 (`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
 verified, because that field has only ever been filled from the ImageJ `finterval`. A
 `frame_time` of `0.0` is `unknown`. The pixel size and the channel roles are `unknown`.
+
+A re-extraction (`reextract_movie`) writes only a new `channel_roles_origin`. It keeps the
+other attributes of the movie, and for a row with no group it reads them by the rule above.
 
 ## `/molecules` — one row per molecule
 
