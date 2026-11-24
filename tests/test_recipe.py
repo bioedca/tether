@@ -7,7 +7,9 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -21,6 +23,7 @@ from tether.cli import EXIT_APPROVAL_NEEDED, main
 from tether.project import approvals
 from tether.project.core import Project
 from tether.project.jobs import JobState, read_jobs
+from tether.project.lock import user_lock_dir
 from tether.services import ExtractRequest, IdealizeRequest, registry
 from tether.services import recipe as rc
 from tether.services.base import Request
@@ -403,6 +406,80 @@ def test_an_approval_step_with_no_policy_stops_with_exit_4_and_resume_goes_on(
     assert job.state is JobState.DONE
 
 
+def _split_as_the_shell_does(line: str) -> list[str]:
+    """Split a printed command into the words its program gets, on this platform."""
+    if os.name != "nt":
+        return shlex.split(line)
+    import ctypes  # noqa: PLC0415
+
+    count = ctypes.c_int()
+    split = ctypes.windll.shell32.CommandLineToArgvW
+    split.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    words = split(line, ctypes.byref(count))
+    try:
+        return [words[i] for i in range(count.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(words)
+
+
+def test_the_printed_commands_run_as_printed_with_spaces_in_a_path_or_subject(
+    tmp_path, capsys, calibrate, monkeypatch
+):
+    # #1310: the approve and continue lines keep a path or a subject with a space as one word.
+    folder = tmp_path / "my experiment"
+    folder.mkdir()
+    Project.create(folder / "exp 1.tether")
+    shutil.copy(calibrate, folder / "gamma 1.json")
+
+    def calibrate_condition(request, *, approvals):  # noqa: ANN001, ANN202
+        approvals.decide(
+            "gamma.approve", "condition 1", project=request.project, report=request.report
+        )
+        return _CalibrateResult(approved=True)
+
+    _replace_run(monkeypatch, "calibrate", calibrate_condition)
+    step = _step("calibrate", project="exp 1.tether", report="gamma 1.json")
+    path = _write(folder, _recipe(step), "recipe 1.json")
+    assert main(["run", str(path)]) == EXIT_APPROVAL_NEEDED
+    lines = {
+        line.split(":", 1)[0].strip(): line.split(":", 1)[1].strip()
+        for line in capsys.readouterr().err.splitlines()
+        if line.startswith(("  approve:", "  continue:"))
+    }
+    approve = _split_as_the_shell_does(lines["approve"])
+    assert approve == [
+        "tether", "approve", str(folder / "exp 1.tether"), "gamma.approve",
+        "--subject", "condition 1", "--report", str(folder / "gamma 1.json"),
+    ]  # fmt: skip
+    assert main([*approve[1:], "--by", "Ana"]) == 0
+    (approval,) = approvals.read_approvals(folder / "exp 1.tether")
+    assert approval.subject == "condition 1"
+
+    resume = _split_as_the_shell_does(lines["continue"])
+    assert resume == ["tether", "run", str(path), "--resume"]
+    assert main(resume[1:]) == 0
+
+
+@pytest.mark.parametrize(
+    ("words", "windows", "line"),
+    [
+        (("tether", "run", "recipe.json", "--resume"), False, "tether run recipe.json --resume"),
+        (("tether", "run", "recipe.json", "--resume"), True, "tether run recipe.json --resume"),
+        (("--subject", "condition 1"), False, "--subject 'condition 1'"),
+        (("--subject", "condition 1"), True, '--subject "condition 1"'),
+        (("C:\\My runs\\r.json",), True, '"C:\\My runs\\r.json"'),
+        (("C:\\runs\\r.json",), True, "C:\\runs\\r.json"),
+        (("a&b", "", 'say "hi"', "end\\"), True, '"a&b" "" "say \\"hi\\"" end\\'),
+        (("a b\\",), True, '"a b\\\\"'),
+        (("it's",), False, "'it'\"'\"'s'"),
+    ],
+)
+def test_a_printed_command_quotes_only_the_words_that_need_it(words, windows, line) -> None:
+    from tether.cli import _command_line  # noqa: PLC0415, PLC2701 - the quoting rule
+
+    assert _command_line(*words, windows=windows) == line
+
+
 def test_with_a_policy_the_store_records_approved_by_policy_and_the_policy_text(
     tmp_path, calibrate
 ):
@@ -446,11 +523,14 @@ def test_tether_approve_refuses_a_bad_report_or_step_before_any_write(tmp_path, 
     assert main([*base, "--report", str(tmp_path / "missing.json")]) == 2
     (tmp_path / "bad.json").write_text("{", encoding="utf-8")
     assert main([*base, "--report", str(tmp_path / "bad.json")]) == 2
-    assert main([*base[:-1], " ", "--report", str(tmp_path / "bad.json")]) == 2
+    assert "an approval needs its report" in capsys.readouterr().err
+    # Valid evidence, so only the blank subject can refuse the request.
+    (tmp_path / "good.json").write_text("{}", encoding="utf-8")
+    assert main([*base[:-1], " ", "--report", str(tmp_path / "good.json")]) == 2
+    assert "an approval needs a subject (--subject)" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["approve", str(project), "publish", "--subject", "c", "--report", "r.json"])
     assert approvals.read_approvals(project) == []
-    assert "an approval needs its report" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("change", [{"step": []}, {"rule": {}}])
@@ -769,18 +849,23 @@ def test_a_failed_step_in_a_project_is_stored_failed_and_resume_retries_it(
     assert job.state is JobState.DONE
 
 
-def test_a_step_whose_job_cannot_be_stored_fails_with_the_reason(tmp_path, calibrate, monkeypatch):
+def test_a_step_whose_job_cannot_be_stored_fails_with_the_reason(
+    tmp_path, tmp_path_factory, calibrate, monkeypatch
+):
     recipe = rc.read_recipe(_write(tmp_path, _recipe(_calibrate_step())))
 
     def broken(*_args: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(rc, "_queue", broken)
-    run = rc.run_recipe(recipe)  # no progress callback
+    # Undo only this replacement: monkeypatch.undo() would also undo the per-test user-state
+    # folder of the autouse fixture, and the next run would write its checkpoint outside it.
+    state = user_lock_dir()
+    with monkeypatch.context() as scoped:
+        scoped.setattr(rc, "_queue", broken)
+        run = rc.run_recipe(recipe)  # no progress callback
     assert run.failed and "cannot store the job of the step" in run.steps[0].message
+    assert user_lock_dir() == state and state.is_relative_to(tmp_path_factory.getbasetemp())
 
-    monkeypatch.undo()
-    monkeypatch.setattr(registry, "COMMANDS", (*registry.COMMANDS, _calibrate_entry()))
     monkeypatch.setattr(rc, "_record", broken)
     policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
     recipe = rc.read_recipe(
@@ -789,17 +874,6 @@ def test_a_step_whose_job_cannot_be_stored_fails_with_the_reason(tmp_path, calib
     run = rc.run_recipe(recipe)
     assert run.failed and run.stop is None
     assert "the step ran, but its job could not be stored" in run.steps[0].message
-
-
-def _calibrate_entry() -> registry.ServiceCommand:
-    return registry.ServiceCommand(
-        name="calibrate",
-        request_type=_CalibrateRequest,
-        result_type=_CalibrateResult,
-        run=_calibrate,
-        summary="a test command that reaches gamma.approve",
-        approval_steps=("gamma.approve",),
-    )
 
 
 def test_a_running_job_of_the_step_is_not_taken_over(tmp_path, calibrate) -> None:

@@ -880,3 +880,60 @@ def test_a_channel_layout_beside_a_map_file_is_refused(tmp_path, fitted) -> None
             options=ExtractOptions(window=_WINDOW, channel_layout=layout),
             map_path=map_file,
         )
+
+
+# --- #1309: the channel-role origin follows the active extraction --------------
+
+
+def _reextract(project: Path, movie: Path, **kwargs) -> None:
+    with publish_lock(project) as guard:
+        project_extract.reextract_movie(
+            project, movie, options=ExtractOptions(window=_WINDOW), publish_guard=guard, **kwargs
+        )
+
+
+def test_a_map_file_reextraction_records_the_roles_a_fresh_map_extraction_does(
+    tmp_path, fitted
+) -> None:
+    from tether.project import movie_metadata as mm
+
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_011.tif")
+    fresh = tmp_path / "fresh.tether"
+    extract_movie(movie, fresh, options=ExtractOptions(window=_WINDOW), map_path=map_file)
+    (fresh_record,) = mm.read_movie_metadata(fresh).values()
+
+    project = tmp_path / "two-movies.tether"
+    other = _write_movie(tmp_path / "other_012.tif", acceptor_amp=250.0)
+    extract_movie(other, project, options=ExtractOptions(window=_WINDOW))
+    with publish_lock(project) as guard:
+        add_movie_to_project(
+            project, movie, options=ExtractOptions(window=_WINDOW), publish_guard=guard
+        )
+    ids = _movie_ids_by_name(project)
+    for movie_id, seconds in ((ids["other_012.tif"], 0.2), (ids["movie_011.tif"], 0.05)):
+        mm.update_movie_metadata(project, movie_id, frame_time=seconds, pixel_size_um=0.16)
+        mm.confirm_frame_time(project, movie_id)
+    before = mm.read_movie_metadata(project)
+    assert before[ids["movie_011.tif"]].channel_roles_origin == mm.ORIGIN_USER
+
+    _reextract(project, movie, map_path=map_file)
+    after = mm.read_movie_metadata(project)
+    record = after[ids["movie_011.tif"]]
+    assert record.channel_roles_origin == fresh_record.channel_roles_origin == mm.ORIGIN_FILE
+    # Only the roles' origin changed: the user's values stay, and so does the other movie.
+    assert record == replace(before[ids["movie_011.tif"]], channel_roles_origin=mm.ORIGIN_FILE)
+    assert after[ids["other_012.tif"]] == before[ids["other_012.tif"]]
+
+    # A native re-extraction gives the roles back to the donor_side option.
+    _reextract(project, movie)
+    again = mm.read_movie_metadata(project)
+    assert again[ids["movie_011.tif"]] == before[ids["movie_011.tif"]]
+    assert again[ids["other_012.tif"]] == before[ids["other_012.tif"]]
+
+
+def _movie_ids_by_name(project: Path) -> dict[str, str]:
+    with h5py.File(project, "r") as f:
+        rows = f["movies/table"][:]
+    text = [(r["uri"], r["movie_id"]) for r in rows]
+    return {Path(u.decode()).name: m.decode() for u, m in text}

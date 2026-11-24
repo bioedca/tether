@@ -389,6 +389,28 @@ extraction finished in an earlier run is not extracted again with a new profile,
 with `--overwrite`. Use a new `--out-dir` to extract a set of movies with a changed
 profile.
 
+### Stage status in the batch summary
+
+`tether batch` prints one status for each stage of each movie (`tether.project.batch`):
+
+| Status | Meaning | Counts as failure? |
+|---|---|---|
+| `done` | the stage ran and succeeded | no |
+| `skipped` | a checkpoint found the stage already complete | no |
+| `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
+| `blocked` | an upstream stage failed | no |
+| `deferred` | the sidecar was unavailable at startup | no |
+| `not-requested` | `--no-idealize` | no |
+| `warning` | non-fatal, for example provenance stamping failed | no |
+
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3`. See
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+
+`blocked` is the one row that never shows up on an exit-`0` run in practice. A stage is
+blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
+with a `failed` in the same movie and the run exits `1` anyway.
+
 ### Which movies a folder or a pattern gives
 
 Each `movies` argument is one of three things, and Tether expands it itself, so the same
@@ -754,6 +776,14 @@ tether run: stopped at approval step 'gamma.approve' for 'KJG_231027': the recip
   approve:  tether approve exp.tether gamma.approve --subject KJG_231027 --report runs/gamma-KJG_231027.json
   continue: tether run recipe.json --resume
 ```
+
+You can copy each command and run it as printed. A path or a subject that holds a space
+is put in quotes: double quotes for the Tether Command Prompt on Windows, and shell quotes
+on macOS and Linux, for example `--subject 'condition 1'`. The command that `tether run`
+prints when a step fails is quoted in the same way. On Windows, the Tether Command Prompt
+still reads a value that holds a `"` together with `&`, `|`, `<`, `>` or `^`, or that holds a
+`%NAME%` of the environment, before Tether gets it. Type such a value by hand
+([#1354](https://github.com/bioedca/tether/issues/1354)).
 
 No command reaches an approval step yet: the map, correction and fit steps that reach
 them come with #918, #930 and #939, so a recipe that names a policy today is refused
