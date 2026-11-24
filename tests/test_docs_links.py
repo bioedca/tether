@@ -1046,6 +1046,25 @@ def _reread(nodes: list[_Node], spans: list[tuple[int, int]] = ()) -> list[tuple
     return out
 
 
+def _inline_comments(view: str, start: int, end: int, nodes) -> list[tuple[int, int]]:
+    """The spans of the inline comments the renderer finds in ``view[start:end]``.
+
+    Inline HTML runs after the code spans and the link patterns, on text where each node
+    they made is stashed as a placeholder. So a ``<!--`` or ``-->`` in a code span, in a
+    link, or in an image's ``alt`` pairs with nothing outside it, and
+    ``![<!--](#a) [t][k] -->`` shows ``[t][k]``. A link's text is read again on its own,
+    so a comment inside it is found there; an image's text is an attribute and is not.
+    """
+    text = view[start:end]
+    for n in nodes:
+        text = text[: n.begin - start] + _CODE * (n.stop - n.begin) + text[n.stop - start :]
+    out = [(start + s, start + e) for s, e in (m.span() for m in _INLINE_COMMENT_RE.finditer(text))]
+    for n in nodes:
+        if not n.kind.startswith(("image", "short_image")):
+            out += _inline_comments(view, n.text[0], n.text[1], n.children)
+    return out
+
+
 def _walk(nodes) -> list[_Node]:
     """The nodes and every node nested in them, except inside an image.
 
@@ -1199,10 +1218,14 @@ def _doc(path: Path) -> _Doc:
                 if not in_code and not any(s_ <= offset - a < e_ for s_, e_ in spans):
                     problem(offset, hazard)
         view = _mask_escapes(view)
-        # Inline HTML runs after the code spans, so a comment is read here on the masked
-        # text: one whose `<!--` or `-->` is in a code span hides nothing. A stashed one is
-        # blank already.
-        hidden = [m.span() for m in _INLINE_COMMENT_RE.finditer(view)]
+        nodes: list[_Node] = []
+        tries: list[tuple[_Try, int]] = []  # each with the end of its segment
+        hidden: list[tuple[int, int]] = []
+        for s_, e_ in segments:
+            more, more_tries = _inline(view, definitions, 0, s_, e_)
+            nodes += more
+            tries += [(t, e_) for t in more_tries]
+            hidden += _inline_comments(view, s_, e_, more)
 
         def shown(offset: int, hidden: list[tuple[int, int]] = hidden) -> bool:
             # A comment that does not open a line is inline HTML, which runs after the link
@@ -1210,12 +1233,6 @@ def _doc(path: Path) -> _Doc:
             # reader sees none of it and the strict build does not check it (#1013, gap 10).
             return not any(start <= offset < end for start, end in hidden)
 
-        nodes: list[_Node] = []
-        tries: list[tuple[_Try, int]] = []  # each with the end of its segment
-        for s_, e_ in segments:
-            more, more_tries = _inline(view, definitions, 0, s_, e_)
-            nodes += more
-            tries += [(t, e_) for t in more_tries]
         for start, end in _reread(nodes, spans):
             if "[" in view[start:end]:
                 problem(
@@ -2077,6 +2094,24 @@ _GAP_ROWS = [
         [f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}"],
         "<p>See <code>&lt;!--</code> [broken][missing] <code>--&gt;</code> here.</p>",
         id="gap-10-delimiters-in-code-hide-nothing",
+    ),
+    pytest.param(
+        # Nor do delimiters in an image's alt or a link's text: inline HTML runs after the
+        # link patterns, with each image and link stashed.
+        "Text ![<!--](#a) [broken][missing] [<!--](#a) [gone][missing] -->\n",
+        [
+            f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}",
+            f"docs/a.md:3: reference-style link [gone][missing] has no [missing]: {_REF}",
+        ],
+        '<img alt="&lt;!--" src="#a" /> [broken][missing] <a href="#a">&lt;!--</a>',
+        id="gap-10-delimiters-in-a-link-hide-nothing",
+    ),
+    pytest.param(
+        # A definition cuts the block, so no comment runs across it.
+        "Text <!-- x\n[k]: a.md\n--> [broken][missing]\n",
+        [f"docs/a.md:5: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>--&gt; [broken][missing]</p>",
+        id="gap-10-a-definition-cuts-a-comment",
     ),
 ]
 
