@@ -27,7 +27,7 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 
 The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI or `.vsi`
 movie opens through its reader, but extraction refuses it with "extraction reads only TIFF today". The
-change that lets extraction read CZI is planned (#1390, after #1388). Until then, export the movie
+changes that let extraction read them are planned: #1390 for CZI and #1398 for `.vsi`. Until then, export the movie
 to uncompressed TIFF.
 
 ## TIFF
