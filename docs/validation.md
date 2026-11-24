@@ -458,6 +458,25 @@ equally wrong fits cannot see.
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
 
+### Plain vbGMM against an independent fit
+
+The sidecar key `vbgmm` (tMAVEN's plain vbGMM, test-only) is compared on `smd_4mol.hdf5` with a
+fit that shares no code with tMAVEN: scikit-learn's `BayesianGaussianMixture` (base lock), with
+tMAVEN's vbGMM priors, on the same pooled and clipped FRET
+([#1302](https://github.com/bioedca/tether/issues/1302),
+[ADR-0138](adr/0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md)). The
+numbers, their provenance and the tolerance are in
+`tests/reference_data/smd_4mol_vbgmm_sklearn.json`. The base test matrix fits them again, because
+the sidecar environment has no scikit-learn. The tolerance is 0.03 FRET on each state mean and
+0.01 on each state fraction, above the 0.0225 and 0.0065 by which tMAVEN's own updates, run to
+convergence, differ from the reference.
+
+> Known failure, stated plainly. At the pin, tMAVEN's vbGMM stops after two iterations on this
+> fixture, because the lower bound its convergence test reads goes down at every step. Its state
+> means are up to 0.44 FRET from the reference, so the sidecar test is a strict expected failure:
+> a tMAVEN that fits to convergence passes, and the job then fails until the marker is removed.
+> The early stop is tracked in [#1337](https://github.com/bioedca/tether/issues/1337).
+
 ### Measured traces with a stored vbFRET path
 
 This part compares with the **original vbFRET_nov12** output on measured data, not with

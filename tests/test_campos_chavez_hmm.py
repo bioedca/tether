@@ -23,9 +23,11 @@ a failure means the sidecar fit moved, not that the paper is wrong.
 from __future__ import annotations
 
 import functools
+import json
 import math
 import os
 import re
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,6 +69,35 @@ def test_every_setting_of_every_fit_has_a_source() -> None:
         assert set(fit["prefs"]) == set(fit["pref_sources"]), key
         assert all(s.strip() for s in fit["pref_sources"].values()), key
         assert fit["nstates_source"].strip(), key
+
+
+def _citations(value: object) -> list[str]:
+    if isinstance(value, dict):
+        found = [v for k, v in value.items() if k == "citation" and isinstance(v, str)]
+        return found + [c for v in value.values() for c in _citations(v)]
+    if isinstance(value, list):
+        return [c for v in value for c in _citations(v)]
+    return []
+
+
+def test_every_reference_data_citation_spells_mondragon_with_the_accent() -> None:
+    """Each ``citation`` in ``tests/reference_data/`` writes "Mondragón A" (#1315).
+
+    #535 made the repository spell the name with the accent, and the maintainer approved that
+    spelling for the article on 2026-11-20. The ``MondragonLab`` organization name in settings
+    paths is an identifier with no accent on purpose (ADR-0095) and is no citation.
+    """
+    loaders = {".json": json.loads, ".toml": tomllib.loads}
+    data = Path(__file__).resolve().parent / "reference_data"
+    citations = [
+        c
+        for p in sorted(data.iterdir())
+        if p.suffix in loaders
+        for c in _citations(loaders[p.suffix](p.read_text(encoding="utf-8")))
+    ]
+    assert SETTINGS["article"]["citation"] in citations
+    assert [c for c in citations if "Mondragon A" in c] == []
+    assert SETTINGS["article"]["citation"].endswith("Fei J, Mondragón A. Nat Commun 15:6592 (2024)")
 
 
 def test_the_global_fits_use_the_priors_of_the_methods() -> None:

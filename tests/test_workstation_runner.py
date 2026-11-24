@@ -277,6 +277,117 @@ def test_a_name_that_pytest_escapes_in_a_node_id_is_still_found(passing_run, tmp
     assert "clair" not in text and "clair" not in runner.redact(f"  failed {nodeid}", tokens)
 
 
+# --- Names that main already publishes (#1198) ---------------------------------------------------
+
+
+def test_a_neutral_id_is_never_a_private_name() -> None:
+    """A file or folder named after its neutral id hides nothing: the id is public by design."""
+    mapping = {"lab-01": {"window": "frozen/lab-01/export.mat"}, "lab-02": {"window": "lab-02"}}
+    tokens = runner.private_tokens(mapping)
+    assert not {"lab-01", "lab-02"} & tokens
+    assert {"frozen/lab-01/export.mat", "frozen", "export.mat", "export"} <= tokens
+
+
+def _published(tmp_path: Path, text: str) -> tuple[Path, str]:
+    """A repository whose one commit holds a test module with *text*."""
+    repo = tmp_path / "main"
+    (repo / "tests").mkdir(parents=True)
+    _git(repo, "init", "--quiet", "-b", "main")
+    (repo / "tests" / "test_x.py").write_text(text, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "one")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_a_mapped_word_that_main_publishes_does_not_withhold_the_result(
+    passing_run, tmp_path
+) -> None:
+    repo, sha = _published(tmp_path, "def test_each_widget_is_read():\n    pass\n")
+    mapping = {"lab-01": {"file": "SECRET-series-alpha/widget.txt"}}
+    strict = runner.private_tokens(mapping)
+    assert "widget" in strict
+    public = runner.public_names(repo, sha, strict)
+    assert public == {"widget"}
+    tokens = runner.private_tokens(mapping, public)
+    root, _ = passing_run
+    _, result = _only_result(root)
+    result["checks"][0]["check"] = "tests/test_x.py::test_each_widget_is_read"
+    assert runner.seal(result, strict)[0]["status"] == "withheld"  # what #1198 reported
+    sealed, _ = runner.seal(result, tokens)
+    assert sealed["status"] == "passed" and sealed["checks"]
+    # A name that main does not publish still withholds the result.
+    result["checks"][0]["check"] = "tests/test_x.py::test_y[SECRET-series-alpha]"
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and "SECRET-series-alpha" not in text
+
+
+def test_only_the_commit_counts_and_a_failed_search_keeps_every_name_private(
+    tmp_path, monkeypatch
+) -> None:
+    repo, sha = _published(tmp_path, "widget\n")
+    (repo / "notes.txt").write_text("SECRET-series-alpha\n", encoding="utf-8")  # not committed
+    names = frozenset({"widget", "SECRET-series-alpha"})
+    commands: list[list[str]] = []
+    real = runner._run_bounded
+
+    def spy(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return real(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_bounded", spy)
+    assert runner.public_names(repo, sha, names) == {"widget"}
+    # The names reach git on its standard input, never on its command line.
+    assert commands and not any(name in arg for cmd in commands for arg in cmd for name in names)
+    assert runner.public_names(repo, "0" * 40, names) == frozenset()
+
+
+def test_a_line_or_column_number_from_git_config_never_makes_a_name_public(tmp_path) -> None:
+    """``grep.lineNumber`` and ``grep.column`` would prefix each match with numbers; a private
+    name made of digits must not count as public because of such a prefix (#1198, review)."""
+    repo, _ = _published(tmp_path, "")
+    (repo / "tests" / "test_x.py").write_text("\n" * 9999 + "widget\n", encoding="utf-8")
+    _git(repo, "commit", "--quiet", "-am", "two")
+    sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "config", "grep.lineNumber", "true")
+    _git(repo, "config", "grep.column", "true")
+    assert runner.public_names(repo, sha, frozenset({"widget", "10000"})) == {"widget"}
+
+
+def test_an_escaped_name_that_main_publishes_is_not_private(tmp_path) -> None:
+    """The node-id form of a name is dropped when main publishes it, even if the plain form is
+    not published: the escaped tokens are made from the plain ones (#1198, review)."""
+    mapping = {"lab-01": {"file": "acquisition-\u00e9clair.tif"}}
+    strict = runner.private_tokens(mapping)
+    escaped = "acquisition-\\xe9clair"
+    assert escaped in strict and "acquisition-\u00e9clair" in strict
+    repo, sha = _published(tmp_path, f"# {escaped}\n")
+    public = runner.public_names(repo, sha, strict)
+    assert escaped in public and "acquisition-\u00e9clair" not in public
+    tokens = runner.private_tokens(mapping, public)
+    assert escaped not in tokens and "acquisition-\u00e9clair" in tokens
+
+
+def test_a_scheduled_run_asks_the_verified_commit_for_its_public_names(
+    tmp_path, origin, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "CANONICAL_REMOTE", origin["url"])
+    asked = []
+
+    def public_names(checkout, commit, names):
+        asked.append((checkout, commit))
+        return frozenset()
+
+    def build_fails(*args):
+        raise RuntimeError("the environment build failed")
+
+    monkeypatch.setattr(runner, "public_names", public_names)
+    monkeypatch.setattr(runner, "ensure_env", build_fails)
+    data = _data_dir(tmp_path)
+    args = ["run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main(args) == runner.EXIT_ERROR
+    assert asked == [((tmp_path / "state").resolve() / "clone", origin["tip"])]
+
+
 def test_the_environment_folders_come_first_on_path_as_the_launchers_put_them() -> None:
     """The scheduled task runs the env's python unactivated; MKL needs its folders first (#553)."""
     bat = (_REPO / "packaging" / "scripts" / "post_install.bat").read_text(encoding="utf-8")

@@ -5,28 +5,28 @@ description: "Open Tether's traces in the standalone tMAVEN application window, 
 # Standalone-tMAVEN hand-off
 
 **Who this page is for.** Anyone who wants to open Tether's traces in the standalone tMAVEN
-application window, edit the fit by hand and bring the result back. It is also for anyone who must set up
-the tMAVEN sidecar. It assumes you have used tMAVEN. The setup section also assumes you can
-run a Python script from a source checkout.
+application window and edit the fit by hand. They then bring the result back. It is also for anyone who
+must set up the tMAVEN sidecar. It assumes you have used tMAVEN. The setup section also assumes
+you can run a Python script from a source checkout.
 
-Tether [idealizes](../pipeline.md#idealize) traces by driving [tMAVEN](https://github.com/GonzalezBiophysicsLab/tmaven)
+Tether [idealizes](../pipeline.md#idealize) traces by driving
+[tMAVEN](https://github.com/GonzalezBiophysicsLab/tmaven)
 ([vbFRET / consensus VB-HMM / ebFRET](../glossary.md#vbfret-ebfret-consensus-vb-hmm)).
-Because tMAVEN pins `numpy<2` + PyQt5, it runs in an **isolated sidecar environment** — a
-separate interpreter that never shares a process with Tether's own PySide6 / current-numpy
-GUI.
+The tMAVEN app pins `numpy<2` + PyQt5. So it runs in an **isolated sidecar environment**. That is a
+separate interpreter that never shares a process with Tether's own PySide6 / current-numpy GUI.
 
 Two ways to reach tMAVEN share that sidecar:
 
-- the **headless driver** (`tether.idealize.run_vbfret`), used by one-click idealize and
-  batch runs; and
-- the **standalone-GUI hand-off** — Tether exports an
-  [SMD](https://github.com/GonzalezBiophysicsLab/tmaven) file the user opens directly in
-  the standalone tMAVEN GUI, edits by hand, and re-imports.
+- The **headless driver** (`tether.idealize.run_vbfret`). One-click idealize and batch runs use
+  it.
+- The **standalone-GUI hand-off**. Tether exports an
+  [SMD](https://github.com/GonzalezBiophysicsLab/tmaven) file. The user opens it directly in
+  the standalone tMAVEN GUI, edits it by hand, and imports it again.
 
-This page covers the **guided setup** for the sidecar and the **hand-off verification**
-that a Tether-exported SMD opens in standalone tMAVEN with its coordinate metadata intact
-— the manual check that ADR-0010 records. ADR-0004 and
-ADR-0006 record why the sidecar is a separate environment.
+This page covers the **guided setup** for the sidecar. It also covers the **hand-off
+verification**. That check confirms that a Tether-exported SMD opens in standalone tMAVEN with
+its coordinate metadata intact. ADR-0010 records that manual check. ADR-0004 and ADR-0006 record
+why the sidecar is a separate environment.
 
 ## Categories and tMAVEN classes
 
@@ -55,45 +55,51 @@ A category that left the list goes out as class `0`. A `0` coming back leaves it
 ## Guided sidecar setup
 
 `scripts/setup_sidecar.py` turns a checkout into a working sidecar interpreter in one
-command. It encodes the two things that live **outside** the committed
-`sidecar/conda-lock.yml` and are easy to get wrong by hand:
+command. It encodes two things that are easy to get wrong by hand. Both live **outside** the
+committed `sidecar/conda-lock.yml`:
 
-1. **tMAVEN itself** — the GPL reference app, driven over IPC and installed from a pinned
-   git commit (it is not a conda-lock dependency); and
-2. **the setuptools compatibility wheel** — tMAVEN imports the legacy `pkg_resources` API
-   at runtime without declaring it. setuptools deprecated it by 80.9.0 (still shipped
-   through 81.0.0) and **removed it in 82.0.0**, while `sidecar/conda-lock.yml` resolves
-   82.0.1 on every platform — past the removal. Without the pin an installed app builds
-   its sidecar env fine and then fails at the *first* idealization.
+1. **tMAVEN itself.** It is the GPL reference app, driven over IPC. The script installs it from
+   a pinned git commit. It is not a conda-lock dependency.
+2. **The setuptools compatibility wheel.** The tMAVEN app imports the legacy `pkg_resources`
+   API at runtime without declaring it. The setuptools project deprecated that API by 80.9.0.
+   It still shipped the API through 81.0.0. It **removed the API in 82.0.0**. But `sidecar/conda-lock.yml` resolves
+   82.0.1 on every platform, past the removal. Without the pin, an installed app builds its
+   sidecar env with no error. It then fails at the *first* idealization.
 
    The exact version and its SHA-256 live in **`packaging/setuptools-compatibility.txt`**,
-   which is the single source. Its consumers are named in the file itself rather than
-   counted — `packaging.yml`, `release.yml`, `scripts/setup_sidecar.py` and the local build
-   recipe in `packaging/README.md` — and a contract test enforces that list, so nothing
-   restates the version anywhere else. The download is hash-enforced
-   (`pip --require-hashes`), so the tagged commit alone determines what shipped — before
-   this, three OS runners resolved `setuptools<81` independently and a rebuild of the same
-   tag could bundle a different build.
+   which is the single source. The file itself names its consumers rather than counting them.
+   They are `packaging.yml`, `release.yml`, `scripts/setup_sidecar.py` and the local build
+   recipe in `packaging/README.md`. A contract test enforces that list, so nothing restates the
+   version anywhere else.
 
-   **This is a runtime-only compatibility exception, not a dependency.** It is installed
-   into the *isolated* sidecar env and never the base app env, purely so an unmaintained
-   upstream's undeclared import resolves. Retaining a release older than the ecosystem
-   default keeps a deprecated API alive in one interpreter; that is a knowing trade,
-   recorded rather than hidden, and it is not waived from dependency auditing.
+   The download is hash-enforced (`pip --require-hashes`). So the tagged
+   commit alone determines what shipped. Before this, three OS runners resolved
+   `setuptools<81` independently. A rebuild of the same tag could then bundle a different
+   build.
+
+   **This is a runtime-only compatibility exception, not a dependency.** It goes into the
+   *isolated* sidecar env and never into the base app env. Its only purpose is to resolve the
+   undeclared import of an unmaintained upstream. A release older than the ecosystem default
+   keeps a deprecated API alive in one interpreter. That is a knowing trade. It is recorded
+   rather than hidden, and it is not waived from dependency auditing.
 
    **Removal trigger:** when tMAVEN no longer imports `pkg_resources`, delete the file and
-   every consumer named in it. Nothing else changes — the sidecar lock already resolves a
+   every consumer named in it. Nothing else changes. The sidecar lock already resolves a
    current setuptools on its own.
 
-The script runs three phases — **create** the env from the lock, **install** the
-hash-checked setuptools wheel and then tMAVEN, then **probe** liveness (import and
-instantiate `maven_class`, no fit) — and prints the line that points Tether at the
-interpreter. The install is two `pip` commands rather than one because pip's hash-checking
-mode is all-or-nothing and the tMAVEN spec is a git URL with no hash to give.
+The script runs three phases:
 
-From a fresh checkout, with a conda front-end on `PATH`
-([`micromamba`](https://mamba.readthedocs.io/), `mamba`, or `conda` +
-[`conda-lock`](https://conda.github.io/conda-lock/)):
+1. **Create** the env from the lock.
+2. **Install** the hash-checked setuptools wheel, and then tMAVEN.
+3. **Probe** liveness. The probe imports and instantiates `maven_class`, with no fit.
+
+It then prints the line that points Tether at the interpreter. The install is two `pip`
+commands rather than one. The reason is that the hash-checking mode of pip is all-or-nothing.
+The tMAVEN spec is a git URL with no hash to give.
+
+You need a fresh checkout and a conda front-end on `PATH`. The front-end can be
+[`micromamba`](https://mamba.readthedocs.io/), `mamba`, or `conda` +
+[`conda-lock`](https://conda.github.io/conda-lock/). Run:
 
 ```bash
 python scripts/setup_sidecar.py
@@ -106,8 +112,8 @@ Sidecar env is ready. Point Tether at it with:
   export TETHER_SIDECAR_PYTHON="/path/to/envs/tether-sidecar/bin/python"
 ```
 
-Set `TETHER_SIDECAR_PYTHON` to that path (the app and the driver both read it). On
-Windows the script prints the PowerShell form (`$env:TETHER_SIDECAR_PYTHON = "..."`).
+Set `TETHER_SIDECAR_PYTHON` to that path. The app and the driver both read it. On Windows, the
+script prints the PowerShell form (`$env:TETHER_SIDECAR_PYTHON = "..."`).
 
 Useful options:
 
@@ -123,63 +129,71 @@ Useful options:
 | `--no-probe` | Skip the liveness probe. |
 | `--dry-run` | Print every command without running it. |
 
-Users who install Tether from a **packaged installer** do not need this script — the
-installer bundles the sidecar env and wires `TETHER_SIDECAR_PYTHON` automatically (see
+Users who install Tether from a **packaged installer** do not need this script. The installer
+bundles the sidecar env and sets `TETHER_SIDECAR_PYTHON` automatically (see
 [Packaging & installers](../packaging.md)). The guided script is for developers and for
 building the sidecar from source.
 
 ## Verifying the hand-off
 
-An exported SMD "opens in standalone tMAVEN with coordinate metadata intact" is checked
-two ways: a **scripted** assertion that runs in CI and locally, and a **manual** GUI leg
-a human performs once per OS.
+Two checks confirm that an exported SMD "opens in standalone tMAVEN with coordinate metadata
+intact". A **scripted** assertion runs in CI and locally. A human does a **manual** GUI leg
+once per OS.
 
 ### Scripted open-check
 
-`tether.idealize.check_smd_opens(path)` launches the sidecar interpreter and loads the
-SMD with **tMAVEN's own loader** — `maven.io.load_smdtmaven_hdf5`, the exact code path
-behind the standalone GUI's *File → Load SMD* menu — then reports the molecule/frame
-counts, the analysis windows tMAVEN read back, and a raw-intensity checksum. If tMAVEN
-loads it, the GUI opens it.
+`tether.idealize.check_smd_opens(path)` launches the sidecar interpreter. It loads the SMD
+with **tMAVEN's own loader**, `maven.io.load_smdtmaven_hdf5`. That is the exact code path
+behind the *File → Load SMD* menu of the standalone GUI. The check then reports three things:
+the molecule/frame counts, the analysis windows that tMAVEN read back, and a raw-intensity
+checksum. If tMAVEN loads the SMD, the GUI opens it.
 
-Tether's own coordinates (donor/acceptor pixel positions, molecule identities) ride along
-in a `tether/` **superset group** that tMAVEN ignores on load and drops on save — the
-documented gap (ADR-0002) that the return-leg intensity matcher closes. `check_smd_opens`
-confirms the standard SMD the GUI reads is complete; the superset's survival in the same
-file is asserted separately with `tether.idealize.read_smd`.
+Tether's own coordinates go along in a `tether/` **superset group**. They are the
+donor/acceptor pixel positions and the molecule identities. The tMAVEN loader ignores the
+group on load and drops it on save. That is the documented gap (ADR-0002) that the return-leg intensity
+matcher closes. `check_smd_opens` confirms that the standard SMD the GUI reads is complete. A
+separate assertion with `tether.idealize.read_smd` confirms that the superset survives in the
+same file.
 
 The live assertion is the `@pytest.mark.sidecar` suite [`tests/test_handoff_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_handoff_sidecar.py).
-It is deselected from the ordinary CI matrix (which has no sidecar env) and runs in the
-[`sidecar`](https://github.com/bioedca/tether/actions/workflows/sidecar.yml) workflow,
-which provisions the isolated env **via `scripts/setup_sidecar.py`** — so the guided
-setup script is itself exercised on every live run. To run it locally after setting up the
-sidecar:
+
+The ordinary CI matrix has no sidecar env, so it deselects this suite. The suite runs in the
+[`sidecar`](https://github.com/bioedca/tether/actions/workflows/sidecar.yml) workflow. That
+workflow provisions the isolated env **via `scripts/setup_sidecar.py`**. So every live run also
+exercises the guided setup script. To run the suite locally, first set up the sidecar. Then
+run:
 
 ```bash
 export TETHER_SIDECAR_PYTHON="/path/to/sidecar/python"
 pytest -m sidecar tests/test_handoff_sidecar.py
 ```
 
-A second sidecar test, [`tests/test_tmaven_gui_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_tmaven_gui_sidecar.py), builds tMAVEN's main window
-on the offscreen Qt platform the way `python -m tmaven` does and runs its first plot draw.
-It exists because headless tests never draw: the sidecar lock once resolved
-`matplotlib-base` 3.11, which breaks the canvas tMAVEN draws on, and the main window crashed at
-startup while every other check stayed green (#566). The lock now bounds `matplotlib-base`
-below 3.11, and this test fails if a GUI-breaking dependency comes back.
+A second sidecar test is
+[`tests/test_tmaven_gui_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_tmaven_gui_sidecar.py).
+It builds tMAVEN's main window on the offscreen Qt platform, the way `python -m tmaven` does.
+It then runs the first plot draw. The test exists because headless tests never draw.
+
+The sidecar lock once resolved `matplotlib-base` 3.11, which breaks the canvas that tMAVEN draws
+on. The main window then crashed at startup, while every other check stayed green (#566). The
+lock now bounds `matplotlib-base` below 3.11. This test fails if a GUI-breaking dependency
+comes back.
 
 ### Manual GUI leg
 
-The scripted checks drive tMAVEN's loader and build its main window offscreen, but nobody looks
-at the result. Once per operating
-system, a human confirms the file opens in the actual GUI:
+The scripted checks drive tMAVEN's loader and build its main window offscreen. But nobody
+looks at the result. Once per operating system, a human confirms that the file opens in the
+actual GUI:
 
-1. Set up the sidecar with `scripts/setup_sidecar.py` (above) and note the interpreter.
-2. Produce a Tether-exported SMD — either from the app's **Hand to tMAVEN** action, or
-   with `tether.idealize.write_smd(...)` (the same writer the app uses).
-3. Launch the standalone tMAVEN GUI from the sidecar env:
+1. Set up the sidecar with `scripts/setup_sidecar.py` (above).
+2. Note the interpreter that it prints.
+3. Make a Tether-exported SMD. Use the **Hand to tMAVEN** action of the app, or
+   `tether.idealize.write_smd(...)`, which is the same writer that the app uses.
+4. Launch the standalone tMAVEN GUI from the sidecar env:
    `TETHER_SIDECAR_PYTHON` → `python -m tmaven` (or the bundled launcher).
-4. **File → Load → SMD**, choose the exported `.hdf5`, and confirm the traces load with
-   the expected molecule count and per-trace analysis windows.
-5. Record the result in the
+5. Choose **File → Load → SMD**.
+6. Choose the exported `.hdf5`.
+7. Confirm that the traces load with the expected molecule count and per-trace analysis
+   windows.
+8. Record the result in the
    [cross-OS result record](../maintainers/standalone-tmaven-cross-os-record.md), a maintainer
    page that keeps one row per operating system.
