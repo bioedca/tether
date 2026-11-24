@@ -59,10 +59,12 @@ _PREFIXES: tuple[str, ...] = (
 #: they appear because Deep-LASI glues a source ``.tif`` into ``.tdat`` names
 #: (e.g. ``..._010.tif2025-07-21_00-00.tdat``). ``.nd2`` is here because extraction
 #: reads ND2 (#1388): an ND2 original and its TIFF export must give one condition.
+#: ``.vsi`` is here for the same reason, since extraction reads cellSens VSI (#1398).
 _EXTENSIONS: tuple[str, ...] = (
     ".tiff",
     ".tif",
     ".nd2",
+    ".vsi",
     ".tdat",
     ".tmap",
     ".hdf5",

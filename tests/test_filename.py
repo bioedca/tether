@@ -86,6 +86,15 @@ def test_an_nd2_original_parses_as_its_tiff_export() -> None:
     assert nd2.video_index == tif.video_index == "010"
 
 
+def test_a_vsi_original_parses_as_its_tiff_export() -> None:
+    # Extraction reads cellSens VSI (#1398), as it reads ND2: ``x.vsi`` and its export
+    # ``x.tif`` must give one condition and index.
+    vsi, tif = parse_filename(UCKOPSB_TIF[: -len(".tif")] + ".VSI"), parse_filename(UCKOPSB_TIF)
+    assert vsi.key == tif.key
+    assert vsi.condition_id == tif.condition_id
+    assert vsi.video_index == tif.video_index == "010"
+
+
 def test_different_condition_distinct_id() -> None:
     assert parse_filename(UCKOPSB_TIF).condition_id != parse_filename(CY3_TDAT).condition_id
 

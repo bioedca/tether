@@ -44,6 +44,9 @@ _BG, _AMP, _SIGMA = 80.0, 400.0, 1.5
 _DONOR = np.array([[12.0, 12.0], [24.0, 40.0], [16.0, 52.0]])
 _ACCEPTOR = _DONOR + np.array([49.0, 0.0])  # +1 px in the acceptor half
 _WINDOW = "21"
+#: A name in the acquisition convention (PRD Appendix A), so the condition parsed from it
+#: is compared too: ``x.vsi`` and ``x.tif`` must give one condition.
+_NAME = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010"
 
 
 def _movie_frames() -> np.ndarray:
@@ -85,8 +88,8 @@ def pair(tmp_path: Path, fake_runner: None) -> tuple[Path, Path]:
     frames = _movie_frames()
     (tmp_path / "vsi").mkdir()
     (tmp_path / "tif").mkdir()
-    vsi = _write_vsi(tmp_path / "vsi" / "movie.vsi", frames.astype(">u2"))
-    tif = tmp_path / "tif" / "movie.tif"
+    vsi = _write_vsi(tmp_path / "vsi" / f"{_NAME}.vsi", frames.astype(">u2"))
+    tif = tmp_path / "tif" / f"{_NAME}.tif"
     tifffile.imwrite(tif, frames.astype("<u2"), photometric="minisblack", byteorder="<")
     return vsi, tif
 
@@ -97,7 +100,10 @@ def _assert_same_extraction(a: Path, b: Path) -> None:
     for name in traces_a:
         assert traces_a[name].dtype == traces_b[name].dtype, name
         np.testing.assert_array_equal(traces_a[name], traces_b[name], err_msg=name)
-    np.testing.assert_array_equal(read_molecules(a)["donor_xy"], read_molecules(b)["donor_xy"])
+    molecules_a, molecules_b = read_molecules(a), read_molecules(b)
+    np.testing.assert_array_equal(molecules_a["donor_xy"], molecules_b["donor_xy"])
+    assert set(molecules_a["condition_id"]) == set(molecules_b["condition_id"])
+    assert len(set(molecules_a["condition_id"])) == 1
 
 
 # --- the .vsi and a TIFF of the same frames give the same traces --------------------------
@@ -178,7 +184,7 @@ def test_tether_batch_extracts_a_vsi_folder(pair: tuple[Path, Path], tmp_path: P
     out_vsi, out_tif = tmp_path / "batch-vsi", tmp_path / "batch-tif"
     for folder, out in ((vsi.parent, out_vsi), (tif.parent, out_tif)):
         assert main(["batch", str(folder), "-d", str(out), "--no-idealize"]) == 0
-    _assert_same_extraction(out_vsi / "movie.tether", out_tif / "movie.tether")
+    _assert_same_extraction(out_vsi / f"{_NAME}.tether", out_tif / f"{_NAME}.tether")
 
 
 def test_tether_batch_refuses_a_vsi_beside_its_tiff_export(
@@ -194,7 +200,7 @@ def test_tether_batch_refuses_a_vsi_beside_its_tiff_export(
     assert main(["batch", str(both), "-d", str(out), "--no-idealize"]) != 0
     err = capsys.readouterr().err
     assert "one name in two containers" in err
-    assert "movie.vsi" in err and "movie.tif" in err
+    assert f"{_NAME}.vsi" in err and f"{_NAME}.tif" in err
     assert not out.exists() or not any(out.iterdir())
 
 
