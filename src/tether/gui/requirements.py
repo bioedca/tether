@@ -29,8 +29,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from tether.project.readiness import STAGES
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -68,22 +66,27 @@ class Requirement:
     how: str
 
 
-_HOW = {
-    "sources": "Add a movie to the project in Prepare.",
-    "map": "Make or choose a map for each movie in Prepare.",
-    "traces": "Extract the traces of a movie in Prepare.",
-    "curation": "Accept or reject the molecules in Curate and correct.",
-    "corrections": "Complete the corrections in Curate and correct.",
-    "analysis_sets": "Make an analysis set in Analyze.",
-    "fits": "Fit the molecules in Analyze.",
-    "results": "Save a result snapshot in Analyze.",
-    "deposit": "Make the deposit package in Deposit.",
-}
-
 #: The one table of requirement texts (#898): one entry for each stage of the readiness
-#: record, in workflow order, by stage key.
+#: record, in workflow order, by stage key. The keys and step names are those of
+#: ``tether.project.readiness.STAGES``; a test keeps the two equal, because the window does
+#: not import the core (ADR-0100).
 REQUIREMENTS: dict[str, Requirement] = {
-    key: Requirement(stage=key, step=name, how=_HOW[key]) for key, name, _section, _issue in STAGES
+    req.stage: req
+    for req in (
+        Requirement("sources", "sources and geometry", "Add a movie to the project in Prepare."),
+        Requirement("map", "map", "Make or choose a map for each movie in Prepare."),
+        Requirement("traces", "trace generation", "Extract the traces of a movie in Prepare."),
+        Requirement(
+            "curation", "curation", "Accept or reject the molecules in Curate and correct."
+        ),
+        Requirement(
+            "corrections", "corrections", "Complete the corrections in Curate and correct."
+        ),
+        Requirement("analysis_sets", "analysis sets", "Make an analysis set in Analyze."),
+        Requirement("fits", "fits", "Fit the molecules in Analyze."),
+        Requirement("results", "results", "Save a result snapshot in Analyze."),
+        Requirement("deposit", "deposit", "Make the deposit package in Deposit."),
+    )
 }
 
 

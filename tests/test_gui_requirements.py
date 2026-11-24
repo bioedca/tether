@@ -84,7 +84,7 @@ def test_the_table_has_one_requirement_for_each_stage_in_workflow_order() -> Non
 def test_the_documentation_cites_the_table() -> None:
     page = _DOC.read_text(encoding="utf-8")
     for requirement in REQUIREMENTS.values():
-        assert f"| {requirement.step} | {requirement.how} |" in page
+        assert f"- **{requirement.step}**: {requirement.how}" in page
     assert NO_PROJECT_TEXT.split(": ", 1)[0] == "Not available"
     assert f'"{NO_PROJECT_TEXT.rsplit(". ", 1)[1]}"' in " ".join(page.split())
     assert "tether.gui.requirements" in page
