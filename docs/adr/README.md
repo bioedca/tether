@@ -17,7 +17,9 @@ prose harmonization of the PRD (PRD §12.7).
 ## How ADRs are created
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
-  `NNNN` = the next zero-padded integer.
+  `NNNN` = the number reserved first, as
+  [Reserving a number](../agents/adr.md#reserving-a-number) describes. Gaps are allowed.
+  Never reuse a number.
 - **Incremental rule.** A PR that *implements* a still-unhomed resolved PRD
   decision lands that decision's ADR **in the same PR** (`AGENTS.md` §Agile
   execution).
