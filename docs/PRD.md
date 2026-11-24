@@ -350,6 +350,12 @@ uses the three words only in these meanings:
   unchanged under `/generations/archive` and stays readable. An extraction never overwrites or deletes a
   generation; molecules that did not move (§11.2) keep their `molecule_key`, and their labels, category and
   analysis window are carried and marked so (ADR-0136).
+- **`/sources`** (table, `schema_version` 3) — the **source registry**: one row per source file (a movie, the bead
+  video of a map, a map image) with its path relative to the project, original name, size, SHA-256, adapter and
+  version, role and acquisition. A derived file names its original and the recipe between them. Raw movies are not
+  copied into the project; the checksum is a job (§7.13), a moved file is linked again only when its checksum
+  matches, and a copy for sharing keeps no absolute path from it. A movie with no row reads as one made from
+  `/movies`, its checksum not calculated (ADR-0140).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the

@@ -928,6 +928,34 @@ def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | N
             _copy_group_aliased(src[grp], dst, aliases)
 
 
+def _copy_sources(src: object, dst: object, aliases: _CuratorAliases | None) -> int:
+    """Copy the source registry (#912) into the subset; return the number of records.
+
+    Each record of the source is kept, including one made from a ``/movies`` row the subset
+    does not carry, so the subset still says which files its molecules came from. A copy
+    for sharing (``aliases`` set) keeps only the file name of a path outside the project's
+    folder ([`shareable_path`][tether.project.sources.shareable_path]), as for
+    ``PATH_ATTRS``.
+    """
+    from dataclasses import replace  # noqa: PLC0415
+
+    from tether.project.sources import (  # noqa: PLC0415
+        _records_in,  # noqa: PLC2701
+        _row,  # noqa: PLC2701
+        shareable_path,
+    )
+
+    records = _records_in(src)
+    if aliases is not None:
+        records = [replace(r, relative_path=shareable_path(r.relative_path)) for r in records]
+    if records:
+        table = dst["sources"]["table"]
+        table.resize((len(records),))
+        for i, record in enumerate(records):
+            table[i] = _row(record)[0]
+    return len(records)
+
+
 def _preflight_source(src: object, n_molecules: int, include_raw: bool) -> None:
     """Reject a malformed/incomplete source **before** any output is written.
 
@@ -1035,7 +1063,9 @@ def export_subset_tether(
     person keeps one alias and multi-curator analysis still works. A full path in
     ``PATH_ATTRS`` can include the user name. Only its file name is kept, such as for
     the model file of each ``/models`` reference. The provenance records that aliasing
-    was used and the number of names replaced. The option does not remove
+    was used and the number of names replaced. The source registry (#912) is copied, and a
+    registry path outside the project's folder keeps only its file name, so the copy holds
+    no absolute private path from it. The option does not remove
     ``source_filename`` (a file name, not a path): a file name can still identify a sample.
 
     Parameters
@@ -1146,6 +1176,7 @@ def export_subset_tether(
                 n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
                 _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
+                n_sources = _copy_sources(src, dst, aliases)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
                 dst.attrs["tether_subset_of"] = path.name
@@ -1176,6 +1207,7 @@ def export_subset_tether(
             "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
             "n_reject_log_rows": n_reject_log,
+            "n_source_records": n_sources,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
             **(
                 {}
