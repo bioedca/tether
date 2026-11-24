@@ -673,8 +673,10 @@ def detect_spots_zmw(
     3. binarize **strictly above** ``fine_threshold`` of the filtered max (``:53-54``,
        3 %);
     4. ``bwmorph(..., 'erode')`` with a 3x3 element (``:55``). Outside the image the
-       erosion pads with ``1``, as MATLAB's binary erosion does, so a spot that
-       touches the edge is not eroded away from that side;
+       erosion pads with ``0``, as MATLAB R2023b's ``bwmorph`` does on Deep-LASI's own
+       run (ADR-0143), so a spot that touches the edge is also eroded from that side.
+       (``imerode``, and Octave's ``bwmorph``, pad a binary image with ``1``; the frozen
+       MATLAB output tells the two apart.)
     5. 8-connected component centroids (``regionprops 'Centroid'``, ``:56-58``).
 
     The shared Stage-4 tail (`_finalize_candidates`) then snaps, applies the border
@@ -727,7 +729,7 @@ def detect_spots_zmw(
 
     structure = np.ones((3, 3), dtype=bool)
     binary = filtered > fine_threshold * filtered_peak
-    eroded = ndimage.binary_erosion(binary, structure=structure, border_value=1)
+    eroded = ndimage.binary_erosion(binary, structure=structure, border_value=0)
     labels, n_labels = ndimage.label(eroded, structure=structure)
     if n_labels == 0:
         return np.empty((0, 2), dtype=np.float64)

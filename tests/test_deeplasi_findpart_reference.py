@@ -49,7 +49,7 @@ MATLAB_DIR = ROOT / "scripts" / "reference" / "matlab"
 PINS = MATLAB_DIR / "pins.toml"
 IMAGE_NAMES = ("public", "synthetic")
 #: Both sides compute the same centroids in double precision; the margin covers the order of
-#: the sums only (Octave's regionprops differs from NumPy by about 1e-14 on these images).
+#: the sums only (MATLAB's regionprops differs from NumPy by at most 1.5e-14 on these images).
 TOLERANCE_PX = 1e-9
 
 
@@ -145,12 +145,14 @@ def test_the_comparison_is_not_empty() -> None:
     # A run that found nothing anywhere would pass the per-case test trivially.
     counts = {(n, k): read_xy(FROZEN / f"{n}_t{k}.csv").shape[0] for n, k, _ in _cases()}
     assert sum(counts.values()) >= 30
-    assert all(counts[("synthetic", k)] >= 3 for _, k, _ in _cases())
+    # Every synthetic case keeps at least two spots (t = 0.5 keeps only (11, 11) and (11, 17)).
+    assert all(counts[("synthetic", k)] >= 2 for _, k, _ in _cases())
 
 
 def test_the_edge_padding_is_what_the_comparison_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Fault injection: an erosion that pads with 0 (SciPy's default) loses or moves the edge
-    # spots of the synthetic image, so the comparison above would fail on it.
+    # Fault injection: an erosion that pads with 1 (imerode's and Octave's bwmorph's
+    # padding) keeps or moves the edge spots of the synthetic image, so the comparison above
+    # would fail on it. MATLAB's bwmorph pads with 0, which is what Tether does.
     from scipy import ndimage
 
     import tether.imaging.detect as detect
@@ -160,10 +162,10 @@ def test_the_edge_padding_is_what_the_comparison_tests(monkeypatch: pytest.Monke
     reference = _sorted(read_xy(FROZEN / "synthetic_t1.csv"))
     original = ndimage.binary_erosion
 
-    def zero_padded(binary, structure=None, border_value=0, **kwargs):
-        return original(binary, structure=structure, border_value=0, **kwargs)
+    def one_padded(binary, structure=None, border_value=0, **kwargs):
+        return original(binary, structure=structure, border_value=1, **kwargs)
 
-    monkeypatch.setattr(detect.ndimage, "binary_erosion", zero_padded)
+    monkeypatch.setattr(detect.ndimage, "binary_erosion", one_padded)
     broken = _sorted(deeplasi_tail(tether_candidates(image, threshold), image.shape))
     same = broken.shape == reference.shape and (
         not reference.shape[0] or np.max(np.abs(broken - reference)) <= TOLERANCE_PX

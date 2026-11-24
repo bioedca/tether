@@ -112,6 +112,18 @@ precedence = "override"
 SPDX-FileCopyrightText = "2022 Simon Wanninger, Pooyeh Asadiatouei, Johann Bohlen, Bässem Salem, Philip Tinnefeld, Evelyn Ploetz and Don C. Lamb"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# The spot positions that Deep-LASI's own findPart (mode 5) found on that crop in MATLAB
+# (#924, ADR-0143): values computed from the CC-BY-4.0 image, so CC-BY-4.0. The synthetic-image
+# outputs, mode4_error.txt and provenance.json carry the repository's licence.
+[[annotations]]
+path = ["tests/fixtures/reference/deep-lasi/findpart-zmw/public_t*.csv"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2022 Simon Wanninger, Pooyeh Asadiatouei, Johann Bohlen, Bässem Salem, Philip Tinnefeld, Evelyn Ploetz and Don C. Lamb (the image)",
+  "2026 The Tether Authors <bioedca@u.northwestern.edu> (the reference run)",
+]
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105): values
 # computed from the GPL-3.0-only traces above, so GPL-3.0-only. The script itself is not here.
 [[annotations]]

@@ -258,12 +258,15 @@ synthetic image with three spots on or next to the edge. The run uses thresholds
 0.5. Its record and outputs are frozen in `tests/fixtures/reference/deep-lasi/findpart-zmw/`
 (ADR-0074), and the same run keeps the error MATLAB gives for mode 4.
 
-**Tolerance.** Every spot must agree within 1e-9 px, and the counts must be equal; both sides
+**Tolerance.** Every spot must agree within 1e-9 px, and the counts must be equal. Both sides
 compute the same centroids in double precision.
 
+**Result.** The run of 2026-11-24 (MATLAB R2023b Update 10) agrees in all six cases: 45 spots,
+largest difference 1.5e-14 px. Mode 4 stopped with `Unrecognized function or variable 'r'.`
+
 **Enforcing tests.** `tests/test_deeplasi_findpart_reference.py` (required matrix, no MATLAB
-needed: the outputs are committed), with a fault injection: an erosion padded with 0, SciPy's
-default where MATLAB pads with 1, fails the comparison. `tests/test_matlab_reference.py` checks
+needed: the outputs are committed), with a fault injection: an erosion padded with 1, where
+MATLAB's `bwmorph` pads with 0, fails the comparison. `tests/test_matlab_reference.py` checks
 the SHA-256 of every frozen file.
 
 ## (b) Idealization parity vs tMAVEN

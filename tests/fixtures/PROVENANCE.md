@@ -661,6 +661,20 @@ one image row per line, so the same source gives the same bytes):
   (σ = 1.3 px), three of them on or next to the image edge, on a uniform background of
   amplitude 0.02 seeded with 924. Tether's own; GPL-3.0-or-later with the repository.
 
+`tests/fixtures/reference/deep-lasi/findpart-zmw/` is the frozen output of Deep-LASI's own
+`findPart` (mode 5, thresholds 0.1, 0.3 and 0.5, background mask of length 1, no refinement) on
+those two images, made by the `findpart` task of `scripts/reference/matlab/deep_lasi.py` with
+Deep-LASI at `d2d348c` and MATLAB R2023b Update 10 on the maintainer's workstation (2026-11-24),
+with `provenance.json` as the harness record. Three files are spot positions computed from the
+CC-BY-4.0 crop, so they carry **CC-BY-4.0** (`REUSE.toml`, `NOTICE`, manifest ids
+`deeplasi-findpart-public-t1` to `-t3`):
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t1.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t2.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t3.csv`.
+`synthetic_t1.csv` to `synthetic_t3.csv`, `mode4_error.txt` (the error MATLAB gave for mode 4)
+and `provenance.json` carry the repository's licence. Nothing of Deep-LASI itself is in the
+repository.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the

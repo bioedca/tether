@@ -74,12 +74,15 @@ with three details that decide whether it matches:
 
 1. `fspecial('disk', 1)` is the 3 × 3 kernel with corner 0.02508, edge 0.14534 and centre `1/π`,
    the values MATLAB documents to four decimals, here to full precision as Octave's image package
-   computes them by the same algorithm.
+   computes them by the same algorithm. The MATLAB run below agrees with these values.
 2. `imfilter`'s defaults are a correlation with zero padding and an output of the input's size;
    the disc is symmetric, so `scipy.ndimage.correlate(…, mode="constant", cval=0)` is the same.
-3. MATLAB's binary erosion pads with 1 outside the image, so a spot on the edge is eroded only from
-   inside. `scipy.ndimage.binary_erosion` pads with 0 unless `border_value=1` is passed. Mode 2 is
-   not affected, because its band-pass leaves a 7-pixel zero border; mode 5 leaves none.
+3. `bwmorph(…, 'erode')` in MATLAB R2023b pads with 0 outside the image, so a spot on the edge is
+   also eroded from that side. Deep-LASI's own run shows it (below): with padding 0, Tether
+   matches all six cases, and with padding 1 it misses four. `imerode`, and `bwmorph` in GNU
+   Octave's image package, pad a binary image with 1, so the two tools differ here.
+   `scipy.ndimage.binary_erosion` pads with 0 by default (`border_value=0`). Mode 2 is not
+   affected, because its band-pass leaves a 7-pixel zero border; mode 5 leaves none.
 
 The threshold `t` is the shared `DetectionThreshold` knob. Deep-LASI gives mode 5 no default of its
 own, so Tether's default is the intensity mode's 0.5; the minimum separation default is the
@@ -105,7 +108,11 @@ border width is 1) and no refinement, so what is compared is the mode itself. Te
 (snap, border margin, minimum separation) is the separate choice of ADR-0022, so
 `tests/test_deeplasi_findpart_reference.py` takes Tether's spots before that tail, applies
 Deep-LASI's tail with the same border width, and requires every spot to agree within 1e-9 px. A
-fault injection, an erosion padded with 0, fails that comparison on the synthetic image.
+fault injection, an erosion padded with 1, fails that comparison on the synthetic image.
+
+The run was made on 2026-11-24 with MATLAB R2023b Update 10 on Windows 11. All six cases agree
+(45 spots: 17, 12 and 3 on the public image, 6, 5 and 2 on the synthetic one), the largest
+difference is 1.5e-14 px, and mode 4 stopped with `Unrecognized function or variable 'r'.`
 
 This is the same kind of evidence the present modes have: Deep-LASI's own output on Deep-LASI's own
 data, frozen with its provenance, against Tether's detector (§(a) of the validation page). It is
@@ -114,9 +121,10 @@ full extraction of a movie, because Deep-LASI's window cannot select mode 5, so 
 state with mode 5 exists to repeat.
 
 Before the MATLAB run, the same task was run on the same inputs in GNU Octave 8.4 with the image
-package 2.14 and the statistics package 1.6.3, as an author-side check: all six cases agree with
-Tether to 1e-9 px, and an erosion padded with 0 disagrees on four of them. That run is not the
-reference.
+package 2.14 and the statistics package 1.6.3, as an author-side check. Octave's `bwmorph` pads
+with 1, so a first version of the port, made to match Octave, padded with 1, and MATLAB's output
+then disagreed on four of six cases. The port follows MATLAB, which is what Deep-LASI runs. The
+Octave run is not the reference.
 
 ### Mode 4
 

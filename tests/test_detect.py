@@ -633,12 +633,11 @@ def test_detect_spots_zmw_respects_guardrails() -> None:
             assert np.hypot(*(spots[i] - spots[j])) >= 10.0
 
 
-def test_detect_spots_zmw_keeps_a_spot_on_the_image_edge() -> None:
-    # MATLAB's binary erosion pads with 1 outside the image, so a spot centred on the
-    # first column is eroded only from inside and keeps a centroid near the edge; an
-    # erosion that padded with 0 would remove the edge column. The expected centroid,
-    # (x, y) = (0.25, 16) 0-based, is what Octave 8.4 / image 2.14 gives for the same
-    # threshold -> imfilter(disk 1) -> 3 % -> bwmorph erode -> regionprops steps.
+def test_detect_spots_zmw_erodes_a_spot_on_the_image_edge_from_outside() -> None:
+    # MATLAB R2023b's bwmorph 'erode' pads with 0 outside the image (the frozen Deep-LASI
+    # run of ADR-0143 shows it), so a spot centred on the first column loses that column
+    # and its centroid moves to x = 1. An erosion padded with 1 (imerode, Octave's
+    # bwmorph) would keep the edge column and give x = 0.25.
     image = np.zeros((32, 32))
     _gaussian_blob(image, row=16, col=0, amp=1.0, sigma=1.3)
     image /= image.max()
@@ -646,7 +645,7 @@ def test_detect_spots_zmw_keeps_a_spot_on_the_image_edge() -> None:
     assert spots.shape == (1, 2)
     x, y = spots[0]
     assert y == pytest.approx(16.0, abs=1e-12)
-    assert x == pytest.approx(0.25, abs=1e-12)
+    assert x == pytest.approx(1.0, abs=1e-12)
 
 
 def test_detect_spots_zmw_threshold_floors_dim_spots() -> None:
