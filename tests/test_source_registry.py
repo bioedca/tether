@@ -31,7 +31,7 @@ from tether.project import jobs  # noqa: E402
 from tether.project import sources as S  # noqa: E402
 from tether.project.core import Project  # noqa: E402
 from tether.project.export import export_subset_tether  # noqa: E402
-from tether.project.lock import LockedError, LockIdentity  # noqa: E402
+from tether.project.lock import LockedError, LockIdentity, file_identity  # noqa: E402
 from tether.services.sources import run_checksum_job, submit_checksum_job  # noqa: E402
 
 #: Bigger than two 1 MiB blocks, so a checksum reports progress more than once.
@@ -507,9 +507,9 @@ def test_a_folder_cannot_be_registered_and_writes_nothing(tmp_path) -> None:
 def test_the_checksum_names_the_file_it_read() -> None:
     path = Path(__file__)
     digest = S.file_sha256(path)
-    info = os.stat(path)
     assert digest.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
-    assert (digest.size, digest.device, digest.inode) == (info.st_size, info.st_dev, info.st_ino)
+    assert digest.size == os.stat(path).st_size
+    assert digest.identity == file_identity(path)
 
 
 def test_a_relink_stores_the_size_of_the_file_it_hashed(tmp_path) -> None:

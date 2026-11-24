@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
     from tether.project.core import Project
     from tether.project.jobs import CancelToken
+    from tether.project.lock import FileIdentity
 
 __all__ = [
     "SOURCE_ROLES",
@@ -96,18 +97,26 @@ class SourceReplaced(ValueError):
     """
 
 
+def _handle_identity(info: os.stat_result) -> FileIdentity | None:
+    """Return the canonical file identity of an ``os.fstat`` result (ADR-0112)."""
+    from tether.project.lock import _stat_identity  # noqa: PLC0415, PLC2701
+
+    return _stat_identity(info)
+
+
 @dataclass(frozen=True)
 class FileDigest:
     """The checksum of a file and the identity of the file it read ([`file_sha256`][]).
 
-    ``size`` is the number of bytes read. ``device`` and ``inode`` are those of the open
-    handle the bytes were read from (``os.fstat``).
+    ``size`` is the number of bytes read. ``identity`` is the canonical file identity
+    (device and inode, [`file_identity`][tether.project.lock.file_identity]) of the open
+    handle the bytes were read from, or ``None`` on a filesystem that reports no inode
+    number; there only the size can be compared.
     """
 
     sha256: str
     size: int
-    device: int
-    inode: int
+    identity: FileIdentity | None
 
     def check_path(self, path: str | Path) -> None:
         """Make sure ``path`` still names the file that was read, at the size read.
@@ -127,7 +136,7 @@ class FileDigest:
             raise SourceReplaced(
                 f"{Path(path).name} cannot be read again, so its checksum is not stored"
             ) from exc
-        if (now.st_dev, now.st_ino, now.st_size) != (self.device, self.inode, self.size):
+        if (_handle_identity(now), now.st_size) != (self.identity, self.size):
             raise SourceReplaced(
                 f"{Path(path).name} changed while its checksum was read, so it is not stored"
             )
@@ -479,6 +488,7 @@ def file_sha256(
     with open(path, "rb") as handle:
         opened = os.fstat(handle.fileno())
         size = opened.st_size
+        identity = _handle_identity(opened)
         for block in iter(lambda: handle.read(_CHUNK), b""):
             if cancel is not None:
                 cancel.raise_if_cancelled()
@@ -488,9 +498,7 @@ def file_sha256(
                 progress(done, size)
     if cancel is not None:  # a cancel during the last block still stops the calculation
         cancel.raise_if_cancelled()
-    return FileDigest(
-        sha256=digest.hexdigest(), size=done, device=opened.st_dev, inode=opened.st_ino
-    )
+    return FileDigest(sha256=digest.hexdigest(), size=done, identity=identity)
 
 
 def set_checksum(
