@@ -638,15 +638,16 @@ consistent. The lock file is not part of the schema.
 
 ### schema_version
 
-The version number on the root of a project file, currently 2. Tether refuses a file whose
+The version number on the root of a project file, currently 3. Tether refuses a file whose
 number is higher than its own: the app upgrades, and the file is never downgraded.
 
 The number only goes up (`tether.io.schema`). The whole group skeleton was declared when the
 schema was frozen (ADR-0005), and the structure changes only in a versioned step with an ADR and
-a migration test. Version 2 added the `/generations` record of
-[trace generations](#trace-generation)
-([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A
-`schema-guard` CI gate refuses a change that removes, renames or retypes a frozen field.
+a migration test. Version 2 added the `/generations` record of [trace generations](#trace-generation)
+([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)), and version 3 the
+`/sources` registry of the files a project was made from
+([ADR-0140](adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
+A `schema-guard` CI gate refuses a change that removes, renames or retypes a frozen field.
 
 ---
 
