@@ -178,15 +178,18 @@ validity turns on it being the right test — must satisfy both.
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
   uncapped, until it surfaces nothing blocking. Ask the GitHub bot with an `@codex review` comment;
   it posts an artifact naming the head it read, in a shape the first bullet describes. It has
-  refused for quota
-  before and may again — that is a wait like any other refusal, and **availability is determined by
-  asking, never inferred from an earlier refusal**. Then **optionally one Greptile review**, if the
-  seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
-  ready-for-review if it is not already, and **CodeRabbit last** — last of the *metered* providers,
-  which is the spend the order buys. The unmetered one is not confined to the front and may read
-  again behind it. Codex is not optional: it is what makes the metered providers affordable, and
-  skipping it is the same spend as opening ready. Record each leg in the PR, including the closing
-  read.
+  refused for quota before and may again — a wait like any other refusal, and **availability is
+  determined by asking, never inferred from an earlier refusal**. Then the metered gate, which
+  `<py> .agents/bin/greptile_usage.py --kind <PR>` reads off the changed files (ADR-0142):
+  **docs/test-only** (every file Markdown, under `docs/` or under `tests/`) takes **no metered
+  provider**, and a fresh posted Codex review of the final head reporting nothing actionable is the
+  gate; **code** (any other file, or `AGENTS.md` anywhere, `CLAUDE.md` or `docs/PRD.md`) goes
+  ready-for-review and takes **one standard Greptile review** while `greptile_usage.py
+  --fail-over-share` exits 0 (a cloud session adds `--repo bioedca/tether`). Greptile has no queue; a clean one's summary comment, whose `Last
+  reviewed commit` is the 40-hex head it read, is the gate. Any other exit (limit used, count
+  unread) sends a code PR to **CodeRabbit** through the `cr_next_free.py` queue until credits are
+  added. Codex may read again behind either, and is not optional: skipping it is the same spend as
+  opening ready. Record each leg in the PR, including the closing read.
 - **Review evidence survives a non-material push, so answering findings does not restart the
   gate.** **The non-material list is a set of exceptions and it wins**, so a change touching a
   material path is still non-material when the change itself is one of them: merging `main` in
@@ -200,29 +203,20 @@ validity turns on it being the right test — must satisfy both.
   the review. The rule-stating files are on that list for a specific reason: a push that changes
   what the gate requires must not keep evidence gathered under the old requirement.
 - **Metered credits are the maintainer's money.** Greptile is 50 credits per seat per month shared
-  across `tether`, `Yeliztli` and `tbox-finder` — read the balance with
-  `<py> .agents/bin/greptile_usage.py` before spending one, and if the seat is empty record
-  *"Greptile: no credits this month"* and move on; exhaustion never blocks. **A quota refusal from
-  any provider means the provider did not review, and never counts as a pass.** Copilot is advisory and satisfies nothing.
-- **CodeRabbit is the last metered gate**: a review with no actionable comments, asked
-  with the **full-review** command (the bare incremental one applies only where automatic reviews
-  are *paused*; they are *disabled* here, so it reviews nothing and says so in words that read like
-  a clean pass). Read its commit status before every ask — `pending` means one is running and a
-  second request destroys it. A fair-use refusal naming a retry time is a **wait**, not
-  unavailability, and the time it names is a floor rather than a guarantee; **never** accept its
-  usage-based-billing offer, which is the maintainer's spending decision.
-  **Where the posted refusal names more than 30 minutes, one standard Greptile review may stand in
-  as this gate** (ADR-0069): the one already on this PR, or else a new one — asked only if
-  `greptile_usage.py`, read then, shows credits left and Tether under its share; an unreadable
-  balance is a no. Quote the refusal. The stand-in is held to everything asked of CodeRabbit's review, and
-  CodeRabbit is not asked again. Codex never stands in.
-- **Load-bearing PRs take one Greptile review, not CodeRabbit**, while `greptile_usage.py
-  --fail-over-share` exits 0: those changing `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md`, or with
-  Risk `high` and mostly code. A clean one's summary comment is a completed review; findings take
-  one CodeRabbit review, then the Codex close (ADR-0099).
-- **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
-  review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
-  inline findings of its own, or a walkthrough verified as the first bullet says at the head it read; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
+  across `tether`, `Yeliztli` and `tbox-finder`. Tether's limit is 45 a cycle from the 17th plus
+  what is left of a one-time grant of 50; a standard review costs one credit, a TREX one three, so
+  never ask TREX. **A quota refusal from any provider means the provider did not review, and never
+  counts as a pass.** Copilot is advisory and satisfies nothing.
+- **CodeRabbit, the fallback, is asked once** with the **full-review** command (the bare
+  incremental one applies only where automatic reviews are *paused*; they are *disabled* here, so it
+  reviews nothing and says so in words that read like a clean pass). Read its commit status before
+  every ask — `pending` means one is running and a second request destroys it. A fair-use refusal
+  naming a retry time is a **wait**, and the time it names is a floor rather than a guarantee;
+  **never** accept its usage-based-billing offer, which is the maintainer's spending decision.
+  Nothing stands in for it.
+- **A spent cap closes on Codex rather than on a maintainer.** When a *completed* Greptile or
+  CodeRabbit review stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
+  inline findings of its own, or a clean summary or walkthrough at the head it read; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
   review, bare status check, or a reply on someone else's thread is not one — and **no finding
   it raised is left outstanding**, with the thread resolved on each, then a **fresh Codex review of the final head** closes the gate in its place.
   **It must report nothing actionable, which is not the same as nothing *major*.** Codex's clean
@@ -308,9 +302,6 @@ validity turns on it being the right test — must satisfy both.
   run in flight. **A spent cap is not a stuck PR**: it opens the Codex close above, so a PR whose
   findings are all disposed of and whose threads are all resolved finishes on an unmetered read
   rather than on a maintainer. Nothing counts this for you; the merged history is auditable.
-- **A Greptile review is not always one credit** — a standard review costs one, a TREX review
-  three — and Tether's share of the seat is **45 a cycle** from the 17th. Do not ask for a review
-  whose cost would take Tether past it.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green and threads resolved. Then arm and exit —
   never wait, never poll:

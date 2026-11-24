@@ -21,6 +21,12 @@ The count runs by **cycle**, not calendar month: a cycle starts on the 17th of a
 UTC and ends when the 17th of the next month starts (ADR-0099). ``--cycle 2026-11`` is the cycle
 that starts on 2026-11-17; the default is the cycle running now.
 
+Tether's limit in a cycle is its share of 45 plus what is left of a one-time grant of 50 (ADR-0142).
+Each cycle from the grant on draws on it what Tether used above 45, so a run counts the earlier
+cycles of the grant too. ``--fail-over-share`` exits 1 at that limit, and a worker then takes the
+CodeRabbit fallback. ``--kind PR`` prints whether a pull request is ``code``, which takes a Greptile
+review, or ``docs/test-only``, which a clean Codex review closes alone.
+
 **This is a proxy, not an invoice**, and it is written to fail toward over-counting rather than
 under-counting, because the expensive mistake is believing there is budget left when there is not:
 
@@ -71,11 +77,19 @@ INCLUDED_CREDITS = 50
 CYCLE_DAY = 17
 
 #: Tether's share of the seat in one cycle, set by the maintainer (ADR-0099, which raised the 15 of
-#: ADR-0069): the Greptile route, the optional review and the review that stands in for a refused
-#: CodeRabbit draw on it together. `--fail-over-share` exits 1 once it is used; otherwise the figure
-#: is printed for the worker `AGENTS.md` §Review tells to read it before asking, and a worker past
-#: it does not ask.
+#: ADR-0069). Every Greptile review on Tether draws on it. `--fail-over-share` exits 1 once it and
+#: what is left of `GRANT_CREDITS` are used; a worker `AGENTS.md` §Review sends here does not ask
+#: Greptile then, and takes the CodeRabbit fallback (ADR-0142).
 REPO_SHARE = 45
+
+#: The one-time grant of Greptile reviews for Tether, outside its share (the maintainer, 2026-11-19
+#: 00:33Z: "We now have 50 new Greptile reviews, they all can be used on tether, separate from the
+#: usual 45 monthly quota"; one-time, #1316 decision 2). In each cycle from `GRANT_CYCLE` on,
+#: Tether's credits above `REPO_SHARE` draw on it; once it is used, the limit is `REPO_SHARE` again.
+GRANT_CREDITS = 50
+
+#: The cycle the grant was made in: the one that starts on 2026-11-17 (ADR-0142).
+GRANT_CYCLE = "2026-11"
 
 EXIT_OVER_BUDGET = 1
 
@@ -187,6 +201,47 @@ def _cycle(start_month: str) -> tuple[str, str]:
     year, month = (int(part) for part in start_month.split("-"))
     nyear, nmonth = (year + 1, 1) if month == 12 else (year, month + 1)
     return f"{year:04d}-{month:02d}-{CYCLE_DAY}", f"{nyear:04d}-{nmonth:02d}-{CYCLE_DAY}"
+
+
+def _next_month(month: str) -> str:
+    year, number = (int(part) for part in month.split("-"))
+    return f"{year + 1:04d}-01" if number == 12 else f"{year:04d}-{number + 1:02d}"
+
+
+def grant_draws(used_by_cycle: list[int]) -> list[int]:
+    """What Tether drew on the one-time grant in each cycle, from `GRANT_CYCLE` on, in order.
+
+    A cycle draws its credits above `REPO_SHARE`, and never more than the grant has left, so the
+    draws add up to `GRANT_CREDITS` at most and every cycle after that has the limit of 45 alone.
+    """
+    left, draws = GRANT_CREDITS, []
+    for used in used_by_cycle:
+        draw = min(left, max(0, used - REPO_SHARE))
+        draws.append(draw)
+        left -= draw
+    return draws
+
+
+#: The files a change to which makes a pull request "code" whatever else it changes (#1316
+#: decision 5): `AGENTS.md` at any depth, and these two at the root.
+RULE_FILES = ("CLAUDE.md", "docs/PRD.md")
+
+
+def pull_request_kind(paths: list[str]) -> str:
+    """``"code"`` or ``"docs/test-only"`` for a pull request's changed files (ADR-0142).
+
+    ``paths`` is GitHub's list of changed files, a renamed file by both names. A rule file makes it
+    code. Otherwise it is docs/test-only when every file is Markdown, under ``docs/`` or under
+    ``tests/``, and code when any one is not. No files at all is code, the side that reviews more.
+    """
+    if not paths:
+        return "code"
+    for path in paths:
+        if path in RULE_FILES or path.rsplit("/", 1)[-1] == "AGENTS.md":
+            return "code"
+    if all(p.endswith(".md") or p.startswith(("docs/", "tests/")) for p in paths):
+        return "docs/test-only"
+    return "code"
 
 
 def _current_cycle(now: datetime) -> str:
@@ -364,11 +419,33 @@ def main() -> int:
         "--fail-over-share",
         action="store_true",
         help=(
-            "exit 1 when Tether has no credit left in its share for the cycle, or when the whole "
-            "seat was read and is empty (the Greptile route)"
+            "exit 1 when Tether has no credit left in its share and the one-time grant for the "
+            "cycle, or when the whole seat was read and is empty: take the CodeRabbit fallback"
         ),
     )
+    parser.add_argument(
+        "--kind",
+        type=int,
+        metavar="PR",
+        help="print whether pull request PR is 'code' (Greptile) or 'docs/test-only' (Codex alone)",
+    )
     args = parser.parse_args()
+    if args.kind is not None:
+        try:
+            files = _listed(
+                TETHER, f"repos/{TETHER}/pulls/{args.kind}/files", f"#{args.kind} files"
+            )
+        except Unreadable as exc:
+            print(f"error: cannot read the changed files - {exc}", file=sys.stderr)
+            return EXIT_UNKNOWN
+        names = [
+            name
+            for entry in files
+            for name in (entry.get("filename"), entry.get("previous_filename"))
+            if isinstance(name, str)
+        ]
+        print(pull_request_kind(names))
+        return 0
     selected = tuple(repo for repo in REPOS if repo in (args.repo or REPOS))
     whole_seat = selected == REPOS
     if args.fail_over_budget and not whole_seat:
@@ -414,8 +491,30 @@ def main() -> int:
         )
         return EXIT_UNKNOWN
 
+    # The grant: what Tether drew on it in the cycles before this one, each read whole like this
+    # one. A past cycle can read low (ADR-0099: a summary edited later counts in the later cycle),
+    # and the dashboard settles it.
+    granted = month >= GRANT_CYCLE and TETHER in selected
+    grant_before = drawn = 0
+    if granted:
+        earlier: list[int] = []
+        past = GRANT_CYCLE
+        try:
+            while past < month:
+                earlier.append(_credits(TETHER, *_cycle(past))[0])
+                past = _next_month(past)
+        except Unreadable as exc:
+            print(f"error: cannot count the grant - {exc}", file=sys.stderr)
+            print("The grant left is UNKNOWN. Re-run, or read Settings -> Usage.", file=sys.stderr)
+            return EXIT_UNKNOWN
+        draws = grant_draws([*earlier, per_repo[TETHER]])
+        grant_before = GRANT_CREDITS - sum(draws[:-1])
+        drawn = draws[-1]
+    limit = REPO_SHARE + grant_before
+
     used = sum(per_repo.values())
-    left = INCLUDED_CREDITS - used
+    # Credits Tether drew on the grant are outside the seat's included 50.
+    left = INCLUDED_CREDITS - (used - drawn)
     print(f"Greptile credits — seat {SEAT}, cycle {start} to {end} (exclusive)")
     if whole_seat:
         print(f"  used {used} of {INCLUDED_CREDITS} included; {left} remaining")
@@ -428,6 +527,12 @@ def main() -> int:
         share = ""
         if repo == TETHER:
             share = f"  (Tether share: {per_repo[repo]}/{REPO_SHARE})"
+            if granted:
+                share = (
+                    f"  (Tether share: {per_repo[repo]}/{REPO_SHARE}; one-time grant: {drawn} "
+                    f"used this cycle, {grant_before - drawn} of {GRANT_CREDITS} left; "
+                    f"limit this cycle {limit})"
+                )
         print(f"  {repo:<26} {per_repo[repo]:>2} credit(s) over {prs[repo]} PR(s){share}")
 
     if detail:
@@ -445,8 +550,8 @@ def main() -> int:
     if args.fail_over_budget and left <= 0:
         print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
-    if args.fail_over_share and per_repo[TETHER] >= REPO_SHARE:
-        print(f"\nerror: Tether has used its share of {REPO_SHARE} this cycle", file=sys.stderr)
+    if args.fail_over_share and per_repo[TETHER] >= limit:
+        print(f"\nerror: Tether has used its limit of {limit} this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     if args.fail_over_share and whole_seat and left <= 0:
         # Tether's share is a ceiling inside the seat, never a credit of its own: where the whole
