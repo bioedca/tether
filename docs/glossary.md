@@ -124,7 +124,7 @@ ratio of means and not a mean of per-frame ratios. A trace qualifies with a tail
 frames (`DEFAULT_MIN_WINDOW_FRAMES`) and an α in `[0, 0.3]` (`LEAKAGE_CEILING`). The dataset
 value is the median of the qualifying traces. Below 10 of them
 (`DEFAULT_MIN_QUALIFYING_TRACES`) Tether withholds it rather than fabricate it (ADR-0027). See
-[Leakage is one value for the whole project](how-to/apply-corrections.md#leakage-is-one-value-for-the-whole-project).
+[Leakage is one value for the whole project](reference/parameters.md#leakage-is-one-value-for-the-whole-project).
 Code: `tether.fret.leakage`.
 
 ### γ (gamma, detection-correction)
@@ -137,7 +137,7 @@ intensities, with the levels averaged over 20 frames each side
 ([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)). The segments
 before and after the step must each be longer than 20 frames. A per-trace γ outside
 `(0, 5.0]` (`GAMMA_CEILING`) is dropped, and the 10-trace minimum of α applies (ADR-0028). See
-[How Tether estimates gamma](how-to/apply-corrections.md#how-tether-estimates-gamma). Code:
+[How Tether estimates gamma](reference/parameters.md#how-tether-estimates-gamma). Code:
 `tether.fret.gamma`.
 
 ### δ (delta, direct excitation)

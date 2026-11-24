@@ -150,6 +150,7 @@ from tether.project._guarded_publish import (
     require_publish_guard,
 )
 from tether.project.core import Project
+from tether.project.correction_states import mark_traces_replaced_in
 from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
 
@@ -1339,7 +1340,12 @@ def reextract_movie(
     ([`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX] by default) keep
     its ``molecule_key``, curation label, category and analysis window, marked carried;
     fits and corrections of the movie are marked stale through the ``trace_generation``
-    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]). The movie's frame time
+    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]).
+    [`mark_traces_replaced_in`][tether.project.correction_states.mark_traces_replaced_in]
+    then moves an ANALYSIS_READY or CORRECTED_REVIEW correction state to
+    CALIBRATION_STALE, and in CALIBRATION_APPROVED, where the state does not change, marks
+    the approved factor version stale; either way corrected analysis waits for a new
+    approval. The movie's frame time
     and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
 
     The update is written to a sibling copy of the project and published by one atomic
@@ -1433,6 +1439,9 @@ def reextract_movie(
                 record.generation_id,
                 guards_hold=(_CONTRIBUTOR_INTENSITIES_CHANGE,),
             )
+            # The corrections were read from the traces this generation replaces, so
+            # corrected analysis waits for a new approval (#1284).
+            mark_traces_replaced_in(stage, movie_id=movie_id, generation_id=record.generation_id)
     except ExtractionError:
         raise
     except Exception as exc:  # aperture mismatch, lost lock, IO failure

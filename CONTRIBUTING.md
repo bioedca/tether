@@ -242,10 +242,12 @@ lock, the curation event filter or a `_GUI_PROJECT_OWNERS` entry survived. A new
 a napari `Viewer`, it also joins `VIEWER_SECTIONS`, because macOS offscreen cannot draw a `Viewer`
 (#344).
 
-`--strict-markers` rejects an *unregistered* marker, so it catches `-m deepp`. It does **not**
-protect a negated expression. `-m "not largge"` is a valid filter that excludes nothing. So a
-typo there silently pulls the optional tiers back into the run, and the run does not fail. Read
-the collected count, not only the exit code.
+`--strict-markers` rejects an *unregistered* marker only where a test applies it. It does
+**not** check the names in a `-m` expression, so a typo there is not an error. `-m deepp`
+deselects every test, and pytest exits 5 with no message about the unknown name.
+`-m "not largge"` is a valid filter that excludes nothing. So that typo silently pulls the
+optional tiers back into the run, and the run does not fail. Read the collected count, not only
+the exit code.
 
 `tests/test_marker_contract.py` enforces two naming rules:
 

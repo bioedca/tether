@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0136 — A new extraction of a movie is a new trace generation, and the previous one is archived unchanged
 
-- **Status:** accepted
+- **Status:** accepted; amended 2026-11-23 by #1284 (item 10: the refit membership, the condition across an empty generation, corrected analysis after a generation)
 - **Date:** 2026-11-19
 - **Deciders:** bioedca (issue #921 approved 2026-11-19; cards C5 option A and A1 option B, 2026-11-14)
 - **PRD anchor:** §5 (data model), §9.1 (additive-only schema), §7.1, §7.5 (FR-ML), §11.2
@@ -141,6 +141,32 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    `write_extraction` or `write_generation` must pass the stage yielded by it for schema-v1 data.
    The tests join oracle (f).
 
+10. **Amendment (#1284, 2026-11-23): the review follow-ups.**
+    - *The refit membership.* `reidealize` refits a stored model over its members, and a new
+      generation replaces their `molecule_id`. `refit_membership` finds each member by its
+      stored `molecule_id` while that row is in `/molecules`, or else by its `molecule_key`,
+      which a molecule that did not move keeps (item 5). Each current row answers one member
+      at most. A member found neither way moved: the refit leaves it out, warns with
+      `RefitMembersMoved` and names its key, and `tether idealize --stale-only` prints it.
+      A refit with no member left is refused.
+    - *The condition across an empty generation.* When the previous generation has no
+      molecule, the `condition_id` of item 5 is read from the newest archived generation of
+      the movie that has molecules, by the same rule (every molecule had one condition).
+    - *Corrected analysis.* The traces that the approved factors and the corrected review
+      were read from are replaced, and the movie's applied factors are reset. So
+      `reextract_movie` writes one correction transition into the staged copy, published with
+      the generation (`mark_traces_replaced_in`, ADR-0131): ANALYSIS_READY takes *factor or
+      contributor evidence changes* and CORRECTED_REVIEW *calibration evidence changes*, both
+      to CALIBRATION_STALE, where `require_analysis_mode(..., CORRECTED)` refuses until the
+      factors are approved again. The actor is the policy that names the movie, and the row
+      stores the `movie_id` and the `generation_id`. While an approval is in force
+      (CALIBRATION_APPROVED, CORRECTED_REVIEW, ANALYSIS_READY), the approved `factor_version`
+      and the applied `correction_version` are also marked stale through edges 7 and 8
+      (`mark_records_stale_in`), whether or not their inputs were recorded. G03 has no edge
+      out of CALIBRATION_APPROVED for changed evidence, so there the marks are what stop the
+      old approval: *finish review* reads them and refuses until the factors are approved
+      again. In the other states nothing is written.
+
 ### Consequences
 
 - Good: no existing reader or key-resolving writer changes, and a labelled generation can be read back, labels,
@@ -158,7 +184,7 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
 - Follow-up: the reconciliation page (#923); the GUI publish (#352), the background extraction
   (#354) and the extraction queue (#645) call `reextract_movie` for a movie the project holds.
 - Tests: `tests/test_trace_generations.py`, the backup-and-migrate test of oracle (f) among them; `scripts/dump_schema.py --check` with the regenerated
-  golden.
+  golden; `tests/test_generation_follow_ups.py` for the amendment of item 10.
 
 ## More information
 

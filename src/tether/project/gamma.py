@@ -15,6 +15,9 @@ project's stored intensity traces and writes:
   the effective gates, the dataset median, ``n_qualifying``, ``n_fallback``, the
   clean-step counts and their warning (ADR-0134), and the app version (NFR-REPRO).
   Recomputable — overwritten on each pass.
+* ``/settings/gamma_contributors`` — the γ evidence table, one row for each examined
+  molecule ([`tether.project.gamma_contributors`][], #927). A molecule that a person or a
+  recipe excluded there is left out of the median and takes the fallback.
 
 γ is the last correction step (``background → leakage α → δ(=0) → γ``), so it needs
 both prerequisites in place:
@@ -51,7 +54,7 @@ The single-writer ``.lock`` is the caller's responsibility, mirroring
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -69,6 +72,7 @@ from tether.fret.gamma import (
     few_clean_steps,
 )
 from tether.io.schema import TABLE
+from tether.project import gamma_contributors as contributors
 from tether.project._guarded_publish import guarded_project_write
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
@@ -119,6 +123,9 @@ class GammaSummary:
         ``True`` when γ was applied and fewer than ``min_clean_step_fraction`` of the
         evaluated steps are clean: the γ is reported, but may rest largely on noise.
         Always ``False`` when γ was withheld. Changes no γ value.
+    n_excluded
+        Molecules that a person or a recipe excluded from the estimate (#927); they are
+        not counted in ``n_qualifying``.
     """
 
     n_molecules: int
@@ -131,6 +138,7 @@ class GammaSummary:
     n_step_evaluated: int = 0
     n_step_clean: int = 0
     few_clean_steps: bool = False
+    n_excluded: int = 0
 
 
 def _app_version() -> str:
@@ -207,6 +215,31 @@ def compute_gamma(
     KeyError
         If the project lacks the selected donor/acceptor trace layer.
     """
+    return _compute_gamma(
+        project_path,
+        intensity_quantity=intensity_quantity,
+        half_window=half_window,
+        min_window_frames=min_window_frames,
+        ceiling=ceiling,
+        min_qualifying_traces=min_qualifying_traces,
+        min_clean_step_fraction=min_clean_step_fraction,
+        write_guard=write_guard,
+    )
+
+
+def _compute_gamma(
+    project_path: str | Path,
+    *,
+    intensity_quantity: str = "corrected",
+    half_window: int | None = DEFAULT_GAMMA_HALF_WINDOW,
+    min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
+    ceiling: float = GAMMA_CEILING,
+    min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
+    min_clean_step_fraction: float = DEFAULT_MIN_CLEAN_STEP_FRACTION,
+    write_guard: Callable[[], None] | None = None,
+    decision: Mapping[str, object] | None = None,
+) -> GammaSummary:
+    """Run [`compute_gamma`][]; ``decision`` is a contributor decision written in the same pass."""
     import h5py  # noqa: PLC0415
 
     if intensity_quantity not in INTENSITY_QUANTITY_LAYERS:
@@ -241,6 +274,7 @@ def compute_gamma(
         acceptor_pbs: list[int] = []
         donor_pbs: list[int] = []
         processed_rows: list[int] = []
+        starts: list[int] = []
         for i in range(table.shape[0]):
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
@@ -275,7 +309,19 @@ def compute_gamma(
             donor_pbs.append(int(np.clip(donor_pb_abs - start, 0, n_local)))
             acceptor_pbs.append(int(np.clip(acceptor_pb_abs - start, 0, n_local)))
             processed_rows.append(i)
+            starts.append(start)
 
+        keys = [_text(table["molecule_key"][row]) for row in processed_rows]
+        decisions = contributors.latest_decisions(f)
+        if decision is not None:
+            key = str(decision["molecule_key"])
+            decisions[key] = (
+                bool(decision["included"]),
+                str(decision["reason"]),
+                str(decision["by"]),
+                str(decision["actor"]),
+            )
+        excluded = contributors.excluded_indices(keys, decisions)
         estimate = estimate_gamma(
             donor_traces,
             acceptor_traces,
@@ -286,6 +332,7 @@ def compute_gamma(
             min_window_frames=min_window_frames,
             ceiling=ceiling,
             min_qualifying_traces=min_qualifying_traces,
+            exclude=excluded,
         )
 
         applied = estimate.gamma is not None
@@ -326,7 +373,25 @@ def compute_gamma(
             n_step_clean=n_step_clean,
             min_clean_step_fraction=min_clean_step_fraction,
             few_clean_steps=warn_steps,
+            n_excluded=len(excluded),
         )
+        rows = contributors.contributor_rows(
+            estimate,
+            keys,
+            starts,
+            decisions,
+            alphas=alphas,
+            level_window=(
+                GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT
+                if half_window is None
+                else GAMMA_LEVEL_WINDOW_HALF_WINDOW
+            ),
+            half_window=0 if half_window is None else int(half_window),
+        )
+        # The guard before the stamp also covers the table, which is written with it.
+        contributors.write_contributors(f, rows)
+        if decision is not None:
+            contributors.append_decision(f, decision)
 
     return GammaSummary(
         n_molecules=estimate.n_traces,
@@ -339,7 +404,12 @@ def compute_gamma(
         n_step_evaluated=n_step_evaluated,
         n_step_clean=n_step_clean,
         few_clean_steps=warn_steps,
+        n_excluded=len(excluded),
     )
+
+
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
 def _stamp_gamma_settings(
@@ -358,6 +428,7 @@ def _stamp_gamma_settings(
     n_step_clean: int,
     min_clean_step_fraction: float,
     few_clean_steps: bool,
+    n_excluded: int = 0,
 ) -> None:
     """Write the ``/settings/gamma`` provenance group (additive; recomputable).
 
@@ -393,4 +464,6 @@ def _stamp_gamma_settings(
     grp.attrs["n_step_clean"] = int(n_step_clean)
     grp.attrs["min_clean_step_fraction"] = float(min_clean_step_fraction)
     grp.attrs["few_clean_steps"] = bool(few_clean_steps)
+    # Additive (#927): the molecules a person or a recipe excluded from the median.
+    grp.attrs["n_excluded"] = int(n_excluded)
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()
