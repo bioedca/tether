@@ -101,10 +101,14 @@ def test_commit_lookup_example_names_the_documented_release() -> None:
     from test_docs_install_release import INSTALL_RELEASE, INSTALL_RELEASE_COMMIT
 
     section = _section(INSTALL.read_text(encoding="utf-8"), "Update Tether")
-    lookup = re.search(r"gh api repos/bioedca/tether/commits/v(\S+) --jq \.sha", section)
+    lookup = re.search(
+        r'git ls-remote https://github\.com/bioedca/tether "refs/tags/v(\S+)\^\{\}"', section
+    )
     assert lookup, "the update step does not show how to get the new release's commit"
     assert lookup.group(1) == INSTALL_RELEASE
-    assert f"For `v{INSTALL_RELEASE}`, it prints `{INSTALL_RELEASE_COMMIT}`." in section
+    assert re.search(
+        rf"For `v{re.escape(INSTALL_RELEASE)}`, that is\s+`{INSTALL_RELEASE_COMMIT}`\.", section
+    )
     assert "`--source-digest`" in section and "`--source-ref`" in section
 
 

@@ -519,13 +519,14 @@ Do these steps on any system:
    and [step 2](#2-check-the-download) tell you. Those steps name the files, the tag and the
    commit of the release that this page documents. Use the values of your new release instead.
    Use its file names, its tag in `--source-ref` and its commit in `--source-digest`. To get the
-   commit, run this command with the tag of your new release:
+   commit, run this [Git](https://git-scm.com/) command with the tag of your new release:
 
    ```bash
-   gh api repos/bioedca/tether/commits/v1.0.0-rc3 --jq .sha
+   git ls-remote https://github.com/bioedca/tether "refs/tags/v1.0.0-rc3^{}"
    ```
 
-   For `v1.0.0-rc3`, it prints `6de7824fa73bebd70f8fbf6dda037b6857fd1b2f`.
+   The first value it prints is the commit. For `v1.0.0-rc3`, that is
+   `6de7824fa73bebd70f8fbf6dda037b6857fd1b2f`.
 3. Remove the old install, as [Uninstall](#uninstall) tells you for your system. You can keep
    the PATH line from step 4, but see the note below.
 4. Make sure that the install folder is gone. If it is still there, delete it.
