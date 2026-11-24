@@ -7,6 +7,8 @@
 
 * it sets the wait cursor and starts the busy indicator when a task starts;
 * a ``QTimer`` on the main thread polls the task, so no Qt object is touched from the worker;
+* while it runs, the indicator shows the task's progress when the task reports it, and a
+  **Cancel** button when the task can be cancelled (#627);
 * when the task finishes, it stops the timer, restores the cursor, stops the indicator and
   calls ``on_finished`` with the [`TaskOutcome`][tether.gui.tasks.TaskOutcome], on the main
   thread.
@@ -41,8 +43,10 @@ class TaskService:
         The interval of the main-thread poll, in milliseconds.
     indicator : object, optional
         The busy indicator, an object with ``start(name)`` and ``stop()`` such as
-        the busy indicator of [`tether.gui.indicators`][]. The default is ``None``,
-        no indicator.
+        the busy indicator of [`tether.gui.indicators`][]. When it also has
+        ``offer_cancel(callback)`` and ``set_progress(fraction)``, the service offers the
+        cancel of a cancellable task and shows the progress of a task that reports it. The
+        default is ``None``, no indicator.
     """
 
     def __init__(self, *, poll_ms: int, indicator: Any = None) -> None:
@@ -51,6 +55,7 @@ class TaskService:
         self._runner = TaskRunner()
         self._timer: Any = None
         self._on_finished: Callable[[TaskOutcome], None] | None = None
+        self._shown = False
 
     @property
     def busy(self) -> bool:
@@ -82,6 +87,7 @@ class TaskService:
         label: str | None = None,
         on_finished: Callable[[TaskOutcome], None],
         cancellable: bool = False,
+        reports_progress: bool = False,
     ) -> BackgroundTask | None:
         """Start ``fn(*args)`` on the worker thread, with the wait cursor and the indicator.
 
@@ -100,7 +106,11 @@ class TaskService:
             Called on the main thread with the [`TaskOutcome`][tether.gui.tasks.TaskOutcome]
             when the task finishes. The service is not busy when it is called.
         cancellable : bool, optional
-            Whether the task can be cancelled. The default is ``False``.
+            Whether the task can be cancelled; the indicator then offers **Cancel**. The
+            default is ``False``.
+        reports_progress : bool, optional
+            Whether the task reports its progress (see
+            [`ProgressReport`][tether.gui.tasks.ProgressReport]). The default is ``False``.
 
         Returns
         -------
@@ -109,12 +119,22 @@ class TaskService:
         """
         from pyqtgraph.Qt import QtCore, QtWidgets
 
-        task = self._runner.submit(fn, *args, context=context, cancellable=cancellable)
+        task = self._runner.submit(
+            fn,
+            *args,
+            context=context,
+            cancellable=cancellable,
+            reports_progress=reports_progress,
+        )
         if task is None:
             return None
         self._on_finished = on_finished
-        if label is not None and self._indicator is not None:
+        self._shown = label is not None and self._indicator is not None
+        if self._shown:
             self._indicator.start(label)
+            offer_cancel = getattr(self._indicator, "offer_cancel", None)
+            if cancellable and offer_cancel is not None:
+                offer_cancel(self.cancel)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         self._timer = QtCore.QTimer()
         self._timer.setInterval(self._poll_ms)
@@ -129,11 +149,34 @@ class TaskService:
         """
         outcome = self._runner.take_finished()
         if outcome is None:
+            self._show_progress()
             return
         on_finished = self._on_finished
         self._end()
         if on_finished is not None:
             on_finished(outcome)
+
+    def cancel(self) -> bool:
+        """Ask the active task to stop; the stop is a request the work answers.
+
+        The outcome arrives on the poll after the work returns. It is ``CANCELLED`` when the
+        work stops on its token, and ``DONE`` or ``FAILED`` as usual when it finishes anyway.
+
+        Returns
+        -------
+        bool
+            ``True`` when the active task is cancellable and not yet finished, else ``False``.
+        """
+        task = self._runner.active
+        return task is not None and task.cancel()
+
+    def _show_progress(self) -> None:
+        task = self._runner.active
+        set_progress = getattr(self._indicator, "set_progress", None)
+        if self._shown and task is not None and set_progress is not None:
+            fraction = task.progress
+            if fraction is not None:
+                set_progress(fraction)
 
     def abandon(self) -> BackgroundTask | None:
         """Forget the active task without waiting for it, and restore the cursor.
@@ -163,6 +206,7 @@ class TaskService:
             self._timer.stop()
             self._timer = None
         self._on_finished = None
+        self._shown = False
         if self._indicator is not None:
             self._indicator.stop()
         QtWidgets.QApplication.restoreOverrideCursor()

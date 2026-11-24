@@ -107,7 +107,7 @@ class JobCancelled(Exception):  # noqa: N818 - a signal, not an error
     """Raised by the work of a part to stop the job as cancelled.
 
     The part is not recorded as complete, so the work must leave the store as it was before
-    the part started.
+    the part started. An optional reason is stored with the cancelled job.
     """
 
 
@@ -163,7 +163,7 @@ class JobRecord:
     created_utc, started_utc, ended_utc
         ISO-8601 UTC times; ``""`` when not yet reached.
     error
-        The error text of a failed job, else ``""``.
+        The error text of a failed job or the reason for cancellation, else ``""``.
     """
 
     job_id: str
@@ -657,8 +657,8 @@ def _drive(
             write(completed=json.dumps(completed))
             if progress is not None:
                 progress(len(completed), len(job.parts))
-    except JobCancelled:
-        write(state=JobState.CANCELLED.value, ended_utc=_now())
+    except JobCancelled as exc:
+        write(state=JobState.CANCELLED.value, ended_utc=_now(), error=str(exc))
     except Exception as exc:
         write(state=JobState.FAILED.value, ended_utc=_now(), error=f"{type(exc).__name__}: {exc}")
     except BaseException:

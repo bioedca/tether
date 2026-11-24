@@ -11,6 +11,7 @@ shapes is where a reader of the rendered issue would see it.
 from __future__ import annotations
 
 import importlib.util
+import re
 import time
 from pathlib import Path
 
@@ -1022,11 +1023,62 @@ def test_empty_strike_elements_fall_out_of_the_one_pass():
     ):
         (para,) = md.parse(text + "\n")
         assert para.plain == plain, (text, para.plain)
-    nested = "Auto" + "<s>" * 9000 + "</s>" * 9000 + "nomy: x\n"
-    started = time.perf_counter()
-    (deep,) = md.parse(nested)
+    (deep,) = md.parse(_nested_strikes(9000))
     assert deep.plain == "Autonomy: x"
-    assert time.perf_counter() - started < 2.0
+    growth = _growth(md.parse)
+    assert growth < _GROWTH_CEILING, growth
+
+
+#: The nesting depths the work is timed at, and the ceiling on how much slower the deeper one may
+#: parse. One pass grows with the text, eight times; a rescan per element grows with its square,
+#: sixty-four times; the ceiling is the geometric mean of the two, 22.6, so either reading is a
+#: factor of 2.8 from it (#1297).
+_SHALLOW, _DEEP = 500, 4000
+_GROWTH_CEILING = (_DEEP / _SHALLOW) ** 1.5
+
+
+def _nested_strikes(depth: int) -> str:
+    return "Auto" + "<s>" * depth + "</s>" * depth + "nomy: x\n"
+
+
+def _growth(parse, repeats: int = 5) -> float:
+    """How much longer ``parse`` takes on the deep nesting than on the shallow one (#1297).
+
+    A wall-clock bound failed at random in full test runs - 2.809 s on a macOS runner and 2.155 s
+    on a loaded Linux machine against a 2.0 s ceiling, where the test alone takes under one second
+    - because it measured the machine as much as the parser. A ratio of two times taken on the same
+    machine moments apart cancels the machine's speed out. The depths are timed in turns and each
+    keeps its fastest time, since load only ever adds time: a slow spell cannot land on every deep
+    run and spare every shallow one beside it.
+    """
+    shallow, deep = _nested_strikes(_SHALLOW), _nested_strikes(_DEEP)
+    fastest = {shallow: float("inf"), deep: float("inf")}
+    for _ in range(repeats):
+        for text in (shallow, deep):
+            started = time.perf_counter()
+            parse(text)
+            fastest[text] = min(fastest[text], time.perf_counter() - started)
+    return fastest[deep] / fastest[shallow]
+
+
+def test_the_growth_check_catches_a_rescan_per_strike_element():
+    """The control for the check above (#1297): the grammar it replaced removed one empty strike
+    element per scan of the text, innermost first, before the parse. That work is put back here,
+    in the test alone, and the check must refuse it - so the check still sees the regression it
+    was written for, and the parser it passes is not passing merely because the check went blind.
+    """
+    empty = re.compile(r"<(del|s|strike)></\1>")
+
+    def rescanning(text: str):
+        removed = 1
+        while removed:
+            text, removed = empty.subn("", text, count=1)
+        return md.parse(text)
+
+    (deep,) = rescanning(_nested_strikes(_SHALLOW))
+    assert deep.plain == "Autonomy: x"
+    growth = _growth(rescanning)
+    assert growth > _GROWTH_CEILING, growth
 
 
 def test_a_continuation_stays_in_its_definitions_item_and_never_in_a_quote():

@@ -112,6 +112,99 @@ def test_the_dry_run_writes_a_result_that_matches_the_format(passing_run) -> Non
     assert result["tools"]["python"] and "pytest" in result["tools"]
 
 
+def test_no_cuda_is_a_failed_result_check(tmp_path, monkeypatch) -> None:
+    data = _data_dir(tmp_path)
+    state = tmp_path / "state"
+    deep_python = tmp_path / "synthetic-deep-env" / "bin" / "python"
+    run_logged = runner._run_logged
+
+    def with_no_cuda(cmd, log, **kwargs):
+        if cmd[0] == str(deep_python):
+            assert cmd[1:3] == ["-I", "-c"]
+            assert "torch.cuda.is_available()" in cmd[3]
+            return runner.CUDA_UNAVAILABLE
+        return run_logged(cmd, log, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_logged", with_no_cuda)
+    code = runner.main(
+        ["run", "--dry-run", "--state", str(state), "--data", str(data),
+         "--deep-python", str(deep_python)]
+    )  # fmt: skip
+
+    assert code == runner.EXIT_FAILED
+    text, result = _only_result(tmp_path)
+    assert runner.validate_result(result) == []
+    assert result["status"] == "failed"
+    assert str(deep_python) not in text
+    checks = {c["check"]: c["outcome"] for c in result["checks"]}
+    assert checks == {
+        f"{runner.SELF_CHECK}::test_every_neutral_id_names_readable_files": "passed",
+        runner.CUDA_CHECK: "failed",
+    }
+
+
+@pytest.mark.parametrize(
+    "output, success",
+    [
+        ('{"training_seed": 7, "cpu_roc_auc": 0.75}', True),
+        ('{"training_seed": 6, "cpu_roc_auc": 0.75}', False),
+        ("broken", False),
+    ],
+)
+def test_deep_worker_returns_only_summary_numbers(tmp_path, monkeypatch, output, success) -> None:
+    deep_python = tmp_path / "env" / "bin" / "python"
+    data = _data_dir(tmp_path)
+
+    def child(cmd, log, *, check, cwd, env):
+        assert not check and cwd == _REPO
+        assert cmd[:3] == [str(deep_python), "-P", "-s"]
+        assert cmd[4] == str(data)
+        assert env["PYTHONPATH"].split(os.pathsep)[0] == str(_REPO / "src")
+        assert cmd[6] == "7"
+        Path(cmd[5]).write_text(output, encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged", child)
+    with (tmp_path / "deep.log").open("w", encoding="utf-8") as log:
+        check = runner.check_deep_workload(deep_python, _REPO, data, tmp_path, log, training_seed=7)
+    assert check["check"] == runner.DEEP_CHECK
+    if not success:
+        assert (check["outcome"], check["datasets"]) == ("error", {})
+    else:
+        assert check["outcome"] == "passed"
+        assert check["datasets"] == {
+            runner.DEEP_ARCHIVE_ID: {"training_seed": 7, "cpu_roc_auc": 0.75},
+        }
+
+
+@pytest.mark.parametrize("seed, expected", [("0", 0), ("9", 9), ("-1", None), ("10", None)])
+def test_calibration_accepts_only_the_approved_training_seeds(monkeypatch, seed, expected) -> None:
+    argv = [
+        "run", "--data", "data", "--deep-python", "python", "--commit", "a" * 40,
+        f"--deep-training-seed={seed}",
+    ]  # fmt: skip
+    monkeypatch.setattr(runner, "run", lambda args: args.deep_training_seed)
+    if expected is None:
+        with pytest.raises(SystemExit, match="2"):
+            runner.main(argv)
+    else:
+        assert runner.main(argv) == expected
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--deep-python", "python"],
+        ["--deep-python", "python", "--commit", "abc1234"],
+        ["--commit", "a" * 40],
+        ["--deep-python", "python", "--dry-run"],
+    ],
+)
+def test_calibration_requires_a_pinned_main_run_and_deep_interpreter(flags) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        runner.main(["run", "--data", "data", "--deep-training-seed", "7", *flags])
+
+
 def test_no_mapped_name_reaches_the_result_or_the_console(passing_run, failing_run) -> None:
     for root, proc in (passing_run, failing_run):
         text, _ = _only_result(root)
@@ -182,6 +275,117 @@ def test_a_name_that_pytest_escapes_in_a_node_id_is_still_found(passing_run, tmp
     sealed, text = runner.seal(result, tokens)
     assert sealed["status"] == "withheld" and sealed["checks"] == []
     assert "clair" not in text and "clair" not in runner.redact(f"  failed {nodeid}", tokens)
+
+
+# --- Names that main already publishes (#1198) ---------------------------------------------------
+
+
+def test_a_neutral_id_is_never_a_private_name() -> None:
+    """A file or folder named after its neutral id hides nothing: the id is public by design."""
+    mapping = {"lab-01": {"window": "frozen/lab-01/export.mat"}, "lab-02": {"window": "lab-02"}}
+    tokens = runner.private_tokens(mapping)
+    assert not {"lab-01", "lab-02"} & tokens
+    assert {"frozen/lab-01/export.mat", "frozen", "export.mat", "export"} <= tokens
+
+
+def _published(tmp_path: Path, text: str) -> tuple[Path, str]:
+    """A repository whose one commit holds a test module with *text*."""
+    repo = tmp_path / "main"
+    (repo / "tests").mkdir(parents=True)
+    _git(repo, "init", "--quiet", "-b", "main")
+    (repo / "tests" / "test_x.py").write_text(text, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "one")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_a_mapped_word_that_main_publishes_does_not_withhold_the_result(
+    passing_run, tmp_path
+) -> None:
+    repo, sha = _published(tmp_path, "def test_each_widget_is_read():\n    pass\n")
+    mapping = {"lab-01": {"file": "SECRET-series-alpha/widget.txt"}}
+    strict = runner.private_tokens(mapping)
+    assert "widget" in strict
+    public = runner.public_names(repo, sha, strict)
+    assert public == {"widget"}
+    tokens = runner.private_tokens(mapping, public)
+    root, _ = passing_run
+    _, result = _only_result(root)
+    result["checks"][0]["check"] = "tests/test_x.py::test_each_widget_is_read"
+    assert runner.seal(result, strict)[0]["status"] == "withheld"  # what #1198 reported
+    sealed, _ = runner.seal(result, tokens)
+    assert sealed["status"] == "passed" and sealed["checks"]
+    # A name that main does not publish still withholds the result.
+    result["checks"][0]["check"] = "tests/test_x.py::test_y[SECRET-series-alpha]"
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and "SECRET-series-alpha" not in text
+
+
+def test_only_the_commit_counts_and_a_failed_search_keeps_every_name_private(
+    tmp_path, monkeypatch
+) -> None:
+    repo, sha = _published(tmp_path, "widget\n")
+    (repo / "notes.txt").write_text("SECRET-series-alpha\n", encoding="utf-8")  # not committed
+    names = frozenset({"widget", "SECRET-series-alpha"})
+    commands: list[list[str]] = []
+    real = runner._run_bounded
+
+    def spy(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return real(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_bounded", spy)
+    assert runner.public_names(repo, sha, names) == {"widget"}
+    # The names reach git on its standard input, never on its command line.
+    assert commands and not any(name in arg for cmd in commands for arg in cmd for name in names)
+    assert runner.public_names(repo, "0" * 40, names) == frozenset()
+
+
+def test_a_line_or_column_number_from_git_config_never_makes_a_name_public(tmp_path) -> None:
+    """``grep.lineNumber`` and ``grep.column`` would prefix each match with numbers; a private
+    name made of digits must not count as public because of such a prefix (#1198, review)."""
+    repo, _ = _published(tmp_path, "")
+    (repo / "tests" / "test_x.py").write_text("\n" * 9999 + "widget\n", encoding="utf-8")
+    _git(repo, "commit", "--quiet", "-am", "two")
+    sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "config", "grep.lineNumber", "true")
+    _git(repo, "config", "grep.column", "true")
+    assert runner.public_names(repo, sha, frozenset({"widget", "10000"})) == {"widget"}
+
+
+def test_an_escaped_name_that_main_publishes_is_not_private(tmp_path) -> None:
+    """The node-id form of a name is dropped when main publishes it, even if the plain form is
+    not published: the escaped tokens are made from the plain ones (#1198, review)."""
+    mapping = {"lab-01": {"file": "acquisition-\u00e9clair.tif"}}
+    strict = runner.private_tokens(mapping)
+    escaped = "acquisition-\\xe9clair"
+    assert escaped in strict and "acquisition-\u00e9clair" in strict
+    repo, sha = _published(tmp_path, f"# {escaped}\n")
+    public = runner.public_names(repo, sha, strict)
+    assert escaped in public and "acquisition-\u00e9clair" not in public
+    tokens = runner.private_tokens(mapping, public)
+    assert escaped not in tokens and "acquisition-\u00e9clair" in tokens
+
+
+def test_a_scheduled_run_asks_the_verified_commit_for_its_public_names(
+    tmp_path, origin, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "CANONICAL_REMOTE", origin["url"])
+    asked = []
+
+    def public_names(checkout, commit, names):
+        asked.append((checkout, commit))
+        return frozenset()
+
+    def build_fails(*args):
+        raise RuntimeError("the environment build failed")
+
+    monkeypatch.setattr(runner, "public_names", public_names)
+    monkeypatch.setattr(runner, "ensure_env", build_fails)
+    data = _data_dir(tmp_path)
+    args = ["run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main(args) == runner.EXIT_ERROR
+    assert asked == [((tmp_path / "state").resolve() / "clone", origin["tip"])]
 
 
 def test_the_environment_folders_come_first_on_path_as_the_launchers_put_them() -> None:

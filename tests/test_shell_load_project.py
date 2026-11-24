@@ -1712,6 +1712,7 @@ def test_file_menu_exposes_open_close_and_quit(shell) -> None:
         "&Open project…",
         "Open &recent",
         "&Close project",
+        "Save as &recipe…",
         "Curator &name…",
         "&Quit",
     ]

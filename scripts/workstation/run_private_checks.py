@@ -20,6 +20,7 @@ pull request can run code on that computer (ADR-0071). ``run`` does these steps 
 
 After step 3 a scheduled run also runs the benchmark suite of #722 and appends one record to the
 speed history (``perf_history.py``, #723); the history adds two checks to the result file.
+When given a separate deep interpreter, the runner checks CUDA and runs the held-out deep check.
 
 ``run --dry-run`` skips steps 1 and 2 and runs only the self-check, with this interpreter, against
 the data directory it gets. ``run --dry-run --speed --history FILE`` also runs the speed test, the
@@ -72,6 +73,11 @@ SIDECAR_ENV = "TETHER_SIDECAR_PYTHON"
 MAPPING_FILE = "tether-private-data.json"
 SELF_CHECK = "tests/test_workstation_selfcheck.py"
 SPEED_CHECK = "tests/test_workstation_perf.py"
+CUDA_CHECK = "deep/cuda"
+CUDA_UNAVAILABLE = 86
+DEEP_CHECK = "deep/performance"
+DEEP_ARCHIVE_ID = "dlasi-760"
+DEEP_TRAINING_SEEDS = range(10)
 #: The benchmark groups of #722 that a run measures (``sidecar`` needs the sidecar environment).
 BENCH_GROUPS = ("default", "gui")
 RESULT_SCHEMA = "tether-workstation-result/1"
@@ -85,6 +91,8 @@ MIN_TOKEN = 5
 #: A git fetch or checkout (which can download LFS files) that takes longer is a run error, so a
 #: stalled network never keeps a run, and its lock, alive with no result.
 NETWORK_TIMEOUT_S = 1800
+#: The search of the measured commit for names that it already publishes (#1198).
+GREP_TIMEOUT_S = 300
 
 NEUTRAL_ID = re.compile(r"[a-z]+-[0-9]{2,}")
 ROLE = re.compile(r"[a-z][a-z0-9_]{0,31}")
@@ -146,17 +154,47 @@ def load_mapping(data_dir: Path) -> dict[str, dict[str, str]]:
     return mapping
 
 
-def private_tokens(mapping: dict[str, dict[str, str]]) -> frozenset[str]:
+def private_tokens(
+    mapping: dict[str, dict[str, str]], public: frozenset[str] = frozenset()
+) -> frozenset[str]:
     """The strings no result and no console line may contain: each name, each of its folder
     names, its file name and its stem, also as pytest writes them into a node id (a parameter
-    ``acquisition-\u00e9clair.tif`` becomes ``acquisition-\\xe9clair.tif``)."""
+    ``acquisition-\u00e9clair.tif`` becomes ``acquisition-\\xe9clair.tif``).
+
+    A neutral id is never one: it is the public name by design, so a file or folder named after
+    its id hides nothing. Nor is a string in *public* (:func:`public_names`): what the repository
+    already publishes cannot leak, and a common word that is also a file name would otherwise
+    withhold every result whose test names use that word (#1198).
+    """
     tokens = set()
     for files in mapping.values():
         for rel in files.values():
             path = PurePosixPath(rel)
             tokens.update({rel, rel.replace("/", "\\"), path.name, path.stem, *path.parent.parts})
-    tokens = {t for t in tokens if len(t) >= MIN_TOKEN}
-    return frozenset(tokens | {t.encode("unicode_escape").decode("ascii") for t in tokens})
+    tokens = {t for t in tokens if len(t) >= MIN_TOKEN} - set(mapping) - public
+    escaped = {t.encode("unicode_escape").decode("ascii") for t in tokens}
+    return frozenset(tokens | (escaped - public))
+
+
+def public_names(checkout: Path, commit: str, names: frozenset[str]) -> frozenset[str]:
+    """The *names* that occur in a tracked file of *commit* in *checkout* (#1198).
+
+    Only a verified commit of ``main`` is public, so only a scheduled run asks. The names go to
+    ``git grep`` on its standard input, never on a command line or into a file. A name that this
+    search misses stays private, which can withhold a result but never lets a name through; when
+    ``git grep`` fails, every name stays private.
+    """
+    if not names:
+        return frozenset()
+    patterns = "".join(f"{name}\n" for name in sorted(names)).encode("utf-8")
+    # No line or column numbers whatever the git config says: a match must be the name alone.
+    cmd = ["grep", "-F", "-I", "-o", "-h", "--no-color", "--no-line-number", "--no-column"]
+    cmd += ["-f", "-", commit]
+    proc = _git(checkout, *cmd, stdin=patterns, timeout=GREP_TIMEOUT_S)
+    if proc.returncode != 0:  # 1: no name occurs; anything else: an error
+        return frozenset()
+    found = set(proc.stdout.splitlines())
+    return frozenset(n for n in names if any(n in match for match in found))
 
 
 def redact(text: str, tokens: frozenset[str]) -> str:
@@ -261,7 +299,9 @@ class PrivateData:
 # --- Step 1: a clean clone at a commit of main -----------------------------------------------
 
 
-def _run_bounded(cmd: list[str], cwd: Path, timeout: float | None) -> subprocess.CompletedProcess:
+def _run_bounded(
+    cmd: list[str], cwd: Path, timeout: float | None, stdin: bytes | None = None
+) -> subprocess.CompletedProcess:
     """``subprocess.run`` with the output in files, so that ``timeout`` also stops the wait.
 
     After a timeout, ``subprocess.run`` kills the child. On Windows it then reads captured pipes to
@@ -270,7 +310,9 @@ def _run_bounded(cmd: list[str], cwd: Path, timeout: float | None) -> subprocess
     """
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         try:
-            proc = subprocess.run(cmd, cwd=cwd, stdout=out, stderr=err, timeout=timeout)
+            proc = subprocess.run(
+                cmd, cwd=cwd, input=stdin, stdout=out, stderr=err, timeout=timeout
+            )
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"{' '.join(cmd[:2])} did not finish in {timeout:g} s") from None
         texts = []
@@ -280,8 +322,10 @@ def _run_bounded(cmd: list[str], cwd: Path, timeout: float | None) -> subprocess
     return subprocess.CompletedProcess(cmd, proc.returncode, *texts)
 
 
-def _git(cwd: Path, *args: str, timeout: float | None = None) -> subprocess.CompletedProcess:
-    return _run_bounded(["git", *args], cwd, timeout)
+def _git(
+    cwd: Path, *args: str, timeout: float | None = None, stdin: bytes | None = None
+) -> subprocess.CompletedProcess:
+    return _run_bounded(["git", *args], cwd, timeout, stdin)
 
 
 def _git_out(cwd: Path, *args: str, timeout: float | None = None) -> str:
@@ -433,6 +477,74 @@ def tool_versions(python: Path, env: dict[str, str]) -> dict[str, str | None]:
     cmd = [str(python), "-c", code]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
     return json.loads(proc.stdout)
+
+
+def check_cuda(python: Path, source: Path, log) -> dict:
+    """Check an already provisioned deep interpreter using its own environment."""
+    prefix = python.parent
+    if prefix.name.lower() in ("bin", "scripts"):
+        prefix = prefix.parent
+    code = (
+        "import torch; "
+        "print('torch', torch.__version__, 'CUDA build', torch.version.cuda, flush=True); "
+        f"raise SystemExit(0 if torch.cuda.is_available() else {CUDA_UNAVAILABLE})"
+    )
+    start = time.perf_counter()
+    try:
+        status = _run_logged(
+            [str(python), "-I", "-c", code],
+            log,
+            check=False,
+            cwd=source,
+            env=activated_env(prefix),
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"could not run the CUDA check: {exc}", file=log, flush=True)
+        status = None
+    outcomes = {0: "passed", CUDA_UNAVAILABLE: "failed"}
+    return {
+        "check": CUDA_CHECK,
+        "outcome": outcomes.get(status, "error"),
+        "duration_s": round(time.perf_counter() - start, 3),
+        "datasets": {},
+    }
+
+
+def check_deep_workload(
+    python: Path, source: Path, data: Path, state: Path, log, training_seed: int
+) -> dict:
+    """Run the deep check in the given interpreter and retain only its aggregate metrics."""
+    script = source / "scripts" / "workstation" / "deep_check.py"
+    prefix = python.parent
+    if prefix.name.lower() in ("bin", "scripts"):
+        prefix = prefix.parent
+    env = activated_env(prefix)
+    env["PYTHONPATH"] = os.pathsep.join(map(str, (source / "src", source / "tests", script.parent)))
+    start = time.perf_counter()
+    datasets = {}
+    with tempfile.TemporaryDirectory(prefix="deep-check-", dir=state) as temp:
+        output = Path(temp) / "metrics.json"
+        status = _run_logged(
+            [str(python), "-P", "-s", str(script), str(data), str(output), str(training_seed)],
+            log, check=False, cwd=source, env=env,
+        )  # fmt: skip
+        if status == 0:
+            try:
+                metrics = json.loads(output.read_text(encoding="utf-8"))
+                seed = metrics.get("training_seed") if isinstance(metrics, dict) else None
+                if isinstance(seed, bool) or not isinstance(seed, int) or seed != training_seed:
+                    raise ValueError("the deep check returned an unexpected training seed")
+                datasets[DEEP_ARCHIVE_ID] = metrics
+            except (OSError, ValueError):
+                print("the deep check did not return readable metrics", file=log)
+                status = None
+    return {
+        "check": DEEP_CHECK,
+        "outcome": {0: "passed", CUDA_UNAVAILABLE: "failed"}.get(status, "error"),
+        "duration_s": round(time.perf_counter() - start, 3),
+        "datasets": datasets,
+    }
 
 
 def _cpu_name() -> str | None:
@@ -619,7 +731,8 @@ def run(args: argparse.Namespace) -> int:
         if age < args.min_interval_hours:
             print(f"skipped: the newest result is {age:.1f} h old")
             return EXIT_OK
-    tokens = private_tokens(load_mapping(data))
+    mapping = load_mapping(data)
+    tokens = private_tokens(mapping)
 
     def say(line: str) -> None:
         print(redact(line, tokens), flush=True)
@@ -643,6 +756,8 @@ def run(args: argparse.Namespace) -> int:
                 commit = prepare_clone(state / "clone", CANONICAL_REMOTE, args.commit)
                 on_main = True
                 source, paths = state / "clone", []
+                # Names that this commit of main already publishes are not private (#1198).
+                tokens = private_tokens(mapping, public_names(source, commit, tokens))
                 python, lock_sha = ensure_env(source, state / "env", args.micromamba, log)
             say(f"running the workstation checks at {commit or 'an unknown commit'}")
             env = activated_env(None if args.dry_run else state / "env")
@@ -657,6 +772,13 @@ def run(args: argparse.Namespace) -> int:
             cmd = [str(python), "-m", "pytest", "-m", "workstation", "-p", "no:cacheprovider"]
             code = _run_logged([*cmd, "-rA", *paths], log, check=False, cwd=source, env=env)
             checks = collect_checks(record)
+            if args.deep_python:
+                deep_python = Path(args.deep_python).expanduser().absolute()
+                cuda = check_cuda(deep_python, source, log)
+                checks.append(cuda)
+                seed = args.deep_training_seed
+                if cuda["outcome"] == "passed" and seed is not None:
+                    checks.append(check_deep_workload(deep_python, source, data, state, log, seed))
             tools = tool_versions(python, env)
             if speed and code in (0, 1):
                 bench = run_benchmarks(python, source, env, log)
@@ -812,6 +934,11 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--history", help="the speed history file (default: STATE/perf-history.jsonl)")
     go.add_argument("--sidecar-python", default=os.environ.get(SIDECAR_ENV),
                     help=f"the sidecar python (default: ${SIDECAR_ENV})")  # fmt: skip
+    go.add_argument("--deep-python", help="use this isolated interpreter for the deep checks")
+    go.add_argument(
+        "--deep-training-seed", type=int, choices=DEEP_TRAINING_SEEDS,
+        help="training seed for one paired calibration run",
+    )  # fmt: skip
     show = sub.add_parser("latest", help="print the newest result as JSON for an agent")
     show.add_argument("--results", required=True)
     args = parser.parse_args(argv)
@@ -822,6 +949,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"give --data or set ${DATA_ENV}")
     if args.dry_run and args.commit:
         parser.error("--commit needs a scheduled run; a dry run runs this checkout")
+    if args.deep_training_seed is not None and (
+        args.dry_run or not args.deep_python or not _matches(_HEX40, args.commit)
+    ):
+        parser.error("--deep-training-seed needs --deep-python and a full main --commit")
     if args.speed and not (args.dry_run and args.history):
         parser.error("--speed is for a dry run, and it needs --history: a copy, not the real file")
     try:

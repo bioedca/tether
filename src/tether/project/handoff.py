@@ -231,7 +231,12 @@ class AppliedReconcile:
     """What [`apply_reconcile`][] committed. Molecule identities are ``molecule_id``.
 
     ``classes_deferred`` are accepted class changes whose class the molecule's
-    condition lookup does not hold (unmapped) and were **not** written. ``stale_after`` are the
+    condition lookup does not hold (unmapped) and were **not** written.
+    ``classes_stale`` are accepted class changes that were **not** written because
+    the category they would write now differs from the one the ``previewed`` report
+    showed (the condition's category list changed in between); preview again and
+    accept again to write them. It is always empty when no ``previewed`` report is
+    passed. ``stale_after`` are the
     ``molecule_key`` values whose dependent idealizations are now stale because their
     analysis window changed (§5.1). ``import_unfit_dropped`` are the ``molecule_key``
     values that matched by intensity but were **excluded from the tMAVEN fit** (outside
@@ -242,6 +247,7 @@ class AppliedReconcile:
     windows_applied: list[str] = field(default_factory=list)
     classes_applied: list[str] = field(default_factory=list)
     classes_deferred: list[str] = field(default_factory=list)
+    classes_stale: list[str] = field(default_factory=list)
     idealization_written: str | None = None
     stale_after: list[str] = field(default_factory=list)
     import_unfit_dropped: list[str] = field(default_factory=list)
@@ -612,12 +618,23 @@ def apply_reconcile(
     atol: float = DEFAULT_MATCH_ATOL,
     rtol: float = DEFAULT_MATCH_RTOL,
     writer_guard: Callable[[], object] | None = None,
+    previewed: ReconcileReport | None = None,
 ) -> AppliedReconcile:
     """Commit accepted return-leg changes (non-destructive).
 
     Re-resolves the match (deterministic; the intensity identity does not depend on
-    windows/classes) so the commit acts on exactly the diff a prior
-    [`read_return_leg`][] showed. Then, in order:
+    windows/classes). The match and the returned windows and classes are what a prior
+    [`read_return_leg`][] read, but a **category** is resolved through each
+    condition's class lookup as it reads *now*: if the category list was reordered or
+    edited after the preview, the same returned class can name another category.
+
+    Pass that preview as ``previewed`` to bind the class leg to it. An accepted class
+    change is then written only when the category it would write is the one
+    ``previewed`` showed for that molecule as an applicable change; any other is not
+    written and is reported in ``AppliedReconcile.classes_stale`` (#1290). With an
+    unchanged lookup every accepted change still writes. Without ``previewed`` the
+    commit writes what the lookup resolves at apply time, with no such check.
+    Then, in order:
 
     1. If ``import_idealization`` and ``model_path`` is given, write the tMAVEN model
        as a **new** ``/idealization/{model_name}`` (matched rows remapped to store
@@ -628,7 +645,8 @@ def apply_reconcile(
     3. Apply accepted class changes through each molecule's condition lookup:
        ``class 0`` → clear ``category`` to uncategorized, ``class k`` → the
        condition's ``k``-th category; a class the lookup does not hold is recorded as
-       deferred and not written (ADR-0125).
+       deferred and not written (ADR-0125); with ``previewed``, a change whose
+       category differs from the previewed one is reported stale and not written.
 
     ``accept_windows`` / ``accept_classes`` are ``True`` (accept every applicable
     change) or an iterable of ``molecule_id`` to accept.
@@ -664,6 +682,8 @@ def apply_reconcile(
     class_candidates = {t.molecule_id for t in report.class_changes if t.class_change.applicable}
     accept_win_ids = _accepted(accept_windows, window_candidates)
     accept_cls_ids = _accepted(accept_classes, class_candidates)
+    stale_ids = _stale_class_ids(report, previewed, accept_cls_ids)
+    accept_cls_ids -= stale_ids
     # An unmapped class accepted by the caller is surfaced as deferred, never written.
     deferred_ids = _deferred_class_ids(report, accept_classes)
 
@@ -697,10 +717,35 @@ def apply_reconcile(
         windows_applied=windows_applied,
         classes_applied=classes_applied,
         classes_deferred=deferred_ids,
+        classes_stale=sorted(stale_ids),
         idealization_written=written,
         stale_after=stale_after,
         import_unfit_dropped=unfit_dropped,
     )
+
+
+def _stale_class_ids(
+    report: ReconcileReport, previewed: ReconcileReport | None, accepted: set[str]
+) -> set[str]:
+    """Accepted molecule_ids whose category now differs from what ``previewed`` showed.
+
+    A molecule the preview did not show as an applicable class change (none at all,
+    or an unmapped one) is stale too: its category was never shown to the caller.
+    """
+    if previewed is None:
+        return set()
+    shown = {
+        t.molecule_id: t.class_change.proposed_category
+        for t in previewed.class_changes
+        if t.class_change is not None and t.class_change.applicable
+    }
+    return {
+        t.molecule_id
+        for t in report.class_changes
+        if t.molecule_id in accepted
+        and t.class_change is not None
+        and (t.molecule_id not in shown or shown[t.molecule_id] != t.class_change.proposed_category)
+    }
 
 
 def _deferred_class_ids(report: ReconcileReport, accept_classes: bool | Iterable[str]) -> list[str]:
