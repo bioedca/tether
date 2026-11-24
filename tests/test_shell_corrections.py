@@ -419,16 +419,38 @@ def test_the_claim_moves_only_for_its_owner_and_only_to_a_free_file(monkeypatch)
         owners.clear()
 
 
-def test_a_claim_moved_after_the_window_let_the_project_go_is_freed(shell, qtbot, tmp_path) -> None:
+def test_a_window_closed_during_the_pass_frees_the_moved_claim(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    # Closing the window abandons the task, so the pass never reaches its finish
+    # handler. The release after the task must still free the claim on the new file.
     from tether.gui import shell as shell_mod
-    from tether.gui.tasks import TaskOutcome, TaskState
+    from tether.project import correct
 
-    gone = ("path", "moved-after-close")
-    shell_mod._GUI_PROJECT_OWNERS[gone] = shell._project_owner_token
-    outcome = TaskOutcome(context=None, state=TaskState.FAILED, error=RuntimeError("late"))
-    shell._finish_correction_pass(outcome, claimed=("path", "before"), rebound=gone)
-    assert gone not in shell_mod._GUI_PROJECT_OWNERS
-    assert shell._claimed_project_key is None
+    project = _loaded(shell, tmp_path)
+    before = shell_mod._project_owner_key(project.path)
+    real = correct.compute_corrected_fret
+    started, go = threading.Event(), threading.Event()
+
+    def held_open(*args, **kwargs):
+        started.set()
+        assert go.wait(10)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(correct, "compute_corrected_fret", held_open)
+    assert shell.run_correction_pass()
+    future = shell._idealize_future
+    assert future is not None
+    try:
+        assert started.wait(10)
+        shell.close()
+    finally:
+        go.set()
+    future.result(timeout=10)
+    qtbot.waitUntil(lambda: not shell_mod._GUI_PROJECT_OWNERS, timeout=10_000)
+    assert shell_mod._project_owner_key(project.path) != before
+    assert not shell.holds_project_claim
+    assert _has_correction_settings(project.path)
 
 
 def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
