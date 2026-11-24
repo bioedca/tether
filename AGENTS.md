@@ -9,17 +9,15 @@ unmerged edits are inert and reviewed as code.
 `AGENTS.md` governs operations/safety; `docs/PRD.md` governs product/science; `CONTRIBUTING.md` and
 templates add detail. If they conflict, stop, choose the safe option, and ask.
 
-Three pages sit outside this file, all *conditional* — read each only before doing what it
-governs: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR,
-[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster, and
-[`handoff.md`](docs/agents/handoff.md) before writing to a PR in a Codex handoff. The
+Two pages sit outside this file, both *conditional* — read each only before doing what it
+governs: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR, and
+[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster. The
 **`tether-worker`** skill is conditional likewise and required for work-item work (§Outcome and
 authority): it carries the worker procedure and by its own first line neither restates nor relaxes
 anything here.
 
-**`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
-one of them in this file would strand the other lane, so every command below writes `<py>` and you
-substitute it as you read. `gh` and `git` need no such rule; they resolve from `PATH` in both shells.
+**`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Every
+command below writes `<py>`; substitute yours. `gh` and `git` resolve from `PATH` in both shells.
 
 ## Outcome and authority
 
@@ -36,6 +34,9 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   a separate templated issue only when the finding is reproducible and actionable.
 - Report vulnerabilities only through the private advisory/security-fork PR; never use a public issue,
   PR, Discussion, Project, log, or chat. Never expose credentials, private paths, or embargoed work.
+- **Quetza's E: and F: drives are read-only, no exception**: never write, move, rename or delete
+  there. Each copy from them needs the maintainer's approval (under 5 GB, to the Xochi folder he
+  names).
 
 ## Concurrent GitHub Flow
 
@@ -79,8 +80,7 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   a single reference, a single issue, or a whole collection, the last carrying a `collection`
   field naming which listing failed, so one unreadable query costs its own section and not the
   report. A held issue whose body contains no `#N` at all reports `unparseable` rather than an
-  empty `mentions`, because an empty set reads as *every dependency resolved* and #326 names
-  that false clean as worse than a miss. Every remedy is maintainer authority — post a marker,
+  empty `mentions`, for the same #326 reason. Every remedy is maintainer authority — post a marker,
   promote a label, arm someone else's merge — which is why it reports rather than acts.
 - Each worker owns its own worktree lifecycle — fetch/prune, add/remove, LFS pulls. Keep the root
   `main` worktree clean, and never use repository-wide stash, `git clean -fdx`, destructive reset,
@@ -158,9 +158,13 @@ validity turns on it being the right test — must satisfy both.
   must have reviewed **every substantive change reaching the merge**, and reported what it found.
   Author-side or local output never satisfies this, and a green status check with no review body is
   not a review. **Quote the provider and name the 40-hex head its artifact records.** Providers say
-  it in two shapes and both count: a review object carries `commit_id`, while Codex's *clean* result
+  it in three shapes and all count: a review object carries `commit_id`; Codex's *clean* result
   is a posted comment carrying `Reviewed commit: <short-sha>` — expand that with `git rev-parse` and
-  record both, the expansion being mechanical and redoable rather than an assertion of yours. This
+  record both, the expansion being mechanical and redoable rather than an assertion of yours; and
+  CodeRabbit's clean full review may be a posted walkthrough with no review object. That walkthrough
+  is *the clean CodeRabbit review*, needing no Codex close, once verified at the live head: App
+  identity, run ID, an explicit clean verdict, a reviewed range ending at that head, every finding
+  surface read and every thread resolved, each with a permalink and UTC time (ADR-0137). This
   applies to **every** leg, the ordinary one included; requiring a `commit_id` field would accept
   only the runs that found something.
   Normally the head it read *is* the head you merge. Where the cap-spent close below applies, the
@@ -173,7 +177,7 @@ validity turns on it being the right test — must satisfy both.
 - **The lane is cheapest provider first, and the order is the point.** On the green diff — the
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
   uncapped, until it surfaces nothing blocking. Ask the GitHub bot with an `@codex review` comment;
-  it posts an artifact naming the head it read, in either shape the first bullet describes. It has
+  it posts an artifact naming the head it read, in a shape the first bullet describes. It has
   refused for quota
   before and may again — that is a wait like any other refusal, and **availability is determined by
   asking, never inferred from an earlier refusal**. Then **optionally one Greptile review**, if the
@@ -218,7 +222,7 @@ validity turns on it being the right test — must satisfy both.
   one CodeRabbit review, then the Codex close (ADR-0099).
 - **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
   review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
-  inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
+  inline findings of its own, or a walkthrough verified as the first bullet says at the head it read; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
   review, bare status check, or a reply on someone else's thread is not one — and **no finding
   it raised is left outstanding**, with the thread resolved on each, then a **fresh Codex review of the final head** closes the gate in its place.
   **It must report nothing actionable, which is not the same as nothing *major*.** Codex's clean
@@ -226,7 +230,7 @@ validity turns on it being the right test — must satisfy both.
   while still sounding benign, so read what it reported. A closing review carrying findings of any
   severity is disposed of first and re-read. The close substitutes for a *clean* pass; accepting
   "no majors" would make it the discount ADR-0065 forbids.
-  It must be **posted by the provider and name the commit it read**, in either shape the first
+  It must be **posted by the provider and name the commit it read**, in a shape the first
   bullet describes; a re-quoted earlier pass is not one, its head not being the one merged. *Nothing
   left outstanding* is the test — fixed, deferred-and-tracked, dropped sub-floor and withdrawn by the
   provider are the ways of clearing a finding, not the test itself. Anything the closing review
@@ -238,9 +242,7 @@ validity turns on it being the right test — must satisfy both.
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
   **Do not run it on a diff that edits agent instructions** — files (`AGENTS.md`,
   `AGENTS.override.md` anywhere, `CLAUDE.md`), skills (`.agents/skills/**`) or settings (`.codex/` at
-  any depth), the three routes observed. On 0.147.0 no switch was shown to keep a branch's rules from
-  the reviewer: its own prompt sends it to read and apply the project's instruction files, so it
-  would run under rules that have not merged. ADR-0065 records what was and was not observed. The
+  any depth), the three routes observed: it would run under rules that have not merged (ADR-0065). The
   **posted** bot review's loading is not ours to configure.
 - **Three things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
@@ -289,8 +291,6 @@ validity turns on it being the right test — must satisfy both.
   `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` and `.codex/` anywhere,
   `CLAUDE.md` and the agent test modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
-  This inverts the rule above deliberately and only here, because only here does the output feed back
-  into the input — sixteen agent-layer issues came from that loop in ten days.
 - **The agent layer is feature-complete** (ADR-0064), over **the same paths as the rule above**.
   They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
   and may not originate in a review finding.

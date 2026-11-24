@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The repository copy of the CodeRabbit queue script, tested on what it does.
 
-`.agents/bin/cr_next_free.py` is the queue the Codex lane runs during a handoff
-(`docs/agents/handoff.md`). What is asserted is behaviour: where its state lives, that a join never
-replaces another entry, how the pace follows CodeRabbit's own words, and that it says ASK only when
-nothing is running and the window is free. GitHub is replaced by a stub; nothing here reaches it.
+`.agents/bin/cr_next_free.py` is the repository copy of the CodeRabbit queue (ADR-0137). What is
+asserted is behaviour: where its state lives, that a join never replaces another entry, how the
+pace follows CodeRabbit's own words, and that it says ASK only when nothing is running and the
+window is free. GitHub is replaced by a stub; nothing here reaches it.
 
 Stdlib only, so it runs on the base 3-OS `test` matrix.
 """
