@@ -112,16 +112,17 @@ class CorrectionSummaryDialog:
             self.banner.hide()
         else:
             self.banner.setText(banner[1])
-            self.banner.setAccessibleName(
-                "Correction failure" if banner[0] == BANNER_FAILURE else "Correction note"
-            )
+            # The accessible name replaces the shown text for a screen reader, so it
+            # carries the text too.
+            kind = "Correction failure" if banner[0] == BANNER_FAILURE else "Correction note"
+            self.banner.setAccessibleName(f"{kind}: {banner[1]}")
         layout.addWidget(self.banner)
 
         form = QtWidgets.QFormLayout()
         self.fields: dict[str, str] = {}
         for label, value in summary_fields(result):
             shown = QtWidgets.QLabel(value, self.dialog)
-            shown.setAccessibleName(label)
+            shown.setAccessibleName(f"{label}: {value}")
             form.addRow(label, shown)
             self.fields[label] = value
         layout.addLayout(form)
