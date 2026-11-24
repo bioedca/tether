@@ -97,6 +97,8 @@ __all__ = [
     "MODEL_TYPE_DEFAULT",
     "MODEL_TYPE_EBHMM",
     "NSTATES_GRID_DEFAULT",
+    "RefitMembers",
+    "RefitMembersMoved",
     "StalenessStamp",
     "StoredIdealization",
     "idealize_molecules",
@@ -106,6 +108,7 @@ __all__ = [
     "live_molecule_keys",
     "read_idealization",
     "read_staleness_stamp",
+    "refit_membership",
     "reidealize",
     "stale_molecule_keys",
     "stale_row_ids",
@@ -1179,6 +1182,75 @@ def stale_row_ids(
     return stale
 
 
+class RefitMembersMoved(UserWarning):
+    """A refit left out members of the stored model that moved (#1284, ADR-0136).
+
+    A member moved when its ``molecule_id`` is gone from ``/molecules`` (a new trace
+    generation replaced it) and no current row carries its ``molecule_key``: the new
+    extraction found it more than ``match_px`` away, so the molecule has a new key and
+    no fit of its own. [`reidealize`][] warns with this class and fits the rest.
+    """
+
+
+@dataclass(frozen=True)
+class RefitMembers:
+    """The current rows a refit of a stored model fits (#1284, ADR-0136).
+
+    ``molecule_ids`` are the current ``molecule_id`` values of the members, in store
+    order; ``moved_keys`` are the ``molecule_key`` values of the members no current row
+    holds, in model order, without repeats.
+    """
+
+    molecule_ids: tuple[str, ...]
+    moved_keys: tuple[str, ...]
+
+
+def refit_membership(project: Project | str | PathLike[str], model_name: str) -> RefitMembers:
+    """Find the current rows of the members of ``/idealization/{model_name}`` (a read).
+
+    A member is found by its stored ``molecule_id`` while that row is in ``/molecules``.
+    A new trace generation gives each molecule a new ``molecule_id`` (ADR-0136), so a
+    member whose id is gone is found by its ``molecule_key``: a molecule that did not
+    move keeps its key. Each current row answers one member at most, and a row found by
+    its id is not taken again by a key. A member found neither way moved, and its key is
+    reported in ``moved_keys``; it is never silently dropped. The rows are found
+    whatever their curation label: a stored cohort keeps its rejected members.
+    """
+    import h5py
+
+    from tether.project.core import Project as _Project
+
+    path = project.path if isinstance(project, _Project) else Path(project)
+    with h5py.File(path, "r") as f:  # only the two membership datasets, not the state paths
+        g = _model_group(f, model_name, path)
+        stored_ids = [_to_str(x) for x in g["molecule_id"][()]]
+        stored_keys = [_to_str(x) for x in g["molecule_key"][()]]
+    return _members_of(path, stored_ids, stored_keys)
+
+
+def _members_of(path: Path, stored_ids: list[str], stored_keys: list[str]) -> RefitMembers:
+    """[`refit_membership`][] over a model's stored ids and keys, already read."""
+    molecules = read_molecules(path)
+    ids = [_to_str(m) for m in molecules["molecule_id"]]
+    keys = [_to_str(k) for k in molecules["molecule_key"]]
+    row_by_id = {mid: row for row, mid in enumerate(ids)}
+    taken = {row_by_id[mid] for mid in stored_ids if mid in row_by_id}
+    rows_by_key: dict[str, list[int]] = {}
+    for row, key in enumerate(keys):
+        if row not in taken:
+            rows_by_key.setdefault(key, []).append(row)
+    moved: list[str] = []
+    for mid, key in zip(stored_ids, stored_keys, strict=True):
+        if mid in row_by_id:
+            continue
+        free = rows_by_key.get(key)
+        if free:
+            taken.add(free.pop(0))
+        elif key not in moved:
+            moved.append(key)
+    return RefitMembers(tuple(ids[row] for row in sorted(taken)), tuple(moved))
+
+
 def live_molecule_keys(project: Project | str | PathLike[str], model_name: str) -> list[str]:
     """The model's non-stale molecule keys — the set TDP/dwell analysis includes.
 
@@ -1220,12 +1292,28 @@ def reidealize(
     current corrections, so the previously-stale molecules read live again. The stored
     cohort is preserved even when one of its members is now rejected; rejection filters
     new default selections, not the explicit membership of an existing model. The cohort
-    is selected by its stored ``molecule_ids``, so a rejected row that shares a
-    ``molecule_key`` with a member (§7.10) stays out of it. ``_runner``
-    is the same private sidecar test seam as [`idealize_molecules`][], and
+    is selected by [`refit_membership`][]: by its stored ``molecule_ids``, so a rejected
+    row that shares a ``molecule_key`` with a member (§7.10) stays out of it, and, for a
+    member a new trace generation gave a new ``molecule_id``, by its ``molecule_key``
+    (ADR-0136). A member that moved is left out with a [`RefitMembersMoved`][] warning
+    that names its key; when no member is left, the refit is refused (``ValueError``).
+    ``_runner`` is the same private sidecar test seam as [`idealize_molecules`][], and
     ``require_held_lock`` is forwarded to it.
     """
+    import warnings  # noqa: PLC0415
+
+    from tether.project.core import Project as _Project
+
     stored = read_idealization(project, model_name)
+    path = project.path if isinstance(project, _Project) else Path(project)
+    members = _members_of(path, list(stored.molecule_ids), list(stored.molecule_keys))
+    if members.moved_keys:
+        warnings.warn(
+            f"{len(members.moved_keys)} member(s) of the model {model_name!r} moved in a "
+            "new trace generation and are not refitted: " + ", ".join(members.moved_keys),
+            RefitMembersMoved,
+            stacklevel=2,
+        )
     keys = list(dict.fromkeys(stored.molecule_keys))
     if stored.nstates_selected_by == "fixed":
         nstates: int | None = stored.nstates
@@ -1253,6 +1341,6 @@ def reidealize(
         overwrite=True,
         include_rejected=True,
         require_held_lock=require_held_lock,
-        _molecule_ids=list(stored.molecule_ids),
+        _molecule_ids=list(members.molecule_ids),
         **extra,
     )

@@ -92,7 +92,8 @@ References
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Collection
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -169,6 +170,10 @@ class TraceGamma:
         across the step, over ``pre_window`` and ``post_window``, measured before the
         sign and ceiling gates. ``NaN`` when a segment gate failed and no step was
         measured (``no-step``, ``short-pre``, ``short-post``).
+    donor_pre, donor_post, acceptor_pre, acceptor_post
+        The four levels behind those changes: the mean donor and leakage-corrected
+        acceptor intensity over ``pre_window`` and over ``post_window`` (#927). ``NaN``
+        when no step was measured.
     """
 
     gamma: float | None
@@ -180,6 +185,24 @@ class TraceGamma:
     reason: str
     delta_donor: float = float("nan")
     delta_acceptor: float = float("nan")
+    donor_pre: float = float("nan")
+    donor_post: float = float("nan")
+    acceptor_pre: float = float("nan")
+    acceptor_post: float = float("nan")
+
+    @property
+    def ratio(self) -> float:
+        """The raw ratio ``ΔI_A / ΔI_D`` with its sign, before the sign and ceiling gates.
+
+        A negative, zero or out-of-range ratio is kept, because it is the evidence a person
+        uses to judge the step (#927). ``NaN`` only when ``ΔI_D`` is zero or no step was
+        measured. Equal to ``gamma`` on a qualifying trace.
+        """
+        if not (np.isfinite(self.delta_donor) and np.isfinite(self.delta_acceptor)):
+            return float("nan")
+        if self.delta_donor == 0.0:
+            return float("nan")
+        return self.delta_acceptor / self.delta_donor
 
     @property
     def qualifies(self) -> bool:
@@ -217,18 +240,27 @@ class GammaEstimate:
         fewer than ``min_qualifying_traces`` qualified (withheld, never fabricated).
         This median is also the **fallback** value for molecules that did not qualify.
     n_qualifying
-        How many traces yielded a valid per-trace estimate.
+        How many traces yielded a valid per-trace estimate and were not excluded.
     n_traces
         How many traces were examined.
     per_trace
         The per-trace [`TraceGamma`][] for every examined trace, in input order
         (qualifying and rejected alike).
+    excluded
+        The indices of traces a person or a recipe excluded from the estimate (#927).
+        An excluded trace keeps its [`TraceGamma`][] as evidence, is not counted in
+        ``n_qualifying`` and takes the median fallback.
     """
 
     gamma: float | None
     n_qualifying: int
     n_traces: int
     per_trace: tuple[TraceGamma, ...]
+    excluded: frozenset[int] = field(default_factory=frozenset)
+
+    def included_gamma(self, index: int) -> float | None:
+        """Return molecule ``index``'s own γ if it qualifies and is not excluded, else ``None``."""
+        return None if index in self.excluded else self.per_trace[index].gamma
 
     def effective_gamma(self, index: int) -> float | None:
         """Return molecule ``index``'s applied γ: its own value, or the median fallback.
@@ -239,7 +271,7 @@ class GammaEstimate:
         """
         if self.gamma is None:
             return None
-        own = self.per_trace[index].gamma
+        own = self.included_gamma(index)
         return own if own is not None else self.gamma
 
     @property
@@ -258,7 +290,7 @@ class GammaEstimate:
         Meaningful only when the dataset γ was applied (``gamma is not None``); the
         later staleness scope re-stales exactly these molecules on a γ-median shift.
         """
-        return self.gamma is not None and self.per_trace[index].gamma is None
+        return self.gamma is not None and self.included_gamma(index) is None
 
 
 def _check_half_window(half_window: int | None) -> int | None:
@@ -375,7 +407,14 @@ def trace_gamma(
 
     da_delta = ia_pre - ia_post  # acceptor drops across the step
     dd_delta = id_post - id_pre  # donor rises (dequenched) across the step
-    steps = {"delta_donor": dd_delta, "delta_acceptor": da_delta}
+    steps = {
+        "delta_donor": dd_delta,
+        "delta_acceptor": da_delta,
+        "donor_pre": id_pre,
+        "donor_post": id_post,
+        "acceptor_pre": ia_pre,
+        "acceptor_post": ia_post,
+    }
     if dd_delta <= 0.0:
         # The donor did not rise — no measurable dequenching, so γ = ΔI_A/ΔI_D is
         # undefined (division by a non-positive jump). Gated out rather than emitting
@@ -430,6 +469,7 @@ def estimate_gamma(
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
+    exclude: Collection[int] = (),
 ) -> GammaEstimate:
     """Aggregate a dataset's γ from every trace's acceptor-bleach step.
 
@@ -442,6 +482,10 @@ def estimate_gamma(
     [`GammaEstimate.effective_gamma`][]).
 
     All five per-trace sequences must be the same length (one entry per molecule).
+    ``exclude`` holds the indices a person or a recipe excluded (#927): their per-trace
+    estimate is kept as evidence but is left out of the median and of the
+    ``min_qualifying_traces`` count, and they take the fallback. With no exclusion the
+    result is the one before #927.
     """
     n = len(donor_traces)
     if not (len(acceptor_traces) == len(alphas) == len(acceptor_pbs) == len(donor_pbs) == n):
@@ -462,7 +506,12 @@ def estimate_gamma(
         )
         for i in range(n)
     )
-    qualifying = [t.gamma for t in per_trace if t.gamma is not None]
+    excluded = frozenset(int(i) for i in exclude)
+    if any(not 0 <= i < n for i in excluded):
+        raise ValueError(f"exclude holds an index outside 0..{n - 1}: {sorted(excluded)}")
+    qualifying = [
+        t.gamma for i, t in enumerate(per_trace) if t.gamma is not None and i not in excluded
+    ]
     n_qualifying = len(qualifying)
     # ``qualifying and`` guards ``np.median([])`` (→ nan + RuntimeWarning) when the
     # set is empty — including a degenerate ``min_qualifying_traces <= 0`` a caller
@@ -477,4 +526,5 @@ def estimate_gamma(
         n_qualifying=n_qualifying,
         n_traces=n,
         per_trace=per_trace,
+        excluded=excluded,
     )
