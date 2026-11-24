@@ -130,6 +130,10 @@ class CziMovie:
             raise _refuse(path, "is one part of a multi-file acquisition")
         if not entries:
             raise _refuse(path, "holds no image subblock")
+        # The primary file of a multi-file acquisition has a part-0 header, but its directory
+        # names subblocks in the other parts; czifile would read those offsets in this file.
+        if any(e.file_part != 0 for e in entries):
+            raise _refuse(path, "has frames in another part of a multi-file acquisition")
         if any(e.pyramid_type != 0 or e.is_pyramid for e in entries):
             raise _refuse(path, "holds an image pyramid or planes stored at another resolution")
         scenes = {e.scene_index for e in entries}
@@ -220,7 +224,9 @@ class CziMovie:
         """Return frames ``start`` to ``stop - 1``; ``0 <= start <= stop <= n_frames``.
 
         Only the subblocks of these frames are read and decoded. Raise `IndexError`
-        when the range is outside that bound.
+        when the range is outside that bound, and `UnsupportedContainerError` for a frame
+        whose validity mask marks pixels the camera did not cover: those values were not
+        acquired, so the frame is refused rather than served.
         """
         if self._closed:
             raise ValueError(f"CziMovie for {self._path} is closed")
@@ -236,6 +242,13 @@ class CziMovie:
                 segment = entry.read_segment_data(self._czi)
                 if not isinstance(segment, self._segment_type):
                     raise ValueError(f"{self._path}: frame {start + i} is a deleted subblock")
+                mask = segment.mask()
+                if mask is not None and not mask.all():
+                    raise _refuse(
+                        self._path,
+                        f"has pixels in frame {start + i} that its validity mask marks as not "
+                        "acquired",
+                    )
                 tile = segment.data()
                 if tile.size != h * w:
                     raise ValueError(

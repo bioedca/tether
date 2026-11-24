@@ -191,6 +191,7 @@ def _entry(t: int = 0, **changes: object) -> SimpleNamespace:
         "is_pyramid": False,
         "scene_index": 0,
         "mosaic_index": 0,
+        "file_part": 0,
         "compression": SimpleNamespace(name="UNCOMPRESSED"),
         "pixel_type": _GRAY16,
     }
@@ -216,6 +217,11 @@ def _check(header: SimpleNamespace, entries: list[SimpleNamespace]) -> tuple:
         (_header(file_part=1), [_entry()], "one part of a multi-file acquisition"),
         (_header(primary_file_guid="b"), [_entry()], "one part of a multi-file acquisition"),
         (_header(), [], "holds no image subblock"),
+        (
+            _header(),
+            [_entry(0), _entry(1, file_part=1)],
+            "frames in another part of a multi-file acquisition",
+        ),
         (_header(), [_entry(pyramid_type=1)], "image pyramid"),
         (_header(), [_entry(is_pyramid=True)], "image pyramid"),
         (
@@ -291,12 +297,46 @@ def test_a_deleted_subblock_is_refused_not_served() -> None:
 
 
 def test_a_subblock_of_the_wrong_size_is_refused_not_served() -> None:
-    import czifile
 
-    segment = object.__new__(czifile.CziSubBlockSegmentData)
-    segment.data = lambda: np.zeros(8, dtype="<u2")  # type: ignore[method-assign]
+    segment = _segment(np.zeros(8, dtype="<u2"), mask=None)
     with _serving(segment) as movie, pytest.raises(ValueError, match="decodes to 8 pixels"):
         movie.read_frames(0, 1)
+
+
+def _segment(tile: np.ndarray, mask: np.ndarray | None) -> object:
+    """A live subblock that decodes to ``tile`` and carries the validity ``mask``."""
+    import czifile
+
+    class _Segment(czifile.CziSubBlockSegmentData):
+        __slots__ = ()
+
+        def data(self) -> np.ndarray:  # type: ignore[override]
+            return tile
+
+        def mask(self) -> np.ndarray | None:  # type: ignore[override]
+            return mask
+
+    return object.__new__(_Segment)
+
+
+def test_a_frame_with_pixels_its_mask_marks_as_not_acquired_is_refused() -> None:
+    mask = np.ones((16, 16), dtype=bool)
+    mask[0, :4] = False
+    segment = _segment(np.zeros((16, 16), dtype="<u2"), mask=mask)
+    with (
+        _serving(segment) as movie,
+        pytest.raises(
+            UnsupportedContainerError, match="frame 0 that its validity mask marks as not acquired"
+        ),
+    ):
+        movie.read_frames(0, 1)
+
+
+def test_a_frame_whose_mask_covers_every_pixel_is_served() -> None:
+    tile = np.arange(256, dtype="<u2").reshape(16, 16)
+    segment = _segment(tile, mask=np.ones((16, 16), dtype=bool))
+    with _serving(segment) as movie:
+        np.testing.assert_array_equal(movie.read_frames(0, 1)[0], tile)
 
 
 def test_the_repr_names_the_file_and_its_shape() -> None:

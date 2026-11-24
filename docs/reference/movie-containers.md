@@ -50,6 +50,8 @@ Tether reads a CZI file **only when it can read all of it as one movie**:
 - One pixel type with one real sample: Gray8, Gray16, Gray32, Gray32Float or Gray64.
 - The codec none, Zstd, or Zstd with the byte shuffle.
 - One file, not one part of a multi-file acquisition.
+- Every pixel of a frame acquired. A frame whose validity mask marks pixels that the camera did
+  not cover is refused when it is read.
 
 Any other file is refused, and the message names the reason, for example "this file holds 2
 channels". JPEG and JPEG XR can be lossy and the file does not say when they are not, so Tether

@@ -90,7 +90,9 @@ A CZI file opens as a movie only when it is **one movie, whole**: one scene, one
 dimension that is not T, Y or X (channel, Z plane, phase, illumination, rotation, block, view),
 one mosaic tile, no image pyramid, every subblock at full resolution and of one size and position,
 one pixel type of one real sample, and one subblock for each time point from the first to the last
-with none missing or repeated. It is not part of a multi-file acquisition. Anything else raises
+with none missing or repeated. It is not part of a multi-file acquisition: the header is part 0
+and so is every directory entry, since the primary file of such an acquisition lists subblocks
+that lie in the other parts. Anything else raises
 `UnsupportedContainerError` with the reason (for example "holds 2 channels"). A pixel that is not
 one real sample (BGR colour, complex) raises `InvalidPixelError`. JPEG and JPEG XR, which can be
 lossy and do not say when they are not, raise `LossyCodecError`. The codecs read are none, Zstd and
@@ -98,8 +100,10 @@ Zstd with the byte shuffle; any other (LZW, the undocumented lossless JPEG, came
 because no test file exercises it.
 
 `read_frames` reads and decodes the subblock of each frame that it returns, under a lock, since
-the source shares one file handle between threads. The pixel type is little-endian (`'<u2'` for
-Gray16), as CZI stores it.
+the source shares one file handle between threads. A subblock whose validity mask marks pixels
+that the camera did not cover raises `UnsupportedContainerError` when its frame is read: czifile
+returns those pixels with the decoded values, which were not acquired. The pixel type is
+little-endian (`'<u2'` for Gray16), as CZI stores it.
 
 ### Where the metadata comes from
 
