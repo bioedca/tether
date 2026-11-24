@@ -281,3 +281,61 @@ def test_the_next_step_follows_a_curation_decision(shell, tmp_path, qtbot) -> No
     after = rd.read_project_readiness(path).next_step
     assert after.stage != "curation"
     qtbot.waitUntil(lambda: shell.next_step_text == f"Next step: {after.action}", timeout=3000)
+
+
+def _accept_all(shell) -> None:
+    from tether.gui.curation import Command, CurationAction
+
+    for row in range(shell.molecule_list.count()):
+        shell.molecule_list.setCurrentRow(row)
+        shell.controller.dispatch(Command(CurationAction.ACCEPT))
+
+
+@pytest.mark.gui
+@needs_qt
+def test_the_read_after_a_write_runs_off_the_main_thread(shell, tmp_path, qtbot, monkeypatch):
+    # A local CodeRabbit check of #1330: the stale check reads every trace, so the read
+    # after a write must not stall the window.
+    import threading
+
+    from tether.services import status
+
+    threads: list[str] = []
+    real = status.project_status
+    monkeypatch.setattr(
+        status,
+        "project_status",
+        lambda p: threads.append(threading.current_thread().name) or real(p),
+    )
+    assert shell.load_project(_imported(tmp_path)) is not None
+    assert threads == ["MainThread"]  # the open reads at once, to choose the first section
+    _accept_all(shell)
+    qtbot.waitUntil(lambda: len(threads) > 1, timeout=3000)
+    assert all(name.startswith("tether-readiness") for name in threads[1:])
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_read_for_a_closed_project_is_dropped(shell, tmp_path, qtbot, monkeypatch):
+    import threading
+
+    from tether.services import status
+
+    started, release = threading.Event(), threading.Event()
+    real = status.project_status
+
+    def slow(path):
+        if threading.current_thread() is not threading.main_thread():
+            started.set()
+            release.wait(5)
+        return real(path)
+
+    monkeypatch.setattr(status, "project_status", slow)
+    assert shell.load_project(_imported(tmp_path)) is not None
+    _accept_all(shell)
+    qtbot.waitUntil(started.is_set, timeout=3000)
+    assert shell.close_project()
+    release.set()
+    qtbot.wait(200)
+    assert shell.readiness is None
+    assert shell.next_step_text == "Next step: open or import a project"

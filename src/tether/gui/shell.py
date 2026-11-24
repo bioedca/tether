@@ -204,8 +204,10 @@ _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
 #: After a write that can change a stage (a curation decision, a fit, a return leg), the
-#: guided next step is read again once the writes stop for this long (#897).
+#: guided next step is read again once the writes stop for this long (#897). The read runs
+#: on a worker thread, and the main thread polls for its result at the second interval.
 _READINESS_REFRESH_DEBOUNCE_MS = 250
+_READINESS_POLL_MS = 50
 
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
@@ -773,7 +775,16 @@ class TetherShell:
         self._readiness_refresh_timer = QtCore.QTimer()
         self._readiness_refresh_timer.setSingleShot(True)
         self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
-        self._readiness_refresh_timer.timeout.connect(self.refresh_readiness)
+        self._readiness_refresh_timer.timeout.connect(self._start_readiness_read)
+        self._readiness_poll_timer = QtCore.QTimer()
+        self._readiness_poll_timer.setInterval(_READINESS_POLL_MS)
+        self._readiness_poll_timer.timeout.connect(self._apply_readiness_read)
+        # The background read (#897): one worker thread, made on first use, and the newest
+        # read as (future, project path, generation). A write or a direct read takes a new
+        # generation, so a read that a later write or a reopen made old is dropped.
+        self._readiness_pool: Any | None = None
+        self._readiness_read: tuple[Any, Path, int] | None = None
+        self._readiness_generation = 0
 
         # Central surface: the pyqtgraph trace dock, behind the start page that shows
         # while no project is open and no molecules are loaded (#629).
@@ -2917,6 +2928,8 @@ class TetherShell:
         """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
         self._histogram_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
+        self._readiness_poll_timer.stop()
+        self._readiness_read = None
         self._reset_movie_panel()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
@@ -2977,6 +2990,7 @@ class TetherShell:
         """Read the readiness of the open project again and return it (#896)."""
         from tether.services.status import project_status
 
+        self._readiness_generation += 1
         if self._project_path is None:
             self._readiness = None
         else:
@@ -3634,9 +3648,50 @@ class TetherShell:
             self._histogram_refresh_timer.start()
 
     def _queue_readiness_refresh(self) -> None:
-        """Read the guided next step again once a burst of writes ends (#897)."""
+        """Read the guided next step again once a burst of writes ends (#897).
+
+        The read checks each trace for a stale fit, so it runs on a worker thread and the
+        window stays live while it runs.
+        """
         if self._project_path is not None:
+            self._readiness_generation += 1
             self._readiness_refresh_timer.start()
+
+    def _start_readiness_read(self) -> None:
+        """Submit one readiness read of the open project to the worker thread."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from tether.services import status
+
+        if self._project_path is None:
+            return
+        if self._readiness_pool is None:
+            self._readiness_pool = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="tether-readiness"
+            )
+        path = self._project_path
+        future = self._readiness_pool.submit(status.project_status, path)
+        self._readiness_read = (future, path, self._readiness_generation)
+        self._readiness_poll_timer.start()
+
+    def _apply_readiness_read(self) -> None:
+        """Apply a finished readiness read on the main thread, unless it is out of date."""
+        pending = self._readiness_read
+        if pending is None:
+            self._readiness_poll_timer.stop()
+            return
+        future, path, generation = pending
+        if not future.done():
+            return
+        self._readiness_poll_timer.stop()
+        self._readiness_read = None
+        if path != self._project_path or generation != self._readiness_generation:
+            return
+        try:
+            self._readiness = future.result()
+        except Exception:  # noqa: BLE001 - as on open, an unreadable record is no record
+            self._readiness = None
+        self._sync_guided()
 
     def _run_queued_histogram_refresh(self) -> None:
         """Apply one coalesced refresh and surface a delayed failure without crashing."""
@@ -4172,6 +4227,8 @@ class TetherShell:
         self._lock_release_timer.stop()
         self._histogram_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
+        self._readiness_poll_timer.stop()
+        self._readiness_read = None
         future = self._idealize_future
         writable_project = self._curation_project
         session_project = self._session_project
@@ -4215,6 +4272,9 @@ class TetherShell:
             # even though the visible shell has already closed.
             self._retry_session_release()
         self._tasks.shutdown()
+        if self._readiness_pool is not None:
+            self._readiness_pool.shutdown(wait=False, cancel_futures=True)
+            self._readiness_pool = None
         if self._histogram_dock is not None:
             self._histogram_dock.close()
         if self._overlap_dock is not None:
