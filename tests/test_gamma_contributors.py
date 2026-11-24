@@ -108,8 +108,9 @@ def test_a_row_can_be_computed_again_from_the_stored_data(tmp_path: Path) -> Non
         donor = f["traces/donor_corrected"][:]
         acceptor = f["traces/acceptor_corrected"][:]
     alpha = read_molecules(path)["alpha"]
+    np.testing.assert_array_equal(rows["alpha"], alpha)
     for i, row in enumerate(rows):
-        corrected = acceptor[i] - alpha[i] * donor[i]
+        corrected = acceptor[i] - row["alpha"] * donor[i]  # the α the row records
         (p0, p1), (q0, q1) = row["pre_window"], row["post_window"]
         assert (p0, p1, q0, q1) == (5, ACC, ACC, DON)
         assert row["donor_pre"] == pytest.approx(donor[i, p0:p1].mean())
@@ -140,6 +141,23 @@ def test_an_excluded_row_keeps_its_raw_ratio_with_its_sign(tmp_path: Path) -> No
     assert falls["ratio"] == pytest.approx(falls["delta_acceptor"] / falls["delta_donor"])
     assert falls["delta_donor"] < 0.0  # the donor fell: kept, with the sign of each change
     assert np.isnan(rows["gamma"][10:]).all()
+
+
+def test_a_person_excluding_a_zero_donor_row_keeps_the_diagnosis(tmp_path: Path) -> None:
+    path = tmp_path / "g.tether"
+    _mixed_store(path)
+    compute_gamma(path)
+    proj = Project.open(path)
+    proj.acquire_lock()
+    try:
+        set_gamma_contributor(proj, _key(path, 12), include=False, actor=ME, reason="dim")
+        set_gamma_contributor(proj, _key(path, 0), include=False, actor=ME, reason="dim")
+    finally:
+        proj.release_lock()
+    rows = read_gamma_contributors(path)
+    assert rows[12]["reason"] == "zero-donor-step; dim" and rows[12]["by"] == "person"
+    assert np.isnan(rows[12]["ratio"])
+    assert rows[0]["reason"] == "dim"  # a finite ratio keeps the reason as given
 
 
 def test_a_short_segment_is_excluded_by_the_estimator_with_its_gate(tmp_path: Path) -> None:
@@ -263,35 +281,65 @@ def test_below_min_qualifying_included_rows_the_state_is_blocked(tmp_path: Path)
         proj.release_lock()
 
 
-def test_a_retry_sends_the_follow_up_event_that_a_failed_send_left_out(
+def _failing_send(event: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    real_send = cs.send_event
+
+    def send(project: Project, sent: object, *args: object, **kwargs: object) -> object:
+        if sent is event:
+            raise OSError("the transition log could not be written")
+        return real_send(project, sent, *args, **kwargs)
+
+    monkeypatch.setattr(cs, "send_event", send)
+
+
+def test_a_failed_insufficient_evidence_event_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "g.tether"
     _gamma_store(path, n_mol=10)
     assert compute_gamma(path).applied
+    before = read_molecules(path)["gamma"].copy()
     proj = Project.open(path)
     proj.acquire_lock()
-    real_send = cs.send_event
+    try:
+        _failing_send(E.INSUFFICIENT_EVIDENCE, monkeypatch)
+        with pytest.raises(OSError):
+            set_gamma_contributor(proj, _key(path, 0), include=False, actor=ME, reason="bad")
+        # The state cannot lag a withheld pass: the pass is not written, so an approval
+        # still reads the γ that the stored pass applies.
+        assert cs.read_correction_state(path).state is S.GAMMA_REVIEW
+        assert len(read_gamma_contributor_decisions(path)) == 0
+        assert read_gamma_contributors(path)["included"].all()
+        np.testing.assert_array_equal(read_molecules(path)["gamma"], before)
+    finally:
+        proj.release_lock()
 
-    def failing_send(project: Project, event: object, *args: object, **kwargs: object) -> object:
-        if event is E.INSUFFICIENT_EVIDENCE:
-            raise OSError("the transition log could not be written")
-        return real_send(project, event, *args, **kwargs)
 
+def test_a_retry_sends_the_new_evidence_event_that_a_failed_send_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=10)
+    compute_gamma(path)
+    proj = Project.open(path)
+    proj.acquire_lock()
     try:
         key = _key(path, 0)
-        monkeypatch.setattr(cs, "send_event", failing_send)
-        with pytest.raises(OSError):
-            set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad")
-        assert cs.read_correction_state(path).state is S.GAMMA_REVIEW  # γ withheld, state not
-        monkeypatch.setattr(cs, "send_event", real_send)
-
-        assert set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad") is None
+        set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad")
         assert cs.read_correction_state(path).state is S.CALIBRATION_BLOCKED
-        assert len(read_gamma_contributor_decisions(path)) == 1
+        with monkeypatch.context() as m:
+            _failing_send(E.NEW_EVIDENCE, m)
+            with pytest.raises(OSError):
+                set_gamma_contributor(proj, key, include=True, actor=ME)
+        # γ is valid again but the state is still blocked, which cannot be approved.
+        assert cs.read_correction_state(path).state is S.CALIBRATION_BLOCKED
+
+        assert set_gamma_contributor(proj, key, include=True, actor=ME) is None
+        assert cs.read_correction_state(path).state is S.GAMMA_REVIEW
+        assert len(read_gamma_contributor_decisions(path)) == 2
         # Once the state agrees, the same decision sends nothing more.
         n_events = len(cs.read_correction_transitions(path))
-        assert set_gamma_contributor(proj, key, include=False, actor=ME, reason="bad") is None
+        assert set_gamma_contributor(proj, key, include=True, actor=ME) is None
         assert len(cs.read_correction_transitions(path)) == n_events
     finally:
         proj.release_lock()

@@ -837,6 +837,7 @@ apparent-E analysis is never refused.
 | `step`, `step_source` | The absolute acceptor-bleach frame, and where it came from. Today it is always `detector`. A window that a person sets comes with the calibration windows of [#928](https://github.com/bioedca/tether/issues/928). |
 | `level_window`, `half_window` | The level window that averaged the intensities: `half-window` with its half-width, or `whole-segment` with `half_window = 0`. |
 | `pre_window`, `post_window` | The absolute half-open frame ranges of the two levels. |
+| `alpha` | The leakage factor that corrected the acceptor levels of the row. |
 | `donor_pre`, `donor_post`, `acceptor_pre`, `acceptor_post` | The four levels. The acceptor is leakage-corrected. |
 | `delta_donor`, `delta_acceptor` | ΔI_D and ΔI_A. |
 | `ratio` | The raw ΔI_A / ΔI_D, with its sign. |
@@ -844,10 +845,12 @@ apparent-E analysis is never refused.
 | `gate` | The estimator's reason: `ok`, `no-step`, `short-pre`, `short-post`, `degenerate-donor` or `out-of-range`. |
 | `included`, `reason`, `by`, `actor` | Whether the row is in the median, and the reason, author kind (`estimator`, `person` or `policy`) and author of an exclusion. |
 
-With the stored traces and `/molecules.alpha`, the windows give each row again. An excluded
-row keeps its `ratio`, also when it is negative, zero or above the ceiling. The `ratio` is
-`NaN` only when no step was measured (`no-step`, `short-pre` or `short-post`), or when ΔI_D
-is zero. Then the `reason` is `zero-donor-step`.
+With the stored traces and the row's `alpha`, the windows give each row again, also after a
+later leakage pass changes `/molecules.alpha`. An excluded row keeps its `ratio`, also when
+it is negative, zero or above the ceiling. The `ratio` is `NaN` only when no step was
+measured (`no-step`, `short-pre` or `short-post`), or when ΔI_D is zero. Then the `reason`
+is `zero-donor-step`, followed by a semicolon and the reason of a person or a policy that excluded
+the row.
 
 The population γ is the median of the included rows. It is withheld below `min_qualifying_traces` included rows, so with no
 decision it is the γ that `compute_gamma` gave before the table. `/settings/gamma` counts the
@@ -862,8 +865,9 @@ a decision but never a gate. The correction state follows the change:
 - In `CALIBRATION_APPROVED` the evidence is frozen and the change is refused.
 - In `CORRECTED_REVIEW` and `ANALYSIS_READY` the change is the evidence-change event, and the
   state becomes `CALIBRATION_STALE`.
-- In `GAMMA_REVIEW` a withheld γ moves the state to `CALIBRATION_BLOCKED`, and in
-  `CALIBRATION_BLOCKED` a valid γ moves it back to `GAMMA_REVIEW`.
+- In `GAMMA_REVIEW` a withheld γ moves the state to `CALIBRATION_BLOCKED` before the write,
+  so a failed event writes nothing. In `CALIBRATION_BLOCKED` a valid γ moves it back to
+  `GAMMA_REVIEW` after the write, and the same decision again sends an event that failed.
 
 ### Approvals
 

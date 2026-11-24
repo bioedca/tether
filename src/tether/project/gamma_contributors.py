@@ -84,6 +84,7 @@ CONTRIBUTORS_DTYPE = np.dtype(
         ("half_window", "<i4"),
         ("pre_window", "<i4", (2,)),
         ("post_window", "<i4", (2,)),
+        ("alpha", "<f8"),
         ("donor_pre", "<f8"),
         ("donor_post", "<f8"),
         ("acceptor_pre", "<f8"),
@@ -153,14 +154,20 @@ def contributor_rows(
     starts: list[int],
     decisions: Mapping[str, tuple[bool, str, str, str]],
     *,
+    alphas: list[float],
     level_window: str,
     half_window: int,
 ) -> np.ndarray:
-    """Build the table rows of a γ pass; ``starts`` turn local frames into absolute ones."""
+    """Build the table rows of a γ pass; ``starts`` turn local frames into absolute ones.
+
+    ``alphas`` are the leakage factors that corrected the acceptor levels of each row, so a
+    row can be computed again after a later leakage pass changes ``/molecules.alpha``.
+    """
     rows = np.zeros(len(keys), dtype=CONTRIBUTORS_DTYPE)
     for name in ("reason", "by", "actor"):
         rows[name] = ""  # an included row has no exclusion; the string fields start as 0
-    for i, (t, key, start) in enumerate(zip(estimate.per_trace, keys, starts, strict=True)):
+    rows_in = zip(estimate.per_trace, keys, starts, alphas, strict=True)
+    for i, (t, key, start, alpha) in enumerate(rows_in):
         row = rows[i]
         row["molecule_key"] = key
         row["step"] = t.step + start
@@ -169,6 +176,7 @@ def contributor_rows(
         row["half_window"] = half_window
         row["pre_window"] = (t.pre_window[0] + start, t.pre_window[1] + start)
         row["post_window"] = (t.post_window[0] + start, t.post_window[1] + start)
+        row["alpha"] = alpha
         for name in ("donor_pre", "donor_post", "acceptor_pre", "acceptor_post"):
             row[name] = getattr(t, name)
         row["delta_donor"] = t.delta_donor
@@ -177,11 +185,13 @@ def contributor_rows(
         row["gamma"] = t.gamma if t.gamma is not None else np.nan
         row["gate"] = t.reason
         decision = decisions.get(key)
+        zero = t.step_measured and t.delta_donor == 0.0
         if decision is not None and not decision[0]:
-            _, row["reason"], row["by"], row["actor"] = decision
+            _, reason, row["by"], row["actor"] = decision
+            # An empty ratio always says why, also under a person's or a policy's reason.
+            row["reason"] = f"{_ZERO_DONOR_STEP}; {reason}" if zero else reason
             row["included"] = False
         elif t.gamma is None:
-            zero = t.step_measured and t.delta_donor == 0.0
             row["reason"] = _ZERO_DONOR_STEP if zero else t.reason
             row["by"] = _BY_ESTIMATOR
             row["included"] = False
@@ -358,6 +368,14 @@ def _set_held(
     elif state is cs.CorrectionState.ANALYSIS_READY:
         cs.send_event(project, cs.CorrectionEvent.FACTOR_EVIDENCE_CHANGES, actor, note=note)
 
+    # A move to a state that cannot be approved goes before the write, as the stale events
+    # above do: if the send fails, nothing is written, and an approval cannot freeze a γ
+    # that the stored pass withholds. The move back (new evidence) goes after the write.
+    if state is cs.CorrectionState.GAMMA_REVIEW and _predict_withheld(
+        project.path, molecule_key, include=include, minimum=int(params["min_qualifying_traces"])
+    ):
+        cs.send_event(project, cs.CorrectionEvent.INSUFFICIENT_EVIDENCE, actor, note=note)
+
     decision = {
         "molecule_key": molecule_key,
         "included": bool(include),
@@ -370,6 +388,16 @@ def _set_held(
     summary = _compute_gamma(project.path, write_guard=guard, decision=decision, **params)
     _send_follow_up(project, actor, note, applied=summary.applied)
     return summary
+
+
+def _predict_withheld(path: Path, molecule_key: str, *, include: bool, minimum: int) -> bool:
+    """Return whether the γ pass after this decision is withheld, from the stored table."""
+    table = read_gamma_contributors(path)
+    keys = [_text(k) for k in table["molecule_key"]]
+    included = table["included"].copy()
+    included[keys.index(molecule_key)] = include
+    qualifying = np.isfinite(table["gamma"]) & included
+    return int(qualifying.sum()) < minimum
 
 
 def _stored_withheld(path: Path) -> bool:

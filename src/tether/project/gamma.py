@@ -380,6 +380,7 @@ def _compute_gamma(
             keys,
             starts,
             decisions,
+            alphas=alphas,
             level_window=(
                 GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT
                 if half_window is None
