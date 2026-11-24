@@ -437,6 +437,12 @@ def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
     exactly ``.npz``).
     """
     path = Path(path)
+    np.savez(path, **_asset_arrays(asset))
+    return path if path.suffix == ".npz" else path.with_suffix(path.suffix + ".npz")
+
+
+def _asset_arrays(asset: MapAsset) -> dict[str, np.ndarray]:
+    """Return every array of the version-2 map file that holds ``asset``."""
     arrays = _map_arrays(asset.registration_map)
     arrays.update(
         {
@@ -455,8 +461,7 @@ def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
             "app_version": np.array(asset.app_version),
         }
     )
-    np.savez(path, **arrays)
-    return path if path.suffix == ".npz" else path.with_suffix(path.suffix + ".npz")
+    return arrays
 
 
 def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsset:
@@ -590,39 +595,64 @@ def project_map_links(project_path: str | Path) -> list[MapLink]:
     return links
 
 
+#: Marks an argument of [`save_project_map`][] that the caller left out.
+_RECORDED: Any = object()
+
+
 def save_project_map(
     project_path: str | Path,
     calibration_id: str,
     output: str | Path,
     *,
-    channel_layout: ChannelLayout | None = None,
-    optics: str = "",
-    pixel_size_um: float | None = None,
+    channel_layout: ChannelLayout | None = _RECORDED,
+    optics: str = _RECORDED,
+    pixel_size_um: float | None = _RECORDED,
 ) -> MapAsset:
     """Save the map a project holds in ``/calibration/<calibration_id>`` as a separate asset.
 
-    The project is only read. A map that came from a map file keeps that file's id;
-    any other map gets a new one. The output must not exist.
+    The project is only read. A map that came from a map file keeps that file's id and,
+    unless the call gives another value, its channel layout, optics text and pixel size,
+    so the saved file is checked as the original was. Any other map gets a new id, and
+    the fields the call leaves out are not known. ``output`` must end in ``.npz`` and must
+    not exist: the file is created exclusively, so an existing file is never replaced.
 
     Raises
     ------
     FileExistsError
-        If ``output`` exists.
+        If ``output`` exists, also when it appears during the call.
+    ValueError
+        If ``output`` does not end in ``.npz``.
     KeyError
         If the project has no such calibration.
     """
     output = Path(output)
+    if output.suffix != ".npz":
+        raise ValueError(f"the map file must end in .npz, got {output.name!r}")
     if output.exists():
         raise FileExistsError(f"output exists: {output}")
     reg_map = read_calibration(project_path, calibration_id)
     recorded = reg_map.provenance.get("map_file")
-    map_id = recorded.get("map_id") if isinstance(recorded, dict) else None
+    recorded = recorded if isinstance(recorded, dict) else {}
+    if channel_layout is _RECORDED:
+        layout = recorded.get("channel_layout")
+        channel_layout = None if layout is None else ChannelLayout.from_dict(layout)
+    if optics is _RECORDED:
+        optics = str(recorded.get("optics") or "")
+    if pixel_size_um is _RECORDED:
+        pixel_size_um = recorded.get("pixel_size_um")
     asset = MapAsset.from_registration_map(
         reg_map,
-        map_id=map_id or None,
+        map_id=recorded.get("map_id") or None,
         channel_layout=channel_layout,
         optics=optics,
         pixel_size_um=pixel_size_um,
     )
-    save_map_asset(asset, output)
+    arrays = _asset_arrays(asset)
+    with open(output, "xb") as handle:  # FileExistsError if another writer made it
+        try:
+            np.savez(handle, **arrays)
+        except BaseException:
+            handle.close()
+            output.unlink(missing_ok=True)
+            raise
     return asset

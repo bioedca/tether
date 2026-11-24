@@ -439,6 +439,11 @@ def test_a_projects_map_is_saved_as_a_separate_asset_and_the_project_is_unchange
     assert np.array_equal(back.registration_map.moving_to_ref.b, reg_map.moving_to_ref.b)
     with pytest.raises(FileExistsError):
         save_project_map(project, calibration_id, out)
+    # A name np.savez would extend is refused, so no other file is replaced (Codex P2).
+    written = _bytes_sha(out)
+    with pytest.raises(ValueError, match="must end in .npz"):
+        save_project_map(project, calibration_id, tmp_path / "from-project")
+    assert _bytes_sha(out) == written
     # A later movie extracts with it.
     later = tmp_path / "later.tether"
     extract_movie(
@@ -448,9 +453,17 @@ def test_a_projects_map_is_saved_as_a_separate_asset_and_the_project_is_unchange
         map_path=out,
     )
     assert project_map_links(later)[0].map_id == asset.map_id
-    # A map the project took from a map file keeps that file's id when saved again.
-    again = save_project_map(later, project_map_links(later)[0].calibration_id, tmp_path / "x.npz")
+    # A map the project took from a map file keeps that file's id, layout, optics and
+    # pixel size when saved again, so the copy is checked as the original was (Codex P1).
+    later_id = project_map_links(later)[0].calibration_id
+    again = save_project_map(later, later_id, tmp_path / "x.npz")
     assert again.map_id == asset.map_id
+    assert (again.optics, again.pixel_size_um) == ("60x", 0.267)
+    copy = load_map_asset(tmp_path / "x.npz")
+    assert (copy.optics, copy.pixel_size_um) == ("60x", 0.267)
+    # An explicit value still overrides the recorded one.
+    other = save_project_map(later, later_id, tmp_path / "y.npz", optics="100x")
+    assert (other.optics, other.pixel_size_um) == ("100x", 0.267)
 
 
 def test_save_map_still_writes_a_full_asset(tmp_path, fitted) -> None:
