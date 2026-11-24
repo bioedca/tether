@@ -46,8 +46,9 @@ min_collected = 33
 max_skipped = 2
 
 [jobs."bioformats / live"]
-# The live Bio-Formats runner (#907, ADR-0147): tests/test_runner_bioformats.py.
-min_collected = 9
+# The live Bio-Formats runner (#907, ADR-0147): tests/test_runner_bioformats.py; 11 since
+# #1398 added tests/test_extraction_bioformats.py (extraction parity and the read cost).
+min_collected = 11
 max_skipped = 0
 
 [jobs."large-fixtures"]
