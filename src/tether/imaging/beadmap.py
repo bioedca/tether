@@ -455,7 +455,7 @@ def bead_map(
         ``"wavelet"``).
     detection_threshold : float or None, optional
         The detection threshold, unitless (PRD §11.2). Only the
-        ``"intensity"`` and ``"bandpass"`` modes use it; the default
+        ``"intensity"``, ``"bandpass"`` and ``"zmw"`` modes use it; the default
         ``"wavelet"`` mode ignores it. ``None`` (the default) uses the mode's own
         value.
     min_separation : float or None, optional

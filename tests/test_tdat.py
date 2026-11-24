@@ -332,7 +332,7 @@ def test_plain_leaf_tdat_has_no_threshold(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("code", "expected"),
-    [(1.0, "wavelet"), (2.0, "intensity"), (3.0, "bandpass")],
+    [(1.0, "wavelet"), (2.0, "intensity"), (3.0, "bandpass"), (5.0, "zmw")],
 )
 def test_detection_mode_code_maps_to_string(tmp_path: Path, code: float, expected: str) -> None:
     path = tmp_path / f"mode{code:g}.tdat"
@@ -349,16 +349,37 @@ def test_detection_mode_absent_defaults_to_wavelet(tmp_path: Path) -> None:
     assert read_detection_settings(path).mode == "wavelet"
 
 
-@pytest.mark.parametrize("code", [0.0, 4.0, 5.0, 99.0])
+@pytest.mark.parametrize("code", [0.0, 4.0, 6.0, 99.0])
 def test_unsupported_detection_mode_raises(tmp_path: Path, code: float) -> None:
-    # Modes 4 (local-variance) / 5 (ZMW) are not ported; an out-of-range code is
-    # refused, never silently mapped to a wrong detector.
+    # Mode 4 (local-variance) is not ported (Deep-LASI's own mode 4 cannot run,
+    # ADR-0143); an out-of-range code is refused, never mapped to a wrong detector.
     path = tmp_path / f"bad{code:g}.tdat"
     _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
     with pytest.raises(ValueError, match="not supported"):
         read_tdat(path)
     with pytest.raises(ValueError, match="not supported"):
         read_detection_settings(path)
+
+
+def test_local_variance_refusal_names_why(tmp_path: Path) -> None:
+    # The refusal of mode 4 says why, and says that modes 1, 2, 3 and 5 are the ones read.
+    path = tmp_path / "mode4.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=4.0)
+    with pytest.raises(ValueError) as caught:
+        read_detection_settings(path)
+    message = str(caught.value)
+    assert "[1, 2, 3, 5] = wavelet/intensity/bandpass/zmw" in message
+    assert "mode 4 'local-variance' is not ported" in message
+    assert "ADR-0143" in message
+    with pytest.raises(ValueError) as other:
+        read_detection_settings(_write_minimal_tdat_at(tmp_path, 7.0))
+    assert "not a Deep-LASI findPart mode" in str(other.value)
+
+
+def _write_minimal_tdat_at(tmp_path: Path, code: float) -> Path:
+    path = tmp_path / f"mode{code:g}.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
+    return path
 
 
 def test_non_integer_detection_mode_raises(tmp_path: Path) -> None:
@@ -378,14 +399,14 @@ def test_read_detection_settings_not_a_tdat_raises(tmp_path: Path) -> None:
 
 
 def test_decoded_modes_are_exactly_the_detection_enum(tmp_path: Path) -> None:
-    # Cross-lock: the decoder's three mode strings are precisely the frozen
+    # Cross-lock: the decoder's four mode strings are precisely the frozen
     # ParticleDetectionMode members (so io's literals can't drift from the enum).
     pytest.importorskip("scipy")
     pytest.importorskip("skimage")
     from tether.imaging.detect import ParticleDetectionMode  # noqa: PLC0415
 
     decoded = set()
-    for code in (1.0, 2.0, 3.0):
+    for code in (1.0, 2.0, 3.0, 5.0):
         path = tmp_path / f"m{code:g}.tdat"
         _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
         decoded.add(read_detection_settings(path).mode)

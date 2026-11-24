@@ -336,7 +336,8 @@ The undecimated wavelet transform whose multiscale product is Tether's default s
 MAD, the median absolute deviation, is its noise estimate at each scale.
 
 ([Olivo-Marin 2002](https://doi.org/10.1016/S0031-3203%2801%2900127-3)). The alternatives are
-the `intensity` and `bandpass` modes, ported from Deep-LASI's `findPart` (ADR-0021).
+the `intensity`, `bandpass` and `zmw` modes, ported from Deep-LASI's `findPart` (ADR-0021,
+ADR-0143).
 
 ---
 

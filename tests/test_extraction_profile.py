@@ -409,6 +409,18 @@ def test_tether_extract_records_the_profile_values(tmp_path: Path) -> None:
     assert {k: recorded[k] for k in _E2E} == _E2E
 
 
+def test_a_profile_selects_the_zmw_detector_and_the_run_records_it(tmp_path: Path) -> None:
+    # Deep-LASI mode 5 is set from a profile like any other mode (ADR-0143, #924).
+    helpers = _movie_helpers()
+    movie = helpers._make_movie(tmp_path)
+    out = tmp_path / "zmw.tether"
+    path = _profile_file(tmp_path, detection_mode="zmw", detection_threshold=0.3)
+    assert cli.main(["extract", str(movie), "-o", str(out), "--profile", str(path)]) == 0
+    recorded = helpers._extraction_profile(out)
+    assert recorded["detection_mode"] == "zmw"
+    assert recorded["detection_threshold"] == 0.3
+
+
 def test_tether_batch_records_a_non_default_profile_field(tmp_path: Path) -> None:
     helpers = _movie_helpers()
     movie = helpers._make_movie(tmp_path, name="movie_010.tif")
