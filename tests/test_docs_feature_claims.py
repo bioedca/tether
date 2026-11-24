@@ -230,9 +230,10 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     assert "embedded napari movie panel" in _flat(old)
     old_list = "## What it does\n\n### In the application today\n\n- **Movie panel** — embedded\n"
     assert _groups(old_list)[IN_APP] == ["Movie panel"]
-    # A feature still planned shows that the import check can say "not in the application";
-    # the movie panel itself has been in since #356.
-    assert not _in_application("Trace ⇄ movie round trip", _gui_imports())
+    # A feature the application does not run shows that the import check can say "not in the
+    # application"; the movie panel has been in since #356 and the round trip since #357.
+    assert not _in_application("Native extraction", _gui_imports())
+    assert _in_application("Trace ⇄ movie round trip", _gui_imports())
     assert _in_application("Movie panel", _gui_imports())
     assert _in_application("Population histogram", _gui_imports())
 

@@ -5,9 +5,9 @@
 The PySide6 application shell: one main window whose sections are the pages of
 one stack (ADR-0116), with curation/labeling, annotation, and the pyqtgraph plot
 docks, and the embedded napari movie panel with its movie switcher for a
-multi-movie experiment (#356). This layer is a thin presentation shell over
-[`tether.project`][]. The trace↔movie round-trip navigation (#357) is not in the
-shell yet; that issue adds it and changes this sentence.
+multi-movie experiment (#356), linked to the molecule list by the trace↔movie
+round-trip ([`tether.gui.roundtrip`][], #357). This layer is a thin presentation shell
+over [`tether.project`][].
 
 **Qt import convention.** A module here imports Qt through ``pyqtgraph.Qt``
 (``from pyqtgraph.Qt import QtCore, QtGui, QtWidgets``), which re-exports the

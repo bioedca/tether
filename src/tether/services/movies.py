@@ -101,6 +101,11 @@ class ProjectMovie:
     no_spots:
         ``None`` when the spots can be placed on the frame; otherwise why not, in plain
         words: ``"spot positions not recorded"`` when neither channel's geometry is.
+    molecule_keys:
+        The ``/molecules`` ``molecule_key`` of each spot pair, aligned with the rows of
+        [`donor_xy`][] and [`acceptor_xy`][], so a front end can tell which molecule a
+        spot belongs to (the trace↔movie round-trip, #357). Empty when
+        [`no_spots`][tether.services.movies.ProjectMovie] gives a reason.
     """
 
     movie_id: str
@@ -110,6 +115,7 @@ class ProjectMovie:
     donor_xy: np.ndarray
     acceptor_xy: np.ndarray
     no_spots: str | None = None
+    molecule_keys: tuple[str, ...] = ()
 
     @property
     def available(self) -> bool:
@@ -340,10 +346,11 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
 
     if molecules is not None and len(molecules):
         mol_movie = np.array([_to_str(m) for m in molecules["movie_id"]])
+        mol_key = np.array([_to_str(k) for k in molecules["molecule_key"]])
         donor_all = np.asarray(molecules["donor_xy"], dtype=np.float64).reshape(-1, 2)
         acceptor_all = np.asarray(molecules["acceptor_xy"], dtype=np.float64).reshape(-1, 2)
     else:
-        mol_movie = np.empty(0, dtype=str)
+        mol_movie = mol_key = np.empty(0, dtype=str)
         donor_all = acceptor_all = np.empty((0, 2), dtype=np.float64)
 
     out: list[ProjectMovie] = []
@@ -360,8 +367,10 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
         if no_spots is None:
             donor_xy = _to_frame(donor[finite], row, "donor")
             acceptor_xy = _to_frame(acceptor[finite], row, "acceptor")
+            keys = tuple(str(k) for k in mol_key[mine][finite])
         else:
             donor_xy = acceptor_xy = np.empty((0, 2), dtype=np.float64)
+            keys = ()
         out.append(
             ProjectMovie(
                 movie_id=movie_id,
@@ -371,6 +380,7 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 donor_xy=donor_xy,
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,
+                molecule_keys=keys,
             )
         )
     return ProjectMovies(movies=tuple(out), aperture_radius=radius)
