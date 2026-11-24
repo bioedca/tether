@@ -391,7 +391,7 @@ that one finds nothing.
 | `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff); CZI (.czi). …` | A vendor container (`.nd2`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
 | `…: Tether reads a CZI file only as one movie (…), and this file holds 2 channels. …` | A CZI file with more than one channel, scene, Z plane or tile, a gap in its time points, or an image pyramid. The message names which. [Movie containers](reference/movie-containers.md#czi) lists what Tether reads. | Export one channel and one position for each file from ZEN, with no compression or with Zstd. |
 | `…: the frames use JPEG XR compression, which can be lossy …` | A CZI movie saved with JPEG or JPEG XR. The file does not say whether the stream is lossless, so Tether refuses it rather than guess. | Export again from ZEN with no compression or with Zstd. |
-| `…: this container opens, but extraction reads only TIFF today; …` | A CZI movie that the reader opens, given to `tether extract` or `tether batch`. | Export the movie to uncompressed TIFF until extraction reads CZI. |
+| `…: this container opens, but extraction reads only TIFF today; …` | A CZI movie that the reader opens, given to `tether extract` or `tether batch`. | Export the movie to uncompressed TIFF until extraction reads CZI (#1390). |
 
 Two more from the same family, raised by `tether.project.extract`:
 

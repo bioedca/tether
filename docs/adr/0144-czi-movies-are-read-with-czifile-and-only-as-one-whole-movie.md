@@ -133,8 +133,8 @@ frames agree byte for byte. The two-channel movie of the same record is the publ
 ### Consequences
 
 - Good: a ZEN movie opens through the registry with its frame time, pixel size and channel name,
-  each with its origin; the extraction path reads it once #902 moves its callers to
-  `read_frames`.
+  each with its origin. Extraction does not read it yet: #1388 moves the callers of `open_movie`
+  to `read_frames`, and #1390 then adds CZI to the containers that extraction reads.
 - Good: every refusal names its reason, and the message says how to export a movie that Tether
   reads.
 - Bad / trade-off: a two-channel CZI, the usual output of a two-camera or sequential acquisition,

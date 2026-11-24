@@ -25,9 +25,9 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
 
 The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI movie
-opens through the reader, but extraction refuses it with "extraction reads only TIFF today" until
-the extraction path reads every container (#902). Until then, export the movie to uncompressed
-TIFF.
+opens through the reader, but extraction refuses it with "extraction reads only TIFF today". The
+change that lets extraction read CZI is planned (#1390, after #1388). Until then, export the movie
+to uncompressed TIFF.
 
 ## TIFF
 
