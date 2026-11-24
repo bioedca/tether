@@ -233,6 +233,9 @@ _HTML_RE = re.compile(
     re.DOTALL,
 )
 
+# The comment alternative of `HTML_RE`: an inline comment, as the inline pass reads it.
+_INLINE_COMMENT_RE = re.compile(r"<!--(?:(?!<!--|-->).)*-->", re.DOTALL)
+
 # htmlparser.commentclose. The renderer's HTML preprocessor reads the page in order: a
 # comment runs from `<!--` to the first close, and one with no close is a literal `<`. A
 # comment that opens a line (at most three spaces in, outside any blockquote) is a raw
@@ -1196,11 +1199,10 @@ def _doc(path: Path) -> _Doc:
                 if not in_code and not any(s_ <= offset - a < e_ for s_, e_ in spans):
                     problem(offset, hazard)
         view = _mask_escapes(view)
-        hidden = [
-            (start - a, end - a)
-            for start, end in comments
-            if a <= start < b and blocks[start] == "<"
-        ]
+        # Inline HTML runs after the code spans, so a comment is read here on the masked
+        # text: one whose `<!--` or `-->` is in a code span hides nothing. A stashed one is
+        # blank already.
+        hidden = [m.span() for m in _INLINE_COMMENT_RE.finditer(view)]
 
         def shown(offset: int, hidden: list[tuple[int, int]] = hidden) -> bool:
             # A comment that does not open a line is inline HTML, which runs after the link
@@ -2068,6 +2070,13 @@ _GAP_ROWS = [
         [],
         '<!-- [hidden][missing] and <a href="gone.md">x</a> -->',
         id="gap-10-links-inside-a-mid-line-comment",
+    ),
+    pytest.param(
+        # Comment delimiters shown in code spans open no comment: the code spans run first.
+        "See `<!--` [broken][missing] `-->` here.\n",
+        [f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>See <code>&lt;!--</code> [broken][missing] <code>--&gt;</code> here.</p>",
+        id="gap-10-delimiters-in-code-hide-nothing",
     ),
 ]
 
