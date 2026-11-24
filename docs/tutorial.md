@@ -114,6 +114,13 @@ your acceptor trace is red. Wherever this tutorial says magenta, read red. In th
 selected set has a check mark.
 [Select the trace colors](reference/gui-theme.md#select-the-trace-colors) tells how to change it.
 
+On some systems, Tether cannot show the movie panel, for example where OpenGL is not
+available. Then the status-bar line above ends with `; movie panel unavailable:` and the
+reason. This tutorial does not use the movie panel.
+
+But the warning stays in the status bar. It hides the lines that the next steps tell you to look
+for. If you see it, click **Dismiss** at the right end of the status bar. Then go on to step 5.
+
 ## 5. Look at each trace
 
 1. Press the **Right arrow** (or **Down arrow**) to move to the next molecule.
