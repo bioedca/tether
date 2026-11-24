@@ -110,15 +110,17 @@ def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkey
 
 
 def test_a_folder_gives_no_movie_that_extraction_refuses(tmp_path: Path) -> None:
-    """ND2 opens through the registry (#902) but extraction reads only TIFF.
+    """ND2 (#902) and CZI (#903) open through the registry, but extraction reads only TIFF.
 
-    A folder that holds an ND2 original beside its TIFF export must give the TIFF only:
-    the ND2 would fail its extraction stage, and its stem would collide with the TIFF's.
+    A folder that holds an ND2 or CZI original beside its TIFF export must give the TIFF
+    only: the original would fail its extraction stage, and its stem would collide with
+    the TIFF's.
     """
     from tether.io.adapters import registered_adapters  # noqa: PLC0415
 
-    assert "ND2" in [a.name for a in registered_adapters()]
+    assert {"ND2", "CZI"} <= {a.name for a in registered_adapters()}
     _touch(tmp_path / "movie.nd2")
+    _touch(tmp_path / "movie.czi")
     _touch(tmp_path / "movie.tif")
     assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["movie.tif"]
 
