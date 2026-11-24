@@ -159,7 +159,9 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
             "new .tether project."
         ),
     )
-    extract.add_argument("movie", help="path to the dual-channel movie (TIFF, ND2 or cellSens .vsi)")
+    extract.add_argument(
+        "movie", help="path to the dual-channel movie (TIFF, ND2 or cellSens .vsi)"
+    )
     extract.add_argument(
         "-o", "--output", required=True, help="path to the .tether project to create"
     )
