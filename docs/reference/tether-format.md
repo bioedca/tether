@@ -413,9 +413,9 @@ every row at NaN (`src/tether/project/analysis_import.py`). The NaN **stays in
 `correction_method` / `correction_confidence`.
 
 NaN factors next to `apparent-E (corrections unavailable)` are therefore an *expected*
-signature, not corruption. An import carries `/settings/analysis_only`. A withhold is recorded
-in `/settings/leakage` (`withheld`), as the `/molecules.alpha` row above says. A missing factor
-never becomes a NaN in E (ADR-0003).
+signature, not corruption. An import carries `/settings/analysis_only`. An α withhold is
+recorded in `/settings/leakage` (`withheld`) and a γ withhold in `/settings/gamma` (`withheld`).
+A missing factor never becomes a NaN in E (ADR-0003).
 
 E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
 there. For apparent E that is a frame with zero total intensity. For corrected E it is a frame
