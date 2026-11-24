@@ -106,6 +106,9 @@ class ProjectMovie:
         [`donor_xy`][] and [`acceptor_xy`][], so a front end can tell which molecule a
         spot belongs to (the trace↔movie round-trip, #357). Empty when
         [`no_spots`][tether.services.movies.ProjectMovie] gives a reason.
+    file_size, mtime:
+        The row's recorded fast signature (PRD §5.4), zero where the row records none.
+        [`open_project_movie`][] compares the file with it again just before it opens.
     """
 
     movie_id: str
@@ -116,6 +119,8 @@ class ProjectMovie:
     acceptor_xy: np.ndarray
     no_spots: str | None = None
     molecule_keys: tuple[str, ...] = ()
+    file_size: int = 0
+    mtime: float = 0.0
 
     @property
     def available(self) -> bool:
@@ -381,6 +386,8 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,
                 molecule_keys=keys,
+                file_size=file_size,
+                mtime=mtime,
             )
         )
     return ProjectMovies(movies=tuple(out), aperture_radius=radius)
@@ -393,9 +400,17 @@ def open_project_movie(movie: ProjectMovie) -> MovieReader:
     [`available`][tether.services.movies.ProjectMovie.available] raises ``ValueError``
     naming the reason, so a missing or cloud-only file is never touched; a file the reader
     refuses raises what [`tether.io.movie.open_movie`][] raises.
+
+    The file is checked again just before the reader opens it, against the recorded fast
+    signature (PRD §5.4, metadata only): a sync can replace it after
+    [`read_project_movies`][] read it (#1293). A file that has changed, gone or left this
+    disk since then raises the same ``ValueError``.
     """
     from tether.io.movie import open_movie
 
     if movie.path is None or not movie.available:
         raise ValueError(f"movie {movie.name} cannot be opened: {movie.unavailable}")
+    reason = _unavailable(movie.path, movie.file_size, movie.mtime)
+    if reason is not None:
+        raise ValueError(f"movie {movie.name} cannot be opened: {reason}")
     return open_movie(movie.path)
