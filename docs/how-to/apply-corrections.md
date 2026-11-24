@@ -154,9 +154,9 @@ project can tell a supplied factor from an estimated one.
 
 ## 4. Run the last step in the desktop application
 
-The last step of step 1 records the correction method of each molecule from the α and γ
-that the molecules already carry. You can run it again in the desktop application, for
-example after you change those factors:
+The last step of step 1 records the correction method of each molecule. It reads the α and γ
+that each molecule already carries. You can run that step again in the desktop application.
+An example is after you change those factors:
 
 1. Open the project in the desktop application.
 2. Go to the **Curate and correct** section.
@@ -164,23 +164,26 @@ example after you change those factors:
 4. To keep every molecule at apparent E on purpose, select **Apparent E only**.
 5. Select **OK**.
 
-The step runs in the background. While it runs, Tether does not let you idealize or edit
-the project. When it ends, a window shows each count of the result and the
-correction state of the project. This menu item does not estimate α or γ
-and does not take a value of your own. For those, use steps 1 and 3.
+The step runs in the background. While it runs, you cannot idealize or edit the project.
+When it ends, a window shows each count of the result. It also shows the correction state
+of the project.
 
-Two results look alike and are different:
+This menu item does not estimate α or γ. It does not take a value of your own either. For
+those, use steps 1 and 3.
+
+Two results look alike but are different:
 
 - **Corrections unavailable** shows when no molecule has both factors. Every molecule stays
   at apparent E, and no factor is applied. Step 2 tells you what to check.
 - **Apparent E by choice** shows when you selected **Apparent E only**. This is not a
   failure.
 
-The menu item is available only in some correction states. Before the first α or γ is
-stored, the state is APPARENT_REVIEW and the item is off. It is also off after an approval
-(CALIBRATION_APPROVED, CORRECTED_REVIEW and ANALYSIS_READY). Then a new pass would change the
-corrected traces behind the approval or the review. Hold the pointer over the item to see
-the reason.
+The menu item is available only in some correction states. Before Tether stores the first
+α or γ, the state is APPARENT_REVIEW, and the item is off. The item is also off after an
+approval. Those states are CALIBRATION_APPROVED, CORRECTED_REVIEW and ANALYSIS_READY. There,
+a new pass would change the corrected traces behind the approval or the review.
+
+Hold the pointer over the item to see the reason.
 
 ## Where the corrected efficiency appears
 
