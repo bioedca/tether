@@ -195,12 +195,13 @@ change-point model and runs on the background-subtracted layer by default
 
 ### analysis window
 
-The start and end frame of the part of a trace that every later step reads. By default it runs
-from the trace start to the first bleach of the summed donor and acceptor intensity.
+The start and end frame of the part of a trace that histograms, cross-correlation, features and
+idealization read. By default it runs from the trace start to the first bleach of the summed donor
+and acceptor intensity.
 
-Histograms, cross-correlation, features and idealization read it, and use `frame_range` when it
-is unset. A manual analysis window wins: Tether writes the automatic value only where the
-analysis window still equals the extraction default (ADR-0026). Stored in
+Each reader uses `frame_range` when it is unset. The α and γ estimators do not use it: they read
+the full trace and its bleach frames. A manual analysis window wins: Tether writes the automatic
+value only where the analysis window still equals the extraction default (ADR-0026). Stored in
 `/molecules.analysis_window`. See
 [Why your analysis window wins](pipeline.md#why-bleach-frames-come-first-and-why-your-analysis-window-wins).
 
