@@ -928,26 +928,34 @@ def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | N
             _copy_group_aliased(src[grp], dst, aliases)
 
 
-def _copy_sources(src: object, dst: object, aliases: _CuratorAliases | None) -> int:
+def _copy_sources(
+    src: object, dst: object, aliases: _CuratorAliases | None, src_path: Path, dst_path: Path
+) -> int:
     """Copy the source registry (#912) into the subset; return the number of records.
 
     Each record of the source is kept, including one made from a ``/movies`` row the subset
     does not carry, so the subset still says which files its molecules came from. A copy
     for sharing (``aliases`` set) keeps only the file name of a path outside the project's
     folder ([`shareable_path`][tether.project.sources.shareable_path]), as for
-    ``PATH_ATTRS``.
+    ``PATH_ATTRS``. Otherwise each relative path is read against the source project's folder
+    and stored relative to the subset's, so it still names the same file.
     """
     from dataclasses import replace  # noqa: PLC0415
 
     from tether.project.sources import (  # noqa: PLC0415
         _records_in,  # noqa: PLC2701
         _row,  # noqa: PLC2701
+        _stored_path,  # noqa: PLC2701
         shareable_path,
     )
 
     records = _records_in(src)
     if aliases is not None:
         records = [replace(r, relative_path=shareable_path(r.relative_path)) for r in records]
+    else:
+        records = [
+            replace(r, relative_path=_stored_path(dst_path, r.resolve(src_path))) for r in records
+        ]
     if records:
         table = dst["sources"]["table"]
         table.resize((len(records),))
@@ -1176,7 +1184,7 @@ def export_subset_tether(
                 n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
                 _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
-                _copy_sources(src, dst, aliases)
+                _copy_sources(src, dst, aliases, path, out_path)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
                 dst.attrs["tether_subset_of"] = path.name

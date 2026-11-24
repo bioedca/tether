@@ -647,11 +647,16 @@ stores it.
 | `created_utc` | `str:utf-8` | scalar | ISO-8601 UTC time the row was first stored. |
 
 **The checksum** is calculated by a stored job (`/settings/jobs`, command `source-checksum`)
-with one part for each source. It reads in 1 MiB blocks, with progress and cancel. **A
-source that moved** is linked again with `relink_source` only when the checksums match. The
-new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`. **A copy
-for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
-only the file name of a path that is absolute or steps out of the folder (`..`).
+with one part for each source. It reads in 1 MiB blocks, with progress and cancel. A file
+whose checksum differs from the one already known (the registry's or `/movies.sha256`) fails
+its part, and nothing is written.
+
+**A source that moved** is linked again with `relink_source` only when the checksums match.
+The new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`.
+
+**A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
+only the file name of a path that is absolute or steps out of the folder (`..`). A plain
+subset stores each path relative to its own folder, so it names the same file.
 
 ## `/traces` — the integrated intensity arrays
 

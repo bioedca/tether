@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SOURCE_ROLES",
+    "ChecksumMismatch",
     "RelinkRefused",
     "SourceRecord",
     "ensure_registry",
@@ -71,6 +72,10 @@ _CHUNK = 1 << 20
 
 #: The roles a source file can have.
 SOURCE_ROLES = ("movie", "bead_video", "map_image")
+
+
+class ChecksumMismatch(ValueError):
+    """A file's checksum differs from the one the project already holds for it."""
 
 
 class RelinkRefused(ValueError):
@@ -229,11 +234,17 @@ def _row(record: SourceRecord) -> object:
     return row
 
 
-def _write(project: Project, change: Callable[[object], None]) -> None:
+def _write(
+    project: Project,
+    change: Callable[[object], None],
+    guard: Callable[[], object] | None = None,
+) -> None:
     """Run ``change(table)`` on ``/sources/table`` under the writer lock.
 
-    A store stamped before 3 first gains the table through a guarded write that backs the
-    file up as it was (PRD §5.4).
+    ``guard`` (default: the handle's writer check) runs once the file is open and before
+    the change, so a job can bind the write to the lock epoch it started under. A store
+    stamped before 3 first gains the table through a guarded write that backs the file up
+    as it was (PRD §5.4).
     """
     import h5py  # noqa: PLC0415
 
@@ -254,7 +265,7 @@ def _write(project: Project, change: Callable[[object], None]) -> None:
         ):
             upgrade_skeleton(f)
     with h5py.File(project.path, "r+") as f:
-        project._assert_writable()
+        (guard or project._assert_writable)()
         change(f[_GROUP][_TABLE])
 
 
@@ -276,7 +287,12 @@ def _append(table: object, record: SourceRecord) -> None:
         raise
 
 
-def _store(project: Project, record: SourceRecord, **fields: object) -> SourceRecord:
+def _store(
+    project: Project,
+    record: SourceRecord,
+    guard: Callable[[], object] | None = None,
+    **fields: object,
+) -> SourceRecord:
     """Write ``record`` with ``fields`` changed: in place, or appended when not yet stored."""
     new = replace(record, stored=True, **fields)
     if not new.created_utc:
@@ -289,7 +305,7 @@ def _store(project: Project, record: SourceRecord, **fields: object) -> SourceRe
         else:
             _append(table, new)
 
-    _write(project, change)
+    _write(project, change, guard)
     return new
 
 
@@ -388,13 +404,36 @@ def file_sha256(
             done += len(block)
             if progress is not None:
                 progress(done, size)
+    if cancel is not None:  # a cancel during the last block still stops the calculation
+        cancel.raise_if_cancelled()
     return digest.hexdigest()
 
 
-def set_checksum(project: Project, source_id: str, sha256: str) -> SourceRecord:
-    """Store the checksum of a source (the checksum job's write; needs the writer lock)."""
+def set_checksum(
+    project: Project,
+    source_id: str,
+    sha256: str,
+    *,
+    guard: Callable[[], object] | None = None,
+) -> SourceRecord:
+    """Store the checksum of a source (the checksum job's write; needs the writer lock).
+
+    A checksum already known for the source (the registry's, or for a movie the one
+    ``/movies`` recorded at extraction) is its identity: a different one is refused, so a
+    file that changed since then never replaces it. ``guard`` runs just before the write.
+
+    Raises
+    ------
+    ChecksumMismatch
+        If ``sha256`` differs from the checksum already known. Nothing is written.
+    """
     record = _find(project.path, source_id)
-    return _store(project, record, sha256=sha256)
+    expected = _expected_sha256(project.path, record)
+    if expected and not same_file(expected, sha256):
+        raise ChecksumMismatch(
+            f"{record.original_name} has changed: its checksum is not the one recorded for it"
+        )
+    return _store(project, record, guard, sha256=sha256.lower())
 
 
 def _expected_sha256(project_path: Path, record: SourceRecord) -> str:

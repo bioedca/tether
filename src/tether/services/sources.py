@@ -9,7 +9,9 @@ ADR-0126) with one part for each source. [`submit_checksum_job`][] stores the jo
 from a worker thread, never from the window thread, and shows the two progress
 callbacks: ``progress(done, total)`` after each source and ``file_progress(source_id,
 read, size)`` after each 1 MiB block. Cancel stops between blocks, the store stays as it
-was before that source, and a later run continues from the checkpoint.
+was before that source, and a later run continues from the checkpoint. A file whose checksum
+differs from the one already known for it (it changed since extraction) fails its part and
+writes nothing.
 
 Like [`tether.services.movies`][], this is not a registered service command: it has no
 command-line subcommand. The request records only source ids, never a path, so a stored
@@ -76,6 +78,13 @@ def run_checksum_job(
     from tether.project import jobs  # noqa: PLC0415
     from tether.project.sources import file_sha256, read_sources, set_checksum  # noqa: PLC0415
 
+    # The job binds to the lock epoch it starts under; each checksum write checks it again
+    # just before it writes, so a steal during a long read stops the write.
+    nonce = project._assert_held_lock()
+
+    def guard() -> None:
+        project._assert_held_lock(expected_nonce=nonce)
+
     def work(source_id: str, token: CancelToken) -> None:
         record = next((r for r in read_sources(project.path) if r.source_id == source_id), None)
         if record is None:
@@ -86,7 +95,7 @@ def run_checksum_job(
                 file_progress(source_id, read, size)
 
         digest = file_sha256(record.resolve(project.path), cancel=token, progress=report)
-        set_checksum(project, source_id, digest)
+        set_checksum(project, source_id, digest, guard=guard)
 
     job = jobs.read_job(project.path, job_id)
     start = jobs.run_job if job.stored_state is jobs.JobState.QUEUED else jobs.retry_job

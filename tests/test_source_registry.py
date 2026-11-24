@@ -27,7 +27,9 @@ from tether.io.schema import (  # noqa: E402
 )
 from tether.project import jobs  # noqa: E402
 from tether.project import sources as S  # noqa: E402
+from tether.project.core import Project  # noqa: E402
 from tether.project.export import export_subset_tether  # noqa: E402
+from tether.project.lock import LockedError, LockIdentity  # noqa: E402
 from tether.services.sources import run_checksum_job, submit_checksum_job  # noqa: E402
 
 #: Bigger than two 1 MiB blocks, so a checksum reports progress more than once.
@@ -269,4 +271,74 @@ def test_the_copy_for_sharing_holds_no_absolute_private_path(tmp_path) -> None:
     assert b"dana-pq9-home" not in out.read_bytes()
     plain = tmp_path / "plain.tether"
     export_subset_tether(project, plain)
-    assert "../dana-pq9-home/beads.tif" in {r.relative_path for r in S.read_sources(plain)}
+    assert {r.relative_path for r in S.read_sources(plain)} == {
+        "project/movie.tif",
+        "dana-pq9-home/beads.tif",
+    }
+
+
+def test_a_subset_in_another_folder_still_names_the_same_files(tmp_path) -> None:
+    folder = tmp_path / "data"
+    folder.mkdir()
+    project, movie = _project(folder)
+    out = tmp_path / "exports" / "subset.tether"
+    out.parent.mkdir()
+    export_subset_tether(project, out)
+    (record,) = S.read_sources(out)
+    assert record.relative_path == "../data/movie.tif"
+    assert record.resolve(out).resolve() == movie.resolve()
+
+
+def test_a_movie_that_changed_since_extraction_keeps_its_checksum(tmp_path) -> None:
+    original = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=original)
+    movie.write_bytes(_MOVIE_BYTES + b"changed")
+    project.acquire_lock()
+    try:
+        job = submit_checksum_job(project)
+        out = run_checksum_job(project, job.job_id)
+        assert out.state is jobs.JobState.FAILED and "ChecksumMismatch" in out.error
+        assert not S.read_sources(project.path)[0].checksum_calculated
+        with pytest.raises(S.ChecksumMismatch):
+            S.set_checksum(project, "movie:mov-1", "0" * 64)
+        S.set_checksum(project, "movie:mov-1", original.upper())
+        with pytest.raises(S.ChecksumMismatch):  # a stored checksum is never replaced
+            S.set_checksum(project, "movie:mov-1", "0" * 64)
+    finally:
+        project.release_lock()
+    assert S.read_sources(project.path)[0].sha256 == original
+
+
+def test_a_cancel_during_the_last_block_stores_nothing(tmp_path) -> None:
+    project, movie = _project(tmp_path)
+    movie.write_bytes(b"one small block")
+    project.acquire_lock()
+    try:
+        job = submit_checksum_job(project)
+        token = jobs.CancelToken()
+        out = run_checksum_job(
+            project, job.job_id, cancel=token, file_progress=lambda *_: token.cancel()
+        )
+    finally:
+        project.release_lock()
+    assert out.state is jobs.JobState.CANCELLED
+    assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+def test_a_lock_lost_during_a_checksum_stops_its_write(tmp_path) -> None:
+    project, _ = _project(tmp_path)
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    project.acquire_lock()
+    job = submit_checksum_job(project)
+
+    stolen: list[bool] = []
+
+    def steal_and_leave(*_: object) -> None:
+        if not stolen:
+            stolen.append(True)
+            thief.steal_lock()
+            thief.release_lock()  # no lock file is left, which a plain writer check accepts
+
+    with pytest.raises(LockedError):
+        run_checksum_job(project, job.job_id, file_progress=steal_and_leave)
+    assert not S.read_sources(project.path)[0].checksum_calculated

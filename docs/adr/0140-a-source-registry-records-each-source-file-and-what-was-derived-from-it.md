@@ -83,7 +83,11 @@ is not calculated; the request records source ids only, never a path. `run_check
 file in 1 MiB blocks, asks the cancel token between blocks, and reports progress after each source
 and after each block. A front end calls it from a worker thread. A cancel leaves the store as it
 was before that source, and a later run continues from the checkpoint. The table is added before
-the job starts, so no part's write replaces the file.
+the job starts, so no part's write replaces the file. A checksum already known for a source is
+its identity: the registry's, or for a movie the `/movies.sha256` of its extraction. A file whose
+checksum differs (it changed since then) fails its part and writes nothing, and a stored checksum is
+never replaced. Each write checks the lock epoch the job started under, so a steal during a long
+read stops the write, as the coordinator's own writes do.
 
 ### Link again
 
@@ -102,7 +106,8 @@ keeps its absolute path: refusing it would refuse every movie on a data drive. S
 a private folder, so `export_subset_tether` copies the registry (every record, including the ones
 made from `/movies`, so the subset still says where its molecules came from) and, for a copy for
 sharing (`curator_alias`), keeps only the file name of a path that is absolute or has a `..` step
-(`shareable_path`), as it does for `PATH_ATTRS`.
+(`shareable_path`), as it does for `PATH_ATTRS`. A plain subset reads each relative path against
+the source project's folder and stores it relative to the subset's, so it names the same file.
 
 ### Consequences
 
