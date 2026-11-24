@@ -16,9 +16,8 @@ governs: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR, and
 authority): it carries the worker procedure and by its own first line neither restates nor relaxes
 anything here.
 
-**`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
-one of them in this file would strand the other lane, so every command below writes `<py>` and you
-substitute it as you read. `gh` and `git` need no such rule; they resolve from `PATH` in both shells.
+**`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Every
+command below writes `<py>`; substitute yours. `gh` and `git` resolve from `PATH` in both shells.
 
 ## Outcome and authority
 
@@ -35,6 +34,9 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   a separate templated issue only when the finding is reproducible and actionable.
 - Report vulnerabilities only through the private advisory/security-fork PR; never use a public issue,
   PR, Discussion, Project, log, or chat. Never expose credentials, private paths, or embargoed work.
+- **Quetza's E: and F: drives are read-only, no exception**: never write, move, rename or delete
+  there. Each copy from them needs the maintainer's approval (under 5 GB, to the Xochi folder he
+  names).
 
 ## Concurrent GitHub Flow
 
@@ -78,8 +80,7 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   a single reference, a single issue, or a whole collection, the last carrying a `collection`
   field naming which listing failed, so one unreadable query costs its own section and not the
   report. A held issue whose body contains no `#N` at all reports `unparseable` rather than an
-  empty `mentions`, because an empty set reads as *every dependency resolved* and #326 names
-  that false clean as worse than a miss. Every remedy is maintainer authority — post a marker,
+  empty `mentions`, for the same #326 reason. Every remedy is maintainer authority — post a marker,
   promote a label, arm someone else's merge — which is why it reports rather than acts.
 - Each worker owns its own worktree lifecycle — fetch/prune, add/remove, LFS pulls. Keep the root
   `main` worktree clean, and never use repository-wide stash, `git clean -fdx`, destructive reset,

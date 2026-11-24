@@ -112,11 +112,19 @@ stage and next step, and the label was removed from it and from every closed pul
    route (ADR-0099); and a separate per-PR merge go-ahead pinned to the reviewed head.
 5. **The handoff pages are removed**, with their pointer in `AGENTS.md`. The repository copy of the
    queue script (`.agents/bin/cr_next_free.py`) and its priority list stay: the script's own usage
-   text is its documentation, and the project-folder queue rule is unchanged.
-6. **Two passages of `AGENTS.md` keep their rule and lose their reasoning** to make room under the
+   text is its documentation, and the project-folder queue rule is unchanged. The handoff page also
+   carried the maintainer's standing rules for every lane. Its data rule moves into `AGENTS.md`
+   §Outcome and authority, because it is the one whose loss could harm data: the E: and F: drives on
+   Quetza are read-only with no exception, and each copy from them needs the maintainer's approval.
+   CodeRabbit's walkthrough on PR #1319 found this gap. The other standing rules (commit identity,
+   no agent attribution, an explicit squash message) stay in the maintainer's project instructions,
+   and the `*.blob.core.windows.net` bar stays in ADR-0060.
+6. **Four passages of `AGENTS.md` keep their rule and lose their reasoning** to make room under the
    byte budget. The Codex CLI bullet keeps "it would run under rules that have not merged" and cites
    ADR-0065, which records what was observed on codex-cli 0.147.0. The agent-layer sub-floor bullet
-   drops its sentence on why it inverts the deferral rule; ADR-0064 records the loop it closes.
+   drops its sentence on why it inverts the deferral rule; ADR-0064 records the loop it closes. To
+   fit the data rule, the `<py>` paragraph drops its reason (naming one interpreter would strand the
+   other lane), and the `claim.py doctor` bullet cites #326 once for both of its false-clean cases.
 
 ### Consequences
 
