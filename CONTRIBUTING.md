@@ -242,10 +242,12 @@ lock, the curation event filter or a `_GUI_PROJECT_OWNERS` entry survived. A new
 a napari `Viewer`, it also joins `VIEWER_SECTIONS`, because macOS offscreen cannot draw a `Viewer`
 (#344).
 
-`--strict-markers` rejects an *unregistered* marker, so it catches `-m deepp`. It does **not**
-protect a negated expression. `-m "not largge"` is a valid filter that excludes nothing. So a
-typo there silently pulls the optional tiers back into the run, and the run does not fail. Read
-the collected count, not only the exit code.
+`--strict-markers` rejects an *unregistered* marker only where a test applies it. It does
+**not** check the names in a `-m` expression, so a typo there is not an error. `-m deepp`
+deselects every test, and pytest exits 5 with no message about the unknown name.
+`-m "not largge"` is a valid filter that excludes nothing. So that typo silently pulls the
+optional tiers back into the run, and the run does not fail. Read the collected count, not only
+the exit code.
 
 `tests/test_marker_contract.py` enforces two naming rules:
 
@@ -635,8 +637,10 @@ differently. Examples are a schema-affecting change, a dependency or isolation b
 algorithm choice with a scientific trade-off, or anything that supersedes an earlier ADR. Routine
 bug fixes and refactors do not need one.
 
-1. Copy [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`.
-   `NNNN` is the next unused number. Numbers are contiguous, so do not skip one.
+1. Reserve the number first, as [Reserving a number](docs/agents/adr.md#reserving-a-number)
+   tells you. Do not pick the next number by reading `docs/adr/`. Then copy
+   [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`, where `NNNN`
+   is the reserved number. Gaps in the numbers are allowed. Never reuse a number.
 2. Fill all five frontmatter fields: **Status**, **Date**, **Deciders**, **PRD anchor** and
    **Milestone**. Keep the MADR headings from the template.
 3. Set `Status` to `proposed`, `accepted`, `deprecated` or `superseded by ADR-NNNN`. When a record

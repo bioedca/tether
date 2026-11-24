@@ -68,6 +68,10 @@ brings it to the application.
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
   missing or changed movie file is listed but not shown. A movie with no recorded geometry has
   no spots.
+- **Trace ⇄ movie round trip.** Select a trace, or press Enter, and the movie panel shows its
+  own movie centred on its spot. Click a donor or acceptor spot and the list selects its trace,
+  across all the movies of the project
+  ([how-to](docs/how-to/curate-traces.md#go-between-a-trace-and-its-movie-spot)).
 
 ### From the command line today
 
@@ -109,9 +113,8 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
 
 ### Not in Tether yet
 
-- **Trace ⇄ movie round trip.** Click a trace → jump to its spot, click a spot → open its
-  trace, across many movies ([#357](https://github.com/bioedca/tether/issues/357), M16). The
-  project already stores the spot each trace came from.
+Nothing is listed here now. Planned work is in the
+[issue tracker](https://github.com/bioedca/tether/issues).
 
 ## Installation
 

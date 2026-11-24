@@ -28,7 +28,12 @@ import pytest
 
 from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import MovieOverlay, NapariMoviePanel
-from tether.gui.roundtrip import MoleculeSite, RoundTripIndex, RoundTripNavigator
+from tether.gui.roundtrip import (
+    MoleculeSite,
+    RoundTripIndex,
+    RoundTripNavigator,
+    sites_for_molecules,
+)
 from tether.io.movie import open_movie
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
@@ -269,6 +274,111 @@ def test_navigator_rejects_duplicate_movie_ids() -> None:
     panel = _FakePanel(active=0)
     with pytest.raises(ValueError, match="unique"):
         RoundTripNavigator(index, panel, movie_ids=["m0", "m0"])
+
+
+# --- sites_for_molecules: the shell's molecule list → sites (Qt-free, #357) ----------
+
+
+class _Spots:
+    """A stand-in for :class:`~tether.services.movies.ProjectMovie`'s spot fields."""
+
+    def __init__(self, movie_id: str, keys: list[str], donor: list, acceptor: list) -> None:
+        self.movie_id = movie_id
+        self.molecule_keys = tuple(keys)
+        self.donor_xy = np.asarray(donor, dtype=np.float64).reshape(-1, 2)
+        self.acceptor_xy = np.asarray(acceptor, dtype=np.float64).reshape(-1, 2)
+
+
+def test_sites_for_molecules_maps_each_site_to_its_list_row() -> None:
+    movies = [
+        _Spots("m0", ["a", "b"], [[1.0, 2.0], [3.0, 4.0]], [[11.0, 2.0], [13.0, 4.0]]),
+        _Spots("m1", ["c"], [[5.0, 6.0]], [[15.0, 6.0]]),
+    ]
+    # "x" has no spot in a shown movie and None has no store row: neither gets a site.
+    sites, rows = sites_for_molecules(["c", "x", "a", None, "b"], movies)
+
+    assert rows == [0, 2, 4]
+    assert [site.movie_id for site in sites] == ["m1", "m0", "m0"]
+    np.testing.assert_array_equal(sites[0].donor_xy, [5.0, 6.0])
+    np.testing.assert_array_equal(sites[2].acceptor_xy, [13.0, 4.0])
+
+
+def test_sites_for_molecules_rejects_keys_out_of_step_with_spots() -> None:
+    spots = _Spots("m0", ["a"], [[1.0, 2.0], [3.0, 4.0]], [[1.0, 2.0], [3.0, 4.0]])
+    with pytest.raises(ValueError, match="1 molecule key"):
+        sites_for_molecules(["a"], [spots])
+
+
+def _two_movie_project(tmp_path: Path) -> Path:
+    """A ``.tether`` with two ``/movies`` rows (the #347 append), three molecules each."""
+    import dataclasses
+
+    from _analysis_store import PARSED, _mols_traces_movie, build_store_with_channels, reg_map
+    from tether.imaging.extract import write_extraction
+    from tether.imaging.split import ChannelGeometry
+
+    rng = np.random.default_rng(357)
+    channels = [rng.uniform(200.0, 800.0, size=(3, 12)) for _ in range(4)]
+    project, _keys = build_store_with_channels(tmp_path, channels[0], channels[1])
+    mols, traces, movie = _mols_traces_movie(channels[2], channels[3])
+    movie = dataclasses.replace(
+        movie,
+        movie_id="mov-2",
+        sha256="b" * 64,
+        height=40,
+        width=48,
+        donor_geometry=ChannelGeometry(crop=(1, 1, 40, 24)),
+        acceptor_geometry=ChannelGeometry(crop=(1, 25, 40, 48)),
+    )
+    write_extraction(
+        project.path,
+        movie=movie,
+        molecules=mols,
+        traces=traces,
+        parsed=PARSED,
+        registration_map=reg_map(),
+    )
+    return Path(project.path)
+
+
+def test_a_two_movie_project_round_trips_both_ways_without_qt(tmp_path) -> None:
+    """The literal §9 M2 criterion on a real store, with no display: ≥ 2 movies, both legs."""
+    pytest.importorskip("h5py")
+    from tether.imaging.extract import read_molecules
+    from tether.services.movies import read_project_movies
+
+    path = _two_movie_project(tmp_path)
+    mols = read_molecules(path)
+    keys = [k.decode() if isinstance(k, bytes) else str(k) for k in mols["molecule_key"]]
+    movies = read_project_movies(path).movies
+    assert [m.movie_id for m in movies] == ["mov-1", "mov-2"]
+    sites, rows = sites_for_molecules(keys, movies)
+    assert rows == list(range(6))
+
+    panel = _FakePanel(active=0)
+    selected: list[int] = []
+    nav = RoundTripNavigator(
+        RoundTripIndex(sites),
+        panel,
+        [m.movie_id for m in movies],
+        on_select=selected.append,
+        max_click_distance=2.5,
+    )
+    nav.connect()
+    # Both movies put their donor spots at the same frame pixels; the acceptor crops differ.
+    shift = {"mov-1": 64.0, "mov-2": 24.0}
+    for row in range(6):
+        movie = "mov-1" if row < 3 else "mov-2"
+        donor = np.asarray(mols["donor_xy"][row], dtype=np.float64)
+        acceptor = np.asarray(mols["acceptor_xy"][row], dtype=np.float64) + [shift[movie], 0.0]
+        # trace → movie: the molecule's own movie, centred on its donor spot.
+        nav.focus_molecule(row)
+        assert panel.active_index == (0 if movie == "mov-1" else 1)
+        assert panel.centered_on[-1] == (donor[1], donor[0])
+        # movie → trace: a click on either spot, in the movie shown, selects it back.
+        panel.click_callback((donor[1], donor[0]))
+        panel.click_callback((acceptor[1], acceptor[0]))
+        assert selected[-2:] == [row, row]
 
 
 # --- GUI smoke: real napari panel, ≥2 movies ---------------------------------

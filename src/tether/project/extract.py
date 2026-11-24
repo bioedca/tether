@@ -150,6 +150,7 @@ from tether.project._guarded_publish import (
     require_publish_guard,
 )
 from tether.project.core import Project
+from tether.project.correction_states import mark_traces_replaced_in
 from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
 
@@ -521,6 +522,11 @@ def _registration_source(reg_map: RegistrationMap, map_path: object) -> str:
     return "map-file" if map_path is not None else reg_map.source
 
 
+def _roles_from_file(tmap: object, map_path: object) -> bool:
+    """Whether a map's geometry, not the ``donor_side`` option, names the channel halves."""
+    return tmap is not None or map_path is not None
+
+
 def _write_metadata_origins(
     path: Path,
     movie_id: str,
@@ -550,6 +556,25 @@ def _write_metadata_origins(
         pixel_size_origin=mm.ORIGIN_FILE if pixel_size_um else mm.ORIGIN_UNKNOWN,
         channel_roles_origin=mm.ORIGIN_FILE if roles_from_file else mm.ORIGIN_USER,
     )
+    with h5py.File(path, "r+") as f:
+        mm.write_metadata_record(f, record)
+
+
+def _write_roles_origin(path: Path, movie_id: str, *, roles_from_file: bool) -> None:
+    """Record the channel-role origin of a re-extracted movie's new layout (#1309).
+
+    The new generation's layout comes from this run's sources, so its roles take
+    the origin a fresh extraction with those sources records
+    (`_write_metadata_origins`). The frame time, its verification and the pixel
+    size are the movie's, not the run's, and stay as the store holds them; other
+    movies' records are not touched.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.project import movie_metadata as mm  # noqa: PLC0415
+
+    origin = mm.ORIGIN_FILE if roles_from_file else mm.ORIGIN_USER
+    record = replace(mm.read_movie_metadata(path)[movie_id], channel_roles_origin=origin)
     with h5py.File(path, "r+") as f:
         mm.write_metadata_record(f, record)
 
@@ -867,7 +892,7 @@ def _persist(
         movie_id,
         extracted.frame_time,
         extracted.pixel_size_um,
-        roles_from_file=tmap is not None or map_path is not None,
+        roles_from_file=_roles_from_file(tmap, map_path),
     )
     return movie_id, calibration_id, molecule_ids
 
@@ -1339,8 +1364,15 @@ def reextract_movie(
     ([`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX] by default) keep
     its ``molecule_key``, curation label, category and analysis window, marked carried;
     fits and corrections of the movie are marked stale through the ``trace_generation``
-    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]). The movie's frame time
-    and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
+    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]).
+    [`mark_traces_replaced_in`][tether.project.correction_states.mark_traces_replaced_in]
+    then moves an ANALYSIS_READY or CORRECTED_REVIEW correction state to
+    CALIBRATION_STALE, and in CALIBRATION_APPROVED, where the state does not change, marks
+    the approved factor version stale; either way corrected analysis waits for a new
+    approval. The movie's frame time, its verification and its pixel size are kept; the
+    channel roles' origin becomes the one this run's sources give, as on a fresh
+    extraction ([`tether.project.movie_metadata`][]). No generation is overwritten or
+    deleted (ADR-0136).
 
     The update is written to a sibling copy of the project and published by one atomic
     replace under the project's writer lock, exactly as [`add_movie_to_project`][] is.
@@ -1433,6 +1465,10 @@ def reextract_movie(
                 record.generation_id,
                 guards_hold=(_CONTRIBUTOR_INTENSITIES_CHANGE,),
             )
+            # The corrections were read from the traces this generation replaces, so
+            # corrected analysis waits for a new approval (#1284).
+            mark_traces_replaced_in(stage, movie_id=movie_id, generation_id=record.generation_id)
+            _write_roles_origin(stage, movie_id, roles_from_file=_roles_from_file(tmap, map_path))
     except ExtractionError:
         raise
     except Exception as exc:  # aperture mismatch, lost lock, IO failure

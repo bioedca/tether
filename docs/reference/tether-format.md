@@ -171,6 +171,7 @@ guaranteed to be there.
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/settings/correction_transitions` | absent | `send_event` (`src/tether/project/correction_states.py`) |
+| `/settings/gamma_contributors`, `/settings/gamma_contributor_decisions` | absent | `compute_gamma` (`src/tether/project/gamma.py`) / `set_gamma_contributor` (`src/tether/project/gamma_contributors.py`) |
 | `/settings/approvals` | absent | `record_approval` (`src/tether/project/approvals.py`), called by `tether approve` and by a recipe policy |
 | `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
@@ -299,13 +300,16 @@ which keeps the value from the file.
 | `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
 | `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm, the pixels are square and the resolution is not the `1/1` placeholder, or the user's value; `0.0` unknown. |
 | `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
-| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
+| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap` or a map file, `user` for a native extraction (`--donor-side`). A re-extraction sets it again from the sources of that run (#1309). |
 
 `extract_movie` writes the group. Some rows have no group: a store written before #911,
 or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
 (`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
 verified, because that field has only ever been filled from the ImageJ `finterval`. A
 `frame_time` of `0.0` is `unknown`. The pixel size and the channel roles are `unknown`.
+
+A re-extraction (`reextract_movie`) writes only a new `channel_roles_origin`. It keeps the
+other attributes of the movie, and for a row with no group it reads them by the rule above.
 
 ## `/molecules` — one row per molecule
 
@@ -395,6 +399,19 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 40-frame store, one bleaching and two non-bleaching molecules read
 `[[30, 20], [40, 40], [40, 40]]` against `frame_range` `[[0, 40], [0, 40], [0, 40]]`.
 
+**`alpha` and `gamma` NaN.** A NaN factor means the min-qualifying-traces gate withheld it.
+The NaN **stays in `/molecules.alpha` / `.gamma`**: absent a manual override,
+`compute_corrected_fret` only stamps `correction_method` / `correction_confidence`. So NaN
+factors next to `apparent-E (corrections unavailable)` are the *expected* signature of a
+withhold, not corruption. A missing factor never becomes a NaN in E (ADR-0003).
+
+E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
+there. For apparent E that is a frame with zero total intensity. For corrected E it is a frame
+where `I_A,corr + γ·I_D,corr` is zero. So a frame with both channels at zero is NaN in both, but
+a frame whose donor and acceptor only cancel can have a finite corrected E. That per-frame NaN
+is not the factor sentinel. The factor NaN is also distinct from the `-1` undetected sentinel
+above and from `NO_STATE` ([glossary](../glossary.md#withheld-factor-nan-sentinel)).
+
 **`tags`.** Two tags are emitted by shipped code:
 
 | Tag | Constant | When |
@@ -439,6 +456,14 @@ temperature, laser power); `date`, `replicate` and the source file deliberately 
 ([ADR-0033](../adr/0033-condition-identity-and-rekey.md)). `condition_id` is derived
 from that key as `cond-<first 12 hex of its sha256>`
 (`ConditionKey.condition_id()` in `src/tether/io/filename.py`).
+
+The project file is not part of the identity either: two projects whose `/conditions` rows
+carry the same confirmed key hold the same condition
+([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)). A key parsed from a filename is
+provisional until it is confirmed. The parse gives no buffer, temperature or laser power, so two
+provisional keys can agree for two different conditions. Two near-miss filename parses yield
+different ids and stay separate by default. Collapsing them requires an explicit confirmed
+re-key ([ADR-0033](../adr/0033-condition-identity-and-rekey.md)).
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
@@ -512,6 +537,22 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 | `weight` | `f8` | scalar | Effective training weight, dimensionless. Human labels are `1.0`; provisional weights decay as human labels accrue and this column is **rewritten** at retrain. |
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
 | `condition_id` | `str:utf-8` | scalar | The condition the label is scoped to. |
+
+A **reject is a reversible tag that persists, never a deletion**. It carries across files on
+`molecule_key`, it is reversible in one call (`tether.project.labels.unreject`), and the
+**toggleable** curation filter excludes it (`include_rejected=False` by default).
+`tether.project.labels.accept` / `reject` / `unreject` each append one provenance-stamped row to
+`/labels/table`. `unreject` appends one only when the molecule really is rejected: on any other
+state it is a documented no-op that writes nothing. The GUI exposes that reversal as
+**Un-reject selected** in the Browser dock, a visible control rather than a hidden global
+shortcut.
+
+Nothing appends a row for a category assignment. `category` lives only on `/molecules`.
+No row is ever deleted (a reversal is logged as its own row), but those three wrappers are not
+the log's only appenders. `tether.project.reconstruct` records provisional Deep-LASI accept
+priors through `set_curation_label`. `tether.project.merge` appends a contributor's human rows
+when two projects are merged, matched and de-duplicated, with each appended row's
+`condition_id` rewritten to the owner project's value.
 
 ### `/labels/reject_log` — the reason of each reject
 
@@ -590,6 +631,17 @@ and, if the movie had one, `layout` (its `/movies/layouts` record). Its rows the
 row-aligned arrays and the new generation's are appended **at the end**, so the rows of
 other movies move up but are not changed. An archive is written once and never changed or
 removed by an extraction.
+
+A new generation keeps the movie's `condition_id` when every molecule of the previous
+generation had one. When the previous generation has no molecule, the newest archived
+generation of the movie that has molecules gives it. A new generation of a project whose
+correction state is `ANALYSIS_READY` or `CORRECTED_REVIEW` also appends one row to
+`/settings/correction_transitions`, to `CALIBRATION_STALE`, with the actor `policy`. While
+an approval is in force (`CALIBRATION_APPROVED`, `CORRECTED_REVIEW`, `ANALYSIS_READY`), it
+also appends to `/settings/stale_marks` a mark for the approved `factor_version` (edge 7) and
+the applied `correction_version` (edge 8), so *finish review* refuses until the factors are
+approved again
+([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md), #1284).
 
 `/generations/label_reviews` is an optional append-only dataset. Each row stores the
 current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
@@ -695,7 +747,8 @@ leave `/patches` empty**, because they have no coordinates.
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
 datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
-`recorded_inputs`, `stale_marks`, `correction_transitions` and `approvals`, which are datasets.
+`recorded_inputs`, `stale_marks`, `correction_transitions`, `gamma_contributors`,
+`gamma_contributor_decisions` and `approvals`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -712,6 +765,8 @@ datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`
 | `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
 | `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 | `correction_transitions` | `tether.project.correction_states` | A **dataset**: append-only transitions of the correction states of G03, created lazily (ADR-0131). |
+| `gamma_contributors` | `compute_gamma` (`src/tether/project/gamma.py`) | A **dataset**: the γ evidence table, one row for each examined molecule (#927). Replaced on each γ pass, and removed with `gamma` by a `compute_leakage_alpha` pass that withholds α. |
+| `gamma_contributor_decisions` | `tether.project.gamma_contributors` | A **dataset**: append-only exclusions and inclusions of γ contributors by a person or a recipe policy, created lazily (#927). |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -821,6 +876,49 @@ A scope with no row is in its start state: `APPARENT_REVIEW`, or `GAMMA_REVIEW` 
 `/settings/leakage`, `/settings/gamma` or `/settings/correction` exists. Such a project never
 reads as approved. A corrected analysis is refused in every state except `ANALYSIS_READY`, and an
 apparent-E analysis is never refused.
+
+### γ evidence table
+
+`/settings/gamma_contributors` holds one row for each molecule that the last γ pass examined
+([#927](https://github.com/bioedca/tether/issues/927)), in `/molecules` order.
+
+| Field | Meaning |
+|---|---|
+| `molecule_key` | The molecule. |
+| `step`, `step_source` | The absolute acceptor-bleach frame, and where it came from. Today it is always `detector`. A window that a person sets comes with the calibration windows of [#928](https://github.com/bioedca/tether/issues/928). |
+| `level_window`, `half_window` | The level window that averaged the intensities: `half-window` with its half-width, or `whole-segment` with `half_window = 0`. |
+| `pre_window`, `post_window` | The absolute half-open frame ranges of the two levels. |
+| `alpha` | The leakage factor that corrected the acceptor levels of the row. |
+| `donor_pre`, `donor_post`, `acceptor_pre`, `acceptor_post` | The four levels. The acceptor is leakage-corrected. |
+| `delta_donor`, `delta_acceptor` | ΔI_D and ΔI_A. |
+| `ratio` | The raw ΔI_A / ΔI_D, with its sign. |
+| `gamma` | The trace γ. It is `NaN` when the gates exclude the row. |
+| `gate` | The estimator's reason: `ok`, `no-step`, `short-pre`, `short-post`, `degenerate-donor` or `out-of-range`. |
+| `included`, `reason`, `by`, `actor` | Whether the row is in the median, and the reason, author kind (`estimator`, `person` or `policy`) and author of an exclusion. |
+
+With the stored traces and the row's `alpha`, the windows give each row again, also after a
+later leakage pass changes `/molecules.alpha`. An excluded row keeps its `ratio`, also when
+it is negative, zero or above the ceiling. The `ratio` is `NaN` only when no step was
+measured (`no-step`, `short-pre` or `short-post`), or when ΔI_D is zero. Then the `reason`
+is `zero-donor-step`, followed by a semicolon and the reason of a person or a policy that excluded
+the row.
+
+The population γ is the median of the included rows. It is withheld below `min_qualifying_traces` included rows, so with no
+decision it is the γ that `compute_gamma` gave before the table. `/settings/gamma` counts the
+decisions in `n_excluded`.
+
+`/settings/gamma_contributor_decisions` has the fields `molecule_key`, `included`, `reason`,
+`by` (`person` or `policy`), `actor`, `timestamp` and `app_version`. The latest row for a
+`molecule_key` holds, and each γ pass reads it. `set_gamma_contributor` writes the decision
+and the new γ pass in one guarded write. An exclusion needs a reason. An inclusion withdraws
+a decision but never a gate. The correction state follows the change:
+
+- In `CALIBRATION_APPROVED` the evidence is frozen and the change is refused.
+- In `CORRECTED_REVIEW` and `ANALYSIS_READY` the change is the evidence-change event, and the
+  state becomes `CALIBRATION_STALE`.
+- In `GAMMA_REVIEW` a withheld γ moves the state to `CALIBRATION_BLOCKED` before the write,
+  so a failed event writes nothing. In `CALIBRATION_BLOCKED` a valid γ moves it back to
+  `GAMMA_REVIEW` after the write, and the same decision again sends an event that failed.
 
 ### Approvals
 

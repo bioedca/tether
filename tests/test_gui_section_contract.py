@@ -126,7 +126,7 @@ def test_the_section_leaves_no_project_owner_on_teardown(section_shell, section_
 
 def test_the_harness_lists_every_registered_section(section_shell) -> None:
     shell = section_shell(project=False)
-    assert shell.sections.ids == SECTION_IDS
+    assert shell.sections.visible_ids == SECTION_IDS
     assert set(SECTION_IDS) >= VIEWER_SECTIONS
 
 

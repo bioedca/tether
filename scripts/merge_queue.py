@@ -26,6 +26,27 @@ REQUEST_PREFIX = "refs/merge-queue/pr-"
 CANDIDATE_PREFIX = "mq/pr-"
 DEFAULT_WINDOW = 5
 TIMEOUT_SECONDS = 30
+#: The variables that move Git to another repository, index or object store. A process started
+#: from a Git hook inherits them. ``Git.run`` drops them so that every call stays in its checkout.
+#: These are the location entries of ``git rev-parse --local-env-vars`` (git 2.43), without the
+#: three configuration entries, plus ``GIT_NAMESPACE``, which moves the refs.
+REPOSITORY_LOCATION_VARS = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    }
+)
 
 CANDIDATE = "candidate"
 HELD = "held"
@@ -139,21 +160,31 @@ class GitHub:
         commit = self._call("POST", "/git/commits", payload)[1].get("sha")
         if not isinstance(commit, str):
             raise QueueError("GitHub did not return a SHA for the request commit")
-        ref = {"ref": f"{REQUEST_PREFIX}{number}", "sha": commit}
-        return self._call("POST", "/git/refs", ref, accept=(201, 422), expect=None)[0] == 201
+        ref = f"{REQUEST_PREFIX}{number}"
+        payload = {"ref": ref, "sha": commit}
+        if self._call("POST", "/git/refs", payload, accept=(201, 422), expect=None)[0] == 201:
+            return True
+        # GitHub answers 422 for an existing ref and also for a write that it rejects, so look.
+        if self._has_ref(ref):
+            return False
+        raise QueueError(f"GitHub did not create {ref} (HTTP 422) and the ref does not exist")
 
     def delete_ref(self, ref: str) -> bool:
         """Delete ``ref`` (``refs/...``). ``False`` means it did not exist."""
         if self._call("DELETE", f"/git/{ref}", accept=(204, 404, 422), expect=None)[0] == 204:
             return True
         # GitHub answers 422 for an absent ref and also for a delete that it rejects, so look.
-        path = f"/git/matching-refs/{ref.removeprefix('refs/')}"
-        left = self._call("GET", path, expect=list)[1]
-        if not all(isinstance(found, dict) and isinstance(found.get("ref"), str) for found in left):
-            raise QueueError(f"GitHub returned invalid matching refs for {ref}")
-        if any(found["ref"] == ref for found in left):
+        if self._has_ref(ref):
             raise QueueError(f"GitHub did not delete {ref}")
         return False
+
+    def _has_ref(self, ref: str) -> bool:
+        """Return whether ``ref`` (``refs/...``) exists, by its exact name."""
+        path = f"/git/matching-refs/{ref.removeprefix('refs/')}"
+        found = self._call("GET", path, expect=list)[1]
+        if not all(isinstance(item, dict) and isinstance(item.get("ref"), str) for item in found):
+            raise QueueError(f"GitHub returned invalid matching refs for {ref}")
+        return any(item["ref"] == ref for item in found)  # `pr-7` also matches `pr-70`
 
 
 class Git:
@@ -166,8 +197,12 @@ class Git:
     def run(
         self, *args: str, env: Mapping[str, str] | None = None, ok: Sequence[int] = (0,)
     ) -> subprocess.CompletedProcess[str]:
-        """Run ``git`` with ``args``. A status outside ``ok`` raises ``QueueError``."""
-        command, merged = ["git", *args], {**os.environ, **(env or {})}
+        """Run ``git`` with ``args`` in ``cwd``. A status outside ``ok`` raises ``QueueError``.
+
+        The ambient ``REPOSITORY_LOCATION_VARS`` are dropped; other variables and ``env`` pass.
+        """
+        ambient = {k: v for k, v in os.environ.items() if k not in REPOSITORY_LOCATION_VARS}
+        command, merged = ["git", *args], {**ambient, **(env or {})}
         done = subprocess.run(  # noqa: S603
             command, cwd=self.cwd, env=merged, capture_output=True, encoding="utf-8", check=False
         )
@@ -277,6 +312,11 @@ def plan(
 
     ``git`` holds ``base`` (the commit of ``main``) and every request head. ``requests`` is
     oldest first. ``pulls`` contains GitHub's response for each request, or ``None``.
+
+    A request is removed with one reason, checked in this order: ``closed`` (closed, or GitHub
+    has no such pull request), ``retargeted`` (it no longer targets ``main``), ``draft`` (it was
+    converted to a draft), ``head-moved`` (its head is not the pinned head) and
+    ``conflict-with-main``. The requests behind a removed one are built without it.
     """
     steps: list[Step] = []
     train: list[tuple[int, str]] = []  # the candidates so far: (pull request, commit)
@@ -286,6 +326,11 @@ def plan(
         tree: str | None = None
         if pull is None or pull.get("state") != "open":
             step = Step(request.pr, REMOVE, request.head, reason="closed")
+        elif pull["base"]["ref"] != BASE:
+            # A merge goes to the base branch, so a candidate of `main` is no evidence for it.
+            step = Step(request.pr, REMOVE, request.head, reason="retargeted")
+        elif pull.get("draft"):
+            step = Step(request.pr, REMOVE, request.head, reason="draft")
         elif pull["head"]["sha"] != request.head:
             step = Step(request.pr, REMOVE, request.head, reason="head-moved")
         else:

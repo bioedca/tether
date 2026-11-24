@@ -389,6 +389,28 @@ extraction finished in an earlier run is not extracted again with a new profile,
 with `--overwrite`. Use a new `--out-dir` to extract a set of movies with a changed
 profile.
 
+### Stage status in the batch summary
+
+`tether batch` prints one status for each stage of each movie (`tether.project.batch`):
+
+| Status | Meaning | Counts as failure? |
+|---|---|---|
+| `done` | the stage ran and succeeded | no |
+| `skipped` | a checkpoint found the stage already complete | no |
+| `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
+| `blocked` | an upstream stage failed | no |
+| `deferred` | the sidecar was unavailable at startup | no |
+| `not-requested` | `--no-idealize` | no |
+| `warning` | non-fatal, for example provenance stamping failed | no |
+
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3`. See
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+
+`blocked` is the one row that never shows up on an exit-`0` run in practice. A stage is
+blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
+with a `failed` in the same movie and the run exits `1` anyway.
+
 ### Which movies a folder or a pattern gives
 
 Each `movies` argument is one of three things, and Tether expands it itself, so the same
@@ -755,6 +777,14 @@ tether run: stopped at approval step 'gamma.approve' for 'KJG_231027': the recip
   continue: tether run recipe.json --resume
 ```
 
+You can copy each command and run it as printed. A path or a subject that holds a space
+is put in quotes: double quotes for the Tether Command Prompt on Windows, and shell quotes
+on macOS and Linux, for example `--subject 'condition 1'`. The command that `tether run`
+prints when a step fails is quoted in the same way. On Windows, the Tether Command Prompt
+still reads a value that holds a `"` together with `&`, `|`, `<`, `>` or `^`, or that holds a
+`%NAME%` of the environment, before Tether gets it. Type such a value by hand
+([#1354](https://github.com/bioedca/tether/issues/1354)).
+
 No command reaches an approval step yet: the map, correction and fit steps that reach
 them come with #918, #930 and #939, so a recipe that names a policy today is refused
 with the reason.
@@ -834,7 +864,7 @@ For each project the text output gives:
 ```console
 $ tether info out/movie_010.tether
 out/movie_010.tether
-  schema version 1, written by Tether <version>
+  schema version 2, written by Tether <version>
   movies: 1
     movie_010.tif: 1200 frames, 0.1 s/frame, 214 molecules
       curation: 120 accepted, 30 rejected, 64 undecided
@@ -1098,6 +1128,13 @@ a model that has a stale molecule, not only the stale ones. A model with no stal
 is not refitted, and when no model has one the command needs no sidecar. The command counts
 the stale molecules again once it holds the lock, so a change made by another writer before
 then is refitted too.
+
+**After a new trace generation, a refit finds each molecule by its key.** A new extraction of
+a movie gives each of its molecules a new `molecule_id`. The refit finds a molecule of the
+model by its `molecule_id`, or else by its `molecule_key`, which a molecule that did not move
+keeps. A molecule that moved has a new key, so the refit leaves it out and the command names
+it on a line `N moved in a new trace generation, not refitted: <keys>`. When no molecule of a
+model is left, the refit of that model is refused.
 
 **`--stale-only` never refits a model imported from standalone tMAVEN.** Such a model stores
 no fit settings that Tether can repeat. The command reports it as `imported from tMAVEN, not

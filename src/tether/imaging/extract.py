@@ -801,6 +801,7 @@ def _carry_from_previous(
     *,
     previous_movie: Any,
     new_movie: Any,
+    earlier_conditions: set[str] | None = None,
 ) -> tuple[list[str], np.ndarray]:
     """Give each molecule of ``rows`` that did not move its previous key, label, category, window.
 
@@ -812,13 +813,17 @@ def _carry_from_previous(
     ``/movies`` rows), and a changed geometry does not pair two different molecules.
     When every previous molecule of the movie has one ``condition_id`` (a validated
     condition, a re-keyed one included), the new molecules take it too: the condition is
-    a property of the movie, not an input of the extraction.
+    a property of the movie, not an input of the extraction. A previous generation with no
+    molecule has no row to carry it, so ``earlier_conditions`` (the ``condition_id`` set
+    of the newest archived generation that had molecules) is read instead (#1284).
     """
     from tether.io.generations import match_previous  # noqa: PLC0415
 
     carried: list[str] = []
     matched = np.zeros(rows.shape[0], dtype=bool)
     if not previous.shape[0]:
+        if earlier_conditions is not None and len(earlier_conditions) == 1:
+            rows["condition_id"] = next(iter(earlier_conditions))
         return carried, matched
     pairs = match_previous(
         _frame_xy(previous["donor_xy"], previous_movie),
@@ -840,6 +845,23 @@ def _carry_from_previous(
     if len(conditions) == 1:
         rows["condition_id"] = conditions.pop()
     return carried, matched
+
+
+def _archived_conditions(f: Any, movie_id: str) -> set[str] | None:
+    """Return the ``condition_id`` set of the newest archived generation with molecules.
+
+    ``None`` when no archived generation of the movie has a molecule (#1284).
+    """
+    from tether.io.generations import ARCHIVE  # noqa: PLC0415
+
+    archive = f.get("generations/" + ARCHIVE + "/" + movie_id)
+    if archive is None:
+        return None
+    for name in sorted(archive, key=int, reverse=True):
+        conditions = archive[name]["molecules"]["condition_id"][()]
+        if len(conditions):
+            return {_decode_key(c) for c in conditions}
+    return None
 
 
 def _key_unmatched_molecules(
@@ -985,6 +1007,9 @@ def write_generation(
             match_px,
             previous_movie=stored_movie,
             new_movie=movie_row[0],
+            earlier_conditions=(
+                None if previous_molecules.shape[0] else _archived_conditions(f, movie.movie_id)
+            ),
         )
         _key_unmatched_molecules(
             f, movie, rows, matched, previous_molecules, previous.generation + 1, movie_row[0]

@@ -375,7 +375,8 @@ the `labeler` of each `/labels/table` and `/labels/reject_log` row, the `labeler
 `/settings/condition_audit` row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
 `/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
 `/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
-A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
+A `/settings/correction_transitions` row, a `/settings/gamma_contributors` row and a
+`/settings/gamma_contributor_decisions` row store a user name in `actor` when `by` is
 `person`. The `actor` of a `policy` row contains policy text and keeps its value.
 By default each user name is the operating-system login.
 
@@ -918,6 +919,112 @@ the analysis window, or an interior gap — and the matching `idealized` cell is
 is a sentinel, not state number −1: exclude those frames rather than treating them as an
 extra state. Tether's own analyses do exactly that (`tether.analysis.tdp`,
 `tether.analysis.state_number`, `tether.analysis.transition_prob`).
+
+### How a `NO_STATE` gap changes the dwells
+
+A `NO_STATE` frame is **never itself a dwell and never a transition**. What it does to the run
+around it depends on which function reads the path:
+
+- `tether.analysis.dwell.state_dwells` does **not split a run** at it. It *strips* the
+  `NO_STATE` frames before splitting on state change. This is tMAVEN's NaN strip, kept for parity
+  ([`test_state_dwells_strips_no_state_like_tmaven`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_dwell.py)).
+  So two same-state segments either side of an interior gap are stitched into **one run**.
+- `tether.idealize.dwells_from_states` does the opposite: a `NO_STATE` frame **ends** the run
+  it interrupts (its docstring: "they break a run but are not dwells").
+
+**What a merged dwell's length means.** `state_dwells` reports a run's length as the number
+of frames that survived the strip. So a merged dwell's length is the **sum of the observed
+in-state frames on both sides of the gap**. The gap frames are discarded:
+
+```python
+import numpy as np
+from tether.analysis.dwell import state_dwells
+from tether.idealize import NO_STATE
+
+path = np.array([0, 0, 0, NO_STATE, NO_STATE, NO_STATE, NO_STATE, 0, 0, 0, 1, 1, 1, 0])
+state_dwells([path], no_state=NO_STATE, include_first=True).lengths
+# {0: array([6]), 1: array([3])}
+```
+
+The state-0 frames of the merged run are indices 0–2 and 7–9. That is a dwell length of
+**6 frames**, across an elapsed span of **10 frames** from the first of them to the last. A
+merged dwell is therefore longer than either segment alone. It is shorter than the time elapsed
+between entering the state and last being seen in it. Which of those the molecule actually did
+is what the gap makes unobservable. It is not a residence time in either direction.
+
+**A merge is reported only when the merged run is retained.** `state_dwells` always drops a
+molecule's last run, and drops its first unless `include_first` (see
+[dwell time](../glossary.md#dwell-time-dwell-time-survival)). It also skips a molecule left with
+a single run. So a merged run is reported only when it is neither the molecule's sole run nor
+its last. When it is the first, it is reported only at `include_first=True`.
+
+The bare trace `0,0,NO_STATE,0,0`, whose merged run is the molecule's only run, yields **no
+dwell at all**, at either `include_first` setting. A later transition makes the merged run the
+first of several. At `include_first=True` it is then reported as one 4-frame dwell of state 0,
+against an elapsed span of 5 frames, not as two 2-frame dwells. At the default
+`include_first=False` it is dropped as a first run:
+
+```python
+state_dwells([np.array([0, 0, NO_STATE, 0, 0])], no_state=NO_STATE, include_first=True).lengths
+# {}   (and {} with include_first=False)
+state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=True).lengths
+# {0: array([4]), 1: array([2])}
+state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=False).lengths
+# {1: array([2])}
+```
+
+**Direction of the effect.** The comparison is with the same extraction where the gap *splits*
+runs instead of stitching them, with identical first and last handling. Tether does not
+implement that mode.
+
+- The sample never gains a dwell, and the pooled frame total never rises. Each merge removes
+  one of its molecule's retained dwells until the molecule has none left to lose. At the
+  default `include_first=False`, the bare `0,0,NO_STATE,0,0` above retains none either way.
+  Each of its segments is a first or a last run, so its merge removes nothing.
+- The pooled mean dwell `⟨τ⟩` **rises** when both joined runs would have been retained anyway,
+  because the same frames now sit in one fewer dwell. In the first path above, state 0 goes from
+  two 3-frame dwells (mean 3 frames) to one 6-frame dwell (mean 6 frames).
+  `pooled_exit_rates`' `k = 1/⟨τ⟩` **falls** with it, from 0.333333 to 0.166667 per frame at
+  `dt = 1`.
+- The merged run can land in the always-dropped last slot, or in the first slot at the default
+  `include_first=False`. Then the segments it absorbed leave the sample, frames and all, and
+  `⟨τ⟩` has **no fixed direction**. It rises if what was removed was shorter on average than the
+  state's pooled dwells. It falls if longer, and is unchanged if equal. `k = 1/⟨τ⟩` moves the
+  other way. At the extreme the molecule is left with one run and contributes nothing.
+  For example, `0,0,NO_STATE,NO_STATE,0,0` returns `{}` at `include_first=True`, where splitting would yield
+  one 2-frame dwell of state 0. A state can drop out of the results altogether.
+- Over a population both kinds of merge can occur at once. So the merge alone does not fix the
+  net direction of `⟨τ⟩`, or of `k`.
+- No direction is claimed for the fitted survival lifetime. `population_dwell_times` hands this
+  pool to `survival_curve` and `fit_survival`, so the fit moves with the pool. But a
+  least-squares survival fit is not the reciprocal of a mean.
+
+**Which dwell surfaces see a gap is decided by their callers**, not by the functions. Both
+`population_dwell_times` and `tether.analysis.kinetics.pooled_exit_rates` call `state_dwells`
+with the sentinel `-1`, which *is* `NO_STATE`.
+
+- `population_dwell_times` reads its paths through [`tether.analysis._store.windowed_states`](https://github.com/bioedca/tether/blob/main/src/tether/analysis/_store.py).
+  That function cuts each molecule's analysis window between its first and last non-sentinel
+  frame, but keeps any interior gap. So it **merges**.
+- `pooled_exit_rates`' only caller in Tether's source is `two_state_rate_constants`. Its paths
+  come from `viterbi_paths`, an `argmax` over the model's states that never emits the sentinel,
+  so nothing merges there. But `pooled_exit_rates` is public API: hand it a stored analysis
+  window and it merges identically.
+
+A gap between two *different* states is not merged. The strip makes the runs either side of it
+adjacent, so the transition is kept. But the transition happened somewhere inside the gap, and
+its timing was not observed. Each of those two dwells counts only its observed frames.
+
+On the [TDP](../glossary.md#tdp-transition-density-plot) side the gap becomes `NaN` and the non-finite pair
+is dropped, so a `NO_STATE` border never emits a transition point.
+
+**Why the first and last dwells are dropped.** The two are dropped for different reasons. The
+**last** dwell is right-censored: the trace ends before the molecule is seen to leave that state.
+
+The **first** is a different case. Its start was not observed, because the molecule was already
+in that state when the analysis window opened. Its end is a recorded transition. That exit is
+observed only when no interior `NO_STATE` gap separates the first dwell from the next state.
+Across such a gap the exit happened somewhere inside it.
 
 ### Why a subset `.tether` is readable at all
 

@@ -197,7 +197,9 @@ def test_a_binding_changed_in_the_editor_acts_at_once_and_after_a_restart(
     # And after a restart.
     restarted = launch(path)
     assert restarted.keymap_error is None
-    assert restarted.status_message == f"Ready — A accept · {_label(key.Key_Backspace)} reject"
+    assert restarted.status_message == (
+        f"Ready — A accept · {_label(key.Key_Backspace)} reject · {_label(key.Key_Return)} jump"
+    )
     assert _cheatsheet(restarted).get("A") == "Accept trace"
     qtbot.keyClick(restarted.molecule_list, key.Key_A)
     assert restarted.controller.history == [Command(A.ACCEPT)]
@@ -431,7 +433,11 @@ def test_no_keymap_file_starts_with_the_defaults_silently(launch, tmp_path) -> N
     assert shell.keymap_error is None
     key, _ = _qt()
     backspace = _label(key.Key_Backspace)  # the native text: "⌫" on macOS
-    assert shell.status_message == f"Ready — {_label(key.Key_Space)} accept · {backspace} reject"
+    # Enter jumps since #357, so the ready line names its key again.
+    assert shell.status_message == (
+        f"Ready — {_label(key.Key_Space)} accept · {backspace} reject · "
+        f"{_label(key.Key_Return)} jump"
+    )
     assert not (tmp_path / "absent.json").exists()
 
 

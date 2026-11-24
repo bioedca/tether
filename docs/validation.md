@@ -61,7 +61,11 @@ with the same facts and log excerpt for its own run, because a repeat failure ca
 cause. The next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
 always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
-the Actions page lists every run. The issue does not close itself: close it with the cause. A
+the Actions page lists every run. Each report records its commit. A run on an older commit than
+the latest report changes nothing, also when it finishes later: two runs on `main` can finish in
+either order. The order of the commits on the branch decides, not the time a run finishes. If a
+newer commit fails on a day that already has a failure comment, that comment is edited to show
+it. The issue does not close itself: close it with the cause. A
 pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
 branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
 `ci(drill)`, so it never touches the real issue.
@@ -457,6 +461,30 @@ equally wrong fits cannot see.
 > `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
+
+### Plain vbGMM against an independent fit
+
+The sidecar key `vbgmm` (tMAVEN's plain vbGMM, test-only) is compared on `smd_4mol.hdf5` with a
+fit that shares no code with tMAVEN: scikit-learn's `BayesianGaussianMixture` (base lock), with
+tMAVEN's vbGMM priors, on the same pooled and clipped FRET
+([#1302](https://github.com/bioedca/tether/issues/1302),
+[ADR-0138](adr/0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md)). The
+numbers, their provenance and the tolerance are in
+`tests/reference_data/smd_4mol_vbgmm_sklearn.json`. The base test matrix fits them again, because
+the sidecar environment has no scikit-learn. The tolerance is 0.03 FRET on each state mean and
+0.01 on each state fraction, above the 0.0225 and 0.0065 by which tMAVEN's own updates, run to
+convergence, differ from the reference.
+
+At the pin, tMAVEN's own vbGMM loop stops after two iterations on this fixture, because the lower
+bound its convergence test reads goes down at every step. Its state means are then up to 0.44 FRET
+from the reference ([#1337](https://github.com/bioedca/tether/issues/1337)). The `vbgmm` key
+therefore runs Tether's corrected loop in the sidecar: tMAVEN's start, priors and updates, with a
+correct lower bound and stopping test
+([ADR-0139](adr/0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md)). That fit is 0.0221 from
+the reference means and 0.0062 from its fractions, and the sidecar test gates it. The base matrix
+checks the corrected bound against a Monte Carlo estimate and checks that it never falls. The
+Campos-Chavez reproduction below keeps tMAVEN's own loop, because it measures the pinned tMAVEN
+against a fit published with tMAVEN.
 
 ### Measured traces with a stored vbFRET path
 

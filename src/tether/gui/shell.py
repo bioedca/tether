@@ -10,8 +10,10 @@ the keymap, §7.6) — and installs the application-level
 [`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
 the movie switcher from ``/movies``, and the embedded napari movie panel
 ([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
-donor and acceptor spots as a dock of Curate and correct (#356). The real round-trip
-navigation between a trace and its spot (#357) is not wired in yet.
+donor and acceptor spots as a dock of Curate and correct (#356). The round-trip between a
+trace and its spot ([`tether.gui.roundtrip`][], #357) links the two: selecting a molecule,
+or pressing ``Enter``, shows its own movie centred on its donor spot, and clicking a spot
+selects its molecule.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -24,10 +26,16 @@ Two companion dialogs complete the §7.3 contract:
 The window hosts its **sections** (#341, ADR-0116): the central widget is a
 ``QStackedWidget`` with one page per section of the
 [`SectionRegistry`][tether.gui.sections.SectionRegistry] — Prepare, Curate and
-correct, Analyze — and each dock belongs to one section and shows only while that
-section is current.
+correct, Analyze (Deposit is registered but hidden until #956) — and each dock belongs to
+one section and shows only while that section is current.
 [`TetherShell.set_section`][tether.gui.shell.TetherShell.set_section] switches; a
 switch never touches the session lock of ADR-0055.
+
+The user moves between the sections in two ways (#897). **Direct navigation**: the
+section bar under the menu bar, **View → Section**, and ``Ctrl+1``, ``Ctrl+2``, ...
+(``Cmd`` on macOS) open any visible section at any time. The **guided mode**: the same bar
+shows the next step that ``tether status`` gives for the open project, and **Go to** opens
+its section. A project made from imported traces opens in Curate and correct.
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
@@ -75,7 +83,15 @@ from tether.gui.curation import (
     Keymap,
     KeymapError,
 )
-from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
+from tether.gui.sections import (
+    DockArea,
+    DockSpec,
+    MenuSpec,
+    SectionRegistry,
+    SectionSpec,
+    entry_section,
+    guided_step,
+)
 from tether.gui.task_service import TaskService
 from tether.services.curation import (
     resolved_frame_range,
@@ -165,15 +181,11 @@ _APP_NAME = "Tether"
 
 #: The curation commands the shell does not implement yet (#345). Their keys stay
 #: bound, so a press reports ``… unavailable: …`` instead of a success it did not
-#: earn, and the cheat sheet marks them ``(unavailable)``. Jump becomes real in
-#: #357 and the grid in #364; each removes its entry here in the PR that implements
-#: it. The category, analysis-window and photobleach keys write the project (#359).
-DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset(
-    {
-        CurationAction.JUMP,
-        CurationAction.GRID,
-    }
-)
+#: earn, and the cheat sheet marks them ``(unavailable)``. The grid becomes real in
+#: #364, which removes its entry here. Jump is real since #357 (the trace↔movie
+#: round-trip), and the category, analysis-window and photobleach keys write the
+#: project (#359).
+DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset({CurationAction.GRID})
 
 #: How often (ms) the main thread polls the background idealize fit for completion.
 _IDEALIZE_POLL_MS = 25
@@ -189,6 +201,13 @@ _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
+#: After a write that can change a stage (a curation decision, a fit, a return leg), the
+#: guided next step is read again once the writes stop for this long (#897). The read runs
+#: on the main thread, between writes: a read-only handle open on a worker thread would make
+#: HDF5 refuse the next write's ``r+`` open. It took 0.37 s on 2000 molecules of 2000 frames
+#: with one fit, so it waits for a pause in the curation rather than following each key.
+_READINESS_REFRESH_DEBOUNCE_MS = 1000
+
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
@@ -199,10 +218,15 @@ _SMD_SUFFIXES = (".hdf5", ".smd")
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
 
 #: The ids of the sections the shell registers (#341, ADR-0116), in the order of page 1
-#: of the design (#897). The Deposit section (order 4) is registered by #897 / #956.
+#: of the design (#897).
 PREPARE_SECTION = "prepare"
 CURATE_SECTION = "curate"
 ANALYZE_SECTION = "analyze"
+DEPOSIT_SECTION = "deposit"
+
+#: Whether the Deposit section shows. It stays hidden until its content lands (#956);
+#: this one registry flag controls it (#897).
+DEPOSIT_VISIBLE = False
 
 #: The section that shows when the shell opens: its page holds the start page (#629).
 _DEFAULT_SECTION = CURATE_SECTION
@@ -702,6 +726,19 @@ class TetherShell:
         self._movie_readers: list[Any] = []
         self._project_movies: list[Any] = []
         self._movie_rows: dict[int, int] = {}
+        self._movie_aperture_radius: float | None = None
+        # The trace↔movie round-trip (#357, PRD §7.3): a RoundTripNavigator over the
+        # panel, rebuilt with the molecule list. ``_roundtrip_rows`` maps a navigator
+        # molecule index to its list row and ``_roundtrip_site_of_row`` the reverse; a
+        # molecule with no spot in a shown movie has no entry. ``_roundtrip_error`` says
+        # why there is no navigator when building one failed. ``_selecting_from_movie``
+        # is set while a canvas click selects a row, so that selection does not move
+        # the camera the user just clicked in.
+        self._roundtrip: Any | None = None
+        self._roundtrip_rows: list[int] = []
+        self._roundtrip_site_of_row: dict[int, int] = {}
+        self._roundtrip_error: str | None = None
+        self._selecting_from_movie = False
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -747,6 +784,10 @@ class TetherShell:
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
         self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
+        self._readiness_refresh_timer = QtCore.QTimer()
+        self._readiness_refresh_timer.setSingleShot(True)
+        self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
+        self._readiness_refresh_timer.timeout.connect(self.refresh_readiness)
 
         # Central surface: the pyqtgraph trace dock, behind the start page that shows
         # while no project is open and no molecules are loaded (#629).
@@ -853,7 +894,8 @@ class TetherShell:
         self._sections = self._build_sections()
         self._section_stack = QtWidgets.QStackedWidget()
         self._section_pages: dict[str, Any] = {}
-        self._section_docks: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
+        self._shown_sections = self._sections.visible_sections()
+        self._section_docks: dict[str, list[Any]] = {s.id: [] for s in self._shown_sections}
         # Whether a dock of a section that is not current shows again when its section does;
         # kept so a dock the user closed stays closed across a switch.
         self._dock_restore: dict[Any, bool] = {}
@@ -865,9 +907,9 @@ class TetherShell:
         self._stored_section_hidden: set[str] = set()
         self._section: str = _DEFAULT_SECTION
         # The menus of each section (#342), filled when the menu bar is built below.
-        self._section_menus: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
+        self._section_menus: dict[str, list[Any]] = {s.id: [] for s in self._shown_sections}
         dock_widgets: dict[tuple[str, str], Any] = {}
-        for spec in self._sections:
+        for spec in self._shown_sections:
             page = spec.central(self)
             self._section_stack.addWidget(page)
             self._section_pages[spec.id] = page
@@ -876,6 +918,14 @@ class TetherShell:
                     spec.id, dock.title, dock.factory(self), dock.area
                 )
         self._window.setCentralWidget(self._section_stack)
+        # The section bar (#897): the sections for the mouse, then the guided next step.
+        # It is built here so the default layout kept below holds it; the actions are
+        # added with the View menu.
+        self._section_bar = self._window.addToolBar("Sections")
+        self._section_bar.setObjectName("sections-toolbar")
+        self._section_bar.setMovable(False)
+        # The bar is the way to the sections, so the window's dock menu cannot hide it.
+        self._section_bar.toggleViewAction().setVisible(False)
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
         # Build the window-wide Messages dock before saving the default layout (#627).
@@ -1010,7 +1060,7 @@ class TetherShell:
         # order of the registry, between the window's own File menu and its View and Help
         # menus. A section's menus show only while that section is current.
         menu_bar = self._window.menuBar()
-        for spec in self._sections:
+        for spec in self._shown_sections:
             for menu_spec in spec.menus:
                 section_menu = menu_bar.addMenu(menu_spec.title)
                 section_menu.setObjectName(f"{spec.id}-{menu_spec.id}-menu")
@@ -1034,19 +1084,35 @@ class TetherShell:
             self._theme_actions[value] = action
         self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
         self._sync_theme_menu()
-        # View -> Section: one checkable item per registered section (#341). The guided
-        # mode and the full direct navigation of #897 replace this plain list.
+        # View -> Section: one checkable item per visible section (#341), with Ctrl+1,
+        # Ctrl+2, ... in the order of the registry. The same actions are the buttons of
+        # the section bar, so the mouse and the keyboard open each section the same way
+        # (direct navigation, #897). Then the guided next step.
         self._section_menu = self._view_menu.addMenu("&Section")
         self._section_group = QtGui.QActionGroup(self._window)
         self._section_actions: dict[str, Any] = {}
-        for spec in self._sections:
+        for number, spec in enumerate(self._shown_sections, start=1):
             action = self._section_menu.addAction(spec.title)
             action.setCheckable(True)
             action.setData(spec.id)
+            if number <= 9:
+                action.setShortcut(QtGui.QKeySequence(f"Ctrl+{number}"))
             self._section_group.addAction(action)
             action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
             self._section_actions[spec.id] = action
+            self._section_bar.addAction(action)
         self._section_actions[self._section].setChecked(True)
+        self._section_menu.addSeparator()
+        self._act_next_step = self._section_menu.addAction("Go to the next step")
+        self._act_next_step.setObjectName("next-step")
+        self._act_next_step.triggered.connect(self.go_to_next_step)
+        self._section_bar.addSeparator()
+        self._next_step_label = QtWidgets.QLabel()
+        self._next_step_label.setObjectName("next-step-label")
+        self._next_step_label.setWordWrap(False)
+        self._section_bar.addWidget(self._next_step_label)
+        self._section_bar.addAction(self._act_next_step)
+        self._sync_guided()
         self._view_menu.addAction(self._messages_dock.toggleViewAction())
         # View -> Reset layout (#628): the default window size and dock positions, and
         # the stored layout forgotten, so the next launch starts from the default too.
@@ -1176,22 +1242,72 @@ class TetherShell:
 
     def section_page(self, section_id: str) -> QtWidgets.QWidget:
         """The page of ``section_id`` in [`section_stack`][]; raise `KeyError` if unknown."""
-        self._sections.get(section_id)
+        self._visible_section(section_id)
         return self._section_pages[section_id]
 
     def section_docks(self, section_id: str) -> list[QtWidgets.QDockWidget]:
         """The docks attached to ``section_id`` now, lazily built ones included."""
-        self._sections.get(section_id)
+        self._visible_section(section_id)
         return list(self._section_docks[section_id])
+
+    def _visible_section(self, section_id: str) -> None:
+        """Raise `KeyError` unless ``section_id`` is a section the shell shows (#897)."""
+        if not self._sections.get(section_id).visible:
+            raise KeyError(f"the section {section_id!r} is not shown in this version")
+
+    @property
+    def section_bar(self) -> QtWidgets.QToolBar:
+        """The section bar: a button per visible section, then the guided next step (#897)."""
+        return self._section_bar
+
+    @property
+    def next_step_action(self) -> Any:
+        """The **Go to** action of the guided mode: it opens the section of the next step."""
+        return self._act_next_step
+
+    @property
+    def next_step_text(self) -> str:
+        """The next step the section bar shows now: the text of ``tether status``."""
+        return self._next_step_label.text()
+
+    def go_to_next_step(self) -> str | None:
+        """Read the readiness again and open the section of its next step (the guided mode).
+
+        Return the id of the section that shows after, or ``None`` when the next step has no
+        section the shell shows (no project, every stage ready, or a hidden section).
+        """
+        self.refresh_readiness()
+        step = guided_step(self._readiness, self._sections)
+        if step is None or step.section is None:
+            return None
+        self.set_section(step.section)
+        return step.section
+
+    def _sync_guided(self) -> None:
+        """Show the next step of the readiness record on the section bar (#897)."""
+        step = guided_step(self._readiness, self._sections)
+        if step is None:
+            self._next_step_label.setText("Next step: open or import a project")
+            self._act_next_step.setText("Go to the next step")
+            self._act_next_step.setEnabled(False)
+            return
+        self._next_step_label.setText(f"Next step: {step.action}")
+        self._next_step_label.setToolTip(step.action)
+        if step.section is None:
+            self._act_next_step.setText("Go to the next step")
+            self._act_next_step.setEnabled(False)
+        else:
+            self._act_next_step.setText(f"Go to {step.title}")
+            self._act_next_step.setEnabled(True)
 
     def set_section(self, section_id: str) -> None:
         """Show the section ``section_id``: its page, its docks, and no other section's docks.
 
         A switch changes only what shows. It does not acquire, refresh or release the session
         lock, and it does not change which write controls are enabled (ADR-0055 governs both,
-        unchanged). An unknown id raises `KeyError` and changes nothing.
+        unchanged). An unknown or hidden id raises `KeyError` and changes nothing.
         """
-        self._sections.get(section_id)
+        self._visible_section(section_id)
         if section_id == self._section:
             return
         self._show_section(section_id)
@@ -1205,7 +1321,7 @@ class TetherShell:
         They show on the menu bar only while ``section_id`` is current; File, View and Help
         are the window's own menus and are in no section's list. Raise `KeyError` if unknown.
         """
-        self._sections.get(section_id)
+        self._visible_section(section_id)
         return list(self._section_menus[section_id])
 
     @property
@@ -1384,6 +1500,14 @@ class TetherShell:
                             populate=lambda _host, menu: self._populate_analysis_menu(menu),
                         ),
                     ),
+                ),
+                SectionSpec(
+                    id=DEPOSIT_SECTION,
+                    title="Deposit",
+                    order=4,
+                    central=lambda _host: _guide_page("Deposit", "Deposit is not available yet."),
+                    writes_project=True,
+                    visible=DEPOSIT_VISIBLE,
                 ),
             ]
         )
@@ -1666,11 +1790,16 @@ class TetherShell:
     # --- molecules -----------------------------------------------------------
 
     def set_molecules(self, traces: list[TraceView]) -> None:
-        """Populate the molecule list + dock from ``traces`` (select the first)."""
+        """Populate the molecule list + dock from ``traces`` (select the first).
+
+        With a [`movie_panel`][] shown, this also rebuilds the trace↔movie round-trip over
+        the new list (#357), so the first selection already moves the movie to its spot.
+        """
         self._traces = list(traces)
         self._molecule_list.clear()
         for i, trace in enumerate(self._traces):
             self._molecule_list.addItem(trace.name or f"mol-{i}")
+        self._wire_roundtrip()
         if self._traces:
             self._molecule_list.setCurrentRow(0)
         else:
@@ -1690,6 +1819,12 @@ class TetherShell:
             # the navigation status) rather than being clobbered by it; a successful
             # refresh sets no status, leaving the molecule message in place.
             self._refresh_overlap(trace)
+            # Trace → movie (#357): a list selection shows the molecule's own movie,
+            # centred on its donor spot. A selection made by clicking that spot leaves
+            # the camera where the user clicked. A failure is reported; success sets no
+            # status, so the molecule message stays.
+            if not self._selecting_from_movie:
+                self._focus_movie(row)
 
     @property
     def overlap_dock(self) -> Any | None:
@@ -1762,6 +1897,7 @@ class TetherShell:
         from pyqtgraph.Qt import QtCore
 
         self._project_movies = list(movies.movies)
+        self._movie_aperture_radius = float(movies.aperture_radius)
         switcher = self._movie_switcher
         switcher.blockSignals(True)
         try:
@@ -1888,11 +2024,133 @@ class TetherShell:
             return
         self._status(f"Movie {self._project_movies[row].name}")
 
+    # --- the trace↔movie round-trip (#357, PRD §7.3, §5.2) ----------------------
+
+    @property
+    def roundtrip(self) -> Any | None:
+        """The [`RoundTripNavigator`][tether.gui.roundtrip.RoundTripNavigator], or ``None``.
+
+        Built over the [`movie_panel`][] and the molecule list whenever both exist, so
+        ``None`` exactly when no movie panel is shown (or building it failed; ``Enter``
+        then says why). Selecting a molecule in the list, or pressing ``Enter``, shows
+        the molecule's own movie centred on its donor spot; clicking a donor or acceptor
+        spot in the panel selects that molecule's list row.
+        """
+        return self._roundtrip
+
+    def _wire_roundtrip(self) -> None:
+        """Build the round-trip navigator over the shown movies and the molecule list.
+
+        Each listed molecule whose ``molecule_key`` has a spot in a movie the panel shows
+        becomes a [`MoleculeSite`][tether.gui.roundtrip.MoleculeSite]
+        ([`sites_for_molecules`][tether.gui.roundtrip.sites_for_molecules]). The panel's
+        movies are passed in its registration order, so a molecule's ``movie_id`` maps to
+        the panel index to switch to. A click counts only inside the integration aperture
+        drawn round a spot (the stored radius), so a click on the background selects
+        nothing. A failure leaves no navigator and keeps the reason for ``Enter``.
+        """
+        self._roundtrip = None
+        self._roundtrip_rows = []
+        self._roundtrip_site_of_row = {}
+        self._roundtrip_error = None
+        panel = self._movie_panel
+        if panel is None:
+            return
+        from tether.gui.roundtrip import RoundTripIndex, RoundTripNavigator, sites_for_molecules
+
+        disconnect = getattr(panel, "disconnect_spot_clicks", None)
+        if disconnect is not None:
+            disconnect()  # a re-listed project must not fire the old navigator too
+        shown = [
+            self._project_movies[row]
+            for row, _ in sorted(self._movie_rows.items(), key=lambda item: item[1])
+        ]
+        try:
+            sites, rows = sites_for_molecules([t.molecule_key for t in self._traces], shown)
+            navigator = RoundTripNavigator(
+                RoundTripIndex(sites),
+                panel,
+                [movie.movie_id for movie in shown],
+                on_select=self._on_movie_spot_clicked,
+                on_focus=self._on_movie_focused,
+                max_click_distance=self._movie_aperture_radius,
+            )
+            navigator.connect()
+        except Exception as exc:  # noqa: BLE001 - no round-trip is not a failed open
+            self._roundtrip_error = str(exc) or type(exc).__name__
+            self._status(f"Movie round-trip unavailable: {self._roundtrip_error}")
+            return
+        self._roundtrip = navigator
+        self._roundtrip_rows = rows
+        self._roundtrip_site_of_row = {row: site for site, row in enumerate(rows)}
+
+    def _focus_movie(self, row: int) -> bool:
+        """Show list row ``row``'s molecule in the movie panel; ``False`` if it has no spot."""
+        navigator = self._roundtrip
+        site = self._roundtrip_site_of_row.get(row)
+        if navigator is None or site is None:
+            return False
+        try:
+            navigator.focus_molecule(site)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Movie jump failed: {exc}")
+            return False
+        return True
+
+    def _jump_to_movie(self) -> None:
+        """``Enter``: show the selected molecule's movie, centred on its donor spot (#357)."""
+        feature = "Jump to movie spot"
+        row = self._molecule_list.currentRow()
+        if not 0 <= row < len(self._traces):
+            self._unavailable(feature, "no molecule is selected")
+            return
+        label = self._molecule_list.item(row).text()
+        if self._roundtrip is None:
+            self._unavailable(feature, self._roundtrip_error or "no movie is shown")
+            return
+        if row not in self._roundtrip_site_of_row:
+            self._unavailable(feature, f"{label} has no spot in a movie shown here")
+            return
+        if not self._focus_movie(row):
+            return
+        if self._movie_dock_widget is not None:
+            # A dock the user closed opens again: a jump to a hidden panel shows nothing.
+            self._movie_dock_widget.show()
+            self._movie_dock_widget.raise_()
+        movie_id = self._roundtrip.index.site(self._roundtrip_site_of_row[row]).movie_id
+        names = {m.movie_id: m.name for m in self._project_movies}
+        self._status(f"Jumped to {label} in movie {names.get(movie_id, movie_id)}")
+
+    def _on_movie_focused(self, _site: int) -> None:
+        """After a jump, make the switcher name the movie the panel now shows."""
+        panel = self._movie_panel
+        if panel is None:
+            return
+        rows = [row for row, index in self._movie_rows.items() if index == panel.active_index]
+        if rows and self._movie_switcher.currentIndex() != rows[0]:
+            self._movie_switcher.blockSignals(True)
+            self._movie_switcher.setCurrentIndex(rows[0])
+            self._movie_switcher.blockSignals(False)
+
+    def _on_movie_spot_clicked(self, site: int) -> None:
+        """Movie → trace: select the list row of the molecule whose spot was clicked."""
+        row = self._roundtrip_rows[site]
+        self._selecting_from_movie = True
+        try:
+            self._molecule_list.setCurrentRow(row)
+        finally:
+            self._selecting_from_movie = False
+
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
         panel, dock_widget = self._movie_panel, self._movie_dock_widget
         self._movie_panel = None
         self._movie_dock_widget = None
+        self._roundtrip = None
+        self._roundtrip_rows = []
+        self._roundtrip_site_of_row = {}
+        self._roundtrip_error = None
+        self._movie_aperture_radius = None
         if dock_widget is not None:
             self._event_filter.remove_scope_widget(dock_widget)
             self._detach_section_dock(dock_widget)
@@ -2216,9 +2474,10 @@ class TetherShell:
         can be opened are shown in the embedded napari movie panel, a dock of Curate and
         correct, with each movie's donor and acceptor spots at the stored aperture radius
         (#356; [`movie_panel`][]). An analysis-only import leaves the panel unbuilt and the
-        switcher empty. The curation category vocabulary and the trace↔movie round-trip
-        navigation are **not** re-wired here (the round-trip lands in #357, and the
-        per-condition category list is edited through the ``&Conditions`` dialog).
+        switcher empty. Selecting a molecule then shows its own movie centred on its donor
+        spot, and clicking a spot selects its molecule ([`roundtrip`][], #357). The curation
+        category vocabulary is **not** re-wired here (the per-condition category list is
+        edited through the ``&Conditions`` dialog).
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
@@ -2417,6 +2676,10 @@ class TetherShell:
         self._remember_position()
         self._project_path = Path(proj_path)
         self.refresh_readiness()
+        # A project made from imported traces starts in Curate and correct (#897).
+        entry = entry_section(self._readiness)
+        if entry is not None:
+            self.set_section(entry)
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         self._act_save_recipe.setEnabled(True)
@@ -2802,6 +3065,7 @@ class TetherShell:
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
         self._histogram_refresh_timer.stop()
+        self._readiness_refresh_timer.stop()
         self._reset_movie_panel()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
@@ -2869,6 +3133,7 @@ class TetherShell:
                 self._readiness = project_status(self._project_path)
             except Exception:  # noqa: BLE001 - an open never fails on this read
                 self._readiness = None
+        self._sync_guided()
         return self._readiness
 
     def close_project(self) -> bool:
@@ -2900,6 +3165,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = None
         self._readiness = None
+        self._sync_guided()
         self._act_close_project.setEnabled(False)
         self._act_save_recipe.setEnabled(False)
         self.set_molecules([])
@@ -3067,11 +3333,15 @@ class TetherShell:
         return chords
 
     def _ready_message(self) -> str:
-        """The start-up status line, naming the current accept and reject keys (#635)."""
+        """The start-up status line, naming the accept, reject and jump keys (#635, #357)."""
         from tether.gui.keymap_editor import chord_label
 
         parts = []
-        for action, verb in ((CurationAction.ACCEPT, "accept"), (CurationAction.REJECT, "reject")):
+        for action, verb in (
+            (CurationAction.ACCEPT, "accept"),
+            (CurationAction.REJECT, "reject"),
+            (CurationAction.JUMP, "jump"),
+        ):
             chords = sorted(self._keymap.chords_for(Command(action)), key=lambda c: (c[1], c[0]))
             if chords:
                 parts.append(f"{chord_label(*chords[0])} {verb}")
@@ -3197,6 +3467,7 @@ class TetherShell:
                 self._show_stored_windows(self._session_project.path, keys)
             except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
                 summary = f"{summary}; the trace view could not reread the windows: {exc}"
+        self._queue_readiness_refresh()
         self._status(summary)
         return applied
 
@@ -3515,6 +3786,11 @@ class TetherShell:
         if self._histogram_dock is not None and self._histogram_seam is not None:
             self._histogram_refresh_timer.start()
 
+    def _queue_readiness_refresh(self) -> None:
+        """Read the guided next step again once a burst of writes ends (#897)."""
+        if self._project_path is not None:
+            self._readiness_refresh_timer.start()
+
     def _run_queued_histogram_refresh(self) -> None:
         """Apply one coalesced refresh and surface a delayed failure without crashing."""
         error = self._refresh_open_histogram()
@@ -3534,9 +3810,7 @@ class TetherShell:
             accept=lambda: self._curate_current(CurationAction.ACCEPT),
             reject=lambda: self._curate_current(CurationAction.REJECT),
             unreject=lambda: self._curate_current(CurationAction.UNREJECT),
-            jump=lambda: self._unavailable(
-                "Jump to movie spot", "movie round-trip navigation is not implemented"
-            ),
+            jump=self._jump_to_movie,
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
@@ -3586,6 +3860,7 @@ class TetherShell:
 
         target = trace.name or trace.molecule_key
         self._queue_open_histogram_refresh()
+        self._queue_readiness_refresh()
         if action is CurationAction.UNREJECT or not self._advance_after_curation:
             self._status(f"{completed} {target}")
             return
@@ -3853,6 +4128,7 @@ class TetherShell:
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_open_histogram_refresh()
+        self._queue_readiness_refresh()
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
@@ -3982,6 +4258,7 @@ class TetherShell:
             self._status(f"Idealize failed for {key}: {outcome.error}")
             return
         idealized = outcome.value
+        self._queue_readiness_refresh()
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -4045,6 +4322,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._lock_release_timer.stop()
         self._histogram_refresh_timer.stop()
+        self._readiness_refresh_timer.stop()
         future = self._idealize_future
         writable_project = self._curation_project
         session_project = self._session_project

@@ -18,10 +18,20 @@
 # A failure opens one issue with a fixed title, or comments on the open one; the next pass adds
 # one comment; nothing closes the issue. One new comment of each kind a day at most: past that, a
 # change of state edits the latest report, so the issue always shows the latest state (a repeated
-# failure on the same day adds nothing; the Actions page lists every run).
+# failure on the same day adds nothing, or on a newer commit edits the latest failure report; the
+# Actions page lists every run).
 #
-# `!cancelled()` in the caller, not `always()`: a run that a newer run replaced (the
-# `cancel-in-progress` concurrency of every caller) is not a failure and must not report. A job
+# Each report records its commit, and a run whose commit is older on the branch than the commit
+# of the latest report changes nothing (#1283): runs on two `main` commits can finish in either
+# order, so the script compares commit order (the `compare` API), never the finish time. The
+# `issue` job's concurrency group makes the read, the comparison and the write one step for each
+# issue, so two reports that arrive together cannot both act on the same latest report.
+#
+# `!cancelled()` in the caller, not `always()`: a run that a newer run replaced is not a failure
+# and must not report. Not every run can be replaced: since #1265 `sidecar.yml` gives each run on
+# `main` (push or schedule) a concurrency group of its own with no `cancel-in-progress`, so those
+# runs all finish and all report, and the commit order above is what keeps an older one from
+# undoing a newer report. The other callers keep `cancel-in-progress` on one group per ref. A job
 # that hit its own `timeout-minutes` ends `cancelled` inside a run that is not, and does report.
 name: scheduled-failure
 
@@ -67,6 +77,18 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.drill)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # One report at a time for each issue (#1283): the script reads the latest report, compares
+    # commits and then writes, so two runs that report together could both read the same latest
+    # report and the slower write would win. The group is the issue's title (prefix, job, ref);
+    # different issues still report at the same time. `queue: max` keeps every waiting report
+    # (the default would cancel a waiting one when a third arrives, and lose its write), and
+    # nothing here cancels the watched runs.
+    concurrency:
+      group: >-
+        scheduled-failure-${{ inputs.drill && 'drill' || 'scheduled' }}-${{ inputs.job-name }}-${{
+        github.ref_name }}
+      cancel-in-progress: false
+      queue: max
     # The only job in any caller that may write, and it may write issues only.
     permissions:
       actions: read # the run's jobs and the failed job's log

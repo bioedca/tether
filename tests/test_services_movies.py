@@ -237,6 +237,31 @@ def test_a_movie_with_no_channel_geometry_has_no_spots(tmp_path) -> None:
     assert movie.available
     assert movie.no_spots == "spot positions not recorded"
     assert movie.donor_xy.shape == movie.acceptor_xy.shape == (0, 2)
+    assert movie.molecule_keys == ()
+
+
+def test_each_spot_names_its_molecule(tmp_path) -> None:
+    # The round-trip (#357) maps a spot back to its molecule by these keys, so they must
+    # stay aligned with the spot rows, also when a molecule with a non-finite spot drops out.
+    from tether.imaging.extract import read_molecules
+
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"x")
+    path = _store(tmp_path, uri=str(movie_file))
+    keys = [
+        k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
+    ]
+    with h5py.File(path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        table["donor_xy"][1] = np.nan
+        handle["molecules"]["table"][:] = table
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.molecule_keys == (keys[0], keys[2])
+    donor, acceptor = _molecule_xy(path)
+    np.testing.assert_allclose(movie.donor_xy, donor[[0, 2]])
+    np.testing.assert_allclose(movie.acceptor_xy, acceptor[[0, 2]] + [64.0, 0.0])
 
 
 def test_one_full_frame_channel_keeps_its_spots(tmp_path) -> None:

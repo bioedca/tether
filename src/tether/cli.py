@@ -34,6 +34,8 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
+import re
+import shlex
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
@@ -871,6 +873,11 @@ def _format_idealize(result: IdealizeResult) -> str:
         lines.append(
             f"  {refit.model_name}: {refit.n_stale} stale, {refit.n_current} current; {verdict}"
         )
+        if refit.moved_keys:
+            lines.append(
+                f"    {len(refit.moved_keys)} moved in a new trace generation, not refitted: "
+                + ", ".join(refit.moved_keys)
+            )
     return "\n".join(lines)
 
 
@@ -1077,6 +1084,47 @@ def _add_run_parser(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+#: A word that the shell of the platform reads as itself, so it is printed with no quotes.
+_PLAIN_WINDOWS_WORD = re.compile(r"[\w+=:,./\\-]+")
+
+
+def _windows_word(word: str) -> str:
+    """Quote ``word`` for the Tether Command Prompt (``cmd.exe``) of Windows.
+
+    A word with a space or a sign that the console reads (``&``, ``|``, ``<``, ``>``, ``^``)
+    goes in double quotes. Inside them a ``"`` gets a backslash, and so does each backslash
+    before a ``"``, which is how a Windows program splits its command line into words.
+    Quotes do not stop ``cmd.exe`` from expanding a ``%NAME%`` of the environment, so a
+    word that holds one can change when it is pasted; a Windows path seldom holds one.
+    """
+    if _PLAIN_WINDOWS_WORD.fullmatch(word):
+        return word
+    quoted, backslashes = ['"'], 0
+    for char in word:
+        if char == "\\":
+            backslashes += 1
+            continue
+        escape = "\\" * (2 * backslashes + 1) if char == '"' else "\\" * backslashes
+        quoted.append(escape + char)
+        backslashes = 0
+    quoted.append("\\" * (2 * backslashes) + '"')
+    return "".join(quoted)
+
+
+def _command_line(*words: str, windows: bool | None = None) -> str:
+    """Write ``words`` as one command that a person can copy and run as printed (#1310).
+
+    A path or a subject with a space stays one word: in quotes for ``cmd.exe`` on Windows,
+    the shell the install guide gives there, and in POSIX shell quotes on macOS and Linux.
+    A plain word is printed as it is. ``windows`` is the platform, ``None`` for this one.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if windows:
+        return " ".join(_windows_word(word) for word in words)
+    return shlex.join(words)
+
+
 def _print_stop(args: argparse.Namespace, stop: object) -> None:
     from tether.services.recipe import ApprovalStop  # noqa: PLC0415
 
@@ -1085,12 +1133,9 @@ def _print_stop(args: argparse.Namespace, stop: object) -> None:
     if stop.report:
         print(f"  evidence: {stop.report}", file=sys.stderr)
     report = stop.report or "REPORT.json"
-    print(
-        f"  approve:  tether approve {stop.project} {stop.step} --subject {stop.subject} "
-        f"--report {report}",
-        file=sys.stderr,
-    )
-    print(f"  continue: tether run {args.recipe} --resume", file=sys.stderr)
+    approve = ("tether", "approve", stop.project, stop.step, "--subject", stop.subject)
+    print(f"  approve:  {_command_line(*approve, '--report', report)}", file=sys.stderr)
+    print(f"  continue: {_command_line('tether', 'run', args.recipe, '--resume')}", file=sys.stderr)
 
 
 def _run_recipe(args: argparse.Namespace) -> int:
@@ -1119,11 +1164,8 @@ def _run_recipe(args: argparse.Namespace) -> int:
         print(f"tether run: {exc}", file=sys.stderr)
         return 2
     if result.failed:
-        print(
-            f"tether run: a step failed; fix it and continue with tether run {args.recipe} "
-            "--resume",
-            file=sys.stderr,
-        )
+        resume = _command_line("tether", "run", args.recipe, "--resume")
+        print(f"tether run: a step failed; fix it and continue with {resume}", file=sys.stderr)
         return 1
     if result.stop is not None:
         _print_stop(args, result.stop)

@@ -17,7 +17,9 @@ prose harmonization of the PRD (PRD §12.7).
 ## How ADRs are created
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
-  `NNNN` = the next zero-padded integer.
+  `NNNN` = the number reserved first, as
+  [Reserving a number](../agents/adr.md#reserving-a-number) describes. Gaps are allowed.
+  Never reuse a number.
 - **Incremental rule.** A PR that *implements* a still-unhomed resolved PRD
   decision lands that decision's ADR **in the same PR** (`AGENTS.md` §Agile
   execution).
@@ -185,6 +187,8 @@ else would make it a worse historical record in exchange for a working link.
 | [0134](0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md) | A γ from few clean acceptor-bleach steps is reported with a warning | accepted; adds to [ADR-0028](0028-gamma-acceptor-bleach-step-estimator.md) and [ADR-0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md), whose decisions govern unchanged | §7.2 (γ), §11.2 (the γ clean-step warning fraction row), Appendix B.2 step 4 |
 | [0135](0135-a-merge-queue-of-our-own-tests-each-pull-request-on-the-ones-ahead-of-it.md) | A merge queue of our own tests each pull request on top of the ones ahead of it | accepted | §12.3 (branch protection and how a merge is bound), §12.6 (CI) |
 | [0136](0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md) | A new extraction of a movie is a new trace generation, and the previous one is archived unchanged | accepted | §5 (data model), §9.1 (additive-only schema), §7.1, §7.5 (FR-ML), §11.2 |
+| [0138](0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md) | An independent scikit-learn fit is the reference for the `vbgmm` key, and the pinned tMAVEN fails it | accepted | §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
+| [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 
 <!-- gen:adr-index end -->
 

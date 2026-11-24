@@ -328,16 +328,19 @@ def _state_number(counts: StateNumberCounts) -> dict[str, _Spec]:
     return {MAIN_TABLE: ({"n_states": "states", "molecules": "molecules"}, rows)}
 
 
+def _cloud_points(cloud: RawFretCloud) -> _Spec:
+    """Tabulate only a raw FRET cloud's points, one row for each point."""
+    points = np.asarray(cloud.points, dtype="float64").reshape(-1, 2)
+    return (
+        {"time": _time_unit(cloud.time_dt), "e": _E},
+        [{"time": float(t), "e": float(e)} for t, e in points],
+    )
+
+
 def _cloud(cloud: RawFretCloud) -> dict[str, _Spec]:
     """Tabulate a raw FRET cloud's points, and its density surface and HDR levels if any."""
     time = _time_unit(cloud.time_dt)
-    points = np.asarray(cloud.points, dtype="float64").reshape(-1, 2)
-    tables: dict[str, _Spec] = {
-        MAIN_TABLE: (
-            {"time": time, "e": _E},
-            [{"time": float(t), "e": float(e)} for t, e in points],
-        )
-    }
+    tables: dict[str, _Spec] = {MAIN_TABLE: _cloud_points(cloud)}
     if cloud.density is not None:
         tables["density"] = (
             _cell_units(time, _E, "KDE density"),
@@ -403,7 +406,7 @@ def _alpha_shape(
     units = {"edge": "", "time_start": time, "e_start": _E, "time_end": time, "e_end": _E}
     tables: dict[str, _Spec] = {MAIN_TABLE: (units, rows)}
     if cloud is not None:
-        tables["points"] = _cloud(cloud)[MAIN_TABLE]
+        tables["points"] = _cloud_points(cloud)
     return tables
 
 
