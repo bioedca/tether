@@ -348,6 +348,13 @@ order you see them in, not the population that enters an analysis.
 | `alpha` (drift advisory)<br>`DEFAULT_DRIFT_ALPHA` in `tether.ml.drift` | `0.05` | family-wise probability | Family-wise significance for the per-feature two-sample test that warns when a model trained on one condition is being applied to a visibly different one. It is Bonferroni-corrected across the features actually tested, and the report is **advisory** — nothing is blocked. Raising it produces more warnings. | `cross_condition_drift(alpha=…)` — no CLI flag, no GUI control | **no** |
 | `ship_bar_pts`<br>`DEFAULT_SHIP_BAR_PTS` in `tether.ml.prequential` | `10.0` | percentage points of precision-at-k | The uplift over file order, median across videos, at which the prequential evaluation calls the ranker worth using; the leave-one-video-out evaluation reports against the same value. It is a reporting threshold on an evaluation, not something that changes a ranking. | `ranker_prequential_uplift(ship_bar_pts=…)`, `ranker_leave_one_video_out_uplift(ship_bar_pts=…)` — no CLI flag, no GUI control | **no** |
 
+Both evaluations measure **one condition**, because the ranker is per condition. Pass
+`condition_id` to `ranker_prequential_uplift` or `ranker_leave_one_video_out_uplift` to choose
+it. Without one, a project whose labelled molecules span more than one condition raises
+`ValueError`, which names the conditions. Until [#1106](https://github.com/bioedca/tether/issues/1106) the prequential evaluation pooled every
+condition, so a median from a project with several conditions mixed them; a project with one
+condition gives the same result as before.
+
 ## Deep trace classifier
 
 The optional GPU add-on has its own defaults; see

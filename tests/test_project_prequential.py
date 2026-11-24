@@ -469,3 +469,72 @@ def test_lovo_condition_id_evaluates_that_condition_only(tmp_path, monkeypatch) 
     # A condition with no labelled molecule has no fold at all.
     with pytest.raises(ValueError, match="no video folds"):
         ranker_leave_one_video_out_uplift(proj, k=8, condition_id="cond-absent")
+
+
+# --- the prequential gate evaluates one condition (#1106) --------------------
+
+
+def test_gate_refuses_a_project_whose_labels_span_conditions(tmp_path) -> None:
+    # One labelled video in each of two conditions. Pooled, the gate would score the second
+    # condition's video with a ranker trained on the first condition's (PRD §7.5: per condition).
+    other = parse_filename(_OTHER_CONDITION).condition_id
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=2, n_per_class=8, filenames={1: _OTHER_CONDITION}
+    )
+    with pytest.raises(ValueError, match="span 2 conditions") as excinfo:
+        ranker_prequential_uplift(proj, k=8)
+    message = str(excinfo.value)
+    assert _PARSED.condition_id in message  # the error names both conditions
+    assert other in message
+    assert "condition_id" in message
+
+
+def test_gate_condition_id_keeps_the_other_condition_out_of_every_fit(
+    tmp_path, monkeypatch
+) -> None:
+    import tether.ml.gbranker as _gbranker  # noqa: PLC0415
+
+    other = parse_filename(_OTHER_CONDITION).condition_id
+    # mov-1 is the other condition and sits between this condition's videos in curation order,
+    # so a pooled prior would carry its rows into the fits for mov-2 and mov-3.
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=4, n_per_class=8, filenames={1: _OTHER_CONDITION}
+    )
+    folds = prequential_folds(proj)
+    assert [f.movie_id for f in folds] == ["mov-0", "mov-1", "mov-2", "mov-3"]
+    xs = [np.asarray(f.X) for f in folds]
+    ys = [np.asarray(f.is_good, dtype=bool) for f in folds]
+
+    real_fit = _gbranker.train_quality_ranker
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def _spy(x, y, feature_names, **kwargs):
+        seen.append((np.array(x, dtype=np.float64, copy=True), np.array(y, copy=True)))
+        return real_fit(x, y, feature_names, **kwargs)
+
+    monkeypatch.setattr(_gbranker, "train_quality_ranker", _spy)
+    result = ranker_prequential_uplift(proj, k=8, condition_id=_PARSED.condition_id)
+
+    assert result.protocol == "prequential"
+    assert result.skipped_movie_ids == ("mov-0",)
+    assert [v.movie_id for v in result.per_video] == ["mov-2", "mov-3"]  # never mov-1
+    # Every prior holds this condition's earlier videos only: mov-0, then mov-0 + mov-2.
+    assert len(seen) == 2
+    for (x_prior, y_prior), prior in zip(seen, ([0], [0, 2]), strict=True):
+        np.testing.assert_array_equal(x_prior, np.concatenate([xs[j] for j in prior]))
+        np.testing.assert_array_equal(y_prior, np.concatenate([ys[j] for j in prior]))
+
+    # The other condition has one labelled video, so it has no held-out video of its own.
+    with pytest.raises(ValueError, match="no held-out video had a trainable prior"):
+        ranker_prequential_uplift(proj, k=8, condition_id=other)
+    # A condition with no labelled molecule has no fold at all.
+    with pytest.raises(ValueError, match="no video folds"):
+        ranker_prequential_uplift(proj, k=8, condition_id="cond-absent")
+
+
+def test_gate_condition_id_on_a_single_condition_project_changes_nothing(tmp_path) -> None:
+    # Naming the one condition a project holds gives the result of passing none.
+    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=3, n_per_class=8)
+    pooled = ranker_prequential_uplift(proj, k=8)
+    named = ranker_prequential_uplift(proj, k=8, condition_id=_PARSED.condition_id)
+    assert named == pooled
