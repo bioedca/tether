@@ -198,6 +198,27 @@ def _stage(name: str, args: argparse.Namespace) -> Callable[[], object]:
     return lambda: export_molecule_table_csv(store, args.out)
 
 
+def measure_stage(call: Callable, *, job=None, cuda=None) -> tuple[object, dict]:
+    """Return the stage result, wall time, and peak bytes from its isolated process.
+
+    CPU stages use the process high-water mark. CUDA stages synchronize before and
+    after the timed call and use PyTorch's peak allocated tensor memory.
+    """
+    if cuda is not None:
+        cuda.synchronize()
+        cuda.reset_peak_memory_stats()
+    start = time.perf_counter()
+    result = call()
+    if cuda is not None:
+        cuda.synchronize()
+    elapsed = time.perf_counter() - start
+    if cuda is None:
+        peak = _windows_peak(job) if os.name == "nt" else _posix_peak()
+    else:
+        peak = cuda.max_memory_allocated()
+    return result, {"time_s": elapsed, "peak_bytes": peak}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("stage", choices=STAGES)
@@ -209,11 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     job = _windows_job() if os.name == "nt" else None
     call = _stage(args.stage, args)
-    start = time.perf_counter()
-    call()
-    elapsed = time.perf_counter() - start
-    peak = _windows_peak(job) if os.name == "nt" else _posix_peak()
-    print(json.dumps({"stage": args.stage, "time_s": elapsed, "peak_bytes": peak}))
+    _, measurements = measure_stage(call, job=job)
+    print(json.dumps({"stage": args.stage, **measurements}))
     return 0
 
 
