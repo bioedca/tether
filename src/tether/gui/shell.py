@@ -117,6 +117,7 @@ if TYPE_CHECKING:
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
+    from tether.services.corrections import CorrectionPassResult
     from tether.services.curation import StoredMolecule
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
@@ -274,6 +275,31 @@ def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
     with _GUI_PROJECT_OWNERS_LOCK:
         if _GUI_PROJECT_OWNERS.get(key) is token:
             del _GUI_PROJECT_OWNERS[key]
+
+
+def _rebind_gui_project(
+    key: _ProjectOwnerKey | None, path: str | Path, token: object
+) -> _ProjectOwnerKey | None:
+    """Move ``token``'s claim from ``key`` to the file now at ``path``; return the key it holds.
+
+    A guarded publish replaces the project file with one atomic ``os.replace``, so the
+    file at ``path`` has a new identity and ``key`` names a file that is gone. The lock
+    moves its identity record across that replace (ADR-0112); this moves the
+    process-local claim the same way. If ``token`` does not hold ``key``, or another
+    token holds the new file, the claim stays as it was.
+    """
+    if key is None:
+        return None
+    new = _project_owner_key(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if new == key or _GUI_PROJECT_OWNERS.get(key) is not token:
+            return key
+        owner = _GUI_PROJECT_OWNERS.get(new)
+        if owner is not None and owner is not token:
+            return key
+        del _GUI_PROJECT_OWNERS[key]
+        _GUI_PROJECT_OWNERS[new] = token
+    return new
 
 
 def _probe_project_writable(path: str | Path) -> None:
@@ -3742,24 +3768,54 @@ class TetherShell:
         def guard() -> None:
             project._assert_held_lock(expected_nonce=nonce)
 
+        claimed = self._claimed_project_key
+        token = self._project_owner_token
+        rebound: list[_ProjectOwnerKey | None] = [claimed]
+
+        def task() -> CorrectionPassResult:
+            # The publish replaces the file, so the claim moves to the new file at once,
+            # before another window in this process can claim it.
+            try:
+                return run_correction_pass(
+                    project.path, apparent_e_only=apparent_e_only, write_guard=guard
+                )
+            finally:
+                rebound[0] = _rebind_gui_project(claimed, project.path, token)
+
         self._status("Running the correction pass…")
         started = self._tasks.start(
-            lambda: run_correction_pass(
-                project.path, apparent_e_only=apparent_e_only, write_guard=guard
-            ),
+            task,
             context=project.path,
             label="Correction pass",
-            on_finished=self._finish_correction_pass,
+            on_finished=lambda outcome: self._finish_correction_pass(
+                outcome, claimed=claimed, rebound=rebound[0]
+            ),
         )
         self._sync_project_write_controls()
         return started is not None
 
-    def _finish_correction_pass(self, outcome: TaskOutcome) -> None:
-        """Apply a finished correction pass on the main thread: show it, or say why not."""
+    def _finish_correction_pass(
+        self,
+        outcome: TaskOutcome,
+        *,
+        claimed: _ProjectOwnerKey | None = None,
+        rebound: _ProjectOwnerKey | None = None,
+    ) -> None:
+        """Apply a finished correction pass on the main thread: show it, or say why not.
+
+        ``claimed`` is the claim key when the pass started, and ``rebound`` the key the
+        claim moved to after the publish (`_rebind_gui_project`).
+        """
         from tether.gui.corrections import BANNER_FAILURE, CorrectionSummaryDialog
         from tether.gui.messages import Level
         from tether.gui.tasks import TaskState
 
+        if rebound != claimed:
+            if self._claimed_project_key == claimed:
+                self._claimed_project_key = rebound
+            else:
+                # The window let the project go while the pass ran; free the moved claim.
+                _release_gui_project(rebound, self._project_owner_token)
         self._sync_project_write_controls()
         if self._curation_project is None:
             self._retry_session_release()

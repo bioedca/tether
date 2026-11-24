@@ -366,3 +366,66 @@ def test_the_service_refuses_manual_factors_before_it_writes(tmp_path) -> None:
 
     with pytest.raises(RequestRefused, match="manual"):
         run_correction_pass(project.path)
+
+
+def test_the_window_keeps_its_claim_on_the_file_the_pass_published(
+    shell, qapp, qtbot, tmp_path
+) -> None:
+    # The pass publishes a sibling copy with one atomic replace, so the file gets a new
+    # identity. The window's in-process claim must follow it: else a second window takes
+    # the same file writable, and the first window's close frees nothing.
+    from tether.gui import shell as shell_mod
+    from tether.gui.shell import TetherShell
+
+    project = _loaded(shell, tmp_path)
+    before = shell_mod._project_owner_key(project.path)
+    assert {before: shell._project_owner_token} == shell_mod._GUI_PROJECT_OWNERS
+    _run(shell, qtbot)
+    after = shell_mod._project_owner_key(project.path)
+    assert after != before, "the pass published a new file"
+    assert shell._claimed_project_key == after
+    assert {after: shell._project_owner_token} == shell_mod._GUI_PROJECT_OWNERS
+
+    other = TetherShell(preferences_file=tmp_path / "other" / "preferences.json")
+    qtbot.addWidget(other.window)
+    try:
+        other.load_project(project.path)
+        assert not other.holds_project_claim
+        assert other.curation_project is None
+    finally:
+        other.close()
+    assert {after: shell._project_owner_token} == shell_mod._GUI_PROJECT_OWNERS
+
+
+def test_the_claim_moves_only_for_its_owner_and_only_to_a_free_file(monkeypatch) -> None:
+    from tether.gui import shell as shell_mod
+
+    mine, theirs = object(), object()
+    old, new = ("path", "old"), ("path", "new")
+    owners = shell_mod._GUI_PROJECT_OWNERS
+    monkeypatch.setattr(shell_mod, "_project_owner_key", lambda path: new)
+    try:
+        assert shell_mod._rebind_gui_project(None, "p", mine) is None
+        owners[old] = theirs  # another token holds the old key: nothing moves
+        assert shell_mod._rebind_gui_project(old, "p", mine) == old
+        assert owners == {old: theirs}
+        owners[old], owners[new] = mine, theirs  # the new file is taken: nothing moves
+        assert shell_mod._rebind_gui_project(old, "p", mine) == old
+        assert owners == {old: mine, new: theirs}
+        del owners[new]
+        assert shell_mod._rebind_gui_project(old, "p", mine) == new
+        assert owners == {new: mine}
+    finally:
+        owners.clear()
+
+
+def test_a_claim_moved_after_the_window_let_the_project_go_is_freed(shell, qtbot, tmp_path) -> None:
+    from tether.gui import shell as shell_mod
+    from tether.gui.tasks import TaskOutcome, TaskState
+
+    gone = ("path", "moved-after-close")
+    shell_mod._GUI_PROJECT_OWNERS[gone] = shell._project_owner_token
+    outcome = TaskOutcome(context=None, state=TaskState.FAILED, error=RuntimeError("late"))
+    shell._finish_correction_pass(outcome, claimed=("path", "before"), rebound=gone)
+    assert gone not in shell_mod._GUI_PROJECT_OWNERS
+    assert shell._claimed_project_key is None
