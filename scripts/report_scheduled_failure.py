@@ -24,7 +24,9 @@ What it does, by the watched job's result:
   order is read from the branch (the ``compare`` API), never from the finish time. A repeat
   failure on a newer commit that the daily limit holds back edits the latest failure report in
   place instead, so a pass from a commit between the two is still older than the record. A report
-  written before #1283 records no commit, and the next run is then not compared.
+  written before #1283 records no commit, and the next run is then not compared. The workflow's
+  ``issue`` job has one concurrency group for each issue, so no other report for the same issue
+  runs between this run's read and its write.
 * **cancelled** -- the workflow calls this only while the run itself is not cancelled
   (``!cancelled()``), so a cancelled job here is a job that hit its own ``timeout-minutes``, and
   that is a failure. A run that a newer run replaced (a pull request, or a scheduled workflow's

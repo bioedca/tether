@@ -688,6 +688,24 @@ def test_the_report_job_writes_issues_and_nothing_else() -> None:
     assert any(s.get("run") == "python3 scripts/report_scheduled_failure.py" for s in job["steps"])
 
 
+def test_reports_for_one_issue_run_one_at_a_time_and_none_is_dropped() -> None:
+    """The read, the commit comparison and the write are one step for each issue (#1283).
+
+    Without a group, two runs that report together both read the same latest report, and the
+    slower write wins (CodeRabbit on PR #1341). The group is the issue title, so other issues
+    still report at once; ``queue: max`` keeps every waiting report, where the default would
+    cancel a waiting one; nothing cancels the report that is running.
+    """
+    ((_, job),) = _load(REPORT_WORKFLOW)["jobs"].items()
+    concurrency = job["concurrency"]
+    assert concurrency["cancel-in-progress"] is False
+    assert concurrency["queue"] == "max"
+    group = " ".join(concurrency["group"].split())
+    for part in ("inputs.drill", "inputs.job-name", "github.ref_name"):
+        assert part in group, f"the group must follow the issue title ({part})"
+    assert "run_id" not in group and "github.sha" not in group, "one group per issue, not per run"
+
+
 def test_no_other_job_in_a_caller_gains_a_write_permission() -> None:
     for name in NAMED:
         workflow = _load(WORKFLOWS / name)
