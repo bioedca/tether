@@ -406,11 +406,16 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 40-frame store, one bleaching and two non-bleaching molecules read
 `[[30, 20], [40, 40], [40, 40]]` against `frame_range` `[[0, 40], [0, 40], [0, 40]]`.
 
-**`alpha` and `gamma` NaN.** A NaN factor means the min-qualifying-traces gate withheld it.
-The NaN **stays in `/molecules.alpha` / `.gamma`**: absent a manual override,
-`compute_corrected_fret` only stamps `correction_method` / `correction_confidence`. So NaN
-factors next to `apparent-E (corrections unavailable)` are the *expected* signature of a
-withhold, not corruption. A missing factor never becomes a NaN in E (ADR-0003).
+**`alpha` and `gamma` NaN.** A NaN factor means that no factor was applied. One cause is the
+min-qualifying-traces gate, which withheld it. Another is an analysis-only import, which seeds
+every row at NaN (`src/tether/project/analysis_import.py`). The NaN **stays in
+`/molecules.alpha` / `.gamma`**: absent a manual override, `compute_corrected_fret` only stamps
+`correction_method` / `correction_confidence`.
+
+NaN factors next to `apparent-E (corrections unavailable)` are therefore an *expected*
+signature, not corruption. To tell a withhold from an import, read `correction_method` and
+`/settings/leakage` (`withheld`), as the `/molecules.alpha` row above says. A missing factor
+never becomes a NaN in E (ADR-0003).
 
 E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
 there. For apparent E that is a frame with zero total intensity. For corrected E it is a frame

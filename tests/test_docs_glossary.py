@@ -115,7 +115,7 @@ MOVED = (
     ),
     ("tether.project.merge appends a contributor's human rows", "reference/tether-format.md"),
     ("two provisional keys can agree for two different conditions", "reference/tether-format.md"),
-    ("is the one row that never shows up on an exit-0 run", "cli.md"),
+    ("usually travels with a failed in the same movie", "cli.md"),
     ("The naming is inverted", "io/legacy-import.md"),
     ("it raises no error", "cli.md"),
     ("whenever the control points exactly determine the fit", "troubleshooting.md"),
