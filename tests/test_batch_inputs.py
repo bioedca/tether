@@ -99,7 +99,7 @@ def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkey
     # Item 1 of #653: "The accepted extensions are the ones the reader supports."
     from tether.io import adapters, movie  # noqa: PLC0415
 
-    assert movie_suffixes() == (".tif", ".tiff")
+    assert movie_suffixes() == (".tif", ".tiff", ".nd2")
     extra = SimpleNamespace(name="Other", extensions=(".oth",))
     real = adapters.registered_adapters()
     monkeypatch.setattr(adapters, "registered_adapters", lambda: (*real, extra))
@@ -109,18 +109,33 @@ def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkey
     assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.oth", "b.tif"]
 
 
-def test_a_folder_gives_no_movie_that_extraction_refuses(tmp_path: Path) -> None:
-    """ND2 opens through the registry (#902) but extraction reads only TIFF.
+def test_a_folder_gives_the_nd2_movies_that_extraction_reads(tmp_path: Path) -> None:
+    """Extraction reads ND2 (#1388), so a folder gives its ``.nd2`` files."""
+    _touch(tmp_path / "a.nd2")
+    _touch(tmp_path / "b.tif")
+    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.nd2", "b.tif"]
 
-    A folder that holds an ND2 original beside its TIFF export must give the TIFF only:
-    the ND2 would fail its extraction stage, and its stem would collide with the TIFF's.
+
+def test_an_original_beside_its_tiff_export_is_refused_by_name(tmp_path: Path) -> None:
+    """``x.nd2`` beside ``x.tif`` in one folder: the batch refuses, naming both (#1388).
+
+    They are one movie in two containers; the batch does not choose one for the user.
     """
-    from tether.io.adapters import registered_adapters  # noqa: PLC0415
-
-    assert "ND2" in [a.name for a in registered_adapters()]
     _touch(tmp_path / "movie.nd2")
     _touch(tmp_path / "movie.tif")
-    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["movie.tif"]
+    movies = expand_movie_arguments([str(tmp_path)])
+    with pytest.raises(OutputNameCollision, match="one name in two containers") as err:
+        output_stems(movies)
+    assert "movie.nd2" in str(err.value)
+    assert "movie.tif" in str(err.value)
+
+
+def test_an_original_and_a_tiff_of_one_name_in_two_folders_both_run(tmp_path: Path) -> None:
+    """The pair rule is about one folder; in two folders the names take the folder."""
+    _touch(tmp_path / "day1" / "movie.nd2")
+    _touch(tmp_path / "day2" / "movie.tif")
+    movies = expand_movie_arguments([str(tmp_path)], recursive=True)
+    assert output_stems(movies) == ("day1__movie", "day2__movie")
 
 
 def test_a_file_named_on_its_own_is_kept_whatever_its_name(tmp_path: Path) -> None:
@@ -271,15 +286,15 @@ def test_a_pattern_skips_a_hidden_folder_it_cannot_list(tmp_path: Path, monkeypa
     ("argument", "message"),
     [
         ("missing.tif", "no such movie file or folder: {arg}"),
-        ("empty", "folder {arg} holds no movie file (.tif, .tiff); add --recursive"),
-        ("*.nd2", "pattern {arg} matches no movie file (.tif, .tiff)"),
+        ("empty", "folder {arg} holds no movie file (.tif, .tiff, .nd2); add --recursive"),
+        ("*.czi", "pattern {arg} matches no movie file (.tif, .tiff, .nd2)"),
     ],
 )
 def test_an_argument_that_gives_no_movie_is_refused_by_name(
     tmp_path: Path, argument: str, message: str
 ) -> None:
     (tmp_path / "empty").mkdir()
-    _touch(tmp_path / "other.nd2")  # a pattern needs a movie suffix as well as a match
+    _touch(tmp_path / "other.czi")  # a pattern needs a movie suffix as well as a match
     arg = str(tmp_path / argument)
     with pytest.raises(MovieArgumentError) as excinfo:
         expand_movie_arguments([arg])

@@ -1373,7 +1373,7 @@ def test_extract_refuses_an_unguarded_overwrite_before_any_work(tmp_path, monkey
     def _no_movie_io(*_a, **_k):
         raise AssertionError("an unguarded overwrite must be refused before the movie opens")
 
-    monkeypatch.setattr(extract_module, "open_movie", _no_movie_io)
+    monkeypatch.setattr(extract_module, "open_extraction_movie", _no_movie_io)
     with pytest.raises(ExtractionError, match="needs its writer lock"):
         extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), overwrite=True)
     assert out.read_bytes() == b"existing project"

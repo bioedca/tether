@@ -168,8 +168,8 @@ def test_a_renamed_nd2_is_found_by_content(tmp_path: Path) -> None:
     assert select_adapter(path).name == "ND2"
 
 
-def test_extraction_still_refuses_nd2_with_a_message(tmp_path: Path) -> None:
-    """Extraction reads the TIFF memory map; ND2 opens through the registry only."""
+def test_the_tiff_only_opener_refuses_nd2_with_a_message(tmp_path: Path) -> None:
+    """``open_movie`` gives the TIFF memory map; an ND2 is refused there (#1388 reads it)."""
     path = write_nd2(tmp_path / "t.nd2", _frames())
     with pytest.raises(UnsupportedContainerError, match="reads only TIFF"):
         open_movie(path)

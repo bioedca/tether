@@ -192,6 +192,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 | [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
 | [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
 
 <!-- gen:adr-index end -->
 

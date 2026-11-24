@@ -159,7 +159,7 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
 @_needs_napari
 @_needs_gl
 def test_panel_rejects_non_movie_reader(qtbot) -> None:  # qtbot: ensure a QApplication
-    with NapariMoviePanel() as panel, pytest.raises(TypeError, match="MovieReader"):
+    with NapariMoviePanel() as panel, pytest.raises(TypeError, match="movie source"):
         panel.set_movie(np.zeros((3, 4, 4), dtype=np.uint16))  # type: ignore[arg-type]
 
 
