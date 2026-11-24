@@ -68,6 +68,7 @@ import enum
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -237,7 +238,7 @@ def check_install(prefix: Path, platform: str, *, home: Path | None = None) -> N
         raise HandoffUnavailable(
             "Tether was installed for all users, so an update needs an administrator."
         )
-    if platform == "macos" and resolved != Path(os.path.abspath(home)) / "Tether":
+    if platform == "macos" and not _same_file(resolved, Path(os.path.abspath(home)) / "Tether"):
         raise HandoffUnavailable(
             "Tether can update itself only when it is installed in the Tether folder of your "
             "home folder."
@@ -613,6 +614,34 @@ def _same_path(a: str | Path, b: str | Path) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+def _same_file(a: str | Path, b: str | Path) -> bool:
+    """Tell whether *a* and *b* name one file, or one folder.
+
+    The strings alone are not enough on macOS: the ``.pkg`` installs into ``~/tether`` on
+    a file system that ignores case, so ``~/Tether`` names the same folder.
+    """
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return _same_path(a, b)
+
+
+def _shim_target(shim: Path) -> str | None:
+    """Return the program a POSIX launcher ``exec``s (``exec "<program>" "$@"``), or None."""
+    try:
+        text = shim.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("exec "):
+            try:
+                words = shlex.split(line)
+            except ValueError:
+                return None
+            return words[1] if len(words) == 3 and words[2] == "$@" else None
+    return None
+
+
 def _windows_shortcut(link: Path, env: Mapping[str, str]) -> tuple[str, str] | None:
     """``(target, arguments)`` of a ``.lnk``, read back through ``WScript.Shell``."""
     system_root = env.get("SystemRoot") or env.get("SYSTEMROOT") or r"C:\Windows"
@@ -713,8 +742,8 @@ def check_launch_surface(
     for name in ("tether", "tether-gui"):
         shim = launchers / name
         target = env_dir / "bin" / name
-        text = shim.read_text(encoding="utf-8", errors="replace") if shim.is_file() else ""
-        if not os.access(shim, os.X_OK) or f'exec "{target}"' not in text:
+        started = _shim_target(shim) if shim.is_file() else None
+        if not os.access(shim, os.X_OK) or started is None or not _same_file(started, target):
             problems.append(f"{shim} does not start {target}")
     if _run_version([str(launchers / "tether"), "--version"], env) != want:
         problems.append(f"{launchers / 'tether'} --version does not report {version}")
@@ -722,9 +751,15 @@ def check_launch_surface(
         problems.append(f"{env_dir / 'bin' / 'tether-gui'} --version does not report {version}")
     if platform == "linux":
         entry = home / ".local" / "share" / "applications" / "tether.desktop"
+        gui = env_dir / "bin" / "tether-gui"
         text = entry.read_text(encoding="utf-8", errors="replace") if entry.is_file() else ""
-        if f'Exec="{env_dir / "bin" / "tether-gui"}" %f' not in text.splitlines():
-            problems.append(f"{entry} does not start {env_dir / 'bin' / 'tether-gui'}")
+        execs = [
+            line[len('Exec="') : -len('" %f')]
+            for line in text.splitlines()
+            if line.startswith('Exec="') and line.endswith('" %f')
+        ]
+        if not any(_same_file(program, gui) for program in execs):
+            problems.append(f"{entry} does not start {gui}")
     if platform == "macos":
         from tether.gui import macos_app
 

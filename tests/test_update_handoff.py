@@ -480,6 +480,25 @@ def test_check_launch_surface_on_a_linux_layout(tmp_path: Path):
     assert any("tether.desktop" in p for p in problems)
 
 
+@pytest.mark.skipif(not _POSIX, reason="symbolic links need a privilege on Windows")
+def test_another_name_for_the_same_folder_is_the_same_install(tmp_path: Path):
+    """The macOS .pkg installs into ``~/tether`` on a file system that ignores case.
+
+    The launchers it writes then name ``~/tether`` while Tether is asked about ``~/Tether``;
+    the packaging run on macOS failed the new copy's check on exactly that (#331). A
+    symbolic link stands in for the second spelling, on any file system.
+    """
+    home = tmp_path / "home"
+    real = tmp_path / "tether"
+    _posix_layout(real, home, "1.0.1", marker="new")
+    home.mkdir(exist_ok=True)
+    (home / "Tether").symlink_to(real, target_is_directory=True)
+    alias = home / "Tether"
+
+    assert check_launch_surface(alias, "1.0.1", platform="linux", home=home) == []
+    check_install(real, "macos", home=home)
+
+
 # --- the real helper, against a fake installer ---------------------------------------------------
 
 

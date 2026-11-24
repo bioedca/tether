@@ -34,7 +34,7 @@ max_skipped = 60
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 48
+max_skipped = 49
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -150,6 +150,14 @@ reason = "the shims of macOS and Linux are sh scripts"
 jobs = ["test (windows-latest)"]
 why = """The test runs the sh launchers of a fake Linux install (#331); test (ubuntu-latest) and \
 test (macos-latest) run it. The Windows checks run in the Windows helper's success test."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_another_name_for_the_same_folder_is_the_same_install"
+reason = "symbolic links need a privilege on Windows"
+jobs = ["test (windows-latest)"]
+why = """The test gives an install a second name with a symbolic link, which a Windows runner \
+does not let a test create (#331); the two other legs run it. The second name it stands for, \
+~/tether beside ~/Tether, exists only on macOS."""
 
 [[skip]]
 test = "tests/test_update_handoff.py::test_a_symbolic_link_put_in_place_of_the_file_is_refused"
