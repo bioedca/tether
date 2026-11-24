@@ -531,9 +531,10 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     ``labeler`` and ``timestamp``. ``None`` when the molecule is not currently rejected,
     or when its current reject has no reason row (a store written before #932, a reject
     written straight through [`set_curation_label`][], or a crash between the two
-    writes, or two human rejects of the molecule that share the same ``labeler`` and
-    ``timestamp``, so the join cannot tell them apart) — an earlier reject's reason is
-    never returned for a later decision. Raises `KeyError` if ``molecule_key`` is absent.
+    writes, or two human rejects or two ``"reject"`` reason rows of the molecule that share
+    the same ``labeler`` and ``timestamp``, so the join cannot tell them apart) — an
+    earlier reject's reason is never returned for a later decision. Raises `KeyError` if
+    ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
@@ -560,16 +561,17 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     if same_join > 1:
         return None  # the join key names more than one reject: no reason can be attributed
     log = read_reject_log(path)
-    for i in range(log.shape[0] - 1, -1, -1):
-        row = log[i]
-        if (
-            _to_str(row["molecule_key"]) == molecule_key
-            and _to_str(row["event"]) == REJECT_EVENT
-            and _to_str(row["labeler"]) == who
-            and _to_str(row["timestamp"]) == when
-        ):
-            return row.copy()
-    return None
+    reasons = [
+        row
+        for row in log
+        if _to_str(row["molecule_key"]) == molecule_key
+        and _to_str(row["event"]) == REJECT_EVENT
+        and _to_str(row["labeler"]) == who
+        and _to_str(row["timestamp"]) == when
+    ]
+    # Two reason rows of one join (a merge-back of a join a later pull made ambiguous, #1291)
+    # cannot say which reject each belongs to, so neither is attributed.
+    return reasons[0].copy() if len(reasons) == 1 else None
 
 
 def curation_labels(path: str | Path) -> dict[str, int]:

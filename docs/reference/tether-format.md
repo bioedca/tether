@@ -573,14 +573,15 @@ nothing. The log is a record only. The curation filter, the ranker and every ana
 read `/molecules.curation_label` and not the reason. Provisional-source rejects write
 no row. `reject_record_of` returns the `reject` row that joins the molecule's
 latest human `/labels` event when that event is a reject, or `None` (also for a store
-written before this log existed).
+written before this log existed, and when two `reject` rows share that join).
 
 The rows travel with their `/labels` rows. A subset export copies the rows of the exported
 molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
 appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
 the owner already holds them. A second pull of the same file appends nothing. A join that names
 two pulled rejects (or two restores) copies no reason, since it cannot say which one the reason
-belongs to.
+belongs to. If an earlier pull already copied a reason for that join, the pull copies the other
+reasons of the join too, so the owner also reads no reason for it.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
