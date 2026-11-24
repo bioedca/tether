@@ -3,7 +3,7 @@
 """Store-integrated prequential precision@k uplift gate (PRD §7.5, §9 M5; FR-ML).
 
 Wires the pure prequential harness ([`tether.ml.prequential`][]) to a ``.tether``: it groups
-the project's human-labeled molecules into per-video folds by ``movie_id`` (in curation /
+one condition's human-labeled molecules into per-video folds by ``movie_id`` (in curation /
 store order) and runs the interleaved test-then-train protocol, training the gradient-boosting
 ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the accumulated prior at each video
 boundary. [`ranker_leave_one_video_out_uplift`][] runs the second held-out protocol of PRD §8
@@ -119,9 +119,11 @@ def _folds_and_feature_names(
 def prequential_folds(project: ProjectRef) -> list[VideoFold]:
     """The project's human-labeled molecules as ordered per-video folds (PRD §7.5).
 
-    The evaluation units the prequential gate consumes: one
+    The evaluation units the held-out protocols consume: one
     [`VideoFold`][tether.ml.prequential.VideoFold] per ``movie_id`` that has labeled molecules, in
-    curation (store) order. Read-only.
+    curation (store) order, over every condition. Both protocols evaluate one condition's folds
+    at a time ([`ranker_prequential_uplift`][], [`ranker_leave_one_video_out_uplift`][]).
+    Read-only.
 
     Raises
     ------
@@ -135,16 +137,18 @@ def ranker_prequential_uplift(
     project: ProjectRef,
     k: int,
     *,
+    condition_id: str | None = None,
     ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
     hyperparams: RankerHyperparams | None = None,
 ) -> PrequentialResult:
     """Prequential, held-out precision@k uplift of the ranker across a project's videos (§9 M5).
 
-    Trains the gradient-boosting quality ranker ([`tether.ml.gbranker.train_quality_ranker`][])
-    on the accumulated prior at each video boundary and measures the median-across-videos
-    precision@k uplift over file order — the M5 ship gate (PRD §9 M5, §11.2), and the honest
-    counterpart to [`tether.project.gbranking.ranker_precision_at_k`][] (which is in-sample).
-    Read-only; trains no persisted model.
+    Groups one condition's labeled molecules into per-video folds, trains the gradient-boosting
+    quality ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the accumulated prior of
+    that condition at each video boundary, and measures the median-across-videos precision@k
+    uplift over file order — the M5 ship gate (PRD §9 M5, §11.2), and the honest counterpart to
+    [`tether.project.gbranking.ranker_precision_at_k`][] (which is in-sample). Read-only; trains
+    no persisted model.
 
     Parameters
     ----------
@@ -152,6 +156,11 @@ def ranker_prequential_uplift(
         A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     k:
         The review-budget cutoff for precision@k (a positive integer; PRD §7.5).
+    condition_id:
+        The condition to evaluate. Required when the labeled molecules span more than one
+        condition: the ranker is per condition (PRD §7.5), and pooling conditions would score a
+        video with a ranker trained on other conditions' videos. ``None`` (the default)
+        evaluates the one condition the labels hold.
     ship_bar_pts:
         The percentage-point median-uplift threshold to ship (default
         [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
@@ -168,11 +177,14 @@ def ranker_prequential_uplift(
     KeyError
         No ``/features/table`` exists.
     ValueError
-        ``k`` is not a positive integer; the project has no labeled molecules; or no video could
-        be held-out evaluated (fewer than two videos whose accumulated prior carries both
-        classes — the median uplift is undefined, surfaced loudly).
+        ``k`` is not a positive integer; the labeled molecules span more than one condition and
+        no ``condition_id`` is given; the project (or the condition) has no labeled molecules;
+        or no video could be held-out evaluated (fewer than two videos whose accumulated prior
+        carries both classes — the median uplift is undefined, surfaced loudly).
     """
-    folds, train_score_fn, _ = _folds_and_train_score_fn(project, hyperparams)
+    folds, train_score_fn = _folds_and_train_score_fn(
+        project, hyperparams, condition_id=condition_id, protocol="the prequential gate"
+    )
     return prequential_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
 
 
@@ -228,15 +240,9 @@ def ranker_leave_one_video_out_uplift(
         or no video could be held-out evaluated (one video only, or no two videos' labels carry
         both classes).
     """
-    folds, train_score_fn, conditions = _folds_and_train_score_fn(
-        project, hyperparams, condition_id=condition_id
+    folds, train_score_fn = _folds_and_train_score_fn(
+        project, hyperparams, condition_id=condition_id, protocol="leave-one-video-out"
     )
-    if condition_id is None and len(conditions) > 1:
-        raise ValueError(
-            f"the labeled molecules span {len(conditions)} conditions "
-            f"({', '.join(sorted(conditions))}); leave-one-video-out evaluates one condition's "
-            "ranker, so pass condition_id"
-        )
     return leave_one_video_out_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
 
 
@@ -244,14 +250,26 @@ def _folds_and_train_score_fn(
     project: ProjectRef,
     hyperparams: RankerHyperparams | None,
     *,
-    condition_id: str | None = None,
+    condition_id: str | None,
+    protocol: str,
 ):
-    """The per-video folds, the gradient-boosting ``train_score_fn``, and the folds' conditions."""
+    """One condition's per-video folds and the gradient-boosting ``train_score_fn``.
+
+    Raises ``ValueError`` naming the conditions when ``condition_id`` is ``None`` and the
+    labeled molecules span more than one: the ranker is per condition (PRD §7.5), so neither
+    protocol pools conditions (#1106).
+    """
     from tether.ml.gbranker import train_quality_ranker
 
     folds, feature_names, conditions = _folds_and_feature_names(project, condition_id)
+    if condition_id is None and len(conditions) > 1:
+        raise ValueError(
+            f"the labeled molecules span {len(conditions)} conditions "
+            f"({', '.join(sorted(conditions))}); {protocol} evaluates one condition's "
+            "ranker, so pass condition_id"
+        )
 
     def train_score_fn(x_prior: np.ndarray, y_prior: np.ndarray):
         return train_quality_ranker(x_prior, y_prior, feature_names, hyperparams=hyperparams).score
 
-    return folds, train_score_fn, conditions
+    return folds, train_score_fn
