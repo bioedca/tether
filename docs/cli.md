@@ -432,7 +432,7 @@ gives no movie stops the run before anything is written, and the message names i
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .vsi); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each

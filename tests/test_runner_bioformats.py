@@ -124,7 +124,7 @@ def test_a_closed_source_refuses_a_read(tmp_path: Path) -> None:
 
 
 @requires_bioformats
-def test_colour_pixels_are_refused(tmp_path: Path) -> None:
+def test_color_pixels_are_refused(tmp_path: Path) -> None:
     from tether.io.adapters import InvalidPixelError
 
     path = tmp_path / "rgb.ome.tif"
@@ -132,7 +132,7 @@ def test_colour_pixels_are_refused(tmp_path: Path) -> None:
         path, np.zeros((3, 16, 16, 3), dtype="u1"), ome=True, photometric="rgb",
         metadata={"axes": "TYXS"},
     )  # fmt: skip
-    with pytest.raises(InvalidPixelError, match="colour"):
+    with pytest.raises(InvalidPixelError, match="color"):
         open_bioformats_source(path)
 
 

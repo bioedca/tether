@@ -577,3 +577,49 @@ set that variable to an absolute path. Otherwise, delete `~/.config/tether`.
 The deep trace classifier is an optional extra for users with an NVIDIA GPU. It lets them train
 or run a deep model on their own labels. It is **not** part of the installer, and Tether does
 not need it. [Deep trace classifier](ml/deep-classifier.md) tells you how to set it up.
+
+## The optional Bio-Formats stack (cellSens `.vsi` movies)
+
+Tether reads Olympus/Evident cellSens `.vsi` movies through
+[Bio-Formats](https://www.openmicroscopy.org/bio-formats/). Bio-Formats runs on Java. Java is
+**not** part of the installer. Tether needs it for no other file. The Bio-Formats stack is a
+separate environment, kept apart from the application like the tMAVEN copy
+([ADR-0143](adr/0143-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)).
+Install it only if you open `.vsi` files.
+
+1. Get `bioformats/conda-lock.yml` from the Tether repository, at the version of your Tether.
+   The [source on GitHub](https://github.com/bioedca/tether/tree/main/bioformats) has it. The
+   lock names each package by version and checksum, for Linux, macOS and Windows.
+2. Make the environment in a folder of your choice with
+   [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html):
+
+    ```sh
+    micromamba create -p ~/tether-bioformats -f bioformats/conda-lock.yml
+    ```
+
+    The command `conda-lock install -p <folder> bioformats/conda-lock.yml` does the same. The
+    stack takes about 750 MB of disk on Linux. It holds Python 3.12, an OpenJDK 21 Java runtime,
+    JPype and Bio-Formats 8.0. Bio-Formats comes from the bioconda channel as `bftools`.
+
+3. Tell Tether where the environment's Python is. Set the `TETHER_BIOFORMATS_PYTHON`
+   environment variable in the terminal (or the user environment) that starts Tether:
+
+    ```sh
+    # Linux and macOS
+    export TETHER_BIOFORMATS_PYTHON=~/tether-bioformats/bin/python
+    ```
+
+    ```powershell
+    # Windows (PowerShell)
+    $env:TETHER_BIOFORMATS_PYTHON = "$HOME\tether-bioformats\python.exe"
+    ```
+
+Open a `.vsi` file as any other movie. Keep the `_<name>_` folder that cellSens writes beside
+the `.vsi` file. The frames are in the `.ets` files inside it.
+
+Without the stack, Tether refuses
+a `.vsi` with a message that gives these steps. Tether also refuses frames stored with JPEG or
+JPEG 2000, which can be lossy. Export such an acquisition again without compression.
+[Troubleshooting](troubleshooting.md) lists the messages.
+
+To remove the stack, delete its folder and unset the variable.

@@ -23,6 +23,7 @@ interpreter (see ``docs/install.md``, "The Bio-Formats stack").
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -86,7 +87,7 @@ class BioformatsRunnerError(RuntimeError):
 
 
 def bioformats_python() -> Path | None:
-    """The Python of the Bio-Formats stack from ``$TETHER_BIOFORMATS_PYTHON``, or ``None``."""
+    """Return the Bio-Formats stack's Python from ``$TETHER_BIOFORMATS_PYTHON``, or ``None``."""
     value = os.environ.get(BIOFORMATS_PYTHON_ENV, "").strip()
     return Path(value).expanduser() if value else None
 
@@ -110,7 +111,8 @@ class _Runner:
     """One runner process and its pipe; one request at a time."""
 
     def __init__(self, python: Path) -> None:
-        self._stderr = tempfile.TemporaryFile()
+        # A file, not a pipe: the JVM can write any amount there without a reader.
+        self._stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed in close()
         self._lock = threading.Lock()
         # -I: the runner sees neither the user's site packages nor PYTHON* variables, and
         # never the current folder, so nothing of the base environment leaks into it.
@@ -154,7 +156,9 @@ class _Runner:
             try:
                 reply = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise BioformatsRunnerError(f"the Bio-Formats runner gave a bad reply: {exc}") from exc
+                raise BioformatsRunnerError(
+                    f"the Bio-Formats runner gave a bad reply: {exc}"
+                ) from exc
             data = b""
             if reply.get("ok") and "nbytes" in reply:
                 data = _read_exact(proc.stdout, int(reply["nbytes"]))
@@ -163,10 +167,8 @@ class _Runner:
     def close(self) -> None:
         proc = self._proc
         if proc.poll() is None:
-            try:
+            with contextlib.suppress(BioformatsRunnerError):
                 self.request({"op": "close"})
-            except BioformatsRunnerError:
-                pass
             try:
                 proc.wait(timeout=_EXIT_WAIT)
             except subprocess.TimeoutExpired:
@@ -312,14 +314,14 @@ class BioformatsMovieSource:
         self.close()
 
     def __del__(self) -> None:  # pragma: no cover - a safety net for a source never closed
+        """Stop the runner of a source that was never closed."""
         runner = getattr(self, "_runner", None)
         if runner is not None:
-            try:
+            with contextlib.suppress(Exception):
                 runner.close()
-            except Exception:  # noqa: BLE001, S110 - never raise from a finalizer
-                pass
 
     def __repr__(self) -> str:
+        """Show the path, the shape and whether the source is open."""
         state = "closed" if self._runner is None else "open"
         return f"BioformatsMovieSource({str(self._path)!r}, shape={self._shape}, {state})"
 
@@ -345,7 +347,7 @@ def runner_info() -> dict:
 
 
 def _is_tiff(head: bytes) -> bool:
-    """A cellSens ``.vsi`` file is a TIFF (or BigTIFF) by its first bytes."""
+    """Tell a TIFF (or BigTIFF) header, which is how a cellSens ``.vsi`` file begins."""
     return head[:4] in (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 
 
@@ -356,4 +358,3 @@ BIOFORMATS_ADAPTER = MovieAdapter(
     open=BioformatsMovieSource,
 )
 """The registry entry of the Bio-Formats route: cellSens ``.vsi`` files (ADR-0143)."""
-

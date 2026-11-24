@@ -83,7 +83,7 @@ def find_jar(prefix: str | os.PathLike[str] | None = None) -> Path | None:
 
 
 def find_java_home(prefix: str | os.PathLike[str] | None = None) -> Path | None:
-    """The Java runtime of the environment: ``$JAVA_HOME``, else conda-forge's ``openjdk`` layout.
+    """Find the Java runtime: ``$JAVA_HOME``, else conda-forge's ``openjdk`` layout.
 
     The runner is started without activating the environment, so the activation script that
     sets ``JAVA_HOME`` has not run.
@@ -149,7 +149,7 @@ class Session:
         if reader.isRGB() or reader.getRGBChannelCount() != 1 or reader.isIndexed():
             raise Refusal(
                 "invalid_pixel",
-                f"{path}: series {series} holds colour or palette pixels, not one intensity "
+                f"{path}: series {series} holds color or palette pixels, not one intensity "
                 "sample each, so it is not a fluorescence movie",
             )
         if reader.getSizeC() != 1 or reader.getSizeZ() != 1:
@@ -178,7 +178,7 @@ class Session:
         }
 
     def _choose_series(self, path: str) -> int:
-        """The series with the most time points; a tie between movies is refused."""
+        """Return the series with the most time points; refuse a tie between two movies."""
         reader = self._reader
         counts = []
         for s in range(int(reader.getSeriesCount())):
@@ -336,7 +336,9 @@ def main() -> int:
         except Refusal as refusal:
             _reply(proto, {"ok": False, "error": refusal.kind, "message": str(refusal)})
         except Exception as exc:  # noqa: BLE001 - every failure is a reply, never a dead pipe
-            _reply(proto, {"ok": False, "error": "error", "message": f"{type(exc).__name__}: {exc}"})
+            _reply(
+                proto, {"ok": False, "error": "error", "message": f"{type(exc).__name__}: {exc}"}
+            )
     session.close()
     return 0
 

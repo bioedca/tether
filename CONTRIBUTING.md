@@ -188,7 +188,7 @@ Run the **small-fixture** test suite locally. The GUI tests run headless with
 python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
 # exactly what the required `test` matrix runs (see Test tiers below)
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 ```
 
 The large and gated fixtures run only in the scheduled `large-fixtures.yml` tier. The required
@@ -216,14 +216,14 @@ Four of those tiers have their own workflow. The fifth runs in no CI job at all.
 ```bash
 # The required matrix, verbatim — ci.yml runs this on all three OSes
 # (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 
 # Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
 # selects deep/sidecar/large/reference_download, and the deep tests import torch, which
 # the base lock does not carry.
-pytest -m "not gui and not large and not sidecar and not deep and not workstation and not reference_download"
+pytest -m "not gui and not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 ```
 
 The keyboard-shortcut tests of the shell in `tests/test_shell_basics.py` need a window that the
@@ -324,7 +324,7 @@ see the numbers locally, run these commands:
 
 ```bash
 python -m pip install "coverage==7.17.2"
-QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 coverage json -o coverage.json && python scripts/check_coverage_floors.py coverage.json
 ```
 

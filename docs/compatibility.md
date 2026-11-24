@@ -57,8 +57,20 @@ return wrong data quietly, which is worse than failing.
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
 message says so. A container Tether does not read, such as a real `.nd2`, is refused too.
-That message lists what Tether reads (today, TIFF) and names the Bio-Formats route for the
-others.
+That message lists what Tether reads (today, TIFF and cellSens VSI) and names the Bio-Formats
+route.
+
+**cellSens `.vsi` (the Bio-Formats route).** A `.vsi` file begins with a TIFF header. So its
+extension, not its content, sends it to the cellSens adapter, and a renamed `.vsi` is read as
+the small TIFF it is. The frames come from the `.ets` files of the `_<name>_` folder beside it.
+Bio-Formats 8.0 reads them in the optional stack of [the install
+guide](install.md#the-optional-bio-formats-stack-cellsens-vsi-movies) (ADR-0143).
+
+Tether reads
+the image with the most time points, at full resolution. It refuses two movies of the same
+length in one file, and a movie of several channels or focal planes. It also refuses color
+pixels and frames stored with JPEG or JPEG 2000. The pixel size, the frame time and the channel
+name come from the file when Bio-Formats finds them, and are *unknown* otherwise.
 
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,

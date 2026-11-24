@@ -14,6 +14,8 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -90,8 +92,9 @@ def _lock_names(path: Path) -> set[str]:
 def test_the_base_lock_and_environment_hold_no_java() -> None:
     assert not _lock_names(REPO / "conda-lock.yml") & JAVA_PACKAGES
     spec = yaml.safe_load((REPO / "environment.yml").read_text(encoding="utf-8"))
-    names = {str(d).split()[0].split("=")[0].split("<")[0].split(">")[0] for d in spec["dependencies"]
-             if isinstance(d, str)}  # fmt: skip
+    names = {
+        re.split(r"[\s=<>!]", d, maxsplit=1)[0] for d in spec["dependencies"] if isinstance(d, str)
+    }
     assert not names & JAVA_PACKAGES, names & JAVA_PACKAGES
     pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8").lower()
     for name in ("jpype", "scyjava", "pyjnius", "javabridge", "bioio-bioformats"):
@@ -121,7 +124,7 @@ def test_the_base_environment_imports_no_java(tmp_path: Path) -> None:
         f"java = [m for m in sys.modules if m.split('.')[0] in {JAVA_MODULES!r}]\n"
         "assert not java, java\n"
     )
-    env = {k: v for k, v in __import__("os").environ.items() if k != bioformats.BIOFORMATS_PYTHON_ENV}
+    env = {k: v for k, v in os.environ.items() if k != bioformats.BIOFORMATS_PYTHON_ENV}
     subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 

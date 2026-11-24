@@ -99,9 +99,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     ]
     if clashes:
         raise pytest.UsageError(
-            "a `workstation` test may carry no other tier marker (large, sidecar, deep, bioformats), "
-            "because "
-            "that tier's CI job would select it; offenders: " + ", ".join(sorted(clashes))
+            "a `workstation` test may carry no other tier marker (large, sidecar, deep, "
+            "bioformats), because that tier's CI job would select it; offenders: "
+            + ", ".join(sorted(clashes))
         )
 
 

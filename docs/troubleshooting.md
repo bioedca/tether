@@ -388,7 +388,10 @@ that one finds nothing.
 | `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
 | `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
-| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff); cellSens VSI (.vsi). …` | A vendor container (`.nd2`, `.czi`, `.sif`, …). Readers for some of these are planned. | Export the movie to uncompressed TIFF. |
+| `… needs the optional Bio-Formats stack, and TETHER_BIOFORMATS_PYTHON is not set. …` (or `… names …, which is not a file`) | A cellSens `.vsi` movie, and the Bio-Formats stack is not installed, or the variable does not point at its Python. | Install the stack as [the install guide](install.md#the-optional-bio-formats-stack-cellsens-vsi-movies) says, and set the variable in the terminal that starts Tether. |
+| `…: the frames are stored with JPEG, which can be lossy. …` (a `.vsi`) | cellSens saved the tiles with JPEG or JPEG 2000. | Export the acquisition again from cellSens without compression. |
+| `…: series 0, 2 are each a movie of … frames, and Tether cannot tell which one to read` or `… has 2 channels and 1 focal planes …` | The `.vsi` holds two movies of the same length, or a movie of several channels or focal planes. | Export one movie of one channel from cellSens. |
 
 Two more from the same family, raised by `tether.project.extract`:
 

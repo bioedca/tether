@@ -45,9 +45,7 @@ def _transform(frames: np.ndarray, k: int, flip: bool) -> np.ndarray:
 
 
 def _ids(private_data) -> list[str]:
-    return [
-        i for i in private_data.ids if i.startswith(PREFIX) and VSI in private_data.roles(i)
-    ]
+    return [i for i in private_data.ids if i.startswith(PREFIX) and VSI in private_data.roles(i)]
 
 
 def test_a_vsi_movie_conforms_and_is_compared_with_its_export(private_data) -> None:
