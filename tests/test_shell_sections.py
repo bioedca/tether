@@ -144,10 +144,10 @@ def _dock_menu_titles(shell) -> list[str]:
 def test_the_dock_menu_offers_only_the_current_sections_docks(shell, tmp_path) -> None:
     project = _store(tmp_path)
     assert shell.load_project(project.path) is not None
-    assert shell.show_histogram() is not None
-    assert shell.section == "analyze"
+    shell.set_section("analyze")
     # In Analyze, the dock menu cannot bring the Browser or the Overlap dock over the page.
-    assert _dock_menu_titles(shell) == ["Population histogram"]
+    # Analyze has no dock of its own: its plots are its page (#374).
+    assert _dock_menu_titles(shell) == []
     assert not shell.browser_dock.toggleViewAction().isVisible()
     shell.set_section("curate")
     assert sorted(_dock_menu_titles(shell)) == ["Browser", "Overlap"]
@@ -176,20 +176,16 @@ def test_lazy_docks_attach_to_their_section(shell, tmp_path) -> None:
     assert overlap in shell.section_docks("curate")
     assert not overlap.isHidden()
 
-    # The histogram is a dock of Analyze, so showing it shows that section.
-    assert shell.show_histogram() is not None
-    histogram = shell._histogram_dock_widget
-    assert shell.section == "analyze"
-    assert shell.section_docks("analyze") == [histogram]
-    assert not histogram.isHidden()
+    # Analyze holds no dock (its plots are its page, #374), so the Curate docks hide there.
+    shell.set_section("analyze")
+    assert shell.section_docks("analyze") == []
     assert overlap.isHidden()
     assert shell.browser_dock.isHidden()
 
     shell.set_section("curate")
-    assert histogram.isHidden()
     assert not overlap.isHidden()
 
-    # Closing the project discards both lazy docks and shows the start page.
+    # Closing the project discards the lazy dock and shows the start page.
     shell.set_section("analyze")
     assert shell.close_project()
     assert shell.section == "curate"

@@ -138,9 +138,10 @@ class SectionShells:
 
         ``project=True`` builds a temporary ``.tether`` and opens it writable; a path opens that
         file instead; ``False`` leaves the shell bare. With a project the lazily built docks are
-        built as well (the overlap dock on opening, the histogram dock by showing it), so every
-        dock a section can hold is attached before the shell is parked. When ``movie`` is true
-        the built project records a real movie file, so the movie dock (#356) is built too;
+        built as well (the overlap dock on opening), and the Analyze section draws its first
+        plot, so every dock a section can hold is attached before the shell is parked. When
+        ``movie`` is true the built project records a real movie file, so the movie dock (#356)
+        is built too;
         ``None`` (the default) means "when ``section`` is in ``VIEWER_SECTIONS``", whose tests
         carry ``needs_gl``. ``shell_kwargs`` go to ``TetherShell``.
         """
@@ -148,7 +149,7 @@ class SectionShells:
 
         shell = TetherShell(**shell_kwargs)
         self._qtbot.addWidget(shell.window)
-        # Showing the histogram dock shows Analyze, so remember the default to return to it.
+        # Remember the default section to return to it.
         default_section = shell.section
         opened: list[Path] = []
         self._built.append((shell, opened))
@@ -167,7 +168,12 @@ class SectionShells:
             # shell holds writable is read-only and never held that lock (#1238).
             if shell.holds_project_claim:
                 opened.append(Path(loaded.path))
-            assert shell.show_histogram() is not None, shell.status_message
+            # The Analyze section draws its A1 plot over every molecule, so its preview
+            # canvas is built before the shell is parked (#374).
+            section = shell.analysis_section
+            section.add_menu.aboutToShow.emit()
+            section.add_menu.actions()[0].trigger()
+            assert section.outcome.drawn, section.outcome.missing
         wanted = default_section if section is None else section
         if shell.section != wanted:
             shell.set_section(wanted)

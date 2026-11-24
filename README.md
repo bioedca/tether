@@ -15,10 +15,10 @@ University) that takes you from a raw TIRF movie to curated, corrected,
 idealized smFRET traces — without ever losing the link between a trace and the
 pixels it came from. Today the desktop application opens a project, curates its
 traces, idealizes one trace at a time, hands traces to tMAVEN and back, imports
-Deep-LASI files and draws a population histogram. Extraction runs from the command
+Deep-LASI files and draws the population plots. Extraction runs from the command
 line, where `tether batch` also applies the corrections and idealizes every molecule.
 From Python you can run the corrections and whole-project idealization with your own
-settings, and make the other plots and the exports. [What it does](#what-it-does) says
+settings, and make the exports. [What it does](#what-it-does) says
 where each feature runs today,
 and the [documentation site](https://bioedca.github.io/tether/) is the user manual.
 
@@ -62,8 +62,14 @@ brings it to the application.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
-- **Population histogram.** The apparent-FRET histogram of the project, with rejected
-  molecules left out.
+- **Analysis plots.** The **Analyze** section draws each population plot: the FRET
+  histograms (with a bootstrap band, per condition, or with the model's Gaussians), the
+  heatmaps, the transition-density, dwell-time and transition-probability plots, the
+  state-number plots, the cross-correlation, the anticorrelation events and the FRET clouds.
+  One plot holds one or more named selections of molecules, such as all molecules or one
+  condition, and rejected molecules are left out ([how-to](docs/how-to/analyze.md)). The
+  figure shown is the one an export writes; saving it from the application comes with
+  [#377](https://github.com/bioedca/tether/issues/377).
 - **Movie panel.** A **napari** movie panel in the application window shows the project's
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
   missing or changed movie file is listed but not shown. A movie with no recorded geometry has
@@ -103,9 +109,6 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
   accepts and rejects and orders traces for review (sort/rank only, never auto-drop). The
   application gets it with [#639](https://github.com/bioedca/tether/issues/639) and
   [#640](https://github.com/bioedca/tether/issues/640) (M16).
-- **Analysis plots.** Histograms with confidence intervals, transition-density and dwell-time
-  plots, and the raw FRET cloud ([how-to](docs/how-to/analyze.md)). The application gets them
-  with [analysis and plot composition (M17)](https://github.com/bioedca/tether/milestone/19).
 - **Exports.** Provenance-stamped tables and figures
   ([how-to](docs/how-to/export-results.md)). The application gets them with
   [#621](https://github.com/bioedca/tether/issues/621) and

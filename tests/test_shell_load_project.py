@@ -247,40 +247,52 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert opened.lock_owner() is not None
     assert shell.molecule_list.count() == 3
     assert "3 molecule(s)" in shell.status_message
-    # histogram seam wired → &Analysis draws over the real store
-    assert shell.show_histogram() is not None
+    # the Analyze section reads the opened store: its A1 plot draws over it (#374)
+    assert _draw_all_molecules(shell).drawn
     # overlap seam wired (coords + patches present) → selecting row 0 built the dock
     assert shell.overlap_dock is not None
+
+
+def _draw_all_molecules(shell):
+    """Add the *All molecules* series to the Analyze section through its menu; return the draw."""
+    section = shell.analysis_section
+    section.add_menu.aboutToShow.emit()  # the menu fills itself from the project as it opens
+    everything = section.add_menu.actions()[0]
+    assert everything.text() == "All molecules"
+    everything.trigger()
+    return section.outcome
 
 
 def test_load_project_histogram_draws_the_population_histogram_of_the_store(
     shell, tmp_path
 ) -> None:
-    # The joined path: load_project wires make_store_histogram over the real store,
-    # and &Analysis must draw exactly what population_apparent_e_histogram returns
-    # for that project with its defaults (#745 GUI-F8). The layers are tested alone
-    # elsewhere (a faked seam; a hand-made Histogram1D); this compares the join.
+    # The joined path: load_project points the Analyze section at the real store, and its
+    # A1 entry must draw exactly what population_apparent_e_histogram returns for that
+    # project with its defaults (#745 GUI-F8, migrated to the plot builder by #374). The
+    # layers are tested alone elsewhere; this compares the join.
     from tether.analysis.histogram import population_apparent_e_histogram
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     opened = shell.load_project(project.path)
     assert opened is not None
 
-    dock = shell.show_histogram()
-    assert dock is not None
+    outcome = _draw_all_molecules(shell)
+    assert outcome.drawn, outcome.missing
     expected = population_apparent_e_histogram(opened)
-    drawn = dock.histogram
-    assert drawn is not None
+    ((label, drawn),) = outcome.results
+    assert label == "All molecules"
     np.testing.assert_allclose(drawn.bin_edges, expected.bin_edges)
     np.testing.assert_allclose(drawn.counts, expected.counts)
     assert drawn.density is expected.density
     assert drawn.value_range == expected.value_range
     assert drawn.n_molecules == expected.n_molecules == 3
     assert drawn.n_samples == expected.n_samples
-    # ...and the curve on screen carries those edges and counts.
-    x, y = dock.curve.getData()
-    np.testing.assert_allclose(x, expected.bin_edges)
-    np.testing.assert_allclose(y, expected.counts)
+    # ...and the figure on the preview canvas carries those edges and counts.
+    assert shell.analysis_section.canvas.figure is outcome.figure
+    (step,) = outcome.figure.axes[0].patches
+    values, edges, _baseline = step.get_data()
+    np.testing.assert_allclose(edges, expected.bin_edges)
+    np.testing.assert_allclose(values, expected.counts)
 
 
 def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_path) -> None:
@@ -1609,38 +1621,54 @@ def test_curation_write_error_adds_no_row_and_never_reports_success(
     assert "Accepted" not in shell.status_message
 
 
-def test_successful_curation_defers_open_population_histogram_refresh(
-    shell, qtbot, tmp_path
+def test_successful_curation_defers_the_analysis_plot_refresh(
+    shell, qtbot, tmp_path, monkeypatch
 ) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui import analysis_section
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    compose = analysis_section.compose_plot
+    calls = 0
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return compose(*args, **kwargs)
+
+    monkeypatch.setattr(analysis_section, "compose_plot", counted)
+    outcome = _draw_all_molecules(shell)
+    assert outcome.results[0][1].n_molecules == 3
+    assert calls == 1
+
+    # The plot lives in Analyze, where the curation keys do not act (#342); the curator
+    # curates in Curate and correct. Three keystrokes there coalesce into one draw: the
+    # _HISTOGRAM_REFRESH_DEBOUNCE_MS single-shot timer is reused for the plot (#374).
+    shell.set_section("curate")
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    assert calls == 1
+    assert shell._analysis_refresh_timer.isActive()
+    assert "Rejected" in shell.status_message
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    assert calls == 1
+    qtbot.waitUntil(lambda: calls == 2, timeout=2000)
+    qtbot.wait(400)  # longer than the debounce: no second, late draw
+    assert calls == 2
+    assert shell.analysis_section.outcome.results[0][1].n_molecules == 0
+
+
+def test_curation_does_not_refresh_an_empty_layer_list(shell, qtbot, tmp_path) -> None:
     from pyqtgraph.Qt import QtCore
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
-    histogram = shell._histogram_seam
-    histogram_calls = 0
-
-    def counted_histogram():
-        nonlocal histogram_calls
-        histogram_calls += 1
-        return histogram()
-
-    shell._histogram_seam = counted_histogram
-    dock = shell.show_histogram()
-    assert dock is not None
-    assert dock.histogram.n_molecules == 3
-    assert histogram_calls == 1
-
-    # Showing the histogram moved the window to Analyze, where the curation keys do not
-    # act (#342); the curator goes back to Curate and correct to curate. The open dock is
-    # still refreshed while its section is hidden (ADR-0116).
     shell.set_section("curate")
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
-
-    assert histogram_calls == 1
-    assert shell._histogram_refresh_timer.isActive()
     assert "Rejected" in shell.status_message
-    qtbot.waitUntil(lambda: histogram_calls == 2, timeout=2000)
-    assert dock.histogram.n_molecules == 2
+    assert not shell._analysis_refresh_timer.isActive()  # no series: nothing to draw again
 
 
 def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -> None:
@@ -1657,7 +1685,7 @@ def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -
     # overlap is gated OFF (no coordinates/patches) → no overlap dock built on selection
     assert shell.overlap_dock is None
     # the analysis substrate still works (corrected layer present)
-    assert shell.show_histogram() is not None
+    assert _draw_all_molecules(shell).drawn
 
 
 def test_load_project_replaces_prior_project(shell, tmp_path) -> None:
@@ -1696,7 +1724,9 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
     assert "Open project failed" in shell.status_message
     assert shell.molecule_list.count() == 3  # prior molecules preserved
     assert shell.overlap_dock is prior_overlap  # prior seams/docks untouched (not reset)
-    assert shell.show_histogram() is not None  # the prior histogram seam still resolves
+    # the Analyze section still reads the prior project
+    assert shell.analysis_section.project == Path(project.path)
+    assert _draw_all_molecules(shell).drawn
 
 
 # --------------------------------------------------------------------------- #
