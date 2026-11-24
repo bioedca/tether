@@ -260,3 +260,24 @@ the search only (role `wt5_other`, never joined): a file that holds some of the 
 number and does not fail the test. Nothing from the per-run files, and no
 path, is committed (ADR-0083). A corrected file in the archive is the authors' action, outside
 Tether.
+
+## Amendment, 2026-11-24 — all 163 molecules of the 5 uM WT tRNA column are four per-run files (#1344)
+
+This amendment supersedes the 2026-11-16 one, which stays as written. The maintainer has since
+named a fourth unpublished per-run file of the same condition. A read-only check on 2026-11-23
+found:
+
+- The file holds 25 molecules. Read with `skiprows=1`, as the notebook reads every file, its
+  molecules are blocks 139 to 163 of the column, in order: each block of 400 values is
+  `A / (D + A)` of the first 400 frames of its molecule, to 1e-6.
+- So all 163 molecules of the column are the four per-run files joined in order: 66, 8, 64 and
+  25 molecules. No block is left unmatched.
+
+The archive still has no trace data for this column (`intraFRET_WT+WT_5uM.txt` is a copy of the
+13 uM file), and the archive stays the reference: the column's traces keep no weekly test.
+
+`tests/test_campos_chavez_5um_runs.py` (tier `workstation`, ADR-0071) now fails unless the files
+mapped with the role `wt5_run` give all 163 blocks of the column (`leading_equal == 163`) and no
+block is unmatched. The role `wt5_other` stays, for the search only. Nothing from the per-run files,
+and no file name or path, is committed (ADR-0083). A corrected file in the archive is the authors'
+action, outside Tether.
