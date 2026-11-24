@@ -324,7 +324,7 @@ retired = 0
 [pages."docs/glossary.md"]
 kind = "descriptive"
 long_share = 22.8
-semicolons = 29
+semicolons = 28
 long_paragraphs = 2
 retired = 2
 
