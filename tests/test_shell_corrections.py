@@ -196,6 +196,13 @@ def test_a_real_total_failure_raises_the_failure_banner(shell, qtbot, tmp_path) 
     assert summary.banner.isVisibleTo(summary.dialog)
     assert "Corrections unavailable" in summary.banner.text()
     assert shell.messages.latest.level is Level.WARNING
+    # A screen reader hears the banner's text and each shown value, not only a label.
+    from pyqtgraph.Qt import QtWidgets
+
+    assert summary.banner.text() in summary.banner.accessibleName()
+    names = {w.accessibleName() for w in summary.dialog.findChildren(QtWidgets.QLabel)}
+    assert "Molecules examined: 4" in names
+    assert "Total correction failure: yes" in names
 
 
 @pytest.mark.parametrize(
