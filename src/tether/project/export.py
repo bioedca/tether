@@ -938,7 +938,8 @@ def _copy_sources(
     for sharing (``aliases`` set) keeps only the file name of a path outside the project's
     folder ([`shareable_path`][tether.project.sources.shareable_path]), as for
     ``PATH_ATTRS``. Otherwise each relative path is read against the source project's folder
-    and stored relative to the subset's, so it still names the same file.
+    and stored relative to the subset's, so it still names the same file. A movie record
+    not yet stored keeps the checksum of its ``/movies`` row.
     """
     from dataclasses import replace  # noqa: PLC0415
 
@@ -946,10 +947,21 @@ def _copy_sources(
         _records_in,  # noqa: PLC2701
         _row,  # noqa: PLC2701
         _stored_path,  # noqa: PLC2701
+        _text,  # noqa: PLC2701
         shareable_path,
     )
 
-    records = _records_in(src)
+    records = _records_in(src, src_path)
+    # The subset carries no ``/movies`` rows, so a movie record not yet stored takes the
+    # extraction's checksum with it: otherwise the subset could not link the file again.
+    known = {}
+    movies = src.get("movies")
+    for row in movies["table"][()] if movies is not None else ():
+        known[_text(row["movie_id"])] = _text(row["sha256"]).lower()
+    records = [
+        replace(r, sha256=known.get(r.movie_id, "")) if not r.stored and not r.sha256 else r
+        for r in records
+    ]
     if aliases is not None:
         records = [replace(r, relative_path=shareable_path(r.relative_path)) for r in records]
     else:

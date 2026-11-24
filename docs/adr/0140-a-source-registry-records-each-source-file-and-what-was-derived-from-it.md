@@ -66,7 +66,8 @@ neither, and one without the other is refused.
 `_missing_skeleton` asks for `/sources/table` only of a file stamped 3 or newer, so a file stamped
 1 or 2 stays a complete project. `read_sources` returns the stored rows and then one record for each
 `/movies` row that has none: id `movie:<movie_id>`, the stored `uri` as its path, the stored size,
-role `movie`, checksum not calculated. Reading writes nothing. The first write that needs the
+role `movie`, checksum not calculated. A relative `uri` is read as the movie panel reads it: in the
+project's folder, or in the current folder when the size and modification time match. Reading writes nothing. The first write that needs the
 record (a checksum, a link again, a derived file of that movie) stores it under the same id, so a
 reference to it never changes.
 
@@ -108,7 +109,9 @@ a private folder, so `export_subset_tether` copies the registry (every record, i
 made from `/movies`, so the subset still says where its molecules came from) and, for a copy for
 sharing (`curator_alias`), keeps only the file name of a path that is absolute or has a `..` step
 (`shareable_path`), as it does for `PATH_ATTRS`. A plain subset reads each relative path against
-the source project's folder and stores it relative to the subset's, so it names the same file.
+the source project's folder and stores it relative to the subset's, so it names the same file. The
+subset carries no `/movies` rows, so a movie record not yet stored takes the checksum of its
+`/movies` row with it, and the subset can still link the file again.
 
 ### Consequences
 

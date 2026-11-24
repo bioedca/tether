@@ -170,8 +170,30 @@ def _record(row: object, *, stored: bool = True) -> SourceRecord:
     )
 
 
-def _records_in(f: object) -> list[SourceRecord]:
-    """Return the stored records of an open store, then one for each unregistered movie."""
+def _movie_path(uri: str, row: object, project_path: Path | None) -> str:
+    """Return the registry path of a ``/movies`` row's ``uri``, read as the movie panel does.
+
+    A relative ``uri`` names a file in the project's folder, or one in the current folder
+    whose size and modification time match the row (the rule of
+    [`tether.services.movies`][]); the path is then stored relative to the project's folder.
+    """
+    if _is_absolute(uri) or project_path is None or not uri:
+        return uri if _is_absolute(uri) else uri.replace("\\", "/")
+    from tether.services.movies import _resolve  # noqa: PLC0415, PLC2701
+
+    project_path = Path(project_path)
+    resolved = _resolve(
+        uri, project_path.absolute().parent, int(row["file_size"]), float(row["mtime"])
+    )
+    return _stored_path(project_path, resolved) if resolved is not None else uri
+
+
+def _records_in(f: object, project_path: Path | None = None) -> list[SourceRecord]:
+    """Return the stored records of an open store, then one for each unregistered movie.
+
+    ``project_path`` is the store's own path: a relative ``/movies.uri`` is then read as the
+    movie panel reads it ([`_movie_path`][]).
+    """
     group = f.get(_GROUP)
     stored = [_record(r) for r in group[_TABLE][()]] if group is not None else []
     have = {r.movie_id for r in stored if r.role == "movie" and r.movie_id}
@@ -185,7 +207,7 @@ def _records_in(f: object) -> list[SourceRecord]:
         made.append(
             SourceRecord(
                 source_id=_MOVIE_PREFIX + movie_id,
-                relative_path=uri if _is_absolute(uri) else uri.replace("\\", "/"),
+                relative_path=_movie_path(uri, row, project_path),
                 original_name=_name(uri),
                 file_size=int(row["file_size"]),
                 sha256="",
@@ -212,7 +234,7 @@ def read_sources(project_path: str | Path) -> list[SourceRecord]:
     import h5py  # noqa: PLC0415
 
     with h5py.File(project_path, "r") as f:
-        return _records_in(f)
+        return _records_in(f, Path(project_path))
 
 
 def _find(project_path: str | Path, source_id: str) -> SourceRecord:

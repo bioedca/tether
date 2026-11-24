@@ -363,3 +363,50 @@ def test_a_lock_lost_during_a_relink_stops_its_write(tmp_path) -> None:
         S.relink_source(project, "movie:mov-1", moved, progress=steal_and_leave)
     assert project.path.read_bytes() == before
     assert not S.read_sources(project.path)[0].stored
+
+
+def test_a_legacy_movie_path_from_the_current_folder_is_read_as_the_movie_panel_reads_it(
+    tmp_path, monkeypatch
+) -> None:
+    project, movie = _project(tmp_path)
+    # Extraction ran from ``tmp_path`` with ``data/movie.tif`` while the project is in ``out/``.
+    (tmp_path / "data").mkdir()
+    legacy = tmp_path / "data" / "movie.tif"
+    movie.rename(legacy)
+    out = tmp_path / "out"
+    out.mkdir()
+    moved = out / project.path.name
+    project.path.rename(moved)
+    with h5py.File(moved, "r+") as f:
+        table = f["movies"]["table"][:]
+        table["uri"][0] = "data/movie.tif"
+        table["mtime"][0] = legacy.stat().st_mtime
+        f["movies"]["table"][:] = table
+    monkeypatch.chdir(tmp_path)
+    (record,) = S.read_sources(moved)
+    assert record.relative_path == "../data/movie.tif"
+    assert record.resolve(moved).resolve() == legacy.resolve()
+    # A file whose signature does not match is not taken: the path stays in the project folder.
+    with h5py.File(moved, "r+") as f:
+        table = f["movies"]["table"][:]
+        table["mtime"][0] = 1.0
+        f["movies"]["table"][:] = table
+    assert S.read_sources(moved)[0].relative_path == "data/movie.tif"
+
+
+def test_a_subset_keeps_the_extraction_checksum_of_a_movie_not_yet_registered(
+    tmp_path,
+) -> None:
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha)
+    out = tmp_path / "subset" / "subset.tether"
+    out.parent.mkdir()
+    export_subset_tether(project, out)
+    (record,) = S.read_sources(out)
+    assert record.stored and record.sha256 == sha
+    # The subset can link the moved movie again, which needs that checksum.
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    subset = Project(out)
+    with subset.write_lock():
+        assert S.relink_source(subset, record.source_id, moved).relative_path == "../moved.tif"

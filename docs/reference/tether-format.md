@@ -627,8 +627,8 @@ raw movie into the project. The module is `src/tether/project/sources.py` (`read
 
 A movie with no row (every movie of a store stamped `1` or `2`) reads as one record made
 from its `/movies` row, with the id `movie:<movie_id>`, the stored `uri` as its path and the
-checksum not calculated. Reading writes nothing. The first write that needs the record
-stores it.
+checksum not calculated. A relative `uri` is read as the movie panel reads it. Reading
+writes nothing. The first write that needs the record stores it.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
@@ -656,7 +656,8 @@ The new file must have the registry's checksum or, for a movie with none, its `/
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
 only the file name of a path that is absolute or steps out of the folder (`..`). A plain
-subset stores each path relative to its own folder, so it names the same file.
+subset stores each path relative to its own folder, so it names the same file. A subset has
+no `/movies` rows, so a movie's record takes its `/movies.sha256` with it.
 
 ## `/traces` — the integrated intensity arrays
 
