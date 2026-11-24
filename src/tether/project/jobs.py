@@ -59,6 +59,7 @@ __all__ = [
     "JobState",
     "RecordedInput",
     "StaleMark",
+    "mark_records_stale_in",
     "mark_stale_in",
     "read_job",
     "read_jobs",
@@ -778,6 +779,50 @@ def set_stale_marks(
     return mark_stale_in(
         project.path, node_key, instance, identity, guards_hold=guards_hold, write_guard=check_lock
     )
+
+
+def mark_records_stale_in(
+    path: str | Path,
+    marks: Iterable[StaleMark],
+    *,
+    write_guard: Callable[[], None] | None = None,
+) -> list[StaleMark]:
+    """Store ``marks`` in a staged copy under the caller's writer lock, once each.
+
+    The direct form of [`mark_stale_in`][], for a record whose owner knows it is stale
+    although no recorded input leads to it: a new trace generation replaces the traces
+    that an approved factor version and an applied correction version were read from,
+    whether or not their inputs were recorded (#1284). A mark whose ``(node, instance)``
+    is already marked is not stored again. Each mark must cross an edge of ADR-0103.
+    Returns the marks stored.
+    """
+    already = {(m.node, m.instance) for m in read_stale_marks(path)}
+    new: list[StaleMark] = []
+    for mark in marks:
+        _input_key(mark.node, mark.instance)
+        if not any(
+            e.number == mark.edge and e.upstream == mark.upstream_node and e.downstream == mark.node
+            for e in graph.EDGES
+        ):
+            raise ValueError(
+                f"edge {mark.edge} of the dependency graph does not lead from "
+                f"{mark.upstream_node!r} to {mark.node!r}"
+            )
+        if (mark.node, mark.instance) in already:
+            continue
+        already.add((mark.node, mark.instance))
+        new.append(mark)
+    rows = [
+        {
+            **{k: str(getattr(m, k)) for k in _MARK_FIELDS if k != "app_version"},
+            "app_version": _app_version(),
+        }
+        for m in new
+    ]
+    if rows and write_guard is not None:
+        write_guard()
+    _append(path, _MARKS, _MARK_FIELDS, rows)
+    return new
 
 
 def mark_stale_in(

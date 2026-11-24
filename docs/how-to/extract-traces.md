@@ -6,30 +6,31 @@ description: "Make a .tether project of donor and acceptor traces from a dual-vi
 
 ## Who this page is for
 
-You have a dual-view TIRF movie on disk, saved as a TIFF with the donor and acceptor channels
-side by side in each frame, and you want a `.tether` project that holds one donor trace and
-one acceptor trace for every molecule in it. You may also have a Deep-LASI `.tmap`
-(a channel map) or `.tdat` (a detection setup) from the same microscope; this page says when to
-use them.
+You have a dual-view TIRF movie on disk, saved as a TIFF. Each frame holds the donor and
+acceptor channels side by side. You want a `.tether` project that holds one donor trace and
+one acceptor trace for every molecule in the movie.
 
-If you have not run Tether before, do [Your first analysis](../tutorial.md) first: it takes a
-small sample movie through every stage once, and this page and the five after it pick up
-from there with your own data.
+You may also have a Deep-LASI `.tmap` (a channel map) or `.tdat` (a detection setup) from the
+same microscope. This page says when to use them.
 
-If your traces were already extracted in Deep-LASI, you do not need this page: bring them in
+If you have not run Tether before, do [Your first analysis](../tutorial.md) first. It takes a
+small sample movie through every stage once. This page and the five after it pick up from
+there with your own data.
+
+If your traces were already extracted in Deep-LASI, you do not need this page. Bring them in
 with [Legacy Deep-LASI import](../io/legacy-import.md) instead.
 
 ## Before you start
 
 - Tether is installed and `tether --version` answers, as in
   [step 5 of the install guide](../install.md#5-check-that-tether-runs).
-- Your movie fits what Tether reads: an uncompressed multi-page TIFF, one camera, split down
-  the vertical midline into a left and a right half. [Does Tether fit my
-  data?](../compatibility.md) has the details.
+- Your movie fits what Tether reads. That is an uncompressed multi-page TIFF from one camera.
+  The vertical midline splits each frame into a left and a right half.
+  [Does Tether fit my data?](../compatibility.md) has the details.
 - You know which half of the frame is the donor channel. Ask whoever set up the emission
   path, or check an earlier analysis of the same setup.
-- Optional: a `.tmap` from a calibration of the same microscope, or a `.tdat` from a
-  Deep-LASI analysis whose detection you want to match.
+- Optional: a `.tmap` from a calibration of the same microscope.
+- Optional: a `.tdat` from a Deep-LASI analysis whose detection you want to match.
 
 The examples below use a movie called `movie.tif` and run in the folder that holds it.
 
@@ -41,8 +42,8 @@ Tether assumes the donor is the **left** half. If yours is on the right, you wil
 
 Getting this backwards raises no error. It swaps the channels and inverts every FRET
 efficiency. When the movie has enough bleach events, Tether checks the side after the
-extraction and warns you; step 5 shows what to look for, and how to check by eye when the
-check cannot decide.
+extraction and warns you. Step 5 shows what to look for. It also shows how to check a trace
+yourself when the check cannot decide.
 
 ## 2. Choose how molecules are found
 
@@ -54,11 +55,12 @@ Pick one of these:
   the detection method and threshold from that file. You cannot combine `--tdat` with the
   two options in the next item.
 - **To set the detector yourself:** add `--detection-mode intensity` or
-  `--detection-mode bandpass`, optionally with `--detection-threshold`, given as a fraction
-  (at least 0, below 1) of the brightest pixel in the image the detector searches
-  ([`detection_mode`](../reference/parameters.md#param-detection-mode),
-  [`detection_threshold`](../reference/parameters.md#param-detection-threshold)). A lower
-  threshold finds more, dimmer molecules.
+  `--detection-mode bandpass`
+  ([`detection_mode`](../reference/parameters.md#param-detection-mode)). You can also add
+  `--detection-threshold`
+  ([`detection_threshold`](../reference/parameters.md#param-detection-threshold)). Give it as
+  a fraction of the brightest pixel in the image that the detector searches. The fraction is
+  at least 0 and below 1. A lower threshold finds more, dimmer molecules.
 
 If two molecules close together come out as one, lower `--min-separation`
 ([`min_separation`](../reference/parameters.md#param-min-separation)).
@@ -98,9 +100,9 @@ Molecules in movie.tif under each colocalization rule (nothing written):
 - **An imported map:** add `--tmap beads.tmap` to use a Deep-LASI channel map instead,
   for example one made from a bead slide. The map carries its own channel layout, so
   `--donor-side` is ignored when you pass one. Tether splits each channel with the map's
-  rotation, flip and crop, in that order. A movie whose frames cannot hold that geometry, for
-  example one turned by 90 degrees against the map, stops the extraction with an error that
-  names the movie's frame size and the map's geometry.
+  rotation, flip and crop, in that order. A movie whose frames cannot hold that geometry stops
+  the extraction with an error. An example is a movie turned by 90 degrees against the map.
+  The error names the frame size of the movie and the geometry of the map.
 - **A saved Tether map:** make a map once from a bead slide with
   `tether map create beads.tif -o beads.npz`. In the application, use **Calibration → Make
   channel map…**. Then add `--map beads.npz` to extract each later movie with it. The map
@@ -131,16 +133,18 @@ tether extract movie.tif -o movie.tether --tmap beads.tmap
 
 Tether refuses to replace a project that already exists. To extract again into the same
 file, add `--overwrite`. Tether then takes the project's writer lock before it replaces the
-file. If another Tether application window or process has the project open, the command stops with
-`is locked` and does not change the file; close the project there first. (One exception: another
-user who opened the same file through a different hard-link name; see
-[Troubleshooting](../troubleshooting.md).)
+file.
+
+Close the project in any other Tether application window or process first. If another one has
+the project open, the command stops with `is locked` and does not change the file. There is one
+exception. Another user may have opened the same file through a different hard-link name. See
+[Troubleshooting](../troubleshooting.md) for that case.
 
 ## 5. Check that it worked
 
-A successful run prints a line naming the molecule count and the project, a line naming
-the colocalization rule with the count the other rule would keep, then the result of the
-donor-side check:
+A successful run prints three lines. The first names the molecule count and the project. The
+second names the colocalization rule and the count that the other rule would keep. The third
+gives the result of the donor-side check:
 
 ```text
 Extracted 412 molecule(s) -> movie.tether
@@ -148,11 +152,11 @@ Extracted 412 molecule(s) -> movie.tether
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
-With `--tmap` it adds a line starting `registration: imported from`, and with `--tdat` a line
-starting `detection: mode`, naming what was applied. Then check three things:
+With `--tmap`, it adds a line starting `registration: imported from`. With `--tdat`, it adds
+a line starting `detection: mode`. Each line names what was applied. Then check three things:
 
 1. No line starting `warning: registration RMS` appeared. If one did, the extraction still
-   finished, but every molecule is tagged as having a doubtful channel map; see
+   finished. But every molecule is tagged as having a doubtful channel map. See
    [Registration was flagged low-confidence](../troubleshooting.md#registration-was-flagged-low-confidence).
 2. The molecule count is roughly what you see in the movie. If it is far off, see
    [Extraction found far fewer, or far more, molecules than
@@ -163,24 +167,28 @@ starting `detection: mode`, naming what was applied. Then check three things:
     before their donor ([how it works](../cli.md#get-donor-side-right-and-read-the-donor-side-check)):
 
     - `donor side: 38 of 40 bleach events agree with the donor side as extracted.` The
-      side is right; go on.
+      side is right. Go on.
     - `warning: 38 of 40 bleach events are consistent with swapped donor and acceptor
       halves; extract this movie again with --donor-side right.` The halves are swapped.
       Extract again as the message says, with `--overwrite`, which replaces
-      `movie.tether`. With `--tmap` the message names the map's channel order instead,
-      because `--donor-side` is ignored: extract again with a correctly oriented map or
-      without `--tmap`. With a channel layout from Python
+      `movie.tether`. With `--tmap`, the message names the channel order of the map instead,
+      because `--donor-side` is ignored. Extract again with a correctly oriented map. Or
+      extract without `--tmap`, and give the `--donor-side` of the true donor. With a
+      channel layout from Python
       ([other layouts](../compatibility.md#acquisition-geometry)), the message names a
       change to the layout. Give the other half as the donor, or exchange `donor_rect` and
       `acceptor_rect`.
     - `donor side: not enough bleach events to check the donor side (…)`, or a result that
       is *not a clear majority either way*. The check cannot decide, which is usual with
-      low FRET, with no acceptor, or with few molecules. Check by eye.
+      low FRET, with no acceptor, or with few molecules. Check a trace yourself.
 
-    **To check by eye**, open the project with `tether-gui movie.tether` and find a
+    **To check a trace yourself**, open the project with `tether-gui movie.tether`. Find a
     molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
     **donor** trace (green) should step **up**. If it steps down instead, close the project
-    in `tether-gui` and extract again with the other `--donor-side` and `--overwrite`.
+    in `tether-gui`. Then extract again with the other `--donor-side` and `--overwrite`.
+
+    If you extracted with `--tmap`, extract again with a correctly oriented map instead. Or
+    extract without `--tmap`, and give the `--donor-side` of the true donor.
 
 ## Add another movie to a project
 
@@ -247,8 +255,8 @@ left and native registration. To change that, pass these arguments to `add_movie
 - `tmap="beads.tmap"` for an imported channel map.
 - `tdat="run.tdat"` to match a Deep-LASI detection.
 
-Each molecule of the new movie gets the provisional condition parsed from that movie's filename,
-so a project of two movies can hold two [conditions](../glossary.md#condition).
+Each molecule of the new movie gets the provisional condition parsed from the filename of that
+movie. So a project of two movies can hold two [conditions](../glossary.md#condition).
 
 The script stops with an error, and leaves the project unchanged, in these cases:
 
@@ -291,24 +299,29 @@ tether batch data --recursive --into experiment.tether
 ```
 
 The first movie creates the project if it does not exist, and each other movie is added to
-it. A movie that is already in the project is skipped, so you can run the same command
-again after a new day's movies land in the folder: only the new movies are added. Then the
-project is corrected and idealized again, over every movie in it. `--dry-run` shows which
+it. A movie that is already in the project is skipped. So you can run the same command again
+after the movies of a new day land in the folder. Only the new movies are added. Then the
+project is corrected and idealized again, over every movie in it.
+
+`--dry-run` shows which
 movies are new to the project. [Command line](../cli.md#every-movie-into-one-project-into)
 gives the details.
 
 To add one movie from Python, with extraction only, see
 [Add another movie to a project](#add-another-movie-to-a-project).
 
-`tether batch` has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
-movie is extracted with the donor on the left and the default detector. A shared `--tdat`
-replaces only the detector settings, never the donor side, and a shared `--tmap` sets the
-channel layout from the map. So use `tether batch` when your donor is on the left, or when
-you pass a `--tmap` from the same microscope; otherwise run `tether extract --donor-side
-right` on each movie. The batch summary marks a movie whose halves look swapped
-`halves-swapped?` and lists it at the end, so a right-side movie that slipped into a batch
-is named there when it has enough bleach events. [Command
-line](../cli.md#tether-batch) lists its options.
+`tether batch` has no `--donor-side`, `--detection-mode` or `--detection-threshold` option.
+So it extracts every movie with the donor on the left and the default detector. A shared
+`--tdat` replaces only the detector settings, never the donor side. A shared `--tmap` sets the
+channel layout from the map.
+
+So use `tether batch` when your donor is on the left. Also use it when you pass a `--tmap` from
+the same microscope. Otherwise, run `tether extract --donor-side right` on each movie.
+
+The batch summary marks a movie whose halves look swapped `halves-swapped?`. It lists that
+movie at the end. So a right-side movie that slipped into a batch is named there, if it has
+enough bleach events. [Command line](../cli.md#tether-batch) lists the options of
+`tether batch`.
 
 `tether batch` corrects and idealizes every molecule before you have curated any. If you then
 reject molecules, the stored factors and model still include them. To leave them out,

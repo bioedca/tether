@@ -834,7 +834,7 @@ For each project the text output gives:
 ```console
 $ tether info out/movie_010.tether
 out/movie_010.tether
-  schema version 1, written by Tether <version>
+  schema version 2, written by Tether <version>
   movies: 1
     movie_010.tif: 1200 frames, 0.1 s/frame, 214 molecules
       curation: 120 accepted, 30 rejected, 64 undecided
@@ -1098,6 +1098,13 @@ a model that has a stale molecule, not only the stale ones. A model with no stal
 is not refitted, and when no model has one the command needs no sidecar. The command counts
 the stale molecules again once it holds the lock, so a change made by another writer before
 then is refitted too.
+
+**After a new trace generation, a refit finds each molecule by its key.** A new extraction of
+a movie gives each of its molecules a new `molecule_id`. The refit finds a molecule of the
+model by its `molecule_id`, or else by its `molecule_key`, which a molecule that did not move
+keeps. A molecule that moved has a new key, so the refit leaves it out and the command names
+it on a line `N moved in a new trace generation, not refitted: <keys>`. When no molecule of a
+model is left, the refit of that model is refused.
 
 **`--stale-only` never refits a model imported from standalone tMAVEN.** Such a model stores
 no fit settings that Tether can repeat. The command reports it as `imported from tMAVEN, not
