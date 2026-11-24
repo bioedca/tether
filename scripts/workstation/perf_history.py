@@ -42,6 +42,7 @@ OVERNIGHT_WINDOW_HOURS = 12.0
 #: The stages that must finish overnight (PRD §8 NFR-PERF): extraction, corrections, idealization.
 OVERNIGHT_STAGES = ("extract", "correct", "idealize")
 PIPELINE_CHECK = "tests/test_workstation_perf.py::test_pipeline_speed_and_memory"
+DEEP_PERFORMANCE_CHECK = "deep/performance"
 CHECK_ACQUISITIONS = "perf-history/acquisitions"
 CHECK_BENCHMARKS = "perf-history/benchmarks"
 
@@ -158,6 +159,28 @@ def build_record(
     pipeline = next((c for c in checks if c["check"] == PIPELINE_CHECK), None)
     acquisitions = dict(pipeline["datasets"]) if pipeline else {}
     benchmarks, errors = bench_values(bench)
+    deep = next((c for c in checks if c["check"] == DEEP_PERFORMANCE_CHECK), None)
+    if deep is not None:
+        datasets = deep["datasets"]
+        # The comparison series takes all four measurements from one fixed workload.
+        metrics = next(iter(datasets.values())) if len(datasets) == 1 else {}
+        measured = {}
+        missing = []
+        for stage in ("train", "predict"):
+            for device in ("cpu", "cuda"):
+                case = f"deep_{stage}/{device}"
+                seconds = metrics.get(f"{device}_{stage}_s")
+                peak = metrics.get(f"{device}_{stage}_peak_bytes")
+                if _number(seconds) and seconds >= 0 and _number(peak) and peak > 0:
+                    measured[case] = {"time_s": seconds, "peak_bytes": peak}
+                else:
+                    missing.append(case)
+        if deep["outcome"] != "passed":
+            errors.append("deep/run")
+        elif missing:
+            errors.extend(missing)
+        else:
+            benchmarks.update(measured)
     return {
         "schema": HISTORY_SCHEMA,
         "commit": commit,
@@ -166,7 +189,7 @@ def build_record(
         "hardware": {k: v for k, v in hardware.items() if k in _HARDWARE},
         "acquisitions": acquisitions,
         "benchmarks": benchmarks,
-        "benchmark_errors": errors,
+        "benchmark_errors": sorted(errors),
         "projection": projection(acquisitions),
     }
 

@@ -458,6 +458,25 @@ equally wrong fits cannot see.
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
 
+### Plain vbGMM against an independent fit
+
+The sidecar key `vbgmm` (tMAVEN's plain vbGMM, test-only) is compared on `smd_4mol.hdf5` with a
+fit that shares no code with tMAVEN: scikit-learn's `BayesianGaussianMixture` (base lock), with
+tMAVEN's vbGMM priors, on the same pooled and clipped FRET
+([#1302](https://github.com/bioedca/tether/issues/1302),
+[ADR-0138](adr/0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md)). The
+numbers, their provenance and the tolerance are in
+`tests/reference_data/smd_4mol_vbgmm_sklearn.json`. The base test matrix fits them again, because
+the sidecar environment has no scikit-learn. The tolerance is 0.03 FRET on each state mean and
+0.01 on each state fraction, above the 0.0225 and 0.0065 by which tMAVEN's own updates, run to
+convergence, differ from the reference.
+
+> Known failure, stated plainly. At the pin, tMAVEN's vbGMM stops after two iterations on this
+> fixture, because the lower bound its convergence test reads goes down at every step. Its state
+> means are up to 0.44 FRET from the reference, so the sidecar test is a strict expected failure:
+> a tMAVEN that fits to convergence passes, and the job then fails until the marker is removed.
+> The early stop is tracked in [#1337](https://github.com/bioedca/tether/issues/1337).
+
 ### Measured traces with a stored vbFRET path
 
 This part compares with the **original vbFRET_nov12** output on measured data, not with
@@ -1201,7 +1220,11 @@ so each test finds the windows in the trace matrix when it runs.
    same formula gives 0.08 s, 0.09 s and 0.05 s, not 3.08 s, 1.37 s and 2.33 s. Its `tau` is
    unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
-   Fig. 5b has no trace data.
+   Fig. 5b has no trace data in the archive. The authors' per-run trace files, which are not
+   published, hold 138 of the column's 163 molecules: molecules 1 to 138 are the three 5 uM WT
+   tRNA runs joined in order (66, 8 and 64 molecules), first 400 frames each, to 1e-6. The other
+   25 agree with no molecule of those files at any start frame (to 1e-4), and no file has 163
+   molecules (#1128).
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
@@ -1228,7 +1251,8 @@ The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
 `test_smoothed_transition_density_equals_checktdp`, and for Fig. 5c
 `test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
 `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
-`test_a_198_bin_histogram_fails_the_fig5c_comparison`.
+`test_a_198_bin_histogram_fails_the_fig5c_comparison`. Workstation (ADR-0071), on the per-run files:
+`tests/test_campos_chavez_5um_runs.py`, which records the number of molecules that match nothing.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 

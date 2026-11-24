@@ -97,6 +97,16 @@ class BatchRequest(ExtractionFields, Request):
 
     COMMAND: ClassVar[str] = "batch"
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = (
+        "movies",
+        "out_dir",
+        "into",
+        "tmap",
+        "tdat",
+        "log",
+        "sidecar_python",
+    )
+    PROJECT_FIELD: ClassVar[str | None] = "into"
 
     movies: tuple[str, ...]
     out_dir: str | None = None
@@ -248,7 +258,7 @@ def _settings(request: BatchRequest) -> tuple[ExtractOptions, SidecarSupervision
         raise RequestRefused(str(exc)) from exc
 
 
-def _jobs(request: BatchRequest, out_dir: Path) -> list[MovieJob]:
+def _jobs(request: BatchRequest, out_dir: Path, movie_root: Path | None = None) -> list[MovieJob]:
     """Expand the movie arguments and give each movie its own output project.
 
     Two movies that would write one output would make the checkpoint treat the second as
@@ -266,7 +276,9 @@ def _jobs(request: BatchRequest, out_dir: Path) -> list[MovieJob]:
     )
 
     try:
-        movies = expand_movie_arguments(request.movies, recursive=request.recursive)
+        movies = expand_movie_arguments(
+            request.movies, recursive=request.recursive, root=movie_root
+        )
         stems = output_stems(movies)
     except (MovieArgumentError, OutputNameCollision) as exc:
         raise RequestRefused(str(exc)) from exc
@@ -431,13 +443,17 @@ def plan(request: BatchRequest) -> BatchPlan:
     )
 
 
-def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchResult:
+def run(
+    request: BatchRequest, *, progress: _Progress | None = None, movie_root: Path | None = None
+) -> BatchResult:
     """Run *request*.
 
     *progress*, when given, watches the run (#648): it is told the run's setup before the
     first movie is read, gets each structured-log event and is told when each movie starts
     and ends. It is a display, not part of the request, so it has no text form; an
     exception it raises is swallowed and costs no movie a stage.
+
+    *movie_root* is the literal directory for relative movie arguments in a recipe.
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read
     and before anything is written when the policy, the supervision settings or the
@@ -453,7 +469,7 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
 
     extract_options, supervision = _settings(request)
     out_dir = _out_dir(request)
-    jobs = _jobs(request, out_dir)
+    jobs = _jobs(request, out_dir, movie_root)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
