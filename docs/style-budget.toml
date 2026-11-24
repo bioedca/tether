@@ -85,7 +85,7 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 20.3
+long_share = 20.4
 semicolons = 9
 long_paragraphs = 0
 retired = 6

@@ -23,12 +23,13 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | --- | --- | --- |
 | TIFF | `.tif`, `.tiff` | Tether, with tifffile |
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
+| ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 | cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 
-The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI or `.vsi`
-movie opens through its reader, but extraction refuses it with "extraction reads only TIFF today". The
-changes that let extraction read them are planned: #1390 for CZI and #1398 for `.vsi`. Until then, export the movie
-to uncompressed TIFF.
+The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI, ND2 or
+`.vsi` movie opens through its reader, but extraction refuses it with "extraction reads only TIFF
+today". The changes that let extraction read them are planned (#1388 for ND2, #1390 for CZI,
+#1398 for `.vsi`). Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
