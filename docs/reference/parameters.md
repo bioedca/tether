@@ -350,9 +350,10 @@ order you see them in, not the population that enters an analysis.
 
 Both evaluations measure **one condition**, because the ranker is per condition. Pass
 `condition_id` to `ranker_prequential_uplift` or `ranker_leave_one_video_out_uplift` to choose
-it. Without one, a project whose labelled molecules span more than one condition raises
-`ValueError`, which names the conditions. Until [#1106](https://github.com/bioedca/tether/issues/1106) the prequential evaluation pooled every
-condition, so a median from a project with several conditions mixed them; a project with one
+it. Without one, a project whose labeled molecules span more than one condition raises
+`ValueError`, which names the conditions. Until
+[#1106](https://github.com/bioedca/tether/issues/1106) the prequential evaluation pooled every
+condition, so a median from a project with several conditions mixed them. A project with one
 condition gives the same result as before.
 
 ## Deep trace classifier

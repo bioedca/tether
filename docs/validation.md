@@ -697,11 +697,12 @@ an uplift in percentage points. Two protocols make that measurement
   bar.
 
 Both store entry points evaluate one condition at a time, so the two protocols report on the
-same condition. Each takes a `condition_id`. Without one, a project whose labelled molecules
-span more than one condition raises `ValueError`, which names the conditions; a project with
-one condition gives the same result with or without it. Before [#1106](https://github.com/bioedca/tether/issues/1106) the prequential gate
-pooled every condition's labelled videos, so in a project with two conditions it scored one
-condition's video with a ranker trained on the other's, and its median mixed the two.
+same condition. Each takes a `condition_id`. Without one, a project whose labeled molecules
+span more than one condition raises `ValueError`, which names the conditions. A project with
+one condition gives the same result with or without it. Before
+[#1106](https://github.com/bioedca/tether/issues/1106) the prequential gate pooled every
+condition's labeled videos, so in a project with two conditions it scored one condition's video
+with a ranker trained on the other's, and its median mixed the two.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
