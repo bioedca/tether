@@ -84,6 +84,11 @@ _SCALARS: dict[int, struct.Struct] = {
 _LEVEL = struct.Struct("<IQ")  # item count, length from the start of the record
 _U64 = struct.Struct("<Q")
 
+# A metadata chunk of a real acquisition is kilobytes to a few megabytes. A larger
+# one, stored or after inflation, is refused before it is held in memory, so a
+# crafted file cannot exhaust memory at open.
+_METADATA_LIMIT = 64 * 1024 * 1024
+
 
 def decode_metadata(data: bytes) -> dict[str, Any]:
     """Decode one binary metadata chunk into nested dicts.
@@ -92,11 +97,19 @@ def decode_metadata(data: bytes) -> dict[str, Any]:
     the value. Type 11 is a level: an item count, a length, the items, and one
     8-byte offset for each item. Items with an empty name are list items, so a
     level whose only key is ``""`` decodes to a list. A whole chunk can be
-    deflated (type 76). A type this decoder does not know raises an
+    deflated (type 76). A type this decoder does not know, a deflated stream that
+    is corrupt, and a chunk larger than 64 MiB once inflated each raise an
     [`UnsupportedContainerError`][tether.io.adapters.UnsupportedContainerError].
     """
     if data[:1] == b"L":  # type 76: two header bytes, ten more, then a zlib stream
-        data = zlib.decompress(data[12:])
+        inflater = zlib.decompressobj()
+        try:
+            inflated = inflater.decompress(data[12:], _METADATA_LIMIT)
+        except zlib.error as exc:
+            raise _CorruptError(f"a compressed metadata chunk is corrupt ({exc})") from exc
+        if inflater.unconsumed_tail:
+            raise _CorruptError("a compressed metadata chunk inflates past 64 MiB")
+        data = inflated
     out, _ = _records(data, 0, len(data), None)
     return out
 
@@ -264,6 +277,8 @@ class Nd2Movie:
             if key not in chunks:
                 return None
             _, at, length = _read_chunk(fh, chunks[key], p)
+            if length > _METADATA_LIMIT:
+                raise _CorruptError(f"{p}: a metadata chunk declares {length} bytes")
             fh.seek(at)
             return decode_metadata(fh.read(length))
 

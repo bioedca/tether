@@ -264,6 +264,21 @@ def test_decoder_inflates_a_compressed_chunk() -> None:
     assert decode_metadata(data) == {"root": {"a": 1}}
 
 
+def test_decoder_refuses_a_chunk_that_inflates_past_its_limit() -> None:
+    """A small deflated chunk that expands without bound is refused, not inflated."""
+    import zlib
+
+    bomb = zlib.compress(b"\x00" * (65 * 1024 * 1024), 9)
+    assert len(bomb) < 100_000
+    with pytest.raises(UnsupportedContainerError, match="past 64 MiB"):
+        decode_metadata(bytes([76, 0]) + b"\x00" * 10 + bomb)
+
+
+def test_decoder_refuses_a_corrupt_deflated_chunk() -> None:
+    with pytest.raises(UnsupportedContainerError, match="compressed metadata chunk is corrupt"):
+        decode_metadata(bytes([76, 0]) + b"\x00" * 10 + b"not zlib")
+
+
 def test_decoder_refuses_an_unknown_type() -> None:
     with pytest.raises(UnsupportedContainerError, match="type 10"):
         decode_metadata(bytes([10, 1]) + b"\x00\x00" + struct.pack("<I", 0))
