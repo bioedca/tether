@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -76,6 +77,7 @@ FIT_RTOL, R2_RTOL = 1e-5, 1e-9
 # Windows) and 5.6e-6 for the mean dwell time or its error (Windows). Each limit is the largest
 # measurement rounded up at the second significant digit.
 ERR_RTOL, TAU_RTOL = 1.3e-5, 5.6e-6
+TAU_ROUND_RTOL = 1e-14  # same inputs, other summation order: measured at most 1.8e-16 (#1307)
 A2B_PAIRS = ((-1, -1), (0, -1), (-1, 2), (1, 2), (2, 1))
 FITS = ("single", "double", "stretched", "triple")  # the child's FITS, in its order
 TM_PAIRS = ((0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2))
@@ -274,6 +276,27 @@ def _assert_fit_matches(fit: DwellFit, tm: dict, key: str) -> None:
         a, k = tm[key + "_a"], tm[key + "_k"]
         want = mean_dwell_time(a, k, amplitude_stderr=amp_err, rate_stderr=rate_err)
         np.testing.assert_allclose(fit.mean_dwell_time(), want, rtol=TAU_RTOL, atol=0, err_msg=key)
+        # Both calls above reach the same production function, so a shared error in it passes
+        # them (#1307). Hold each against a calculation that calls neither.
+        expected = _expected_mean_dwell(a, k, amp_err, rate_err)
+        np.testing.assert_allclose(want, expected, rtol=TAU_ROUND_RTOL, atol=0, err_msg=key)
+        got = fit.mean_dwell_time()
+        np.testing.assert_allclose(got, expected, rtol=TAU_RTOL, atol=0, err_msg=key)
+
+
+def _expected_mean_dwell(
+    a: np.ndarray, k: np.ndarray, a_err: np.ndarray, k_err: np.ndarray
+) -> tuple[float, float]:
+    """Return ``tau = N / D``, ``N = sum(A_i / k_i)``, ``D = sum(A_i)``, and its error, in floats.
+
+    Written from the quotient rule and not from `mean_dwell_time`: ``d tau / d A_j =
+    (D / k_j - N) / D^2`` and ``d tau / d k_j = -A_j / (k_j^2 D)``, each error independent.
+    """
+    a, k, a_err, k_err = (list(map(float, np.ravel(x))) for x in (a, k, a_err, k_err))
+    num, den = math.fsum(x / y for x, y in zip(a, k, strict=True)), math.fsum(a)
+    terms = [((den / kj - num) / den**2 * ej) ** 2 for kj, ej in zip(k, a_err, strict=True)]
+    terms += [(aj / (kj**2 * den) * ej) ** 2 for aj, kj, ej in zip(a, k, k_err, strict=True)]
+    return num / den, math.sqrt(math.fsum(terms))
 
 
 @requires_sidecar
