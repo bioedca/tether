@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, ZEISS CZI and cellSens VSI), what each reader refuses, and where the frame time, pixel size and channel name of each come from."
+description: "The movie containers Tether reads (TIFF, ZEISS CZI, cellSens VSI), what each reader refuses, and where each metadata value comes from."
 ---
 
 <!--
