@@ -1110,10 +1110,11 @@ def _doc(path: Path) -> _Doc:
 
     fenced = _FENCED_BLOCK_RE.sub(blank_fence, text)
     comments = _comments(fenced)
-    for offset in _tag_value_hazards(fenced, comments):
-        problem(
-            offset, "an HTML tag with `<!--`, `>` or a block-level tag in a quoted attribute value"
-        )
+    # Found before the comment and raw-block passes it would mislead, and reported once the
+    # code is known: a tag in a code span or an indented code block is text, not a tag.
+    hazards = _tag_value_hazards(fenced, comments)
+    hazard = "an HTML tag with `<!--`, `>` or a block-level tag in a quoted attribute value"
+    placed: set[int] = set()
     raw = _raw_html_blocks(_blank_spans(fenced, comments))
     stashed = _stashed_comments(fenced, comments)
     blocks = _blank_spans(fenced, stashed)
@@ -1188,6 +1189,12 @@ def _doc(path: Path) -> _Doc:
             spans += [(start + s_, end + s_) for start, end in inner]
         for start, end in spans:
             crosses(start, end, "a code span")
+        for offset in hazards:
+            if a <= offset < b:
+                placed.add(offset)
+                in_code = bisect.bisect_right(starts, offset) - 1 in code
+                if not in_code and not any(s_ <= offset - a < e_ for s_, e_ in spans):
+                    problem(offset, hazard)
         view = _mask_escapes(view)
         hidden = [
             (start - a, end - a)
@@ -1273,6 +1280,9 @@ def _doc(path: Path) -> _Doc:
         links.extend((a + s, t) for s, _, t, _ in _bracketed(chunk, _link_target))
         refs.extend(ref_of(chunk, a, t) for t in _inline(chunk, definitions)[1])
 
+    for offset in hazards:
+        if offset not in placed:  # in a raw HTML block, a heading or a stashed comment
+            problem(offset, hazard)
     headings = tuple(u.heading for u in units if u.heading is not None)
     return _Doc(
         path,
@@ -2035,6 +2045,13 @@ _GAP_ROWS = [
         [],
         '<span id="s" title="x y">t</span> <a href="#s">ok</a>',
         id="gap-5-a-plain-attribute-value",
+    ),
+    pytest.param(
+        # In a code span or an indented code block the tag is text, shown escaped.
+        'Use `<span title="x > y">t</span>` as an example.\n\nPara.\n\n    <i title="a > b">\n',
+        [],
+        '<code>&lt;span title="x &gt; y"&gt;t&lt;/span&gt;</code>',
+        id="gap-5-a-hazard-in-code-is-text",
     ),
     pytest.param(
         # No closing run of two backticks: the first one pairs with nothing and stays
