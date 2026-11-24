@@ -218,6 +218,21 @@ def test_a_runner_whose_pipes_close_before_it_exits_is_a_runner_error(
     assert "noise on stderr" in str(err.value), "the message carries the runner's last output"
 
 
+def test_a_refusal_at_start_is_read_after_the_runner_has_exited(fake_runner, monkeypatch) -> None:
+    # Codex on PR #1386: a runner without its jar replies and exits before the first request,
+    # so the write meets a broken pipe; the reply waiting on stdout must still be read.
+    monkeypatch.setenv("TETHER_FAKE_RUNNER_UNAVAILABLE", "1")
+    runner = bioformats._Runner(Path(sys.executable))
+    try:
+        runner._proc.wait(timeout=30)
+        reply, _ = runner.request({"op": "open", "path": "movie.vsi"})
+    finally:
+        runner.close()
+    assert reply == {"ok": False, "error": "unavailable", "message": "no jar (stand-in)"}
+    with pytest.raises(BioformatsUnavailableError, match="no jar"):
+        bioformats._raise_refusal(Path("movie.vsi"), reply)
+
+
 def test_a_python_that_does_not_start_is_unavailable(tmp_path, monkeypatch) -> None:
     fake = tmp_path / "python"
     fake.write_text("not a program")

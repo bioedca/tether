@@ -8,7 +8,8 @@ Bio-Formats route — the pipe, the replies, the adapter and the conformance tes
 without the optional stack. ``<movie>.meta.json``, if present, holds the metadata reply and
 may set ``"refuse": [kind, message]`` to make ``open`` refuse, ``"crash"`` to make it exit 3,
 or ``"crash_slowly"`` to close its pipes first and exit 3 a moment later (the order Windows
-shows the parent). The live runner is tested in
+shows the parent). ``TETHER_FAKE_RUNNER_UNAVAILABLE=1`` makes it refuse at start, as the real
+runner does without its jar, and exit before it reads a request. The live runner is tested in
 the ``bioformats`` tier (``tests/test_*_bioformats.py``).
 """
 
@@ -33,6 +34,10 @@ def _reply(out, payload: dict, data: bytes = b"") -> None:
 def main() -> int:
     out = sys.stdout.buffer
     print("noise on stderr, as the JVM makes", file=sys.stderr)
+    if os.environ.get("TETHER_FAKE_RUNNER_UNAVAILABLE") == "1":
+        # As the real runner does without its jar: refuse at once and exit unread.
+        _reply(out, {"ok": False, "error": "unavailable", "message": "no jar (stand-in)"})
+        return 2
     frames = None
     for line in sys.stdin.buffer:
         request = json.loads(line)

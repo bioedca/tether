@@ -141,11 +141,15 @@ class _Runner:
         """Send ``payload`` and return the reply and the bytes that follow it."""
         with self._lock:
             proc = self._proc
-            try:
+            # A runner that fails at start (no jar, no JVM) writes its refusal and exits
+            # before it reads a request, so a broken stdin does not mean there is no reply:
+            # read stdout either way.
+            with contextlib.suppress(BrokenPipeError, OSError, ValueError):
                 proc.stdin.write(json.dumps(payload).encode("utf-8") + b"\n")
                 proc.stdin.flush()
+            try:
                 line = proc.stdout.readline()
-            except (BrokenPipeError, OSError, ValueError):
+            except (OSError, ValueError):
                 line = b""
             if not line:
                 # The pipe can close before the process is reaped (seen on Windows), so wait
