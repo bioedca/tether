@@ -145,8 +145,10 @@ class PlannedMovie:
 class BatchPlan:
     """What a ``batch`` request would do, found without writing a file.
 
-    No movie is read, except that with ``into`` a movie is hashed when the project holds
-    a movie of the same size.
+    No movie is read, except that with ``into`` a movie is hashed when another movie has
+    its size: a movie the project already holds, to find out whether it is already in the
+    project, or an earlier movie of the run, to find out whether it is the same as that
+    movie.
     """
 
     movies: tuple[PlannedMovie, ...]
