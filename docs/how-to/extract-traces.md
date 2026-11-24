@@ -190,6 +190,30 @@ a line starting `detection: mode`. Each line names what was applied. Then check 
     If you extracted with `--tmap`, extract again with a correctly oriented map instead. Or
     extract without `--tmap`, and give the `--donor-side` of the true donor.
 
+## Extract in the application
+
+The **Prepare** section of the application window does the same extraction, with a preview of
+each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1.
+
+1. Choose the movie with **Choose…** beside **Movie**.
+2. Choose the registration: a native fit, a saved channel map file (`.npz`), or a Deep-LASI
+   `.tmap`. A map file or a `.tmap` needs its file in **Map file**.
+3. Set the options. There is one row for each field of an
+   [extraction profile](../cli.md#extraction-profiles), with the same name and the same default. A value that
+   Tether refuses shows its reason under the form, and nothing starts.
+4. Click **Preview**. The stage table gives the outcome of each stage: `ok`, `over-gate`,
+   `skipped` or `failed`. A failed stage gives its reason, and the stages after it are
+   `not run`. Nothing is written.
+5. Look at the movie viewer. **Detected spots** shows the spots of each half (donor green,
+   acceptor red). **Control-point residuals** shows the control points in the acceptor half.
+   Green is where the fit puts each donor control point. Red is the acceptor spot of its pair.
+   The distance between the two is the residual of that pair. A map file or a `.tmap` has no
+   fit, so it has no residual view.
+6. Click **Extract…** and give a name for the new project. Tether refuses a name that already
+   exists. The page then shows the molecule count and the result of the donor-side check. It
+   is a warning with the evidence and the remedy when the halves look swapped, and a note
+   otherwise. The check never changes the data. Click **Open the new project** to open it.
+
 ## Add another movie to a project
 
 A project can hold several movies of one experiment
