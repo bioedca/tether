@@ -2745,6 +2745,30 @@ extract_of = ["zeiss-czi-t2-ch1"]
 extract_script = "scripts/make_czi_fixtures.py"
 citation = "Rhode S. CZI (Carl Zeiss Image) dataset with artificial test camera images with various dimension for testing libraries reading. Zenodo (2022). doi:10.5281/zenodo.7015307"
 
+# --- public ND2 files (#902, ADR-0148): Zenodo, CC-BY-4.0, verbatim copies ---------------------
+
+[[dataset]]
+id = "nd2-glyco-paint-bf-frame"
+source = "doi:10.5281/zenodo.17487086"
+record_url = "https://zenodo.org/records/17487086"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2"
+size = 708608
+sha256 = "b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d"
+tier = "git"
+citation = "Bakker H. Glyco-PAINT reference. Zenodo (2025). doi:10.5281/zenodo.17487086"
+
+[[dataset]]
+id = "nd2-bioformats-pr4511-zc"
+source = "doi:10.5281/zenodo.24363428"
+record_url = "https://zenodo.org/records/24363428"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/ZC.nd2"
+size = 495616
+sha256 = "bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae"
+tier = "git"
+citation = "Chiaruttini N. nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511. Zenodo (2026). doi:10.5281/zenodo.24363428"
+
 # --- Andor Solis SIF files for the SIF adapter (#904, ADR-0150) ------------------------------
 # Two spectra that Solis wrote (Chukova O, Zenodo 18293266, CC-BY-4.0), committed unchanged, with
 # Solis's own ASCII export of one and its reference TIFF export by sif_parser 0.3.6; and an Andor

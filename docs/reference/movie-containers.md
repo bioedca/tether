@@ -23,12 +23,13 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | --- | --- | --- |
 | TIFF | `.tif`, `.tiff` | Tether, with tifffile |
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
+| ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 | SIF (Andor Solis) | `.sif` | Tether ([ADR-0150](../adr/0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md)) |
 
-The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI or SIF
-movie opens through the reader, but extraction refuses it with "extraction reads only TIFF today".
-The change that lets extraction read other containers is planned (#1388, then #1390 for CZI).
-Until then, export the movie to uncompressed TIFF.
+The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI, ND2 or
+SIF movie opens through the reader, but extraction refuses it with "extraction reads only TIFF
+today". The changes that let extraction read CZI and ND2 are planned (#1388 for ND2, #1390 for
+CZI). SIF needs a change of its own. Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 

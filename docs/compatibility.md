@@ -28,7 +28,8 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 [What Tether does not do](#what-tether-does-not-do). If your movies are in a vendor
 container (`.nd2`, `.czi`, `.sif`), export them to uncompressed TIFF first and Tether will
 read them. Tether opens a ZEISS `.czi` movie of one channel and an Andor `.sif` movie of raw
-counts, but extraction does not read them yet (see [Movie containers](reference/movie-containers.md)).
+counts (see [Movie containers](reference/movie-containers.md)). Its own reader opens a current ND2
+movie (see [ND2 movies](#nd2-movies)). Extraction still reads only TIFF.
 
 ## Movie files
 
@@ -57,9 +58,9 @@ return wrong data quietly, which is worse than failing.
 **The content decides, not the extension.** Every movie opens through the reader registry
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
-message says so. A container Tether does not read, such as a real `.nd2`, is refused too.
-That message lists what Tether reads (today, TIFF) and names the Bio-Formats route for the
-others.
+message says so. A container Tether does not read, such as a `.czi`, is refused too.
+That message lists what Tether reads (today, TIFF and ND2) and names the Bio-Formats route for
+the others.
 
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,
@@ -76,6 +77,38 @@ guessed.
 
 The reference acquisition the performance envelope is written against is a
 512 × 512 × 1700 big-endian `uint16` movie — about **0.83 GiB** per movie, uncompressed.
+
+## ND2 movies
+
+Tether reads a Nikon NIS-Elements `.nd2` movie with its own reader, `tether.io.nd2`, and no
+reader package ([ADR-0148](adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md)).
+It opens through the registry: `tether.io.adapters.open_movie_source("movie.nd2")` gives the
+geometry, the pixel type, a frame-range read and the metadata below. **Extraction (the
+application and `tether extract`) still reads only TIFF** and refuses an ND2 movie with a message.
+Export the movie to uncompressed TIFF to extract it.
+
+| Requirement | Detail |
+|---|---|
+| Format | ND2 version 3 (NIS-Elements 4.0 and later). The first ND2 format, a JPEG 2000 file, is refused as a codec that can be lossy. Version 2 is refused by name |
+| Compression | **none**. Lossy compression is refused as lossy. Lossless (zlib) compression is refused as not read yet |
+| Loops | one time series. A file with more than one XY position, Z plane, spectral plane or custom-loop step is refused, and the message names the loop |
+| Pixel type | one sample per pixel of 8, 16 or 32 bits in memory (`uint8`, `uint16`, `float32`), little-endian. More than one component (camera channels or RGB) is refused |
+| Rows | no padding at the end of a row. A padded row is refused, because two reference readers disagree on it |
+| Frames | every frame the file declares must be present as a complete chunk. A missing or cut frame refuses the whole file |
+
+Each metadata value carries where it came from (`file` or `unknown`, and a value you give later is
+`user`):
+
+| Field | Read from | Origin |
+|---|---|---|
+| Frame time (s) | the acquisition times of the first and the last frame: their difference divided by (frames − 1). This is the measured mean interval, not the period the time loop asked for | `file`. It is `unknown` for one frame or an interval that is not positive |
+| Pixel size (µm) | `dCalibration` of the picture metadata | `file` when the file marks the calibration as set, else `unknown` |
+| Channels | the description of each picture plane, in file order (one name, since one channel is read) | `file`, or `unknown` when the file has no plane list |
+
+The reader was checked bit for bit against a Bio-Formats 7.3.1 TIFF export of a public ND2 file,
+and against the `nd2` package 0.12.0. The
+[fixture record](https://github.com/bioedca/tether/blob/main/tests/fixtures/PROVENANCE.md)
+names the files and the tools.
 
 ## Acquisition geometry
 

@@ -60,12 +60,12 @@ def test_tiff_is_the_first_registered_adapter() -> None:
 
 
 def test_unknown_container_lists_readers_and_names_bio_formats(tmp_path: Path) -> None:
-    path = tmp_path / "movie.nd2"
-    path.write_bytes(b"\xda\xce\xbe\x0a" + b"\x00" * 64)
+    path = tmp_path / "movie.lif"
+    path.write_bytes(b"\x70\x00\x00\x00" + b"\x00" * 64)
     with pytest.raises(UnsupportedContainerError) as err:
         select_adapter(path)
     msg = str(err.value)
-    assert ".nd2" in msg
+    assert ".lif" in msg
     assert "TIFF (.tif, .tiff)" in msg, "the message lists the containers Tether reads"
     assert "Bio-Formats" in msg, "the message names the route for other containers"
 
@@ -108,7 +108,7 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
     with pytest.raises(ValueError, match="already claims"):
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "SIF", "Later"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF", "Later"]
 
 
 def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +127,7 @@ def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(adapters, "_register", _fail_once)
     with pytest.raises(RuntimeError, match="simulated"):
         registered_adapters()
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "SIF"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF"]
 
 
 def test_a_failure_part_way_through_the_builtins_leaves_none_of_them(
@@ -149,7 +149,7 @@ def test_a_failure_part_way_through_the_builtins_leaves_none_of_them(
     with pytest.raises(RuntimeError, match="second built-in"):
         registered_adapters()
     assert adapters._REGISTRY == []
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "SIF"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF"]
 
 
 def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,7 +167,7 @@ def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) ->
         th.start()
     for th in threads:
         th.join()
-    assert seen == [("TIFF", "CZI", "SIF")] * 8
+    assert seen == [("TIFF", "CZI", "ND2", "SIF")] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:

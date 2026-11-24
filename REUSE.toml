@@ -196,6 +196,22 @@ precedence = "override"
 SPDX-FileCopyrightText = "2022 Sebastian Rhode, Carl Zeiss Microscopy GmbH (Zenodo 10.5281/zenodo.7015307)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Public ND2 files (#902, ADR-0148): verbatim copies of one file of each of two Zenodo records,
+# doi:10.5281/zenodo.17487086 (Bakker, Glyco-PAINT reference) and doi:10.5281/zenodo.24363428
+# (Chiaruttini, Bio-Formats PR 4511), CC-BY-4.0. tests/fixtures/nd2/reference.json is Tether's own.
+# Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2"]
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Hans Bakker, Leiden University (Zenodo 10.5281/zenodo.17487086)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["tests/fixtures/nd2/ZC.nd2"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Nicolas Chiaruttini, EPFL (Zenodo 10.5281/zenodo.24363428)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Andor Solis SIF spectra (#904, ADR-0150): two files of Zenodo 10.5281/zenodo.18293266 (Chukova O,
 # CC-BY-4.0), committed unchanged, Solis's ASCII export of one, and its reference TIFF export by
 # sif_parser 0.3.6 (scripts/make_sif_reference.py). reference.json is Tether's own record and
