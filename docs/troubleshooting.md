@@ -389,7 +389,10 @@ that one finds nothing.
 | `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
 | `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
-| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff); CZI (.czi). …` | A vendor container (`.nd2`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether reads a CZI file only as one movie (…), and this file holds 2 channels. …` | A CZI file with more than one channel, scene, Z plane or tile, a gap in its time points, or an image pyramid. The message names which. [Movie containers](reference/movie-containers.md#czi) lists what Tether reads. | Export one channel and one position for each file from ZEN, with no compression or with Zstd. |
+| `…: the frames use JPEG XR compression, which can be lossy …` | A CZI movie saved with JPEG or JPEG XR. The file does not say whether the stream is lossless, so Tether refuses it rather than guess. | Export again from ZEN with no compression or with Zstd. |
+| `…: this container opens, but extraction reads only TIFF today; …` | A CZI movie that the reader opens, given to `tether extract` or `tether batch`. | Export the movie to uncompressed TIFF until extraction reads CZI (#1390). |
 
 Two more from the same family, raised by `tether.project.extract`:
 
