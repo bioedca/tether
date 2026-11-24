@@ -111,6 +111,27 @@ A molecule whose movie is not shown has no spot to go to. For such a molecule, *
 gives the reason, for example
 `Jump to movie spot unavailable: mol-4 has no spot in a movie shown here`.
 
+### Move through the trace and the movie together
+
+The trace plots have a **frame cursor**: a vertical line on the intensity plot and on the
+FRET plot. The movie panel follows the cursor, and the cursor follows the movie.
+
+- To see a frame of the trace in the movie, drag the cursor. It stops on whole frames, and
+  the panel shows the same frame of the molecule's movie.
+- To see where a movie frame is on the trace, move the time slider under the movie. The
+  cursor moves to that frame. Before the trace starts or after it ends, the cursor stops at
+  the first or last frame of the trace.
+- When you select another molecule in the list, the cursor stays on its frame and the movie
+  shows that frame. When you select a molecule by a click on its spot, the movie stays on its
+  frame and the cursor moves there.
+
+The link works only while the panel shows the selected molecule's own movie. If you choose
+another movie in the **Movie** box, the cursor and that movie do not move each other.
+
+To turn the link off, clear **Curation → Link trace and movie frames**. The setting is for
+Curate and correct in this window only. It stays as you set it while the window is open, also
+when you open another project. When you start Tether again, the link is on.
+
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 The keys on this page are the ones Tether starts with. To move one, see
 [Change a key](#change-a-key).

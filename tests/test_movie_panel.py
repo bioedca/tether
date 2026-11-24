@@ -427,3 +427,72 @@ def test_switching_to_plain_movie_blanks_overlays(qtbot, tmp_path) -> None:
         # switching back restores the overlay
         panel.set_active_movie(0)
         assert len(panel.donor_layer.data) == 1
+
+
+# --- the frame half of synchronized scrubbing (#366) ---------------------------------
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_set_frame_moves_the_time_slider_and_tells_the_callbacks(qtbot) -> None:
+    told: list[int] = []
+    with open_movie(FIXTURE) as reader, NapariMoviePanel() as panel:
+        assert (panel.current_frame, panel.n_frames) == (-1, 0)
+        with pytest.raises(RuntimeError, match="no movie is shown"):
+            panel.set_frame(0)
+        panel.add_movie(reader, name="m0")
+        assert panel.n_frames == 50
+        panel.connect_frame_changed(told.append)
+
+        panel.set_frame(17)
+        assert panel.current_frame == 17
+        assert panel.viewer.dims.current_step[0] == 17
+        # The user moves napari's own slider: the callbacks hear that too.
+        panel.viewer.dims.set_current_step(0, 30)
+        assert told == [17, 30]
+        # The same frame again is not a change.
+        panel.set_frame(30)
+        assert told == [17, 30]
+
+        for bad in (-1, 50):
+            with pytest.raises(IndexError, match="out of range"):
+                panel.set_frame(bad)
+        with pytest.raises(TypeError, match="integer"):
+            panel.set_frame(2.0)  # type: ignore[arg-type]
+
+        panel.disconnect_frame_changed()
+        panel.set_frame(3)
+        assert told == [17, 30]
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_a_movie_switch_keeps_the_frame_and_tells_it_once(qtbot, tmp_path) -> None:
+    # The second movie has 8 frames, the fixture 50: a switch keeps the frame shown,
+    # moved to the shorter movie's last frame. napari resets its slider on the layer swap,
+    # and the callbacks must not hear those passing frames.
+    frames = ((np.arange(8 * 48 * 32).reshape(8, 48, 32) % 500) + 100).astype("<u2")
+    second = _write_native_movie(tmp_path / "movie2.tif", frames)
+    told: list[int] = []
+    with open_movie(FIXTURE) as m0, open_movie(second) as m1, NapariMoviePanel() as panel:
+        panel.add_movie(m0, name="A")
+        panel.add_movie(m1, name="B")
+        panel.set_frame(5)
+        panel.connect_frame_changed(told.append)
+
+        panel.set_active_movie(1)
+        assert (panel.n_frames, panel.current_frame) == (8, 5)
+        assert told == []  # the switch ends on the frame it started on
+
+        panel.set_active_movie(0)
+        panel.set_frame(40)
+        told.clear()
+        panel.set_active_movie(1)
+        assert panel.current_frame == 7
+        assert told == [7]
+
+        panel.clear_movies()
+        assert (panel.current_frame, panel.n_frames) == (-1, 0)
+        assert told == [7]

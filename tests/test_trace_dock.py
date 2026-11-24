@@ -804,3 +804,85 @@ def test_dock_draws_the_window_and_follows_an_edit(qtbot) -> None:
         dock.clear()
         assert dock.analysis_window is None
         assert not any(line.isVisible() for line in dock.window_lines)
+
+
+# --- the frame cursor of synchronized scrubbing (#366) --------------------------------
+
+
+@pytest.mark.parametrize("offset", [-1, 1.0, True, "2"])
+def test_traceview_frame_offset_is_a_non_negative_int(offset) -> None:
+    with pytest.raises(ValueError, match="frame_offset"):
+        TraceView(donor=np.ones(3), acceptor=np.ones(3), frame_offset=offset)
+
+
+def test_traceview_frame_offset_defaults_to_the_first_movie_frame() -> None:
+    assert TraceView(donor=np.ones(3), acceptor=np.ones(3)).frame_offset == 0
+    trace = TraceView(donor=np.ones(3), acceptor=np.ones(3), frame_offset=np.int64(7))
+    assert trace.frame_offset == 7 and type(trace.frame_offset) is int
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dragging_the_frame_cursor_snaps_to_a_frame_and_tells_the_callbacks(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    told: list[int] = []
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        assert dock.frame_cursor is None
+        assert not any(line.isVisible() for line in dock.cursor_lines)
+        with pytest.raises(RuntimeError):
+            dock.set_frame_cursor(0)
+        # A seconds axis at 0.5 s per frame: the cursor sits at the centre of its frame.
+        dock.set_trace(TraceView(donor=np.ones(20), acceptor=np.ones(20), frame_time=0.5))
+        dock.connect_frame_cursor(told.append)
+        assert dock.frame_cursor == 0
+        assert all(line.isVisible() and line.movable for line in dock.cursor_lines)
+
+        intensity_line, fret_line = dock.cursor_lines
+        fret_line.setValue(3.3)  # what a drag does: frame 6.6 -> 7, both lines follow
+        assert dock.frame_cursor == 7
+        assert [line.value() for line in dock.cursor_lines] == [3.5, 3.5]
+        intensity_line.setValue(99.0)  # past the end: the last frame
+        assert dock.frame_cursor == 19
+        fret_line.setValue(9.6)  # inside frame 19 still: no change, no callback
+        assert told == [7, 19]
+
+        # A call is not a drag: it moves the cursor and tells nobody.
+        dock.set_frame_cursor(4)
+        assert [line.value() for line in dock.cursor_lines] == [2.0, 2.0]
+        assert told == [7, 19]
+        for bad in (-1, 20):
+            with pytest.raises(ValueError, match="frame must be in"):
+                dock.set_frame_cursor(bad)
+        with pytest.raises(TypeError):
+            dock.set_frame_cursor(1.0)  # type: ignore[arg-type]
+
+        # The frame-index axis moves the cursor with the curves.
+        dock.set_time_mode("frames")
+        assert [line.value() for line in dock.cursor_lines] == [4.0, 4.0]
+
+        dock.disconnect_frame_cursor()
+        fret_line.setValue(10.0)
+        assert dock.frame_cursor == 10
+        assert told == [7, 19]
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_new_trace_keeps_the_cursor_frame_and_clear_hides_it(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(seconds_by_default=False) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(TraceView(donor=np.ones(20), acceptor=np.ones(20)))
+        dock.set_frame_cursor(12)
+        dock.set_trace(TraceView(donor=np.ones(30), acceptor=np.ones(30)))
+        assert dock.frame_cursor == 12
+        dock.set_trace(TraceView(donor=np.ones(5), acceptor=np.ones(5)))
+        assert dock.frame_cursor == 4  # a shorter trace: its last frame
+        assert [line.value() for line in dock.cursor_lines] == [4.0, 4.0]
+
+        dock.clear()
+        assert dock.frame_cursor is None
+        assert not any(line.isVisible() for line in dock.cursor_lines)

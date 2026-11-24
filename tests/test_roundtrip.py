@@ -29,6 +29,7 @@ import pytest
 from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import MovieOverlay, NapariMoviePanel
 from tether.gui.roundtrip import (
+    FrameLink,
     MoleculeSite,
     RoundTripIndex,
     RoundTripNavigator,
@@ -379,6 +380,177 @@ def test_a_two_movie_project_round_trips_both_ways_without_qt(tmp_path) -> None:
         panel.click_callback((donor[1], donor[0]))
         panel.click_callback((acceptor[1], acceptor[0]))
         assert selected[-2:] == [row, row]
+
+
+# --- synchronized scrubbing (#366): FrameLink through MoviePanelLike, Qt-free ---------
+
+
+class _FramePanel(_FakePanel):
+    """A :class:`MoviePanelLike` fake with the frame half: one frame slider per movie.
+
+    It tells its frame callbacks every change, as the real panel does, including the
+    changes ``set_frame`` makes, so a link that answered its own write would loop here.
+    """
+
+    def __init__(self, n_frames: list[int], *, active: int = 0) -> None:
+        super().__init__(active=active)
+        self._n_frames = list(n_frames)
+        self._frame = 0
+        self.frame_callbacks: list = []
+        self.set_frames: list[int] = []
+
+    @property
+    def n_frames(self) -> int:
+        return self._n_frames[self._active]
+
+    @property
+    def current_frame(self) -> int:
+        return self._frame
+
+    def set_frame(self, frame: int) -> None:
+        assert 0 <= frame < self.n_frames
+        self.set_frames.append(frame)
+        self.user_moves_to(frame)
+
+    def connect_frame_changed(self, callback) -> None:
+        self.frame_callbacks.append(callback)
+
+    def user_moves_to(self, frame: int) -> None:
+        """The user moves the time slider (or set_frame does): tell every callback."""
+        self._frame = frame
+        for callback in list(self.frame_callbacks):
+            callback(frame)
+
+
+class _FakeCursor:
+    """A :class:`TraceCursorLike` fake: a drag tells the callbacks, a call does not."""
+
+    def __init__(self, frame: int | None = 0) -> None:
+        self.frame_cursor = frame
+        self.callbacks: list = []
+        self.set_calls: list[int] = []
+
+    def set_frame_cursor(self, frame: int) -> None:
+        self.set_calls.append(frame)
+        self.frame_cursor = frame
+
+    def connect_frame_cursor(self, callback) -> None:
+        self.callbacks.append(callback)
+
+    def drag_to(self, frame: int) -> None:
+        self.frame_cursor = frame
+        for callback in list(self.callbacks):
+            callback(frame)
+
+
+def _link(n_frames=(50, 50), *, active=0, cursor=0, enabled=True):
+    panel = _FramePanel(list(n_frames), active=active)
+    dock = _FakeCursor(cursor)
+    link = FrameLink(panel, dock, enabled=enabled)
+    link.connect()
+    return panel, dock, link
+
+
+def test_frame_link_moves_the_movie_with_the_cursor_and_back() -> None:
+    panel, dock, link = _link()
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert link.linked
+
+    dock.drag_to(12)
+    assert panel.current_frame == 12
+    panel.user_moves_to(30)
+    assert dock.frame_cursor == 30
+    # No echo: each side was moved once, and nothing wrote back to the side that moved.
+    assert panel.set_frames == [12]
+    assert dock.set_calls == [30]
+
+
+def test_frame_link_maps_trace_frames_through_the_frame_offset_and_clamps() -> None:
+    # The trace starts at movie frame 10 and has 20 frames; the movie has 25.
+    panel, dock, link = _link(n_frames=(25,))
+    link.set_target(0, frame_offset=10, n_frames=20)
+    assert panel.set_frames == [10]  # the trace leads: cursor frame 0 is movie frame 10
+
+    dock.drag_to(4)
+    assert panel.current_frame == 14
+    dock.drag_to(19)  # movie frame 29 is past the movie's end: its last frame
+    assert panel.current_frame == 24
+
+    panel.user_moves_to(3)  # before the trace: its first frame
+    assert dock.frame_cursor == 0
+    panel.user_moves_to(17)
+    assert dock.frame_cursor == 7
+
+
+def test_frame_link_acts_only_on_the_active_molecules_own_movie() -> None:
+    panel, dock, link = _link()
+    link.set_target(1, frame_offset=0, n_frames=50)  # the molecule is in movie 1
+    assert not link.linked  # movie 0 is shown
+
+    dock.drag_to(8)
+    panel.user_moves_to(20)
+    assert panel.set_frames == [] and dock.set_calls == []
+
+    panel.set_active_movie(1)
+    assert link.linked
+    dock.drag_to(9)
+    assert panel.current_frame == 9
+
+    link.clear_target()
+    dock.drag_to(11)
+    assert panel.current_frame == 9
+
+
+def test_frame_link_lead_names_the_side_that_is_followed() -> None:
+    panel, dock, link = _link(cursor=5)
+    panel.user_moves_to(33)
+
+    link.set_target(0, frame_offset=0, n_frames=50, lead="movie")
+    assert dock.frame_cursor == 33 and panel.current_frame == 33
+
+    dock.set_frame_cursor(2)
+    link.set_target(0, frame_offset=0, n_frames=50, lead="trace")
+    assert panel.current_frame == 2
+
+    with pytest.raises(ValueError, match="lead"):
+        link.sync(lead="both")  # type: ignore[arg-type]
+
+
+def test_frame_link_is_opt_out() -> None:
+    panel, dock, link = _link(enabled=False)
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert link.enabled is False and not link.linked
+    dock.drag_to(6)
+    panel.user_moves_to(40)
+    assert panel.set_frames == [] and dock.set_calls == []
+
+    # Turning it on shows the cursor frame in the movie.
+    link.set_enabled(True)
+    assert panel.current_frame == 6
+    link.set_enabled(False)
+    dock.drag_to(7)
+    assert panel.current_frame == 6
+
+
+def test_frame_link_connect_is_idempotent_and_targets_are_checked() -> None:
+    panel, dock, link = _link()
+    link.connect()
+    assert len(panel.frame_callbacks) == 1 and len(dock.callbacks) == 1
+    with pytest.raises(ValueError, match="frame_offset"):
+        link.set_target(0, frame_offset=-1, n_frames=5)
+    with pytest.raises(ValueError, match="n_frames"):
+        link.set_target(0, frame_offset=0, n_frames=0)
+    assert link.target is None
+
+
+def test_frame_link_ignores_a_trace_with_no_cursor_and_a_panel_with_no_movie() -> None:
+    panel, dock, link = _link(cursor=None)
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert panel.set_frames == []
+    panel._n_frames = [0, 0]
+    link.on_trace_frame(3)
+    link.on_movie_frame(-1)
+    assert panel.set_frames == [] and dock.set_calls == []
 
 
 # --- GUI smoke: real napari panel, ≥2 movies ---------------------------------

@@ -13,7 +13,9 @@ the movie switcher from ``/movies``, and the embedded napari movie panel
 donor and acceptor spots as a dock of Curate and correct (#356). The round-trip between a
 trace and its spot ([`tether.gui.roundtrip`][], #357) links the two: selecting a molecule,
 or pressing ``Enter``, shows its own movie centred on its donor spot, and clicking a spot
-selects its molecule.
+selects its molecule. The trace dock's frame cursor and the movie's displayed frame move
+together ([`frame_link`][tether.gui.shell.TetherShell.frame_link], #366) unless the user turns
+that off in the Curation menu.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -739,6 +741,12 @@ class TetherShell:
         self._roundtrip_site_of_row: dict[int, int] = {}
         self._roundtrip_error: str | None = None
         self._selecting_from_movie = False
+        # Synchronized scrubbing (#366): a FrameLink between the trace dock's frame
+        # cursor and the movie panel's frame, built with the round-trip. Whether it is
+        # on is Curate and correct's own state (its Curation menu toggles it), kept for
+        # this window only: it is not a preference and does not outlive the shell.
+        self._frame_link: Any | None = None
+        self._frame_link_enabled = True
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -1558,6 +1566,15 @@ class TetherShell:
         self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
+        menu.addSeparator()
+        # Synchronized scrubbing (#366): on unless the user turns it off here.
+        self._act_link_frames = menu.addAction("&Link trace and movie frames")
+        self._act_link_frames.setCheckable(True)
+        self._act_link_frames.setChecked(self._frame_link_enabled)
+        self._act_link_frames.setStatusTip(
+            "Move the movie with the trace's frame cursor, and the cursor with the movie"
+        )
+        self._act_link_frames.toggled.connect(self.set_frame_link_enabled)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -1825,6 +1842,10 @@ class TetherShell:
             # status, so the molecule message stays.
             if not self._selecting_from_movie:
                 self._focus_movie(row)
+            # Synchronized scrubbing (#366): link the cursor to this molecule's movie. A
+            # list selection shows the cursor frame in the movie; a click on a spot keeps
+            # the frame the user was looking at, and moves the cursor there.
+            self._retarget_frame_link(row, lead="movie" if self._selecting_from_movie else "trace")
 
     @property
     def overlap_dock(self) -> Any | None:
@@ -2061,6 +2082,7 @@ class TetherShell:
         disconnect = getattr(panel, "disconnect_spot_clicks", None)
         if disconnect is not None:
             disconnect()  # a re-listed project must not fire the old navigator too
+        self._unwire_frame_link()
         shown = [
             self._project_movies[row]
             for row, _ in sorted(self._movie_rows.items(), key=lambda item: item[1])
@@ -2083,6 +2105,7 @@ class TetherShell:
         self._roundtrip = navigator
         self._roundtrip_rows = rows
         self._roundtrip_site_of_row = {row: site for site, row in enumerate(rows)}
+        self._wire_frame_link(panel)
 
     def _focus_movie(self, row: int) -> bool:
         """Show list row ``row``'s molecule in the movie panel; ``False`` if it has no spot."""
@@ -2141,8 +2164,88 @@ class TetherShell:
         finally:
             self._selecting_from_movie = False
 
+    # --- synchronized scrubbing (#366, PRD §7.3) -------------------------------
+
+    @property
+    def frame_link(self) -> Any | None:
+        """The [`FrameLink`][tether.gui.roundtrip.FrameLink] of the trace dock and the movie panel.
+
+        Built with the [`roundtrip`][], so ``None`` exactly when that is ``None``. While it
+        is on and the panel shows the selected molecule's own movie, dragging the trace
+        dock's frame cursor moves the movie to that frame, and moving the movie's time
+        slider moves the cursor.
+        """
+        return self._frame_link
+
+    @property
+    def frame_link_enabled(self) -> bool:
+        """Whether synchronized scrubbing is on in Curate and correct (on by default)."""
+        return self._frame_link_enabled
+
+    def set_frame_link_enabled(self, enabled: bool) -> None:
+        """Turn synchronized scrubbing on or off (Curation → Link trace and movie frames).
+
+        The state belongs to Curate and correct and to this window: it is kept across
+        projects opened here, and it is not stored as a preference.
+        """
+        self._frame_link_enabled = bool(enabled)
+        action = getattr(self, "_act_link_frames", None)
+        if action is not None and action.isChecked() != self._frame_link_enabled:
+            action.blockSignals(True)
+            action.setChecked(self._frame_link_enabled)
+            action.blockSignals(False)
+        if self._frame_link is not None:
+            self._frame_link.set_enabled(self._frame_link_enabled)
+        self._status(
+            "Trace and movie frames linked"
+            if self._frame_link_enabled
+            else "Trace and movie frames not linked"
+        )
+
+    def _wire_frame_link(self, panel: Any) -> None:
+        """Build the frame link over ``panel`` and the trace dock (a failure is reported)."""
+        from tether.gui.roundtrip import FrameLink
+
+        try:
+            link = FrameLink(panel, self._trace_dock, enabled=self._frame_link_enabled)
+            link.connect()
+        except Exception as exc:  # noqa: BLE001 - no frame link is not a failed open
+            self._unwire_frame_link()
+            self._status(f"Frame link unavailable: {exc}")
+            return
+        self._frame_link = link
+
+    def _unwire_frame_link(self) -> None:
+        """Drop the frame link and the listeners it added to the panel and the dock."""
+        self._frame_link = None
+        panel = self._movie_panel
+        disconnect = getattr(panel, "disconnect_frame_changed", None)
+        if disconnect is not None:
+            disconnect()
+        self._trace_dock.disconnect_frame_cursor()
+
+    def _retarget_frame_link(self, row: int, *, lead: str) -> None:
+        """Link the cursor of list row ``row``'s trace to that molecule's own movie."""
+        link, navigator = self._frame_link, self._roundtrip
+        if link is None:
+            return
+        site = self._roundtrip_site_of_row.get(row)
+        if navigator is None or site is None or not 0 <= row < len(self._traces):
+            link.clear_target()
+            return
+        trace = self._traces[row]
+        try:
+            movie_index = navigator.movie_ids.index(navigator.index.site(site).movie_id)
+            link.set_target(
+                movie_index, frame_offset=trace.frame_offset, n_frames=trace.n_frames, lead=lead
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            link.clear_target()
+            self._status(f"Frame link failed: {exc}")
+
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
+        self._unwire_frame_link()
         panel, dock_widget = self._movie_panel, self._movie_dock_widget
         self._movie_panel = None
         self._movie_dock_widget = None
@@ -4787,6 +4890,7 @@ def traces_from_store(
                 frame_time=frame_times.get(_decode(movie_col[i])),
                 molecule_key=_decode(key_col[i]),
                 analysis_window=_relative_window(lo, int(donor.size), window),
+                frame_offset=lo,
             )
         )
     return views

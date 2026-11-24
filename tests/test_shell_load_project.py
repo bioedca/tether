@@ -192,6 +192,8 @@ def test_traces_from_store_slices_each_molecule_to_its_frame_range(qapp, tmp_pat
         assert views[i].donor.shape == (12,)
         np.testing.assert_allclose(views[i].donor, donor[i].astype(np.float32))
         np.testing.assert_allclose(views[i].acceptor, acceptor[i].astype(np.float32))
+    # Each view starts at its range's first movie frame, the trace->movie frame map (#366).
+    assert [v.frame_offset for v in views] == [2, 0, 0]
 
 
 def test_traces_from_store_empty_store_returns_empty(qapp, tmp_path) -> None:
