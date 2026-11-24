@@ -107,6 +107,9 @@ rotate, flip, then crop (#559). A movie whose frames cannot hold the map's chann
 refused, naming both ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
+Deep-LASI offers only a visual check of the registration, and this numeric gate is Tether's
+improvement on it.
+
 A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
 bead video reduced to one image over the frames you choose with a `max` or `mean`
 projection, and runs the same detection, prealign, pairing and fit on it. With one image it
@@ -141,6 +144,11 @@ read at the mapped position, and the molecule count of each rule is reported
 frame and subtracts the local background. From here on a molecule is a row in the project
 file, and row *i* of every trace array is the same molecule
 ([ADR-0016](adr/0016-extraction-trace-store-layout.md)).
+
+The movie is never resampled. The map is applied to coordinates, never to pixels, to avoid
+interpolation bias in the integrated intensities. A molecule is extractable only if its full
+aperture lies inside the frame in both channels, so out-of-frame spots are dropped rather than
+zero-filled.
 
 - **Writes:** a `/movies` row, the `/molecules` rows with their coordinates, the intensity
   traces under `/traces`, image crops under `/patches`, and the extraction settings under
@@ -275,6 +283,12 @@ every reader to use apparent E instead
 plot cannot tell you whether a correction was applied; the molecule's `correction_method` and
 the `/settings/correction` record can ([correction_method](glossary.md#correction_method)).
 
+Apparent E is not clipped to `[0, 1]`. A corrected value slightly outside that range on a noisy
+frame is a real fluctuation, and hiding it would be a silent distortion. The histogram and cloud
+analyses call `apparent_fret` unconditionally (`tether.analysis.histogram`,
+`tether.analysis.cloud`). The GUI axis label is the literal string `"apparent E"`
+(`tether.gui.histogram_dock`, `tether.gui.trace_dock`).
+
 ### What per-molecule γ changes about a published number
 
 γ evens out the difference between the two dyes in brightness and detection. Tether measures
@@ -309,6 +323,9 @@ whole estimate is refused rather than guessed at. That is not the same as a mole
 in a channel: that result is recorded as the end of the trace, the molecule is not refused,
 and it can still take the dataset's factor
 ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame)).
+
+Detection runs on the background-subtracted traces by default, because the model detects a
+decay to `N(0)`. Raw traces keep a large offset and never look bleached.
 
 The analysis window is the stretch of frames that idealization, the analyses and the
 molecule-table export read. The α and γ estimators do not use it: they work from each

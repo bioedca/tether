@@ -389,6 +389,28 @@ extraction finished in an earlier run is not extracted again with a new profile,
 with `--overwrite`. Use a new `--out-dir` to extract a set of movies with a changed
 profile.
 
+### Stage status in the batch summary
+
+`tether batch` prints one status for each stage of each movie (`tether.project.batch`):
+
+| Status | Meaning | Counts as failure? |
+|---|---|---|
+| `done` | the stage ran and succeeded | no |
+| `skipped` | a checkpoint found the stage already complete | no |
+| `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
+| `blocked` | an upstream stage failed | no |
+| `deferred` | the sidecar was unavailable at startup | no |
+| `not-requested` | `--no-idealize` | no |
+| `warning` | non-fatal, for example provenance stamping failed | no |
+
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3`. See
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+
+`blocked` is the one row that never shows up on an exit-`0` run in practice. A stage is
+blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
+with a `failed` in the same movie and the run exits `1` anyway.
+
 ### Which movies a folder or a pattern gives
 
 Each `movies` argument is one of three things, and Tether expands it itself, so the same

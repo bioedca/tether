@@ -78,7 +78,7 @@ retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
-long_share = 35.2
+long_share = 31.9
 semicolons = 35
 long_paragraphs = 2
 retired = 4
@@ -127,7 +127,7 @@ retired = 0
 
 [pages."docs/how-to/apply-corrections.md"]
 kind = "procedure"
-long_share = 29.9
+long_share = 25.6
 semicolons = 5
 long_paragraphs = 0
 retired = 0
@@ -218,7 +218,7 @@ retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 16.4
+long_share = 12.4
 semicolons = 22
 long_paragraphs = 1
 retired = 1
@@ -323,10 +323,10 @@ retired = 0
 
 [pages."docs/glossary.md"]
 kind = "descriptive"
-long_share = 22.8
-semicolons = 28
-long_paragraphs = 2
-retired = 2
+long_share = 1.9
+semicolons = 11
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"

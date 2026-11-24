@@ -147,6 +147,36 @@ print(f"{result.n_manual} molecules corrected with the values you supplied")
 Molecules corrected this way are marked `manual` in `correction_method`, so a reader of the
 project can tell a supplied factor from an estimated one.
 
+## How the two factors are estimated
+
+### Leakage is one value for the whole project
+
+α is **project-wide** in Tether. `compute_leakage_alpha` fits one dataset median over every
+analyzable molecule in the `.tether`. It does **not** partition by
+[condition](../glossary.md#condition). It writes that single value into every one of their
+`/molecules.alpha` cells, which is the field `tether.project.correct` reads back as the applied
+factor. The estimator's provenance lands on `/settings/leakage`.
+
+`/conditions.leakage_alpha` also exists in the schema (`tether.io.schema`), but it is a
+**curator-editable field**. Its only writer is `register_condition(..., leakage_alpha=...)`, the
+idempotent upsert in `tether.project.conditions`. There is no separate `update_condition`: the
+same call inserts a missing row and updates the provided fields of an existing one. Nothing in
+the correction chain reads that field, and the estimator never writes it.
+
+ADR-0027 describes moving the applied α there per condition, but files that under *Deferred*.
+It has not happened, so read that ADR's "α is per-condition" as intent, not as current behavior.
+
+### How Tether estimates gamma
+
+γ uses the same 20-frame window and 10-trace minimum as α, but its frame gate is **stricter and
+two-sided**. Both the pre-step FRET segment `[0, step)` and the post-step donor-only segment
+`[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`). The α tail only
+needs `≥ 20`. A trace that fails is dropped as `short-pre` or `short-post`.
+
+γ is **per-molecule with a population-median fallback**. A qualifying molecule keeps its own γ,
+and a non-qualifying one silently takes the dataset median. Tether counts those in
+`/settings/gamma.attrs["n_fallback"]`. There is no per-row marker that tells the two apart.
+
 ## Where the corrected efficiency appears
 
 Tether stores α and γ on each molecule; it does not rewrite your traces. The histograms, the
