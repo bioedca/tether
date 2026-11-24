@@ -54,8 +54,8 @@ Pick one of these:
 - **To match a Deep-LASI analysis of the same movies:** add `--tdat run.tdat`. Tether reads
   the detection method and threshold from that file. You cannot combine `--tdat` with the
   two options in the next item.
-- **To set the detector yourself:** add `--detection-mode intensity` or
-  `--detection-mode bandpass`
+- **To set the detector yourself:** add `--detection-mode intensity`,
+  `--detection-mode bandpass` or `--detection-mode zmw`
   ([`detection_mode`](../reference/parameters.md#param-detection-mode)). You can also add
   `--detection-threshold`
   ([`detection_threshold`](../reference/parameters.md#param-detection-threshold)). Give it as

@@ -88,7 +88,7 @@ on one dual-channel TIFF movie and write a new `.tether` project.
 
 ```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
-               [--detection-mode {wavelet,intensity,bandpass}]
+               [--detection-mode {wavelet,intensity,bandpass,zmw}]
                [--detection-threshold FRAC] [--window WINDOW]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
@@ -106,10 +106,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
 | `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
-| `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
-| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
+| `--detection-mode {wavelet,intensity,bandpass,zmw}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass`/`zmw` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
+| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98`, zmw `0.5` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass/zmw modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
 | `--window WINDOW` | `21` | aperture / crop-box side length in px, odd |
-| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass 3) | minimum spot separation in px |
+| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass/zmw 3) | minimum spot separation in px |
 | `--detection-block DETECTION_BLOCK` | `50` | moving-average block size for the detection image |
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
@@ -1343,6 +1343,7 @@ traces are left out.
 ```text
 tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
                      [--include-raw] [--molecule-key KEY]
+                     [--curator-alias PREFIX]
                      projects [projects ...]
 ```
 
@@ -1354,9 +1355,18 @@ tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
 | `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
 | `--include-raw` | off | also embed the raw and background traces (`include_raw=True`) |
 | `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+| `--curator-alias PREFIX` | names are kept | replace each stored user name with `PREFIX-1`, `PREFIX-2` and so on (`curator_alias`); with several projects, each copy numbers its own names |
 
 ```bash
 tether export subset movie.tether -o accepted.tether
+```
+
+To share a copy without your user name, give a prefix. A blank prefix, or a prefix that
+contains a user name stored in a project, fails the export of that project: no file is written
+for it, the other projects are still exported, and the exit code is `1`:
+
+```bash
+tether export subset movie.tether -o shared.tether --curator-alias curator
 ```
 
 ## Sync-conflict copies beside a project
