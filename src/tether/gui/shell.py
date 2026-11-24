@@ -2321,13 +2321,24 @@ class TetherShell:
             self._movie_switcher.blockSignals(False)
 
     def _on_movie_spot_clicked(self, site: int) -> None:
-        """Movie → trace: select the list row of the molecule whose spot was clicked."""
+        """Movie → trace: select the list row of the molecule whose spot was clicked.
+
+        A spot of a molecule the filter hides shows every molecule first (#630), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
+        from tether.gui.molecule_list import FILTER_ALL
+
         row = self._roundtrip_rows[site]
+        revealed = not self._molecule_view.shown(row)
+        if revealed:
+            self._molecule_view.set_filter(FILTER_ALL)
         self._selecting_from_movie = True
         try:
             self._molecule_list.setCurrentRow(row)
         finally:
             self._selecting_from_movie = False
+        if revealed:
+            self._status(f"{self.status_message}; the filter now shows all molecules")
 
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""

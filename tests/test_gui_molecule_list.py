@@ -325,6 +325,31 @@ def test_a_filter_that_hides_the_selection_moves_it_to_a_shown_row(shell, qtbot,
 
 @pytest.mark.gui
 @_needs_qt
+def test_a_movie_click_on_a_hidden_molecule_shows_all_first(shell, qtbot, tmp_path) -> None:
+    from tether.project.labels import curation_labels
+
+    project, keys = _store(tmp_path, n=4)
+    project.reject(keys[2])
+    assert shell.load_project(project.path) is not None
+    shell.molecule_view.set_filter("rejected")
+    assert shell.molecule_list.currentRow() == 2
+    # The movie selects row 0, which the filter hides (the round trip of #357 maps a
+    # clicked spot to its list row; a stand-in map is enough here).
+    shell._roundtrip_rows = [0]
+    shell._on_movie_spot_clicked(0)
+
+    assert shell.molecule_view.filter_key == "all"
+    assert shell.molecule_list.currentRow() == 0
+    assert not shell.molecule_list.isRowHidden(0)
+    assert shell.status_message.endswith("; the filter now shows all molecules")
+    # The next key acts on the molecule the list shows selected.
+    before = curation_labels(project.path)
+    _press(qtbot, shell, "Key_Space")
+    assert curation_labels(project.path) == {**before, keys[0]: 1}
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_a_new_category_adds_its_filter(shell, qtbot, tmp_path) -> None:
     project, keys = _store(tmp_path, n=3)
     project.sync_conditions()
