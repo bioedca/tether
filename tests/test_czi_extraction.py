@@ -39,6 +39,8 @@ from tether.project.extract import ExtractOptions, extract_movie  # noqa: E402
 CZI = Path(__file__).resolve().parent / "fixtures" / "czi"
 MOVIE = CZI / "movie_zstd_64x64x64.czi"
 
+# A lab movie name, so the condition parsed from it is a real one (#1388's _NAME).
+_NAME = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010"
 _SHAPE = (64, 64)  # the fixture's frame: two 32-px halves
 _WINDOW = 17  # the smallest odd window that holds the 8-px background ring
 # The fixture is noise: the intensity detector with a low threshold finds spots in it,
@@ -71,9 +73,18 @@ def channel_map(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture
+def original(tmp_path: Path) -> Path:
+    """The committed fixture under a lab movie name, in a folder of its own."""
+    path = tmp_path / "czi" / f"{_NAME}.czi"
+    path.parent.mkdir()
+    path.write_bytes(MOVIE.read_bytes())
+    return path
+
+
+@pytest.fixture
 def tiff_export(tmp_path: Path, frames: np.ndarray) -> Path:
-    """The TIFF of the fixture's frames, in a folder of its own."""
-    path = tmp_path / "tif" / "movie_zstd_64x64x64.tif"
+    """The TIFF of the fixture's frames, under the same name, in a folder of its own."""
+    path = tmp_path / "tif" / f"{_NAME}.tif"
     path.parent.mkdir()
     tifffile.imwrite(path, frames, photometric="minisblack")
     return path
@@ -88,6 +99,9 @@ def _assert_same_extraction(a: Path, b: Path) -> None:
     mols_a, mols_b = read_molecules(a), read_molecules(b)
     np.testing.assert_array_equal(mols_a["donor_xy"], mols_b["donor_xy"])
     np.testing.assert_array_equal(mols_a["acceptor_xy"], mols_b["acceptor_xy"])
+    # One condition, parsed from the movie's name with its container suffix stripped.
+    assert set(mols_a["condition_id"]) == set(mols_b["condition_id"])
+    assert len(set(mols_a["condition_id"])) == 1
 
 
 # --- extraction: the CZI fixture and its TIFF give the same traces ----------------------
@@ -101,10 +115,10 @@ def test_extraction_reads_the_czi_frames_through_read_frames(frames: np.ndarray)
 
 
 def test_tether_extract_gives_the_same_traces_for_the_czi_and_its_tiff(
-    tiff_export: Path, channel_map: Path, tmp_path: Path
+    original: Path, tiff_export: Path, channel_map: Path, tmp_path: Path
 ) -> None:
     outs = []
-    for movie in (MOVIE, tiff_export):
+    for movie in (original, tiff_export):
         out = tmp_path / f"from-{movie.suffix[1:]}.tether"
         args = ["extract", str(movie), "-o", str(out), "--map", str(channel_map), *_OPTIONS]
         assert main(args) == 0
@@ -114,13 +128,13 @@ def test_tether_extract_gives_the_same_traces_for_the_czi_and_its_tiff(
 
 
 def test_the_application_command_gives_the_same_traces(
-    tiff_export: Path, channel_map: Path, tmp_path: Path
+    original: Path, tiff_export: Path, channel_map: Path, tmp_path: Path
 ) -> None:
     """The application runs the ``extract`` service command; it reads CZI the same way."""
     from tether.services.extract import ExtractRequest, run  # noqa: PLC0415
 
     outs = []
-    for movie in (MOVIE, tiff_export):
+    for movie in (original, tiff_export):
         out = tmp_path / f"app-{movie.suffix[1:]}.tether"
         request = ExtractRequest(
             movie=str(movie),
@@ -162,18 +176,18 @@ def test_a_batch_folder_gives_the_czi_movie(tmp_path: Path) -> None:
 
 
 def test_tether_batch_refuses_a_czi_beside_its_tiff_export(
-    tiff_export: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    original: Path, tiff_export: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """``x.czi`` beside ``x.tif`` is one movie in two containers: the rule of #1388."""
     both = tmp_path / "both"
     both.mkdir()
-    (both / MOVIE.name).write_bytes(MOVIE.read_bytes())
+    (both / original.name).write_bytes(original.read_bytes())
     (both / tiff_export.name).write_bytes(tiff_export.read_bytes())
     out = tmp_path / "out"
     assert main(["batch", str(both), "-d", str(out), "--no-idealize"]) != 0
     err = capsys.readouterr().err
     assert "one name in two containers" in err
-    assert MOVIE.name in err
+    assert original.name in err
     assert tiff_export.name in err
     assert not out.exists() or not any(out.iterdir())
 
