@@ -99,7 +99,7 @@ def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkey
     # Item 1 of #653: "The accepted extensions are the ones the reader supports."
     from tether.io import adapters, movie  # noqa: PLC0415
 
-    assert movie_suffixes() == (".tif", ".tiff", ".nd2")
+    assert movie_suffixes() == (".tif", ".tiff", ".nd2", ".vsi")
     extra = SimpleNamespace(name="Other", extensions=(".oth",))
     real = adapters.registered_adapters()
     monkeypatch.setattr(adapters, "registered_adapters", lambda: (*real, extra))
@@ -295,8 +295,8 @@ def test_a_pattern_skips_a_hidden_folder_it_cannot_list(tmp_path: Path, monkeypa
     ("argument", "message"),
     [
         ("missing.tif", "no such movie file or folder: {arg}"),
-        ("empty", "folder {arg} holds no movie file (.tif, .tiff, .nd2); add --recursive"),
-        ("*.czi", "pattern {arg} matches no movie file (.tif, .tiff, .nd2)"),
+        ("empty", "folder {arg} holds no movie file (.tif, .tiff, .nd2, .vsi); add --recursive"),
+        ("*.czi", "pattern {arg} matches no movie file (.tif, .tiff, .nd2, .vsi)"),
     ],
 )
 def test_an_argument_that_gives_no_movie_is_refused_by_name(

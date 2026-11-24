@@ -417,13 +417,14 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  extraction reads, in any case. Today these are `.tif`, `.tiff` and `.nd2`. With `--recursive`
-  it also gives the movies in its sub-folders. Tether opens `.czi` movies too, but extraction
-  does not read them yet (#1390), so a folder or a pattern leaves them out. A `.czi` file that
-  you name on its own fails its extraction stage with a message that says so
+  extraction reads, in any case. Today these are `.tif`, `.tiff`, `.nd2` and `.vsi`. With
+  `--recursive` it also gives the movies in its sub-folders. Tether opens `.czi` movies too, but
+  extraction does not read them yet (#1390), so a folder or a pattern leaves them out. A `.czi`
+  file that you name on its own fails its extraction stage with a message that says so
   ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
-  folder (`x.nd2` and `x.tif`) is one movie, so the run stops before anything is written and the
-  message names both files. Move or rename one.
+  folder (`x.nd2` and `x.tif`, or `x.vsi` and `x.tif`) is one movie, so the run stops before
+  anything is written and the message names both files. Move or rename one. A `.vsi` movie needs
+  the optional Bio-Formats stack; without it, its stage fails with the install message.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
@@ -437,7 +438,7 @@ gives no movie stops the run before anything is written, and the message names i
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .nd2); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .nd2, .vsi); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each

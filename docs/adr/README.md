@@ -193,6 +193,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
 | [0143](0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md) | Deep-LASI detection mode 5 is ported, and mode 4 stays refused because Deep-LASI cannot run it | accepted | §7.1 FR-EXTRACT, §11.2 (the particle-detection rows), Appendix E stage 3 |
 | [0144](0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md) | CZI movies are read with czifile, and only as one whole movie | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0147](0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md) | cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §4.1 (technology stack), §9.1 (isolated dependency locks) |
 | [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
 

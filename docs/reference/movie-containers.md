@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF and ZEISS CZI), what each reader refuses, and where the frame time, pixel size and channel name of each come from."
+description: "The movie containers Tether reads (TIFF, ZEISS CZI, Nikon ND2, cellSens VSI), what each reader refuses, and where each metadata value comes from."
 ---
 
 <!--
@@ -24,12 +24,14 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | TIFF | `.tif`, `.tiff` | Tether, with tifffile |
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
 | ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
+| cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 
-Extraction (the application, `tether extract` and `tether batch`) reads TIFF and ND2
-([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
-movie opens through the reader, but extraction refuses it with "this CZI movie opens, but
-extraction does not read CZI yet". The change that lets extraction read CZI is planned (#1390).
-Until then, export the movie to uncompressed TIFF.
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF, ND2 and cellSens VSI
+([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A
+`.vsi` movie needs the optional Bio-Formats stack; without it, extraction fails with the message
+that says how to install it. A CZI movie opens through the reader, but extraction refuses it with
+"this CZI movie opens, but extraction does not read CZI yet". The change that lets extraction read
+CZI is planned (#1390). Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
@@ -72,3 +74,27 @@ Tether splits it (see [Acquisition geometry](../compatibility.md#acquisition-geo
 The CZI reader is checked on a ZEN movie of ZEISS, Zenodo
 [doi:10.5281/zenodo.7015307](https://doi.org/10.5281/zenodo.7015307) (CC-BY-4.0): its two frames
 are equal, byte for byte, to the same frames read by ZEISS pylibCZIrw 6.1.0.
+
+## cellSens VSI
+
+A `.vsi` file needs the [optional Bio-Formats stack](../install.md#the-optional-bio-formats-stack-cellsens-vsi-movies).
+The file begins with a TIFF header, so its extension chooses this reader. A renamed `.vsi` is read
+as a TIFF. Keep the `_<name>_` folder that cellSens writes beside the file, because the frames are
+in its `.ets` files.
+
+Of the series in the file, Tether reads the one with the most time points, at full resolution. It
+refuses the file in these cases:
+
+- Two series are movies of the same length, so Tether cannot tell which one to read.
+- The movie has more than one channel or focal plane.
+- The pixels are color or palette values, not one intensity.
+- The tiles are stored with JPEG or JPEG 2000, which can be lossy.
+
+| Value | Where it comes from (the Bio-Formats OME metadata) | When it is `unknown` |
+| --- | --- | --- |
+| Frame time (s) | the `TimeIncrement` of the image, or else the mean step of the `DeltaT` of its planes | neither is there, or the step is not positive |
+| Pixel size (µm) | `PhysicalSizeX` | not there |
+| Channels | the `Name` of the one channel | no name |
+
+Tether has no `.vsi` movie that it may share. So CI checks the reader on OME-TIFF movies through
+Bio-Formats, and a laboratory `.vsi` movie is checked on the maintainer's workstation.

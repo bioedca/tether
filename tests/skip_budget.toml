@@ -45,6 +45,11 @@ max_skipped = 0
 min_collected = 33
 max_skipped = 2
 
+[jobs."bioformats / live"]
+# The live Bio-Formats runner (#907, ADR-0147): tests/test_runner_bioformats.py.
+min_collected = 9
+max_skipped = 0
+
 [jobs."large-fixtures"]
 min_collected = 12
 max_skipped = 11
