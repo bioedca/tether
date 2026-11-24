@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The base side of the Bio-Formats route, in the required matrix (#907, ADR-0143).
+"""The base side of the Bio-Formats route, in the required matrix (#907, ADR-0147).
 
 The base environment must not change and must not import Java; a ``.vsi`` goes to the
 cellSens adapter, which says how to install the stack where it is absent; and the pipe to the

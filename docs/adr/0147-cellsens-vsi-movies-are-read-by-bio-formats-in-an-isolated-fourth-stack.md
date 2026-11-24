@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0143 — cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack
+# 0147 — cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack
 
 - **Status:** accepted
 - **Date:** 2026-11-24

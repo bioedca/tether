@@ -584,7 +584,7 @@ Tether reads Olympus/Evident cellSens `.vsi` movies through
 [Bio-Formats](https://www.openmicroscopy.org/bio-formats/). Bio-Formats runs on Java. Java is
 **not** part of the installer. Tether needs it for no other file. The Bio-Formats stack is a
 separate environment, kept apart from the application like the tMAVEN copy
-([ADR-0143](adr/0143-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)).
+([ADR-0147](adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)).
 Install it only if you open `.vsi` files.
 
 1. Get `bioformats/conda-lock.yml` from the Tether repository, at the version of your Tether.

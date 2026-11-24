@@ -122,7 +122,7 @@ jobs:
         # --conda "$MAMBA_EXE"`), so the result does not depend on the image.
         # The four isolated stacks (base GUI, tMAVEN sidecar, deep torch add-on, the
         # Bio-Formats Java stack) are each pin-and-held and verified independently
-        # (ADR-0004/0047/0143).
+        # (ADR-0004/0047/0147).
         run: |
           set -euo pipefail
           : "${MAMBA_EXE:?setup-micromamba did not export MAMBA_EXE}"
@@ -242,7 +242,7 @@ jobs:
       # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
       # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
       # on the non-required deep.yml leg — exclude it; the base app has no torch. The
-      # `bioformats` marker drives the isolated Java `bioformats/` env (ADR-0143), built only
+      # `bioformats` marker drives the isolated Java `bioformats/` env (ADR-0147), built only
       # on the non-required bioformats.yml leg — exclude it; the base app has no Java. The
       # `workstation` marker needs private laboratory data that no runner has; those
       # tests run only from scripts/workstation/run_private_checks.py on the

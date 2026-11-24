@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The gate every live ``@pytest.mark.bioformats`` test passes through (#907, ADR-0143).
+"""The gate every live ``@pytest.mark.bioformats`` test passes through (#907, ADR-0147).
 
 A live test needs the Python of the optional Bio-Formats stack, which
 ``$TETHER_BIOFORMATS_PYTHON`` names. On a machine without the stack the test skips. The

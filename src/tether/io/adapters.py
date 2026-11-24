@@ -18,7 +18,7 @@ containers that Tether reads and names the Bio-Formats route.
 This module is Qt-free and imports no reader package at import time; the
 built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]) and then cellSens VSI
 ([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
-ADR-0143), are registered the first time the registry is read. ADR-0113 records the
+ADR-0147), are registered the first time the registry is read. ADR-0113 records the
 interface and the rule by which a reader package can enter the base lock.
 """
 

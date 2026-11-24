@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A stand-in for ``tether/io/_bioformats_runner.py`` that needs no Java (#907, ADR-0143).
+"""A stand-in for ``tether/io/_bioformats_runner.py`` that needs no Java (#907, ADR-0147).
 
 It speaks the runner's protocol (one JSON line in, one JSON line and the frame bytes out) and
 serves the frames of ``<movie>.frames.npy``, so the base matrix tests the base side of the

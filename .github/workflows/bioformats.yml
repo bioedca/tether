@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# bioformats / live — the live Bio-Formats runner (#907, ADR-0143). It restores the base env
+# bioformats / live — the live Bio-Formats runner (#907, ADR-0147). It restores the base env
 # from conda-lock.yml and, beside it, the FOURTH, ISOLATED optional stack from
 # bioformats/conda-lock.yml (Python, a Java runtime, JPype and Bio-Formats; never in the base
 # lock or installer), then runs the `@pytest.mark.bioformats` suite in the base env with

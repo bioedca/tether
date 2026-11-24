@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The live Bio-Formats runner (#907, ADR-0143): the ``bioformats / live`` job.
+"""The live Bio-Formats runner (#907, ADR-0147): the ``bioformats / live`` job.
 
 These tests start ``src/tether/io/_bioformats_runner.py`` with the Python of the optional
 stack (``$TETHER_BIOFORMATS_PYTHON``) and read movies through Java and Bio-Formats. No
-redistributable cellSens ``.vsi`` movie is known (ADR-0143), so the movies here are OME-TIFF
+redistributable cellSens ``.vsi`` movie is known (ADR-0147), so the movies here are OME-TIFF
 files that tifffile writes: Bio-Formats reads them with its own reader, and the frames must
 come back exactly, with the geometry, the byte order and the metadata of the file. The
 ``.vsi`` route itself is checked on the maintainer's workstation

@@ -9,7 +9,7 @@ Every test below then runs against it — the registry chooses it by content, it
 gives the right geometry and values, a frame-range read does not load the full
 movie, every metadata value has an origin, and the source closes cleanly.
 
-The cellSens VSI adapter (#907, ADR-0143) runs here against the Java-free stand-in of its
+The cellSens VSI adapter (#907, ADR-0147) runs here against the Java-free stand-in of its
 runner (``tests/_fake_bioformats_runner.py``), so the base side of the Bio-Formats route
 conforms in every environment; the live runner is tested in ``tests/test_*_bioformats.py`` and
 a real ``.vsi`` movie in the workstation check ``tests/test_vsi_direct_read.py``. A ``.vsi``

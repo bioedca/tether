@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A laboratory cellSens ``.vsi`` movie through the Bio-Formats route (#907, ADR-0143, #887).
+"""A laboratory cellSens ``.vsi`` movie through the Bio-Formats route (#907, ADR-0147, #887).
 
 No redistributable ``.vsi`` movie is known, so this check runs on the maintainer's
 workstation (ADR-0071; maintainer decision D2 of #907). The mapping file names each movie

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Tether Bio-Formats environment — the FOURTH, ISOLATED optional stack (ADR-0143;
+# Tether Bio-Formats environment — the FOURTH, ISOLATED optional stack (ADR-0147;
 # PRD §4.1, §7.1 FR-EXTRACT, §9.1), isolated in the same way as the tMAVEN sidecar
 # (ADR-0004) and the deep stack (ADR-0047).
 #
@@ -18,7 +18,7 @@
 #
 # The stack is NOT in the base installer. docs/install.md gives the install command.
 #
-# --- Licences (the review is in ADR-0143) ---
+# --- Licences (the review is in ADR-0147) ---
 # bftools (Bio-Formats command line tools and bioformats_package.jar): GPL-2.0-or-later
 # openjdk: GPL-2.0 WITH Classpath-exception-2.0
 # jpype1: Apache-2.0

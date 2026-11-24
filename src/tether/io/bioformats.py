@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Bio-Formats route: cellSens ``.vsi`` movies through an isolated Java stack (#907, ADR-0143).
+"""The Bio-Formats route: cellSens ``.vsi`` movies through an isolated Java stack (#907, ADR-0147).
 
 No maintained Python reader for Olympus/Evident cellSens ``.vsi`` files is known, and
 Bio-Formats, which reads them, needs Java. Java stays out of the base environment: an
@@ -357,4 +357,4 @@ BIOFORMATS_ADAPTER = MovieAdapter(
     sniff=_is_tiff,
     open=BioformatsMovieSource,
 )
-"""The registry entry of the Bio-Formats route: cellSens ``.vsi`` files (ADR-0143)."""
+"""The registry entry of the Bio-Formats route: cellSens ``.vsi`` files (ADR-0147)."""

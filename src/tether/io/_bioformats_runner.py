@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Bio-Formats runner: the process that reads a movie with Bio-Formats (#907, ADR-0143).
+"""The Bio-Formats runner: the process that reads a movie with Bio-Formats (#907, ADR-0147).
 
 **This file runs in the optional Bio-Formats environment** (``bioformats/conda-lock.yml``),
 never in the base environment. [`tether.io.bioformats`][] starts it as a script with that
@@ -195,7 +195,7 @@ class Session:
         return tied[0]
 
     def _check_codec(self, path: str, reader) -> None:
-        """Refuse cellSens tiles that a lossy codec wrote (ADR-0143).
+        """Refuse cellSens tiles that a lossy codec wrote (ADR-0147).
 
         Bio-Formats decodes the tiles but does not put the codec in its metadata, so the
         runner reads the codec list that ``CellSensReader`` keeps (one entry for each ``.ets``

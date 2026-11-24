@@ -155,7 +155,7 @@ def test_sidecar_workflow_uses_no_explicit_exit():
 # keeps that glob honest so a new deep-marked test can never silently escape the live job.
 DEEP_FILE_GLOB = "test_*_deep.py"
 DEEP_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deep.yml"
-# The fourth stack (#907, ADR-0143): bioformats.yml collects this glob with `pytest -m bioformats`.
+# The fourth stack (#907, ADR-0147): bioformats.yml collects this glob with `pytest -m bioformats`.
 BIOFORMATS_FILE_GLOB = "test_*_bioformats.py"
 BIOFORMATS_WORKFLOW = (
     Path(__file__).resolve().parents[1] / ".github" / "workflows" / "bioformats.yml"
@@ -4077,7 +4077,7 @@ def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
     assert "month=$(date -u +%Y-%m)" in key["run"]
 
 
-# --- The fourth stack: the live Bio-Formats tier (#907, ADR-0143) ---------------------------
+# --- The fourth stack: the live Bio-Formats tier (#907, ADR-0147) ---------------------------
 
 
 def test_bioformats_marked_modules_match_ci_glob() -> None:

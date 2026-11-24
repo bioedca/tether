@@ -64,7 +64,7 @@ route.
 extension, not its content, sends it to the cellSens adapter, and a renamed `.vsi` is read as
 the small TIFF it is. The frames come from the `.ets` files of the `_<name>_` folder beside it.
 Bio-Formats 8.0 reads them in the optional stack of [the install
-guide](install.md#the-optional-bio-formats-stack-cellsens-vsi-movies) (ADR-0143).
+guide](install.md#the-optional-bio-formats-stack-cellsens-vsi-movies) (ADR-0147).
 
 Tether reads
 the image with the most time points, at full resolution. It refuses two movies of the same
