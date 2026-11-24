@@ -12,7 +12,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `mq/**`: merge-queue candidates, each tested here before its pull request merges (#1267).
+    branches: [main, "mq/**"]
   pull_request:
 
 permissions:

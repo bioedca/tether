@@ -412,6 +412,13 @@ semicolons = 3
 long_paragraphs = 2
 retired = 0
 
+[pages."docs/maintainers/merge-queue.md"]
+kind = "descriptive"
+long_share = 2.9
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/maintainers/mutation-testing.md"]
 kind = "descriptive"
 long_share = 8.0
