@@ -315,6 +315,29 @@ def test_a_failed_insufficient_evidence_event_writes_nothing(
         proj.release_lock()
 
 
+def test_a_repeated_key_is_predicted_as_the_pass_excludes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=11)
+    with h5py.File(path, "r+") as f:  # two rows share one key, as a merged project can
+        table = f[f"molecules/{TABLE}"][:]
+        table["molecule_key"][1] = table["molecule_key"][0]
+        f[f"molecules/{TABLE}"][:] = table
+    assert compute_gamma(path).n_qualifying == 11
+    proj = Project.open(path)
+    proj.acquire_lock()
+    try:
+        _failing_send(E.INSUFFICIENT_EVIDENCE, monkeypatch)
+        # Both rows leave: 9 < 10, so the block is sent before the write, and fails.
+        with pytest.raises(OSError):
+            set_gamma_contributor(proj, _key(path, 0), include=False, actor=ME, reason="bad")
+        assert len(read_gamma_contributor_decisions(path)) == 0
+        assert not np.isnan(read_molecules(path)["gamma"]).any()
+    finally:
+        proj.release_lock()
+
+
 def test_a_retry_sends_the_new_evidence_event_that_a_failed_send_left_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

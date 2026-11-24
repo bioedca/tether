@@ -393,9 +393,10 @@ def _set_held(
 def _predict_withheld(path: Path, molecule_key: str, *, include: bool, minimum: int) -> bool:
     """Return whether the γ pass after this decision is withheld, from the stored table."""
     table = read_gamma_contributors(path)
-    keys = [_text(k) for k in table["molecule_key"]]
+    # A molecule key can repeat; a decision applies to every row of it, as in the γ pass.
+    same = np.array([_text(k) == molecule_key for k in table["molecule_key"]], dtype=bool)
     included = table["included"].copy()
-    included[keys.index(molecule_key)] = include
+    included[same] = include
     qualifying = np.isfinite(table["gamma"]) & included
     return int(qualifying.sum()) < minimum
 
