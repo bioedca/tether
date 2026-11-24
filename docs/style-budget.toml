@@ -141,7 +141,7 @@ retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 32.2
+long_share = 29.7
 semicolons = 7
 long_paragraphs = 1
 retired = 0
@@ -218,7 +218,7 @@ retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 18.8
+long_share = 16.4
 semicolons = 22
 long_paragraphs = 1
 retired = 1
@@ -407,7 +407,7 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 17.2
+long_share = 15.0
 semicolons = 3
 long_paragraphs = 2
 retired = 0
