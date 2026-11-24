@@ -17,9 +17,10 @@ another one) names its original in ``derived_from`` and the recipe between them 
   Reading it writes nothing; the first write that needs it stores it.
 * **The checksum.** [`file_sha256`][] reads a file in 1 MiB blocks, asks a
   [`CancelToken`][tether.project.jobs.CancelToken] between blocks and reports the bytes
-  read. It returns a [`FileDigest`][]: the checksum, the bytes read, and the device and
-  inode of the file it read. A write that stores the checksum first checks that the path
-  still names that file at that size, so a file replaced during the read is never stored
+  read. It returns a [`FileDigest`][]: the checksum, the bytes read, and the device, inode
+  and modification time of the file it read. A write that stores the checksum first checks
+  that the path still names that file, unchanged, so a file replaced or written during the
+  read is never stored
   ([`SourceReplaced`][], #1356). A large file is read by the checksum job of
   [`tether.services.sources`][], which runs on a worker thread, never in the window thread.
 * **Link again.** A source that moved is linked to its new path with [`relink_source`][].
@@ -97,8 +98,8 @@ class SourceReplaced(ValueError):
     """
 
 
-def _handle_identity(info: os.stat_result) -> FileIdentity | None:
-    """Return the canonical file identity of an ``os.fstat`` result (ADR-0112)."""
+def _stat_identity(info: os.stat_result) -> FileIdentity | None:
+    """Return the canonical file identity of a ``stat`` result (ADR-0112)."""
     from tether.project.lock import _stat_identity  # noqa: PLC0415, PLC2701
 
     return _stat_identity(info)
@@ -111,32 +112,39 @@ class FileDigest:
     ``size`` is the number of bytes read. ``identity`` is the canonical file identity
     (device and inode, [`file_identity`][tether.project.lock.file_identity]) of the open
     handle the bytes were read from, or ``None`` on a filesystem that reports no inode
-    number; there only the size can be compared.
+    number. ``mtime_ns`` is the handle's modification time when it was opened, so a write
+    into the same file during or after the read is seen too, within the filesystem's time
+    resolution.
     """
 
     sha256: str
     size: int
     identity: FileIdentity | None
+    mtime_ns: int
 
     def check_path(self, path: str | Path) -> None:
-        """Make sure ``path`` still names the file that was read, at the size read.
+        """Make sure ``path`` still names the file that was read, unchanged since.
 
-        The path is opened again and its handle compared, so both sides come from the same
-        ``os.fstat``.
+        The path is read with ``os.stat`` and never opened, so a check of a path that now
+        names a FIFO cannot block.
 
         Raises
         ------
         SourceReplaced
-            If the path names another file, a file of another size, or no file.
+            If the path names another file or no file, or the file's size or modification
+            time changed.
         """
         try:
-            with open(path, "rb") as handle:
-                now = os.fstat(handle.fileno())
+            now = os.stat(path)
         except OSError as exc:
             raise SourceReplaced(
                 f"{Path(path).name} cannot be read again, so its checksum is not stored"
             ) from exc
-        if (_handle_identity(now), now.st_size) != (self.identity, self.size):
+        if (_stat_identity(now), now.st_size, now.st_mtime_ns) != (
+            self.identity,
+            self.size,
+            self.mtime_ns,
+        ):
             raise SourceReplaced(
                 f"{Path(path).name} changed while its checksum was read, so it is not stored"
             )
@@ -488,7 +496,7 @@ def file_sha256(
     with open(path, "rb") as handle:
         opened = os.fstat(handle.fileno())
         size = opened.st_size
-        identity = _handle_identity(opened)
+        identity = _stat_identity(opened)
         for block in iter(lambda: handle.read(_CHUNK), b""):
             if cancel is not None:
                 cancel.raise_if_cancelled()
@@ -498,7 +506,9 @@ def file_sha256(
                 progress(done, size)
     if cancel is not None:  # a cancel during the last block still stops the calculation
         cancel.raise_if_cancelled()
-    return FileDigest(sha256=digest.hexdigest(), size=done, identity=identity)
+    return FileDigest(
+        sha256=digest.hexdigest(), size=done, identity=identity, mtime_ns=opened.st_mtime_ns
+    )
 
 
 def set_checksum(

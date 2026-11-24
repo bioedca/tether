@@ -705,10 +705,12 @@ project's folder is accepted.
 The new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`.
 The size stored is the size of the file that was read.
 
-**A file replaced during the read is not stored.** The checksum records the device and
-inode of the file it read and the bytes read. Just before the write, the checksum job and
-`relink_source` check that the path still names that file at that size. If another process
-replaced or changed the file, the write is refused (`SourceReplaced`) and nothing is stored.
+**A file replaced during the read is not stored.** The checksum records the device, inode
+and modification time of the file it read, and the bytes read. Just before the write, the
+checksum job and `relink_source` check that the path still names that file, with that size
+and modification time. If another process replaced the file or wrote into it, the write is
+refused (`SourceReplaced`) and nothing is stored. A write that keeps the size and lands
+within the filesystem's time resolution is not seen.
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
 only the file name of a path that is absolute or steps out of the folder (`..`). A plain

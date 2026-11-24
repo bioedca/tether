@@ -510,6 +510,7 @@ def test_the_checksum_names_the_file_it_read() -> None:
     assert digest.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert digest.size == os.stat(path).st_size
     assert digest.identity == file_identity(path)
+    assert digest.mtime_ns == os.stat(path).st_mtime_ns
 
 
 def test_a_relink_stores_the_size_of_the_file_it_hashed(tmp_path) -> None:
@@ -578,3 +579,56 @@ def test_a_file_replaced_after_the_read_is_not_stored(tmp_path, monkeypatch, wri
     finally:
         project.release_lock()
     assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_same_size_write_into_the_file_after_the_read_is_not_stored(
+    tmp_path, monkeypatch, writer
+) -> None:
+    """Same file, same size, other bytes: the modification time shows the change."""
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha if writer == "relink" else "")
+    read = S.file_sha256
+
+    def read_then_overwrite(path, **kwargs):
+        digest = read(path, **kwargs)
+        with open(path, "r+b") as handle:  # in place: same inode, same size
+            handle.write(b"!")
+        later = digest.mtime_ns + 2_000_000_000  # past any filesystem's time resolution
+        os.utime(path, ns=(later, later))
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_overwrite)
+    project.acquire_lock()
+    try:
+        if writer == "relink":
+            with pytest.raises(S.SourceReplaced):
+                S.relink_source(project, "movie:mov-1", movie)
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    finally:
+        project.release_lock()
+    assert movie.stat().st_size == len(_MOVIE_BYTES)
+    assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+def test_the_check_never_opens_the_path(tmp_path, monkeypatch) -> None:
+    """A path that became a FIFO would block an open, so the check only stats it."""
+    import builtins  # noqa: PLC0415
+
+    path = tmp_path / "movie.tif"
+    path.write_bytes(b"movie")
+    digest = S.file_sha256(path)
+
+    def no_open(*_: object, **__: object) -> None:
+        raise AssertionError("the check opened the path")
+
+    monkeypatch.setattr(builtins, "open", no_open)
+    digest.check_path(path)  # unchanged: accepted without an open
+    monkeypatch.undo()
+    path.unlink()
+    path.mkdir()  # not the file that was read
+    monkeypatch.setattr(builtins, "open", no_open)
+    with pytest.raises(S.SourceReplaced):
+        digest.check_path(path)
