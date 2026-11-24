@@ -170,10 +170,10 @@ class SectionShells:
                 opened.append(Path(loaded.path))
             # The Analyze section draws its A1 plot over every molecule, so its preview
             # canvas is built before the shell is parked (#374).
-            section = shell.analysis_section
-            section.add_menu.aboutToShow.emit()
-            section.add_menu.actions()[0].trigger()
-            assert section.outcome.drawn, section.outcome.missing
+            analysis = shell.analysis_section
+            analysis.add_menu.aboutToShow.emit()
+            analysis.add_menu.actions()[0].trigger()
+            assert analysis.outcome.drawn, analysis.outcome.missing
         wanted = default_section if section is None else section
         if shell.section != wanted:
             shell.set_section(wanted)

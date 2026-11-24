@@ -62,13 +62,12 @@ brings it to the application.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
-- **Analysis plots.** The **Analyze** section draws each population plot: the FRET
-  histograms (with a bootstrap band, per condition, or with the model's Gaussians), the
-  heatmaps, the transition-density, dwell-time and transition-probability plots, the
-  state-number plots, the cross-correlation, the anticorrelation events and the FRET clouds.
-  One plot holds one or more named selections of molecules, such as all molecules or one
-  condition, and rejected molecules are left out ([how-to](docs/how-to/analyze.md)). The
-  figure shown is the one an export writes; saving it from the application comes with
+- **Analysis plots.** The **Analyze** section draws each population plot of Tether. They
+  include the FRET histograms, the heatmaps and the FRET clouds. They also include the TDP,
+  dwell-time, transition-probability and state-number plots, the cross-correlation and the
+  anticorrelation events. One plot holds one or more named sets of molecules, such as one
+  condition. Rejected molecules are left out ([how-to](docs/how-to/analyze.md)). The figure
+  shown is the one an export writes. Saving it from the application comes with
   [#377](https://github.com/bioedca/tether/issues/377).
 - **Movie panel.** A **napari** movie panel in the application window shows the project's
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A

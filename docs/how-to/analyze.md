@@ -41,9 +41,9 @@ how it matches its tMAVEN counterpart. This page tells you how to make them.
 
 The **Analyze** section draws each population plot of Tether. It has three parts:
 
-- **Plot** — the list of plots. A plot that reads a fit, such as the TDP or the dwell times,
-  also shows the **Idealization model** to read, and the dwell times and the transition
-  probabilities show the states.
+- **Plot** — the list of plots. A plot that reads a fit, such as the TDP, also shows the
+  **Idealization model** to read. The dwell times and the transition probabilities also show
+  the states.
 - **Layers** — the series of the plot. **Add selection** adds **All molecules**, or one
   series for each condition, movie or source file of the project. **Remove** takes out the
   selected series. Each series has its own color on the figure.

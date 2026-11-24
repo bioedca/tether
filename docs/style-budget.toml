@@ -71,7 +71,7 @@ retired = 0
 
 [pages."docs/index.md"]
 kind = "descriptive"
-long_share = 14.3
+long_share = 11.8
 semicolons = 3
 long_paragraphs = 0
 retired = 0
