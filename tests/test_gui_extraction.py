@@ -114,6 +114,59 @@ def test_the_form_refuses_bad_input_with_the_extraction_error(name, text, messag
         sp.profile_from_texts({name: text})
 
 
+@pytest.mark.parametrize(
+    ("name", "text", "message"),
+    [
+        ("pair_tol", "two", "pair_tol: 'two' is not a number"),
+        ("channel_layout_donor_rect", "a, b, c, d", "is not four whole numbers"),
+    ],
+)
+def test_text_that_is_not_a_value_of_its_row_is_refused(name, text, message) -> None:
+    with pytest.raises(RequestError, match=message):
+        sp.profile_from_texts({name: text})
+
+
+def test_a_rectangles_layout_reads_its_two_rectangles() -> None:
+    profile = sp.profile_from_texts(
+        {
+            "channel_layout": "rectangles",
+            "channel_layout_donor_rect": "1, 1, 64, 48",
+            "channel_layout_acceptor_rect": "1 49 64 96",
+        }
+    )
+    assert profile.channel_layout_donor_rect == (1, 1, 64, 48)
+    assert profile.channel_layout_acceptor_rect == (1, 49, 64, 96)
+    layout = profile.extract_options().channel_layout
+    assert layout.kind == "rectangles" and layout.acceptor_rect == (1, 49, 64, 96)
+    # The text a row shows for a rectangle reads back as the same rectangle.
+    assert sp._to_text((1, 49, 64, 96)) == "1, 49, 64, 96"
+
+
+def test_a_preview_that_raises_closes_the_movie(tmp_path, monkeypatch) -> None:
+    import tether.project.preview as preview_module
+    from tether.io.movie import MovieReader
+
+    closed = []
+    real_close = MovieReader.close
+    monkeypatch.setattr(MovieReader, "close", lambda self: closed.append(1) or real_close(self))
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(preview_module, "preview_extraction", broken)
+    with pytest.raises(RuntimeError, match="boom"):
+        sp.run_preview(_write_movie(tmp_path / "movie.tif"), ExtractOptions())
+    assert closed
+
+
+def test_a_preview_that_failed_to_split_has_no_spot_views() -> None:
+    from tether.project.preview import ExtractionPreview, StageResult
+
+    preview = ExtractionPreview((StageResult("split", "failed", message="cannot split"),))
+    assert sp.spot_views(preview, _SHAPE) == {}
+    assert sp.residual_summary(preview) == ""
+
+
 def test_an_empty_optional_row_is_none() -> None:
     texts = {"detection_threshold": "", "min_separation": "4.5", "detection_mode": "intensity"}
     profile = sp.profile_from_texts(texts)

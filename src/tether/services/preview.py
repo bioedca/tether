@@ -324,7 +324,7 @@ def residual_summary(preview: ExtractionPreview) -> str:
     import numpy as np
 
     pairs = _residual_pairs(preview)
-    if pairs is None or len(pairs[0]) == 0:
+    if pairs is None:  # a fit has at least two pairs, so a fit's pairs are never empty
         return ""
     mapped, found = pairs
     distances = np.hypot(*(mapped - found).T)
