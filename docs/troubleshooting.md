@@ -312,8 +312,8 @@ message tell you which half of the problem you have.
 
 **Why.** `--detection-threshold` is a **fraction of the detection-image maximum**, not an
 absolute count, and the `wavelet` mode ignores it. Its default is `0.5` for `intensity` and
-`0.98` for `bandpass`. Without `--min-separation`, each mode uses its own default, as
-[Detection and extraction](reference/parameters.md#detection-and-extraction) lists.
+`zmw`, and `0.98` for `bandpass`. Without `--min-separation`, each mode uses its own default,
+as [Detection and extraction](reference/parameters.md#detection-and-extraction) lists.
 
 ### Extraction found far fewer, or far more, molecules than expected
 
@@ -385,7 +385,7 @@ tether extract: error: argument --donor-side: invalid choice: 'middle' (choose f
 | Message | What to do |
 |---|---|
 | `donor_side must be 'left' or 'right', got 'middle'` | Use `left` or `right`. Only a library call gets this message, because the CLI refuses the value when it reads the command line. |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | Use one of the three modes. Only a library call gets this message. |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass', 'zmw'), got 'gaussian'` | Use one of the four modes. Only a library call gets this message. |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | Give a fraction, not a count. |
 | `min_separation must be > 0, got -1.0` | Leave the option out to get the default of each mode. |
 | `window must be a positive odd integer, got 20` | Give an odd aperture window size. The default is 21. |
@@ -706,7 +706,7 @@ explains the difference.
 **What you see.**
 
 ```text
-tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3] = wavelet/intensity/bandpass; modes 4 'local-variance' and 5 'ZMW intensity' are not ported)
+tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3, 5] = wavelet/intensity/bandpass/zmw; mode 4 'local-variance' is not ported: Deep-LASI's own mode 4 reads a variable that is never set and stops with an error, so there is no Deep-LASI result to match (ADR-0143))
 ```
 
 A related message says that the file is not a TIRFdata container. It prints the root keys of
