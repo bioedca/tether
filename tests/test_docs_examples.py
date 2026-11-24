@@ -29,16 +29,22 @@ which only searches the given directories. Anchoring the walk at this checkout's
 also means the docs are checked against the source beside them, never against whatever
 ``tether`` another environment happens to have installed.
 
-**Scope.** Fences are found as Python-Markdown 3.11's ``fenced_code`` finds them, with its
+**Scope.** Fences are found as Python-Markdown 3.11.3's ``fenced_code`` finds them, with its
 ``FENCED_BLOCK_RE`` copied: at the root only, opening and closing at column zero, the
-closer repeating the opener. A fence tagged ``python``, ``py``, ``python3``, ``py3`` or
-``pycon`` is read. The coverage guard then reads *every* line of every page, inside a fence
-or not, so a line that reads as a tether import (``from tether…``, or ``import`` naming
-``tether`` anywhere in its list, alone or after a ``;``) and is not checked fails it. This
-covers an untagged fence, a statement the parse cannot read, and a fence-shaped block the
-renderer does not treat as a fence. Anything else is not guaranteed — an import spelled
-another way (``importlib.import_module("tether…")``, say), or one in a fence the renderer
-does not show as Python. Known gaps are tracked in #1013.
+closer repeating the opener. An ``{attrs}`` opener is read with the attribute-list scanner
+(``tests/_docs_source.py``, pinned to Python-Markdown by
+``tests/test_docs_validation_numbers.py``): its language is the first class, and an opener
+whose braces do not balance is no fence (#1013). A fence tagged ``python``, ``py``,
+``python3``, ``py3`` or ``pycon`` is read, and in it a call of ``importlib.import_module``
+or ``__import__`` with a literal ``"tether…"`` string is checked as an ``import`` of that
+module. The coverage guard then reads *every* logical line of every page, inside a fence
+or not, a line ending in ``\\`` joined to the next as Python joins it. A line that reads as
+a tether import (``from tether…``; ``import`` naming ``tether`` anywhere in its list, alone
+or after a ``;``; or one of those calls with a ``"tether…"`` string) and is not checked
+fails it. This covers an untagged fence, a statement the parse cannot read, and a
+fence-shaped block the renderer does not treat as a fence. Anything else is not
+guaranteed: a module named by a computed string, say, or an import in a fence the renderer
+does not show as Python.
 """
 
 from __future__ import annotations
@@ -53,7 +59,15 @@ from pathlib import Path
 
 import pytest
 
-from _docs_source import check_call, dict_literals, tether_calls, tether_imports
+from _docs_source import (
+    attrs_language,
+    attrs_rejected,
+    check_call,
+    dict_literals,
+    python_markdown,
+    tether_calls,
+    tether_imports,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -75,13 +89,15 @@ _FENCED_BLOCK_RE = re.compile(
 """,
     re.MULTILINE | re.DOTALL | re.VERBOSE,
 )
-_ATTRS_LANG_RE = re.compile(r"(?:^|\s)\.([\w#.+-]+)")  # the first `.class` in `{attrs}`
 _PYTHON_LANGS = {"python", "py", "python3", "py3", "pycon"}
 # Any line that reads as a tether import, whatever fence it sits in: the coverage guard.
 # A statement may follow a `;`, and `tether` may be any name of a multi-name `import`.
+# So is a call of ``import_module`` or ``__import__`` whose first argument is a string
+# naming a ``tether`` module, wherever it sits on the line.
 _TETHER_IMPORT_LINE_RE = re.compile(
     r"(?:^|;)\s*(?:>>> |\.\.\. )?"
     r"(?:from\s+tether\b|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*tether\b)"
+    r"""|\b(?:import_module|__import__)\s*\(\s*[rRuU]?["']tether\b"""
 )
 
 
@@ -92,14 +108,25 @@ def _page_text(path: Path) -> str:
 
 
 def _fences(path: Path) -> list[tuple[str, int, list[str]]]:
-    """``(language, first_body_line_number, body_lines)`` for each fence the renderer finds."""
+    """``(language, first_body_line_number, body_lines)`` for each fence the renderer finds.
+
+    As ``FencedBlockPreprocessor.run`` finds them: leftmost first and non-overlapping. An
+    ``{attrs}`` opener is read with the attribute-list scanner (#1013, gap 7): one whose
+    braces do not balance is no fence, and the search resumes inside that opener line, so
+    its body can still open a later fence; an accepted one takes its first class as the
+    language.
+    """
     text = _page_text(path)
     out = []
-    for m in _FENCED_BLOCK_RE.finditer(text):
+    index = 0
+    while (m := _FENCED_BLOCK_RE.search(text, index)) is not None:
         lang = m.group("lang") or ""
-        if m.group("attrs") is not None:
-            attr = _ATTRS_LANG_RE.search(m.group("attrs"))
-            lang = attr.group(1) if attr else ""
+        if m.group("attrs"):
+            if attrs_rejected(m.group("attrs")):
+                index = m.end("attrs")
+                continue
+            lang = attrs_language(m.group("attrs"))
+        index = m.end()
         first = text.count("\n", 0, m.start("code")) + 1
         out.append((lang.lower(), first, m.group("code").split("\n")[:-1]))
     return out
@@ -133,8 +160,36 @@ def _statements(body: list[str]) -> list[tuple[int, ast.stmt]]:
     return out
 
 
+def _dynamic_import(node: ast.AST) -> ast.Import | None:
+    """``importlib.import_module("tether…")`` or ``__import__("tether…")`` as an ``import``.
+
+    Only a literal string names a module the check can resolve (#1013, gap 6). A call that
+    names one any other way is not read here, and the coverage guard reports its line.
+    """
+    if not (isinstance(node, ast.Call) and node.args):
+        return None
+    func, name = node.func, node.args[0]
+    spelled = (
+        isinstance(func, ast.Name)
+        and func.id in ("__import__", "import_module")
+        or isinstance(func, ast.Attribute)
+        and func.attr == "import_module"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "importlib"
+    )
+    if not (spelled and isinstance(name, ast.Constant) and isinstance(name.value, str)):
+        return None
+    if not _is_tether(name.value):
+        return None
+    return ast.copy_location(ast.Import(names=[ast.alias(name=name.value)]), node)
+
+
 def _docs_imports() -> list[tuple[str, int, ast.Import | ast.ImportFrom]]:
-    """Every tether import statement in a Python fence: ``(file, line, node)``."""
+    """Every tether import statement in a Python fence: ``(file, line, node)``.
+
+    A literal ``importlib.import_module`` or ``__import__`` call counts as an ``import`` of
+    the module it names.
+    """
     found = []
     for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
         rel = path.relative_to(ROOT).as_posix()
@@ -143,6 +198,8 @@ def _docs_imports() -> list[tuple[str, int, ast.Import | ast.ImportFrom]]:
                 continue
             for offset, node in _statements(body):
                 for sub in ast.walk(node):
+                    if (dynamic := _dynamic_import(sub)) is not None:
+                        sub = dynamic
                     if (
                         isinstance(sub, ast.ImportFrom)
                         and sub.level == 0
@@ -287,15 +344,45 @@ def test_docs_import_examples_resolve() -> None:
     assert not problems, "\n".join(problems)
 
 
+def _logical_lines(text: str) -> list[tuple[int, int, str]]:
+    """``(first, last, line)``: the page's lines, each one ending in ``\\`` joined to the next.
+
+    That is how Python reads a statement continued with a backslash, so ``import os, \\``
+    followed by ``tether.no_such_module`` is one import line (#1013, gap 6). A session's
+    ``... `` prompt on a continuation line is dropped.
+    """
+    out: list[tuple[int, int, str]] = []
+    joined, first = "", 0
+    for number, line in enumerate(text.split("\n"), start=1):
+        if not joined:
+            first = number
+        else:
+            line = re.sub(r"^\s*\.\.\. ", "", line)
+        if line.endswith("\\"):
+            joined += line[:-1]
+            continue
+        out.append((first, number, joined + line))
+        joined = ""
+    if joined:
+        out.append((first, number, joined))
+    return out
+
+
 def _unchecked_import_lines() -> list[str]:
-    """Every line of every page that reads as a tether import but is not checked."""
-    checked = {(rel, line) for rel, line, _ in _docs_imports()}
+    """Every logical line of every page that reads as a tether import but is not checked."""
+    checked = {
+        (rel, line + k)
+        for rel, line, node in _docs_imports()
+        for k in range((node.end_lineno or node.lineno) - node.lineno + 1)
+    }
     missed = []
     for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
         rel = path.relative_to(ROOT).as_posix()
-        for number, text in enumerate(_page_text(path).split("\n"), start=1):
-            if _TETHER_IMPORT_LINE_RE.search(text) and (rel, number) not in checked:
-                missed.append(f"{rel}:{number}: {text.strip()}")
+        for first, last, text in _logical_lines(_page_text(path)):
+            if _TETHER_IMPORT_LINE_RE.search(text) and not any(
+                (rel, number) in checked for number in range(first, last + 1)
+            ):
+                missed.append(f"{rel}:{first}: {text.strip()}")
     return missed
 
 
@@ -628,6 +715,8 @@ def test_statically_dead_branches_bind_nothing(source: str, bound: set[str]) -> 
         ">>> import numpy as np, tether.analysis",
         "x = 1; import tether.no_such_module",
         "import os; from tether import nope",
+        'm = importlib.import_module("tether.no_such_module")',
+        "__import__('tether')",
     ],
 )
 def test_the_coverage_guard_sees_tether_anywhere_in_an_import(line: str) -> None:
@@ -641,6 +730,8 @@ def test_the_coverage_guard_ignores_lookalikes() -> None:
         "from tether_tools import x",
         "# see tether docs",
         "pip install tether",
+        'import_module("tetherx")',
+        "import_module(name)",
     ):
         assert not _TETHER_IMPORT_LINE_RE.search(line), line
 
@@ -683,3 +774,88 @@ def test_the_guard_reads_lines_outside_any_fence(
     _page(tmp_path, monkeypatch, body)
     assert [(rel, line) for rel, line, _ in _docs_imports()] == [("docs/a.md", 4)]
     assert _unchecked_import_lines() == ["docs/a.md:10: from tether.analysis import histogram"]
+
+
+# --- {attrs} fences and other import spellings (#1013, gaps 6 and 7) -------------------
+
+#: ``(page, [(language, first body line), ...])``. Each expected list is what
+#: Python-Markdown 3.11.3's ``fenced_code`` renders for the page (checked by
+#: :func:`test_the_attrs_fence_rows_render_as_python_markdown_does`): the language is the
+#: first class the attribute-list scanner returns, so a ``.x`` inside a quoted value is no
+#: class; and an opener whose braces do not balance is no fence, the search resuming
+#: inside it, so the bare line below it opens one.
+_ATTRS_FENCE_ROWS = [
+    ("``` {.python}\nx\n```\n", [("python", 2)]),
+    ("``` { .py #i }\nx\n```\n", [("py", 2)]),
+    ("``` {#i .Python .x}\nx\n```\n", [("python", 2)]),
+    ("``` {k='a .x' .pycon}\nx\n```\n", [("pycon", 2)]),
+    ("``` {lang=python}\nx\n```\n", [("", 2)]),
+    ("``` {.text} {.python}\nfrom tether import a\n```\nfoo\n```python\ny\n```\n", [("", 4)]),
+    ("``` {.a} {.b}\n``` {.python}\nz\n```\n", [("python", 3)]),
+]
+
+
+@pytest.mark.parametrize(("body", "expected"), _ATTRS_FENCE_ROWS)
+def test_an_attrs_fence_is_read_with_the_attribute_list_scanner(
+    tmp_path: Path, body: str, expected: list[tuple[str, int]]
+) -> None:
+    page = tmp_path / "a.md"
+    page.write_text(body, encoding="utf-8")
+    assert [(lang, first) for lang, first, _ in _fences(page)] == expected
+
+
+def test_the_attrs_fence_rows_render_as_python_markdown_does() -> None:
+    """Each row's fences are the ``<pre><code>`` blocks the real renderer makes, in order."""
+    markdown = python_markdown("markdown")
+    assert markdown.__version__ == "3.11.3"
+    for body, expected in _ATTRS_FENCE_ROWS:
+        html = markdown.markdown(body, extensions=["fenced_code"])
+        blocks = re.findall(r'<pre[^>]*><code(?: class="language-([^"]*)")?>', html)
+        assert [lang.lower() for lang in blocks] == [lang for lang, _ in expected], body
+
+
+def test_a_literal_dynamic_import_is_resolved_like_an_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = (
+        "# A\n\n```python\nimport importlib\n"
+        'm = importlib.import_module("tether.analysis.histogram")\n'
+        'n = __import__("tether.no_such_module")\n```\n'
+    )
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 5), ("docs/a.md", 6)]
+    assert [p for i in imports for p in _problems(*i)] == [
+        "docs/a.md:6: 'import tether.no_such_module' — no module tether.no_such_module under src/"
+    ]
+    assert _unchecked_import_lines() == []
+
+
+def test_a_dynamic_import_outside_a_python_fence_fails_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = '# A\n\n```\nm = importlib.import_module("tether.no_such_module")\n```\n'
+    _page(tmp_path, monkeypatch, body)
+    assert _unchecked_import_lines() == [
+        'docs/a.md:4: m = importlib.import_module("tether.no_such_module")'
+    ]
+
+
+def test_an_import_continued_with_a_backslash_is_one_line_to_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex 4241251529 on PR #511: neither physical line reads as a tether import."""
+    untagged = "# A\n\n```\nimport os, \\\n    tether.no_such_module\n```\n"
+    _page(tmp_path, monkeypatch, untagged)
+    assert _unchecked_import_lines() == ["docs/a.md:4: import os,     tether.no_such_module"]
+
+
+def test_a_continued_import_in_a_python_fence_is_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = "# A\n\n```python\nimport os, \\\n    tether.no_such_module\n```\n"
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 4)]
+    assert "no module tether.no_such_module" in _problems(*imports[0])[0]
+    assert _unchecked_import_lines() == []
