@@ -944,5 +944,7 @@ def test_an_empty_seat_stops_only_a_review_that_would_draw_on_it(
     for n in range(others):
         reviews[200 + n] = [_review(when=_NOV)]
     monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-11", "--fail-over-share"])
+    monkeypatch.setattr(
+        "sys.argv", ["greptile_usage.py", "--cycle", "2026-11", "--fail-over-share"]
+    )
     assert usage.main() == (usage.EXIT_OVER_BUDGET if code else 0)
