@@ -300,9 +300,11 @@ which keeps the value from the file.
 | `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
 | `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm, the pixels are square and the resolution is not the `1/1` placeholder, or the user's value; `0.0` unknown. |
 | `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
-| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
+| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap` or a map file, `user` for a native extraction (`--donor-side`). A re-extraction sets it again from the sources of that run (#1309). |
 
-`extract_movie` writes the group. Some rows have no group: a store written before #911,
+`extract_movie` writes the group. A re-extraction (`reextract_movie`) writes only a new
+`channel_roles_origin` and keeps the other attributes of the movie; for a row with no group it
+first reads them by the rule below. Some rows have no group: a store written before #911,
 or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
 (`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
 verified, because that field has only ever been filled from the ImageJ `finterval`. A
