@@ -25,7 +25,8 @@ shortened stays as it was. New α and γ settings take full effect.
 - The Python that came with Tether. At the default install locations, it is
   `~/tether/envs/tether/bin/python` on Linux and `~/Tether/envs/tether/bin/python` on macOS.
   On Windows, it is `$env:USERPROFILE\Tether\envs\tether\python.exe`. There is no menu
-  item or `tether` command for this step.
+  item or `tether` command for the first three steps. The last step is also in the desktop
+  application ([step 4](#4-run-the-last-step-in-the-desktop-application)).
 - Molecules whose **acceptor bleaches before their donor**. Each needs a good stretch of
   signal on each side of that moment. Tether measures α on the frames after the acceptor
   bleaches and before the donor does. It measures γ on the step where the acceptor bleaches.
@@ -150,6 +151,36 @@ print(f"{result.n_manual} molecules corrected with the values you supplied")
 
 Molecules corrected this way are marked `manual` in `correction_method`. So a reader of the
 project can tell a supplied factor from an estimated one.
+
+## 4. Run the last step in the desktop application
+
+The last step of step 1 records the correction method of each molecule from the α and γ
+that the molecules already carry. You can run it again in the desktop application, for
+example after you change those factors:
+
+1. Open the project in the desktop application.
+2. Go to the **Curate and correct** section.
+3. Choose **Corrections → Run correction pass…**.
+4. To keep every molecule at apparent E on purpose, select **Apparent E only**.
+5. Select **OK**.
+
+The step runs in the background. While it runs, Tether does not let you idealize or edit
+the project. When it ends, a window shows each count of the result and the
+correction state of the project. This menu item does not estimate α or γ
+and does not take a value of your own. For those, use steps 1 and 3.
+
+Two results look alike and are different:
+
+- **Corrections unavailable** shows when no molecule has both factors. Every molecule stays
+  at apparent E, and no factor is applied. Step 2 tells you what to check.
+- **Apparent E by choice** shows when you selected **Apparent E only**. This is not a
+  failure.
+
+The menu item is available only in some correction states. Before the first α or γ is
+stored, the state is APPARENT_REVIEW and the item is off. It is also off after an approval
+(CALIBRATION_APPROVED, CORRECTED_REVIEW and ANALYSIS_READY). Then a new pass would change the
+corrected traces behind the approval or the review. Hold the pointer over the item to see
+the reason.
 
 ## Where the corrected efficiency appears
 

@@ -23,6 +23,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.conditions
 
+::: tether.gui.corrections
+
 ::: tether.gui.curation
 
 ::: tether.gui.deeplasi_executor
