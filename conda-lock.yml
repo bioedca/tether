@@ -13,10 +13,10 @@
 version: 1
 metadata:
   content_hash:
-    linux-64: 37237a8241cac8b12f5ed78acf35b7887a451628f38d202ad96d8986f2a7b446
-    osx-64: 736d4a2862d96ff22663cfe60e7e324f852d9b625bf2dc243f9c82b65bae9004
-    osx-arm64: c5155e42b31f4f04c3f9a3816eb043e776b2d779d9d43e9badc046f0ffee57cc
-    win-64: 9cede6f113cc18a419dd70ef4c14984bf3334fed8788f91e0ad184fe74e97c3e
+    linux-64: c8a1d501f0be6bc3d7fa27f916e377977f4887c7e5987c2a64c5fa96e242139c
+    osx-64: b257851ae1b6a9cf80201acb85a2d3ffb6d96039b953e56fb2a243d6ed1fcafd
+    osx-arm64: 3a51b91c474147904409d2c73d7dc60fcb30cb8131b1660a205a9db724d41750
+    win-64: d1aa70d64e7f8448e5db331f3df1debaec9d9f16611bf04172d7f739700a0130
   channels:
   - url: conda-forge
     used_env_vars: []
@@ -2628,6 +2628,74 @@ package:
     sha256: e817c9154c917f562e378cf2898a1ff82f20c87ef465b75b2bcba94235604814
   category: main
   optional: false
+- name: czifile
+  version: 2026.6.12
+  manager: conda
+  platform: linux-64
+  dependencies:
+    imagecodecs: '>=2026.6.6'
+    matplotlib-base: '>=3.7.0'
+    numpy: '>=2.0.0'
+    python: '>=3.12'
+    tifffile: '>=2024.8.30'
+    xarray: '>=2024.4.0'
+  url: https://conda.anaconda.org/conda-forge/noarch/czifile-2026.6.12-pyhd8ed1ab_0.conda
+  hash:
+    md5: eb54c64be5667c307b5ebc416235ccd4
+    sha256: 96e53ae35d02f0329c82f0ac86d83380bcf6715f37bd1d739da108ed3acaaa46
+  category: main
+  optional: false
+- name: czifile
+  version: 2026.6.12
+  manager: conda
+  platform: osx-64
+  dependencies:
+    imagecodecs: '>=2026.6.6'
+    matplotlib-base: '>=3.7.0'
+    numpy: '>=2.0.0'
+    python: '>=3.12'
+    tifffile: '>=2024.8.30'
+    xarray: '>=2024.4.0'
+  url: https://conda.anaconda.org/conda-forge/noarch/czifile-2026.6.12-pyhd8ed1ab_0.conda
+  hash:
+    md5: eb54c64be5667c307b5ebc416235ccd4
+    sha256: 96e53ae35d02f0329c82f0ac86d83380bcf6715f37bd1d739da108ed3acaaa46
+  category: main
+  optional: false
+- name: czifile
+  version: 2026.6.12
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    imagecodecs: '>=2026.6.6'
+    matplotlib-base: '>=3.7.0'
+    numpy: '>=2.0.0'
+    python: '>=3.12'
+    tifffile: '>=2024.8.30'
+    xarray: '>=2024.4.0'
+  url: https://conda.anaconda.org/conda-forge/noarch/czifile-2026.6.12-pyhd8ed1ab_0.conda
+  hash:
+    md5: eb54c64be5667c307b5ebc416235ccd4
+    sha256: 96e53ae35d02f0329c82f0ac86d83380bcf6715f37bd1d739da108ed3acaaa46
+  category: main
+  optional: false
+- name: czifile
+  version: 2026.6.12
+  manager: conda
+  platform: win-64
+  dependencies:
+    imagecodecs: '>=2026.6.6'
+    matplotlib-base: '>=3.7.0'
+    numpy: '>=2.0.0'
+    python: '>=3.12'
+    tifffile: '>=2024.8.30'
+    xarray: '>=2024.4.0'
+  url: https://conda.anaconda.org/conda-forge/noarch/czifile-2026.6.12-pyhd8ed1ab_0.conda
+  hash:
+    md5: eb54c64be5667c307b5ebc416235ccd4
+    sha256: 96e53ae35d02f0329c82f0ac86d83380bcf6715f37bd1d739da108ed3acaaa46
+  category: main
+  optional: false
 - name: dask-core
   version: 2026.7.0
   manager: conda
@@ -3977,8 +4045,8 @@ package:
   manager: conda
   platform: win-64
   dependencies:
-    glib-tools: ==2.88.2
-    libglib: ==2.88.2
+    glib-tools: 2.88.2
+    libglib: 2.88.2
     libintl: '>=0.22.5,<1.0a0'
     libintl-devel: ''
     packaging: ''
@@ -3998,7 +4066,7 @@ package:
   platform: win-64
   dependencies:
     libffi: ''
-    libglib: ==2.88.2
+    libglib: 2.88.2
     libintl: '>=0.22.5,<1.0a0'
     ucrt: '>=10.0.20348.0'
     vc: '>=14.3,<15'
@@ -6580,7 +6648,7 @@ package:
   platform: linux-64
   dependencies:
     __glibc: '>=2.17,<3.0.a0'
-    libclang-cpp22.1: ==22.1.8
+    libclang-cpp22.1: 22.1.8
     libgcc: '>=14'
     libllvm22: '>=22.1.8,<22.2.0a0'
     libstdcxx: '>=14'
@@ -6596,7 +6664,7 @@ package:
   platform: osx-64
   dependencies:
     __osx: '>=11.0'
-    libclang-cpp22.1: ==22.1.8
+    libclang-cpp22.1: 22.1.8
     libcxx: '>=22.1.8'
     libllvm22: '>=22.1.8,<22.2.0a0'
   url: https://conda.anaconda.org/conda-forge/osx-64/libclang13-22.1.8-default_h9a620b7_3.conda
@@ -6611,7 +6679,7 @@ package:
   platform: osx-arm64
   dependencies:
     __osx: '>=11.0'
-    libclang-cpp22.1: ==22.1.8
+    libclang-cpp22.1: 22.1.8
     libcxx: '>=22.1.8'
     libllvm22: '>=22.1.8,<22.2.0a0'
   url: https://conda.anaconda.org/conda-forge/osx-arm64/libclang13-22.1.8-default_h3bfd001_3.conda
@@ -16049,7 +16117,7 @@ package:
   manager: conda
   platform: linux-64
   dependencies:
-    typing_extensions: ==4.16.0
+    typing_extensions: 4.16.0
   url: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.16.0-h69aa097_0.conda
   hash:
     md5: c680b5747e8c4c8f23dca0bb7042a8fc
@@ -16061,7 +16129,7 @@ package:
   manager: conda
   platform: osx-64
   dependencies:
-    typing_extensions: ==4.16.0
+    typing_extensions: 4.16.0
   url: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.16.0-h69aa097_0.conda
   hash:
     md5: c680b5747e8c4c8f23dca0bb7042a8fc
@@ -16073,7 +16141,7 @@ package:
   manager: conda
   platform: osx-arm64
   dependencies:
-    typing_extensions: ==4.16.0
+    typing_extensions: 4.16.0
   url: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.16.0-h69aa097_0.conda
   hash:
     md5: c680b5747e8c4c8f23dca0bb7042a8fc
@@ -16085,7 +16153,7 @@ package:
   manager: conda
   platform: win-64
   dependencies:
-    typing_extensions: ==4.16.0
+    typing_extensions: 4.16.0
   url: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.16.0-h69aa097_0.conda
   hash:
     md5: c680b5747e8c4c8f23dca0bb7042a8fc
@@ -16690,6 +16758,66 @@ package:
   hash:
     md5: 573f686209e82c06daef1e43ee79975f
     sha256: 8fa16daca416ab83f64b8731c33a6f211f4e703f02d03c7eabda45a6a3320657
+  category: main
+  optional: false
+- name: xarray
+  version: 2026.7.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    numpy: '>=1.26'
+    packaging: '>=24.2'
+    pandas: '>=2.2'
+    python: ''
+  url: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.7.0-pyhc364b38_0.conda
+  hash:
+    md5: f72531e6cf99c98d47306ec917f5e6b9
+    sha256: 47244c233aeb55de993fe79eebbbb2adc14b388bb0bf2f9dfbaa8aa6610b6345
+  category: main
+  optional: false
+- name: xarray
+  version: 2026.7.0
+  manager: conda
+  platform: osx-64
+  dependencies:
+    numpy: '>=1.26'
+    packaging: '>=24.2'
+    pandas: '>=2.2'
+    python: '>=3.11'
+  url: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.7.0-pyhc364b38_0.conda
+  hash:
+    md5: f72531e6cf99c98d47306ec917f5e6b9
+    sha256: 47244c233aeb55de993fe79eebbbb2adc14b388bb0bf2f9dfbaa8aa6610b6345
+  category: main
+  optional: false
+- name: xarray
+  version: 2026.7.0
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    numpy: '>=1.26'
+    packaging: '>=24.2'
+    pandas: '>=2.2'
+    python: '>=3.11'
+  url: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.7.0-pyhc364b38_0.conda
+  hash:
+    md5: f72531e6cf99c98d47306ec917f5e6b9
+    sha256: 47244c233aeb55de993fe79eebbbb2adc14b388bb0bf2f9dfbaa8aa6610b6345
+  category: main
+  optional: false
+- name: xarray
+  version: 2026.7.0
+  manager: conda
+  platform: win-64
+  dependencies:
+    numpy: '>=1.26'
+    packaging: '>=24.2'
+    pandas: '>=2.2'
+    python: '>=3.11'
+  url: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.7.0-pyhc364b38_0.conda
+  hash:
+    md5: f72531e6cf99c98d47306ec917f5e6b9
+    sha256: 47244c233aeb55de993fe79eebbbb2adc14b388bb0bf2f9dfbaa8aa6610b6345
   category: main
   optional: false
 - name: xcb-util
