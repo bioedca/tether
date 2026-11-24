@@ -92,15 +92,15 @@ retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 25.0
-semicolons = 17
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/tutorial.md"]
 kind = "procedure"
-long_share = 22.5
-semicolons = 7
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
@@ -113,43 +113,43 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 13.6
-semicolons = 7
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
-retired = 3
+retired = 0
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 3.0
-semicolons = 2
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/apply-corrections.md"]
 kind = "procedure"
-long_share = 29.9
-semicolons = 5
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/idealize.md"]
 kind = "procedure"
-long_share = 14.1
+long_share = 0.0
 semicolons = 0
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 29.7
-semicolons = 7
-long_paragraphs = 1
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 17.7
-semicolons = 2
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
@@ -176,8 +176,8 @@ retired = 0
 
 [pages."docs/idealize/standalone-tmaven-handoff.md"]
 kind = "procedure"
-long_share = 33.8
-semicolons = 4
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
@@ -204,8 +204,8 @@ retired = 0
 
 [pages."docs/ml/deep-classifier.md"]
 kind = "descriptive"
-long_share = 28.4
-semicolons = 9
+long_share = 13.9
+semicolons = 2
 long_paragraphs = 0
 retired = 0
 
