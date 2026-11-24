@@ -637,8 +637,10 @@ differently. Examples are a schema-affecting change, a dependency or isolation b
 algorithm choice with a scientific trade-off, or anything that supersedes an earlier ADR. Routine
 bug fixes and refactors do not need one.
 
-1. Copy [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`.
-   `NNNN` is the next unused number. Numbers are contiguous, so do not skip one.
+1. Reserve the number first, as [Reserving a number](docs/agents/adr.md#reserving-a-number)
+   tells you. Do not pick the next number by reading `docs/adr/`. Then copy
+   [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`, where `NNNN`
+   is the reserved number. Gaps in the numbers are allowed. Never reuse a number.
 2. Fill all five frontmatter fields: **Status**, **Date**, **Deciders**, **PRD anchor** and
    **Milestone**. Keep the MADR headings from the template.
 3. Set `Status` to `proposed`, `accepted`, `deprecated` or `superseded by ADR-NNNN`. When a record
