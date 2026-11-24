@@ -244,12 +244,12 @@ agreeing within 1 px, on committed fixtures).
 ### Detection mode 5 against Deep-LASI's own `findPart`
 
 **What is compared.** The spots of Tether's ZMW detector (`zmw`, Deep-LASI particle-detection
-mode 5; `tether.imaging.detect.detect_spots_zmw`) against the spots of Deep-LASI's own
+mode 5, `tether.imaging.detect.detect_spots_zmw`) against the spots of Deep-LASI's own
 `findPart` with mode 5, run in MATLAB at the pinned commit by the `findpart` task of
 `scripts/reference/matlab/deep_lasi.py`
 ([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
 Deep-LASI's window cannot select mode 5, so there is no saved Deep-LASI extraction with it to
-repeat; the comparison is of the detector on detection images, with Deep-LASI's shared tail at
+repeat. The comparison is of the detector on detection images, with Deep-LASI's shared tail at
 its smallest border width (1 px) and no refinement on both sides.
 
 **Reference data.** Two committed detection images: a 128 × 128 crop of a detection image that
@@ -1780,7 +1780,7 @@ evidence about the size of the difference and not a tolerance.
 
 - Deep-LASI particle-detection mode **4 (local-variance)** is not ported, because Deep-LASI's
   own mode 4 stops with an error at the pinned commit and so gives no result to match.
-  `src/tether/io/tdat.py` raises `ValueError` on it rather than silently mis-detecting; modes
+  `src/tether/io/tdat.py` raises `ValueError` on it rather than silently mis-detecting. Modes
   1 (wavelet), 2 (intensity), 3 (bandpass) and 5 (ZMW intensity) are supported
   ([ADR-0021](adr/0021-particle-detection-modes.md),
   [ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)). A

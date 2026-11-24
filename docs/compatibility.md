@@ -205,10 +205,10 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
   whole. Vendor containers are not read either — convert to uncompressed TIFF first.
 - **Deep-LASI detection mode 4 is not ported, so a `.tdat` that names it cannot be
   decoded.** A `.tdat` saved with particle-detection mode 4 (local-variance) is **refused**
-  with a `ValueError` from `tether.io.tdat` — "mode 4 'local-variance' is not ported" —
-  rather than being silently re-detected with a different method. Deep-LASI's own mode 4
-  cannot run (it reads a variable that is never set), and its window offers only modes 1 to
-  3, so no detection was ever made with it
+  with a `ValueError` from `tether.io.tdat`: "mode 4 'local-variance' is not ported". It is
+  not re-detected with a different method. Deep-LASI's own mode 4 cannot run. It reads a
+  variable that is never set. Its window offers only modes 1 to 3, so no detection was ever
+  made with it
   ([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
   Tether implements modes 1, 2, 3 and 5 — `wavelet`, `intensity`, `bandpass` and `zmw`
   (`tether.imaging.detect.ParticleDetectionMode`). The refusal is on
