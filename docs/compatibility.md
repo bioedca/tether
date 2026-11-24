@@ -215,12 +215,15 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
 - **No compressed or tiled TIFFs.** The lazy reader memory-maps the file for O(1) frame
   access; a compressed TIFF cannot be mapped, and is refused rather than silently loaded
   whole. Vendor containers are not read either — convert to uncompressed TIFF first.
-- **Two Deep-LASI detection modes are not ported, so those `.tdat` files cannot be
-  decoded.** A `.tdat` saved with particle-detection mode 4 (local-variance) or mode 5 (ZMW
-  intensity) is **refused** with a `ValueError` from `tether.io.tdat` — "modes 4
-  'local-variance' and 5 'ZMW intensity' are not ported" — rather than being silently
-  re-detected with a different method. Tether implements modes 1–3 — `wavelet`, `intensity`
-  and `bandpass` (`tether.imaging.detect.ParticleDetectionMode`). The refusal is on
+- **Deep-LASI detection mode 4 is not ported, so a `.tdat` that names it cannot be
+  decoded.** A `.tdat` saved with particle-detection mode 4 (local-variance) is **refused**
+  with a `ValueError` from `tether.io.tdat`: "mode 4 'local-variance' is not ported". It is
+  not re-detected with a different method. Deep-LASI's own mode 4 cannot run. It reads a
+  variable that is never set. Its window offers only modes 1 to 3, so no detection was ever
+  made with it
+  ([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
+  Tether implements modes 1, 2, 3 and 5 — `wavelet`, `intensity`, `bandpass` and `zmw`
+  (`tether.imaging.detect.ParticleDetectionMode`). The refusal is on
   *decoding* that file: `tether extract --tdat` re-extraction and the `.tdat`'s correction
   factors are unavailable. A bundle that also has the `.mat` still reconstructs — the
   import wizard's [`_read_tdat_best_effort`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_executor.py) (`tether.gui.deeplasi_executor`) catches the

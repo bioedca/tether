@@ -31,6 +31,7 @@ from tether.imaging.detect import (  # noqa: E402
     detect_spots_bandpass,
     detect_spots_by_mode,
     detect_spots_intensity,
+    detect_spots_zmw,
     detection_image,
 )
 
@@ -216,7 +217,7 @@ def test_by_mode_min_separation_default_resolves_a_pair_7px_apart() -> None:
     # 8 px to intensity/bandpass (the ADR-0022 regression) loses the dimmer one.
     det = _close_pair_image()
 
-    for mode, threshold in (("intensity", None), ("bandpass", 0.5)):
+    for mode, threshold in (("intensity", None), ("bandpass", 0.5), ("zmw", None)):
         default = detect_spots_by_mode(det, mode=mode, threshold=threshold)
         assert default.shape[0] == 2, f"{mode}: the 3 px default must keep both spots"
         assert _count_near(default, x=28, y=30) == 1
@@ -253,6 +254,10 @@ def test_by_mode_min_separation_defaults_are_faithful_per_mode() -> None:
     np.testing.assert_allclose(
         detect_spots_by_mode(det, mode="bandpass"),
         detect_spots_bandpass(det, min_separation=3.0),
+    )
+    np.testing.assert_allclose(
+        detect_spots_by_mode(det, mode="zmw"),
+        detect_spots_zmw(det, min_separation=3.0),
     )
     np.testing.assert_allclose(
         detect_spots_by_mode(det, mode="wavelet"),
@@ -573,10 +578,129 @@ def test_detect_spots_bandpass_on_fixture_movie() -> None:
 # --- mode selector -----------------------------------------------------------
 
 
+# --- ZMW intensity detector (findPart.m mode 5, ADR-0143) ---------------------
+
+
+def test_zmw_disk_kernel_is_fspecial_disk_radius_1() -> None:
+    from tether.imaging.detect import _DISK_RADIUS_1
+
+    # MATLAB documents fspecial('disk', 1) to four decimals; the centre is 1/pi.
+    np.testing.assert_allclose(
+        _DISK_RADIUS_1,
+        [[0.0251, 0.1453, 0.0251], [0.1453, 0.3183, 0.1453], [0.0251, 0.1453, 0.0251]],
+        atol=5e-5,
+    )
+    assert _DISK_RADIUS_1[1, 1] == pytest.approx(1 / np.pi, rel=1e-15)
+    assert _DISK_RADIUS_1.sum() == pytest.approx(1.0, rel=1e-15)
+    np.testing.assert_array_equal(_DISK_RADIUS_1, _DISK_RADIUS_1.T)
+    np.testing.assert_array_equal(_DISK_RADIUS_1, _DISK_RADIUS_1[::-1, ::-1])
+
+
+def test_detect_spots_zmw_recovers_synthetic_truth() -> None:
+    image = np.zeros((64, 64))
+    truth = [(18, 20), (40, 44), (30, 12)]  # (row, col)
+    for row, col in truth:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    spots = detect_spots_zmw(image)
+    for row, col in truth:
+        assert _count_near(spots, x=col, y=row, tol=1.0) == 1
+    assert spots.shape[0] == len(truth)
+
+
+def test_detect_spots_zmw_returns_xy_descending_brightness() -> None:
+    image = np.zeros((64, 64))
+    _gaussian_blob(image, row=30, col=30, amp=1.0)
+    _gaussian_blob(image, row=12, col=50, amp=0.75)
+    image /= image.max()
+    spots = detect_spots_zmw(image)
+    assert spots.shape[0] == 2
+    assert _count_near(spots[:1], x=30, y=30) == 1
+    assert _count_near(spots[1:], x=50, y=12) == 1
+
+
+def test_detect_spots_zmw_respects_guardrails() -> None:
+    image = np.zeros((64, 64))
+    for row, col in [(8, 8), (32, 32), (33, 35), (58, 58)]:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    spots = detect_spots_zmw(image, border_margin=6, min_separation=10.0)
+    assert spots.shape[1] == 2
+    for x, y in spots:
+        assert 6 <= x <= 64 - 1 - 6 and 6 <= y <= 64 - 1 - 6
+    for i in range(spots.shape[0]):
+        for j in range(i + 1, spots.shape[0]):
+            assert np.hypot(*(spots[i] - spots[j])) >= 10.0
+
+
+def test_detect_spots_zmw_erodes_a_spot_on_the_image_edge_from_outside() -> None:
+    # MATLAB R2023b's bwmorph 'erode' pads with 0 outside the image (the frozen Deep-LASI
+    # run of ADR-0143 shows it), so a spot centred on the first column loses that column
+    # and its centroid moves to x = 1. An erosion padded with 1 (imerode, Octave's
+    # bwmorph) would keep the edge column and give x = 0.25.
+    image = np.zeros((32, 32))
+    _gaussian_blob(image, row=16, col=0, amp=1.0, sigma=1.3)
+    image /= image.max()
+    spots = detect_spots_zmw(image, border_margin=0, min_separation=0.0, refine=False)
+    assert spots.shape == (1, 2)
+    x, y = spots[0]
+    assert y == pytest.approx(16.0, abs=1e-12)
+    assert x == pytest.approx(1.0, abs=1e-12)
+
+
+def test_detect_spots_zmw_threshold_floors_dim_spots() -> None:
+    image = np.zeros((64, 64))
+    _gaussian_blob(image, row=20, col=20, amp=1.0)
+    _gaussian_blob(image, row=44, col=40, amp=0.3)
+    image /= image.max()
+    assert detect_spots_zmw(image, threshold=0.5).shape[0] == 1
+    assert detect_spots_zmw(image, threshold=0.1).shape[0] == 2
+
+
+def test_detect_spots_zmw_differs_from_the_intensity_mode() -> None:
+    # Mode 5 filters with a 3x3 disc where mode 2 band-passes; on a spot 4 px from the
+    # edge the band-pass zero border (7 px) removes it and the disc does not.
+    image = np.zeros((48, 48))
+    _gaussian_blob(image, row=24, col=4, amp=1.0)
+    _gaussian_blob(image, row=24, col=30, amp=1.0)
+    image /= image.max()
+    assert detect_spots_zmw(image).shape[0] == 2
+    assert detect_spots_intensity(image).shape[0] == 1
+
+
+def test_detect_spots_zmw_validates_inputs() -> None:
+    image = np.zeros((30, 30))
+    with pytest.raises(ValueError, match="2-D"):
+        detect_spots_zmw(image[np.newaxis])
+    with pytest.raises(ValueError, match="threshold"):
+        detect_spots_zmw(image, threshold=1.0)
+    with pytest.raises(ValueError, match="threshold"):
+        detect_spots_zmw(image, threshold=-0.1)
+    with pytest.raises(ValueError, match="fine_threshold"):
+        detect_spots_zmw(image, fine_threshold=1.0)
+
+
+def test_detect_spots_zmw_empty_on_flat_image() -> None:
+    assert detect_spots_zmw(np.zeros((30, 30))).shape == (0, 2)
+
+
+def test_detect_spots_zmw_on_fixture_movie() -> None:
+    tifffile = pytest.importorskip("tifffile")
+    movie = tifffile.imread(FIXTURE)
+    spots = detect_spots_zmw(detection_image(movie))
+    assert spots.ndim == 2 and spots.shape[1] == 2
+    assert spots.dtype == np.float64
+    assert spots.shape[0] >= 1
+    assert np.all(np.isfinite(spots))
+    assert np.all(spots >= 0) and np.all(spots <= 63)
+
+
 def test_particle_detection_mode_values() -> None:
     assert ParticleDetectionMode.WAVELET.value == "wavelet"
     assert ParticleDetectionMode.INTENSITY.value == "intensity"
     assert ParticleDetectionMode.BANDPASS.value == "bandpass"
+    assert ParticleDetectionMode.ZMW.value == "zmw"
+    assert ParticleDetectionMode("zmw") is ParticleDetectionMode.ZMW
     assert ParticleDetectionMode("intensity") is ParticleDetectionMode.INTENSITY
     assert ParticleDetectionMode("bandpass") is ParticleDetectionMode.BANDPASS
     assert ParticleDetectionMode.WAVELET == "wavelet"  # str-enum serializes as value
@@ -606,6 +730,11 @@ def test_detect_spots_by_mode_matches_direct_calls() -> None:
     np.testing.assert_array_equal(
         detect_spots_by_mode(image, mode="bandpass"), detect_spots_bandpass(image)
     )
+    # "zmw" (enum or str) -> the ZMW intensity detector (findPart mode 5, ADR-0143).
+    np.testing.assert_array_equal(
+        detect_spots_by_mode(image, mode=ParticleDetectionMode.ZMW), detect_spots_zmw(image)
+    )
+    np.testing.assert_array_equal(detect_spots_by_mode(image, mode="zmw"), detect_spots_zmw(image))
 
 
 def test_detect_spots_by_mode_threshold_overrides_mode_default() -> None:
@@ -619,7 +748,7 @@ def test_detect_spots_by_mode_threshold_overrides_mode_default() -> None:
     _gaussian_blob(image, row=18, col=20, amp=1.0)
     _gaussian_blob(image, row=40, col=44, amp=0.4)
     image /= image.max()
-    for mode in ("intensity", "bandpass"):
+    for mode in ("intensity", "bandpass", "zmw"):
         default = detect_spots_by_mode(image, mode=mode)
         assert default.shape[0] == 1 and _count_near(default, x=20, y=18) == 1, mode
         explicit = detect_spots_by_mode(image, mode=mode, threshold=0.2)
