@@ -192,6 +192,106 @@ def test_subset_molecule_keys_map_to_molecule_keys(source, tmp_path) -> None:
     assert _sidecar(out)["parameters"]["n_molecules"] == 1
 
 
+# Two names a byte search cannot match by chance (as in test_export_subset_aliases.py).
+_ALICE = "alice-zq7-curator"
+_BOB = "bob-xk4-curator"
+
+
+def _named(tmp_path, folder: str, *labelers: str, name: str = "exp.tether"):
+    """A project in ``tmp_path/folder`` whose first molecules are labelled by ``labelers``."""
+    where = tmp_path / folder
+    where.mkdir()
+    project, keys = build_store_with_model(where, _states(), MEANS, name=name)
+    for key, labeler in zip(keys, labelers, strict=False):
+        project.accept(key, labeler=labeler)
+    return project.path
+
+
+def _labelers(path) -> list[str]:
+    with h5py.File(path, "r") as f:
+        return [v.decode() if isinstance(v, bytes) else v for v in f["labels"]["table"]["labeler"]]
+
+
+def test_subset_curator_alias_equals_the_function_output(tmp_path) -> None:
+    """#1314: ``--curator-alias`` is ``curator_alias``, aliases and records alike."""
+    path = _named(tmp_path, "src", _ALICE, _BOB, _ALICE)
+    expected = export_subset_tether(path, tmp_path / "expected.tether", curator_alias="curator")
+    out = tmp_path / "shared.tether"
+
+    assert main(["export", "subset", str(path), "-o", str(out), "--curator-alias", "curator"]) == 0
+
+    assert _h5_contents(out) == _h5_contents(expected.path)
+    assert _sidecar(out) == _sidecar(expected.path)
+    assert _ALICE not in _labelers(out) and _BOB not in _labelers(out)
+    assert {"curator-1", "curator-2"} <= set(_labelers(out))
+    with h5py.File(out, "r") as f:
+        assert int(f.attrs["tether_subset_names_aliased"]) == 1
+        count = int(f.attrs["tether_subset_n_aliased_names"])
+    params = _sidecar(out)["parameters"]
+    assert params["names_aliased"] is True
+    assert params["curator_alias"] == "curator"
+    assert params["n_aliased_names"] == count
+
+
+def test_several_projects_each_get_their_own_aliases(tmp_path) -> None:
+    """One ``export_subset_tether`` call per project, so the numbering restarts per copy."""
+    first = _named(tmp_path, "a", _ALICE)
+    second = _named(tmp_path, "b", _BOB, name="other.tether")
+    folder = tmp_path / "shared"
+    argv = ["export", "subset", str(first), str(second), "-o", str(folder)]
+
+    assert main([*argv, "--curator-alias", "curator"]) == 0
+
+    for source, name in ((first, "exp"), (second, "other")):
+        expected = export_subset_tether(
+            source, tmp_path / f"{name}-expected.tether", curator_alias="curator"
+        )
+        out = folder / f"{name}-subset.tether"
+        assert _h5_contents(out) == _h5_contents(expected.path)
+        assert _sidecar(out) == _sidecar(expected.path)
+        assert "curator-1" in _labelers(out)
+        assert _ALICE not in _labelers(out) and _BOB not in _labelers(out)
+
+
+def test_without_curator_alias_the_subset_bytes_are_unchanged(source, tmp_path, monkeypatch):
+    """No flag is ``curator_alias=None``: byte-identical to the default call."""
+    from datetime import UTC, datetime
+
+    from tether.project import export as E
+
+    class _FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ARG003 - same signature as datetime.now
+            return datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+
+    monkeypatch.setattr(E, "datetime", _FixedClock)
+    path, _ = source
+    expected = export_subset_tether(path, tmp_path / "expected.tether")
+    out = tmp_path / "subset.tether"
+
+    assert main(["export", "subset", str(path), "-o", str(out)]) == 0
+
+    assert out.read_bytes() == expected.path.read_bytes()
+    assert "names_aliased" not in _sidecar(out)["parameters"]
+
+
+@pytest.mark.parametrize("prefix", ["", "   ", f"team-{_ALICE}"])
+def test_a_refused_curator_alias_exits_1_with_the_function_message(
+    tmp_path, capsys, prefix
+) -> None:
+    path = _named(tmp_path, "src", _ALICE)
+    with pytest.raises(ValueError, match="curator_alias") as excinfo:
+        export_subset_tether(path, tmp_path / "expected.tether", curator_alias=prefix)
+    out = tmp_path / "shared.tether"
+
+    assert main(["export", "subset", str(path), "-o", str(out), "--curator-alias", prefix]) == 1
+
+    assert capsys.readouterr().err == f"tether export subset: {excinfo.value}\n"
+    assert not out.exists()
+    assert not out.with_name(out.name + _SIDECAR).exists()
+    assert [p.name for p in tmp_path.iterdir()] == ["src"]
+
+
 def test_intensity_quantity_choices_are_the_library_keys() -> None:
     """The parser's literal choices are the layers the export functions accept."""
     assert set(INTENSITY_QUANTITIES) == set(INTENSITY_QUANTITY_LAYERS)

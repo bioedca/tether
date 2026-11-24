@@ -198,7 +198,7 @@ retired = 0
 [pages."docs/validation.md"]
 kind = "descriptive"
 long_share = 31.6
-semicolons = 83
+semicolons = 82
 long_paragraphs = 12
 retired = 0
 
