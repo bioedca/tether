@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0143 — The Analyze section's page is the plot builder, and the population-histogram dock is retired
+# 0145 — The Analyze section's page is the plot builder, and the population-histogram dock is retired
 
 - **Status:** accepted; changes one consequence of
   [ADR-0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md)
@@ -105,5 +105,5 @@ Chosen: **A** and **(i)**.
   `tests/test_histogram_dock.py`, `tests/test_golden_gui.py`.
 - Number: `claim.py reserve-adr` cannot create its reservation ref from the cloud container that
   wrote this record (HTTP 403), so the number was taken as the next one free after checking
-  `main` (0140) and every open pull request (0142) on 2026-11-24; 0141 was skipped because its
-  holder could not be found.
+  `main` (0140), every open pull request and the threads' shared number log on 2026-11-24;
+  0141 to 0144 were taken by other work the same day.
