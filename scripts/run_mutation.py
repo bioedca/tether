@@ -506,6 +506,65 @@ def _names_of_all(node: ast.AST) -> list[str] | None:
     return [e.value for e in value.elts]
 
 
+def _names_deleted(target: ast.expr) -> set[str]:
+    """The names a ``del`` target unbinds: a name, or the names in a tuple or list of targets
+    (an attribute or item leaves its container bound)."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {n for t in target.elts for n in _names_deleted(t)}
+    return set()
+
+
+def _deletes_all(nodes: list[ast.stmt]) -> bool:
+    """Whether *nodes* hold a ``del __all__`` at module scope (not in a ``def`` or ``class``)."""
+    scoped = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    inner = (ast.stmt, ast.excepthandler, ast.match_case)
+    todo: list[ast.AST] = list(nodes)
+    while todo:
+        n = todo.pop()
+        if isinstance(n, ast.Delete):
+            if any("__all__" in _names_deleted(t) for t in n.targets):
+                return True
+        elif not isinstance(n, scoped):
+            todo += [c for c in ast.iter_child_nodes(n) if isinstance(c, inner)]
+    return False
+
+
+def _sets_all(body: list[ast.stmt], bound: bool = False) -> bool:
+    """Whether ``__all__`` is bound on every path through *body* that finishes, when *bound*
+    says whether it was bound before, taking the statements in the order they run.
+
+    An assignment binds it and a ``del`` unbinds it; an ``if`` binds it when both branches
+    do; a ``try`` runs its body, then its ``else``, or a handler that an exception raised
+    anywhere in the body may enter, and then its ``finally``; a ``with`` may suppress an
+    exception raised anywhere in its body, a loop may run no time, and a ``match`` may match
+    no case. A ``def`` or ``class`` body is not module scope."""
+    for node in body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            stored = (n for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+            if any(n.id == "__all__" and isinstance(n.ctx, ast.Store) for n in stored):
+                bound = True
+        elif isinstance(node, ast.Delete):
+            if any("__all__" in _names_deleted(t) for t in node.targets):
+                bound = False
+        elif isinstance(node, ast.If):
+            bound = _sets_all(node.body, bound) and _sets_all(node.orelse, bound)
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            # a handler starts wherever the body stopped: bound only if nothing there unbinds it
+            raised = bound and not _deletes_all(node.body)
+            finished = _sets_all(node.orelse, _sets_all(node.body, bound))
+            finished = finished and all(_sets_all(h.body, raised) for h in node.handlers)
+            bound = _sets_all(node.finalbody, finished)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            # a suppressed exception skips the rest of the body
+            bound = _sets_all(node.body, bound) and bound and not _deletes_all(node.body)
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.While, ast.Match)):
+            bound = bound and not _deletes_all([node])
+    return bound
+
+
 def _bound_names(node: ast.AST) -> set[str]:
     """The module names a ``def``, ``class``, assignment or ``for`` target at module scope
     binds itself."""
@@ -530,7 +589,10 @@ class _Imports:
     (``from tether.a import *``) imports what each public name of ``tether.a`` comes from, as
     ``__all__`` lists them when it is a literal of strings (every list a branch may set, when it
     is set in an ``if`` or ``try``) and else every bound name without a leading ``_``, with
-    the names of any literal list a branch may set; a wildcard inside a source module
+    the names of any literal list a branch may set; the bound names count too when some path
+    can leave ``__all__`` unset (it is set only in an ``if`` with no ``else``, a loop, a
+    ``with`` that may suppress an exception, or a ``try`` whose handler does not set it, or a
+    ``del __all__`` may run after it); a wildcard inside a source module
     (``from .c import *``) passes those names on the same way, and a cycle of such wildcards
     is followed until nothing more is found.
     A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
@@ -550,7 +612,8 @@ class _Imports:
 
     def _parse(self, module: str) -> tuple[dict, list[str], set[str], list[str] | None, list[str]]:
         """(name -> origins, wildcard origins, names bound in place, ``__all__`` or ``None``
-        when it is not known, the literal names some branch may still give it then)."""
+        when it is not known or some path may leave it unset, the literal names some branch
+        may still give it then)."""
         if module not in self._parsed:
             names: dict[str, list[tuple[str, str | None]]] = {}
             stars: list[str] = []
@@ -589,6 +652,8 @@ class _Imports:
                             known += [n for n in listed or () if n not in known]
                             written, unknown = True, unknown or listed is None
                         local |= _bound_names(node) - {"__all__"}
+                # a path that leaves it unset binds the default names (#1311)
+                unknown = unknown or (written and not _sets_all(tree.body))
             all_ = known if written and not unknown else None
             self._parsed[module] = (names, stars, local, all_, known if unknown else [])
         return self._parsed[module]
