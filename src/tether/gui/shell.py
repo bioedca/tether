@@ -3770,52 +3770,39 @@ class TetherShell:
 
         claimed = self._claimed_project_key
         token = self._project_owner_token
-        rebound: list[_ProjectOwnerKey | None] = [claimed]
 
         def task() -> CorrectionPassResult:
             # The publish replaces the file, so the claim moves to the new file at once,
-            # before another window in this process can claim it.
+            # before another window in this process can claim it. The window's key moves
+            # here too, before the task settles: a window closed while the pass ran
+            # abandons the task, and its release after the task then frees the new key.
+            # Open and close project are refused while a task runs, so nothing else
+            # changes the key meanwhile.
             try:
                 return run_correction_pass(
                     project.path, apparent_e_only=apparent_e_only, write_guard=guard
                 )
             finally:
-                rebound[0] = _rebind_gui_project(claimed, project.path, token)
+                rebound = _rebind_gui_project(claimed, project.path, token)
+                if rebound != claimed:
+                    self._claimed_project_key = rebound
 
         self._status("Running the correction pass…")
         started = self._tasks.start(
             task,
             context=project.path,
             label="Correction pass",
-            on_finished=lambda outcome: self._finish_correction_pass(
-                outcome, claimed=claimed, rebound=rebound[0]
-            ),
+            on_finished=self._finish_correction_pass,
         )
         self._sync_project_write_controls()
         return started is not None
 
-    def _finish_correction_pass(
-        self,
-        outcome: TaskOutcome,
-        *,
-        claimed: _ProjectOwnerKey | None = None,
-        rebound: _ProjectOwnerKey | None = None,
-    ) -> None:
-        """Apply a finished correction pass on the main thread: show it, or say why not.
-
-        ``claimed`` is the claim key when the pass started, and ``rebound`` the key the
-        claim moved to after the publish (`_rebind_gui_project`).
-        """
+    def _finish_correction_pass(self, outcome: TaskOutcome) -> None:
+        """Apply a finished correction pass on the main thread: show it, or say why not."""
         from tether.gui.corrections import BANNER_FAILURE, CorrectionSummaryDialog
         from tether.gui.messages import Level
         from tether.gui.tasks import TaskState
 
-        if rebound != claimed:
-            if self._claimed_project_key == claimed:
-                self._claimed_project_key = rebound
-            else:
-                # The window let the project go while the pass ran; free the moved claim.
-                _release_gui_project(rebound, self._project_owner_token)
         self._sync_project_write_controls()
         if self._curation_project is None:
             self._retry_session_release()
