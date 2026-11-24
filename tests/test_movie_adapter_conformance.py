@@ -26,6 +26,7 @@ pytest.importorskip("numpy")
 import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
+from _nd2_synth import write_nd2  # noqa: E402
 from tether.io.adapters import (  # noqa: E402
     ORIGINS,
     MetadataValue,
@@ -64,6 +65,12 @@ def _tiff_little_endian(tmp: Path) -> tuple[Path, np.ndarray]:
     return path, frames
 
 
+def _nd2_time_series(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A 64-frame ND2 time series (the public ND2 files are one frame, or not a series)."""
+    frames = _frames("<u2")
+    return write_nd2(tmp / "movie.nd2", frames), frames
+
+
 def _czi_zstd(tmp: Path) -> tuple[Path, np.ndarray]:
     """A CZI written by ZEISS libCZI that holds exactly ``_frames("<u2")`` (#903).
 
@@ -87,6 +94,7 @@ CASES = [
     pytest.param(Case("TIFF", _tiff_big_endian), id="tiff-big-endian"),
     pytest.param(Case("TIFF", _tiff_little_endian), id="tiff-little-endian"),
     pytest.param(Case("CZI", _czi_zstd), id="czi-zstd"),
+    pytest.param(Case("ND2", _nd2_time_series), id="nd2-time-series"),
 ]
 
 
