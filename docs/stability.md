@@ -67,12 +67,12 @@ today disappears before `2.0.0`.
 
 The project file is HDF5. Covered for `1.x`: the root `format` attribute value
 `tether-project` (`FORMAT_TAG`), the `schema_version` attribute and its rules, the
-top-level group skeleton, and the compound-dtype field sets of the five entity tables.
+top-level group skeleton, and the compound-dtype field sets of the six entity tables.
 
 | Covered | Detail |
 |---|---|
 | Format marker | Root attribute `format == "tether-project"`. |
-| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions` and, from version 2, `/generations` — each a group holding a compound dataset named `table`. |
+| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions`, from version 2 `/generations` and from version 3 `/sources` — each a group holding a compound dataset named `table`. |
 | Container groups | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models`. |
 | Existing fields | A field in a frozen compound dtype is never removed, renamed, retyped, or reordered. New fields are appended *after* the existing ones, so the on-disk byte layout of the existing prefix is stable — a binary reader can index the old fields positionally. |
 | `schema_version` | Monotonic; never decremented. |
@@ -175,7 +175,7 @@ older app.**
 
 | Rule | What it means |
 |---|---|
-| Monotonic | `schema_version` only ever increases. `SCHEMA_VERSION` is currently **2** (`tether.io.schema`). |
+| Monotonic | `schema_version` only ever increases. `SCHEMA_VERSION` is currently **3** (`tether.io.schema`). |
 | Additive-only | A new release may add a group, a dataset, or a field *appended to the end of* a compound dtype. It may not remove, rename, retype or reorder one. Whatever is added has to be **optional on read**: a project written by an earlier `1.x` will not contain it, so a newer app must treat it as absent-or-defaulted rather than assume it. |
 | Structural changes are deliberate | A change that is not purely additive requires an ADR, a `schema_version` bump, and a regenerated `schema/schema_frozen.json` in the same pull request. `schema-guard` fails the PR otherwise. |
 | Forward-only | A file stamped with a `schema_version` newer than the running app's is refused, loudly. There is no downgrade path and no partial read. |
@@ -202,13 +202,16 @@ top-level skeleton *the running app declares* (`_RICH_TABLES` and `_CONTAINER_GR
 older file fail that presence check. Any such bump must therefore also make the new
 structure optional for files stamped at the older version.
 
-It has come up once: version 2
+It has come up twice. Version 2
 added the `/generations` table (ADR-0136), and `_missing_skeleton` asks for it only of a file
 stamped 2 or newer (`_RICH_TABLES_SINCE`), so a file stamped 1 stays a complete project and
 reads as generation 1 of each movie. The first writer that records a generation into such a
 file adds the empty table and stamps it 2 (`upgrade_to_generations`). Nothing else in it is
 rewritten, and the publish that raises the stamp first keeps the file as it was beside it, as
-`<stem>.v1-backup.tether`. Every other group in the skeleton was forward-declared empty at M0 so that later
+`<stem>.v1-backup.tether`. Version 3 added the `/sources` table, the source registry (ADR-0140),
+the same way: a file stamped 1 or 2 reads as one source record for each of its movies, and the
+first registry write adds every missing table (`upgrade_skeleton`), stamps it 3 and keeps
+`<stem>.v<n>-backup.tether`. Every other group in the skeleton was forward-declared empty at M0 so that later
 milestones add *data*, not structure.
 
 The same constraint applies one level down, where no guard can see it.
@@ -225,11 +228,11 @@ and is not permitted inside `1.x` without the bump.
 
 This is the failure two people in the same lab actually hit: one of them upgrades, saves a
 project, and the other cannot open it. `assert_compatible` raises `ValueError`, and the
-guarded entry points reach it via `assert_is_compatible_project`. With `SCHEMA_VERSION = 2`,
-a file stamped version 3 produces exactly this:
+guarded entry points reach it via `assert_is_compatible_project`. With `SCHEMA_VERSION = 3`,
+a file stamped version 4 produces exactly this:
 
 ```text
-file schema_version 3 is newer than this app's 2; refusing to open (PRD section 5.4).
+file schema_version 4 is newer than this app's 3; refusing to open (PRD section 5.4).
 ```
 
 Five call sites in `src/tether/` invoke that guard, and they are the ones a person goes
@@ -255,7 +258,7 @@ One route is **not** guarded, and you should know about it rather than be surpri
 
 - Constructing `Project(path)` directly does no validation — the constructor deliberately
   owns the path, not an open HDF5 handle, and each read method opens the file for its own
-  scope. `Project(path).schema_version` on a version-2 file returns `2` instead of raising.
+  scope. `Project(path).schema_version` on a version-4 file returns `4` instead of raising.
   Use `Project.open` (which *is* on the covered list) whenever the file came from elsewhere.
 
 That gap is not a license to rely on reading a future file: the forward-only rule is the

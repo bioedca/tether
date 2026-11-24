@@ -864,7 +864,7 @@ For each project the text output gives:
 ```console
 $ tether info out/movie_010.tether
 out/movie_010.tether
-  schema version 2, written by Tether <version>
+  schema version 3, written by Tether <version>
   movies: 1
     movie_010.tif: 1200 frames, 0.1 s/frame, 214 molecules
       curation: 120 accepted, 30 rejected, 64 undecided

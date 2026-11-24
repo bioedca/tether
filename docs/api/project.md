@@ -89,6 +89,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.reconstruct
 
+::: tether.project.sources
+
 ::: tether.project.summary
 
 ::: tether.project.trace_layers

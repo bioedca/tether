@@ -37,4 +37,6 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.registry
 
+::: tether.services.sources
+
 ::: tether.services.status
