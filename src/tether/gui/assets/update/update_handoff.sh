@@ -148,6 +148,7 @@ watchdog_pid=$!
 wait "$installer_pid"
 rc=$?
 kill "$watchdog_pid" 2> /dev/null
+wait "$watchdog_pid" 2> /dev/null  # reaped quietly: some shells report a killed job
 echo "installer exit: $rc" >> "$log"
 # Nothing the installer started may still be writing when the folder is checked or put back.
 if kill -s 0 -- "-$installer_pid" 2> /dev/null; then

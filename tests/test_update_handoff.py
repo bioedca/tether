@@ -454,6 +454,12 @@ def _posix_layout(prefix: Path, home: Path, version: str, *, marker: str) -> Non
         f'[Desktop Entry]\nType=Application\nName=Tether\nExec="{bin_dir / "tether-gui"}" %f\n',
         encoding="utf-8",
     )
+    if sys.platform == "darwin" and home in Path(os.path.abspath(prefix)).parents:
+        # The new copy checks Tether.app on macOS, written here by the module the installer
+        # runs. Only for an install inside home: anything else would write to /Applications.
+        from tether.gui import macos_app
+
+        macos_app.write_bundle(prefix, macos_app.applications_dir(prefix, home), version)
 
 
 @pytest.mark.skipif(not _POSIX, reason="the shims of macOS and Linux are sh scripts")
@@ -530,7 +536,8 @@ class HelperRig:
         self.tmp = tmp_path
         self.home = tmp_path / "home"
         self.home.mkdir()
-        self.prefix = tmp_path / "apps" / "Tether"
+        # Inside home on macOS, so that Tether.app goes to home/Applications (_posix_layout).
+        self.prefix = (self.home if sys.platform == "darwin" else tmp_path / "apps") / "Tether"
         # Named as hand_off names its private folder, so the helper removes it at the end.
         self.work = tmp_path / "tether-update-test"
         self.work.mkdir()
@@ -588,7 +595,7 @@ class HelperRig:
         return (self.prefix / "marker.txt").read_text(encoding="utf-8")
 
     def leftovers(self) -> list[str]:
-        return sorted(p.name for p in self.prefix.parent.iterdir() if p.name != "Tether")
+        return sorted(p.name for p in self.prefix.parent.iterdir() if p.name.startswith("Tether."))
 
 
 def _dead_pid() -> int:
