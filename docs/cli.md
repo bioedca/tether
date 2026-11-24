@@ -263,11 +263,11 @@ $ tether extract movie.tif -o movie.tether --map beads.npz --optics "100x TIRF, 
 tether extract: movie.tif: could not use --map beads.npz: the map's optics differ from the movie's (optics: the map says '60x TIRF, Cy3/Cy5, EMCCD 1x1'; the movie says '100x TIRF, Cy3/Cy5'); confirm that the map applies to use it (--confirm-optics, or confirm_optics=True)
 ```
 
-The library check, [`check_map_reuse`][tether.imaging.map_asset.check_map_reuse], also
+The library check, [`check_map_reuse`](api/imaging.md#tether.imaging.map_asset.check_map_reuse), also
 compares the channel layout and the channel geometry when the movie's are given, and
 refuses a difference in either. A map that a project holds can be saved as a separate map
-file with [`save_project_map`][tether.imaging.map_asset.save_project_map]; a `.tmap`
-becomes one with [`map_asset_from_tmap`][tether.imaging.map_asset.map_asset_from_tmap]
+file with [`save_project_map`](api/imaging.md#tether.imaging.map_asset.save_project_map). A `.tmap`
+becomes one with [`map_asset_from_tmap`](api/imaging.md#tether.imaging.map_asset.map_asset_from_tmap)
 (origin `tmap`, no quality record).
 
 ### Extraction profiles
