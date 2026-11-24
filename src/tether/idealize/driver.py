@@ -109,6 +109,13 @@ class StateModel:
     ``b_prior``, ``beta_prior``, ``mu_prior``, ``pi_prior``, ``tm_prior``). All are
     optional: [`read_model`][] reads each when the model file carries it and leaves
     it ``None`` otherwise (a threshold/k-means model has no rate matrix or priors).
+
+    ``trace_level`` holds the **per-trace** models tMAVEN writes under the
+    ``trace_level/`` subgroup, keyed by SMD molecule index: each is a
+    [`StateModel`][] with that trace's own ``means``, ``nstates``, ``elbo``,
+    ``norm_tmatrix`` and its ``idealized`` row (1-D). A per-trace vbFRET model
+    (``model_type="vbfret"``) carries its result only there, and its ensemble
+    ``means`` are NaN. ``None`` when the file has no such subgroup.
     """
 
     model_type: str
@@ -126,6 +133,7 @@ class StateModel:
     pi: np.ndarray | None = None
     frac: np.ndarray | None = None
     priors: dict[str, np.ndarray] | None = None
+    trace_level: dict[int, StateModel] | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +250,14 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
                 if isinstance(pg[name], h5py.Dataset)
             } or None
 
+        trace_level: dict[int, StateModel] | None = None
+        if "trace_level" in g and isinstance(g["trace_level"], h5py.Group):
+            trace_level = {
+                int(key): _read_trace_model(sub)
+                for key, sub in g["trace_level"].items()
+                if isinstance(sub, h5py.Group) and "mean" in sub
+            } or None
+
         return StateModel(
             model_type=model_type,
             nstates=nstates,
@@ -258,7 +274,33 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
             pi=_arr("pi"),
             frac=_arr("frac"),
             priors=priors,
+            trace_level=trace_level,
         )
+
+
+def _read_trace_model(g) -> StateModel:
+    """One entry of a model file's ``trace_level/`` subgroup, as a [`StateModel`][]."""
+
+    def _arr(name: str) -> np.ndarray | None:
+        return np.asarray(g[name][()], dtype="float64") if name in g else None
+
+    means = np.asarray(g["mean"][()], dtype="float64").reshape(-1)
+    likelihood = _arr("likelihood")
+    elbo = None
+    if likelihood is not None and likelihood.size:
+        elbo = float(likelihood.reshape(likelihood.shape[0], -1)[-1, 0])
+    idealized = _arr("idealized")
+    return StateModel(
+        model_type=_decode(g["type"][()]) if "type" in g else "unknown",
+        nstates=int(g["nstates"][()]) if "nstates" in g else int(means.shape[0]),
+        means=means,
+        variances=_arr("var"),
+        tmatrix=_arr("tmatrix"),
+        norm_tmatrix=_arr("norm_tmatrix"),
+        elbo=elbo,
+        likelihood=likelihood,
+        idealized=None if idealized is None else idealized.reshape(-1),
+    )
 
 
 def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarray:
@@ -418,11 +460,16 @@ def run_vbfret(
         ``"vbconhmm_modelselection"`` and ``"ebhmm_modelselection"`` (the same,
         choosing the number of states), ``"vbgmm_vbhmm"`` (a VB-HMM seeded from
         a vbGMM, choosing the number of states), ``"kmeans_vbhmm"`` (a VB-HMM
-        seeded from k-means) and ``"vbgmm"`` (tMAVEN's plain variational-Bayes
-        Gaussian mixture, no HMM: its model has type ``"vb GMM"``).
+        seeded from k-means), ``"vbgmm"`` (tMAVEN's plain variational-Bayes
+        Gaussian mixture, no HMM: its model has type ``"vb GMM"``) and
+        ``"vbfret"`` (per-trace vbFRET: one VB-HMM per trace, each choosing its own
+        number of states up to ``nstates``; the result is in
+        ``StateModel.trace_level`` and the model has type
+        ``"vb HMM_model selection"``).
     nstates:
         Number of states (for fixed-``nstates`` model types: ``"vbconhmm"``,
-        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``).
+        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``; for ``"vbfret"``, the most
+        states one trace may choose).
     nrestarts:
         Optional override of tMAVEN's restart count (lower = faster, for tests).
     timeout:

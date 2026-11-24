@@ -90,6 +90,22 @@ _FIXTURES = {
     },
 }
 
+# Per-trace vbFRET (ADR-0110) is measured on the two small fixtures, cross-seed. Its
+# ``nstates`` is the largest state count each trace may choose: the ``{1, 2, 3, 4}`` of
+# the PRD 11.2 auto state-count selection.
+_PER_TRACE_FIXTURES = {
+    "smd_2mol": {
+        "smd": "tests/fixtures/smd_2mol.hdf5",
+        "reference": None,
+        "nstates": 4,
+    },
+    "smd_4mol": {
+        "smd": "tests/fixtures/smd_4mol.hdf5",
+        "reference": None,
+        "nstates": 4,
+    },
+}
+
 #: The population methods, which also carry the transition-matrix term (ADR-0110).
 _POPULATION_METHODS = ("vbconhmm", "ebhmm")
 
@@ -210,9 +226,10 @@ def main() -> int:
     ap.add_argument(
         "--fixtures",
         nargs="+",
-        default=list(_FIXTURES),
-        choices=list(_FIXTURES),
-        help="which fixtures to measure",
+        default=None,
+        choices=sorted(set(_FIXTURES) | set(_PER_TRACE_FIXTURES)),
+        help="which fixtures to measure (default: smd_4mol and smd_281mol; for "
+        "--model-type vbfret, the small fixtures smd_2mol and smd_4mol)",
     )
     ap.add_argument(
         "--model-type",
@@ -230,13 +247,19 @@ def main() -> int:
         "ELBO is not commensurable with the vbconhmm reference model's.",
     )
     args = ap.parse_args()
+    table = _PER_TRACE_FIXTURES if args.model_type == "vbfret" else _FIXTURES
+    if args.fixtures is None:
+        args.fixtures = list(table)
+    unknown = [name for name in args.fixtures if name not in table]
+    if unknown:
+        ap.error(f"--model-type {args.model_type} has no fixture configuration for {unknown}")
 
     # A non-vbconhmm method compared to the committed (vbconhmm) reference model is
     # not commensurable — its ELBO is a different model's variational bound — so
     # measuring it against that reference silently corrupts the freeze. Enforce the
     # cross-seed anchor the --model-type help promises, rather than only documenting it.
     if args.model_type != "vbconhmm" and not args.cross_seed:
-        referenced = [name for name in args.fixtures if _FIXTURES[name]["reference"] is not None]
+        referenced = [name for name in args.fixtures if table[name]["reference"] is not None]
         if referenced:
             ap.error(
                 f"--cross-seed is required for --model-type {args.model_type}: fixtures "
@@ -262,7 +285,7 @@ def main() -> int:
     transition_values: list[float] = []
 
     for name in args.fixtures:
-        cfg = _FIXTURES[name]
+        cfg = table[name]
         reference = None if args.cross_seed else cfg["reference"]
         mode = "cross-seed" if reference is None else "vs-reference"
         print(

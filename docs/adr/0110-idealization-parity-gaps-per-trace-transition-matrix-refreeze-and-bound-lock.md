@@ -7,8 +7,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 - **Status:** accepted
 - **Date:** 2026-11-15
-- **Deciders:** bioedca (the acceptance criteria of #545, approved 2026-11-15; "Split into three
-  PRs", 2026-11-15)
+- **Deciders:** bioedca (the acceptance criteria of #545, approved 2026-11-15; item 1 option (a),
+  2026-11-14; "Seeded check, no frozen row" for item 1 after the measurement below, 2026-11-15;
+  "Split into three PRs", 2026-11-15)
 - **PRD anchor:** §7.4, §9.2 (the idealization-parity gate), §9.6, §11.2, §8 NFR-VALID (b)
 - **Milestone:** M18
 - **Issue:** [#545](https://github.com/bioedca/tether/issues/545)
@@ -48,9 +49,14 @@ PRD §9.6 carried four idealization-parity criteria that the code did not meet:
 
 ## Considered options
 
-The record names one other option for each item it decides, in its own text. Item 1 adds its
-options with its own section.
+The record names the other options for each item it decides.
 
+- Item 1, per-trace vbFRET, after the measurement in its section below:
+  - **A seeded check and no frozen row** (chosen, 2026-11-15).
+  - **Freeze a row from the measured spread.** Set aside: the ADR-0009 rule applied to it freezes
+    floors of 0.0 and an unbounded ΔE ceiling, a row that catches nothing.
+  - **Best-of-N restarts per state count in Tether, then freeze.** Set aside here: it is a new
+    fitting procedure, not tMAVEN's per-trace step, so it is new scope (carried by #949).
 - Item 2, the transition-matrix term:
   - **Its own block, `$.transition_matrix`, apart from the four-bound rows** (chosen).
   - **A fifth bound in each `$.tolerance_by_method` row.** Set aside: every reader of
@@ -68,8 +74,53 @@ options with its own section.
 ## Decision
 
 Issue #545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
-issue's size budget). Items 3 and 4 landed first; the second pull request adds the
-transition-matrix term (item 2); per-trace vbFRET (item 1) adds its own section here in the third.
+issue's size budget). Items 3 and 4 landed first; the second pull request added the
+transition-matrix term (item 2); the third adds per-trace vbFRET (item 1).
+
+### 1. Per-trace vbFRET is a sidecar model type with a seeded check, and no frozen row
+
+The sidecar runner gains `model_type="vbfret"` (`run_vbfret_per_trace`). It calls tMAVEN's own
+`tracelevel_vbhmm_modelselection` with tMAVEN's priors and model settings, for 1 to `nstates`
+states per trace (the `{1, 2, 3, 4}` of the §11.2 auto selection), and keeps each trace's
+highest-evidence model — vbFRET's procedure [Bronson2009]. It writes the model the way the
+commented-out `run_vbhmm_modelselection` of that build writes it: type
+`"vb HMM_model selection"`, ensemble `mean` NaN, one `trace_level/<i>` entry per trace.
+`read_model` now reads that subgroup (`StateModel.trace_level`), and `compare_models` compares
+two per-trace models with `compare_trace_models`: the same four quantities, per trace, on the
+states each idealized path **occupies** (variational Bayes can keep a fitted state that no frame
+uses; it is not a state of the idealization).
+
+**Measured on the pinned build, it does not reproduce across seeds.** `scripts/measure_parity.py
+--n-runs 20 --model-type vbfret` (2026-11-15; tMAVEN `10f4230b`, CPython 3.12.13; 19 comparisons
+per fixture, anchored on run 00):
+
+| Fixture | state count, worst / mean | Viterbi, worst / mean | per-state ΔE, worst | relative ELBO, worst / mean |
+| --- | --- | --- | --- | --- |
+| `smd_2mol` | 0.0 / 0.684 | 0.0 / 0.684 | `inf` (some pairs match on no trace) | 0.876 / 0.068 |
+| `smd_4mol` | 0.0 / 0.276 | 0.0 / 0.274 | `inf` | 0.0471 / 0.0175 |
+
+On the 281-molecule SMD (10 fits, 9 comparisons) the worst cases were 0.630 (state count), 0.526
+(Viterbi), 0.961 FRET (per-state ΔE) and 0.0054 (relative ELBO). Keeping, for each trace, the
+highest-evidence result of ten independent per-trace fits did not make it converge either: five
+repetitions of that on `smd_2mol`, and three on `smd_4mol`, still occupied different states. The
+ADR-0009 rule applied to this spread freezes floors of 0.0 and an unbounded ΔE ceiling. The spread
+is a draw from tMAVEN's unseeded starts, so the same command gives other values of the same
+order.
+
+Why: tMAVEN's per-trace step makes **one** random start per state count (`vb_em_hmm_parallel`
+ignores `nrestarts` in this build), and on short, noisy traces the evidence surface has many
+local optima. vbFRET's own analyses keep the best of many restarts per state count — 25 in
+[Bronson2010] — and a random start is known to change the log-likelihood reached and the
+partition found [Maruotti2021].
+
+So, by the maintainer's decision of 2026-11-15: **no per-trace row is frozen.** The `sidecar`
+test `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that the fit carries a
+per-trace model for every molecule and that one seed gives one model value for value (the guard
+of ADR-0075), and writes the cross-seed agreement of seeds 1 and 2 to the job log without
+asserting it. `"vbFRET (per-trace, M2)"` stays in `$.coverage.applied_to` (decision of
+2026-11-14); the coverage note says no test asserts a per-trace fit against that row. The §9.6
+row for per-trace vbFRET parity stays open, restated with this finding, and points to
+[#949](https://github.com/bioedca/tether/issues/949), the parity evidence for the per-trace HMMs.
 
 ### 2. The transition-matrix term is a fifth quantity with its own block
 
@@ -122,15 +173,41 @@ reported. A deliberate re-freeze changes both copies in one pull request, under 
 
 - Good: three of the four §9.6 rows close (transition matrix, re-freeze, loosened bound). Every
   frozen number is now measured on the build CI runs, and none can move silently.
+- Good: per-trace vbFRET runs headless from Tether, and a change in it shows as a failure of the
+  seeded check.
+- Bad: per-trace vbFRET parity is still not met, and the reason is now a measured fact about the
+  pinned tMAVEN's per-trace step, not a missing test. A row for it needs a fit that reproduces —
+  for example best-of-N restarts per state count — which is new scope, carried by #949.
 - Neutral: the transition-matrix ceiling of `vbconhmm` (1e-4) is far above its measured spread
   (≈ 4e-9) because of the resolution floor; the drift limit of #737 stays the tighter regression
   check of the four bounds and does not cover this term.
-- Neutral: the per-trace vbFRET row of §9.6 stays open until its pull request lands.
 
 ## More information
 
+Evidence search (AGENTS.md §Evidence), 2026-11-15, Consensus, query *"variational Bayes hidden
+Markov model single-molecule FRET per-trace model selection local optima random
+initialization"*:
+
+- [Bronson2009] Bronson J. E., Fei J., Hofman J. M., Gonzalez R. L. Jr., Wiggins C. H. *Learning
+  rates and states from biophysical time series: a Bayesian approach to model selection and
+  single-molecule FRET data.* Biophys. J. 97 (2009). doi:10.1016/j.bpj.2009.09.031 — maximum-
+  evidence state-count selection per trace.
+- [Bronson2010] Bronson J. E., Hofman J. M., Fei J., Gonzalez R. L. Jr., Wiggins C. H. *Graphical
+  models for inferring single molecule dynamics.* BMC Bioinformatics 11 Suppl 8:S2 (2010).
+  doi:10.1186/1471-2105-11-S8-S2 — vbFRET run with 25 random restarts per K, the
+  highest-evidence restart kept.
+- [Maruotti2021] Maruotti A., Punzo A. *Initialization of hidden Markov and semi-Markov models: a
+  critical evaluation of several strategies.* Int. Stat. Rev. 89 (2021).
+  doi:10.1111/insr.12436 — different starts reach different log-likelihoods and partitions
+  (second source).
+
+The three citations were signed off by the maintainer on 2026-11-16.
+
 Code: `schema/parity_tolerance.json` (`$.refreeze`, `$.transition_matrix`),
 `src/tether/idealize/parity.py` (`transition_matrix_abs_delta`, `freeze_transition_matrix`,
-`load_transition_matrix_tolerance`), `scripts/measure_parity.py`, `tests/test_parity.py`
+`load_transition_matrix_tolerance`, `compare_trace_models`),
+`src/tether/idealize/_sidecar_runner.py` (`run_vbfret_per_trace`),
+`src/tether/idealize/driver.py` (`read_model`, `StateModel.trace_level`),
+`scripts/measure_parity.py`, `tests/test_parity.py`
 (`_ACCEPTED_BOUNDS`), `tests/test_parity_sidecar.py`, `docs/validation.md` §(b),
 `tests/test_docs_validation_numbers.py`.
