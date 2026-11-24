@@ -590,9 +590,9 @@ When a movie gains a generation, the one that was active is first copied, unchan
 and, if the movie had one, `layout` (its `/movies/layouts` record). The `<movie_id>` part of that
 path is the movie ID with `%` written `%25` and `/` written `%2F` (an ID of only `.` or
 `..` is written `%2E` or `%2E%2E`), so the IDs `run-a` and `run-a/1` get two archives
-rather than one nested in the other; any other ID is written as it is
+rather than one nested in the other. Any other ID is written as it is
 (`tether.io.generations.archive_name`, #1308). A store whose archive of an ID with `/` was
-written before that, at the nested path, still reads. Its rows then leave the
+written before that, at the nested path, still reads. The rows of the old active generation then leave the
 row-aligned arrays and the new generation's are appended **at the end**, so the rows of
 other movies move up but are not changed. An archive is written once and never changed or
 removed by an extraction.
