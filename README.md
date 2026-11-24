@@ -72,7 +72,7 @@ brings it to the application.
   own movie centred on its spot. Click a donor or acceptor spot and the list selects its trace,
   across all the movies of the project
   ([how-to](docs/how-to/curate-traces.md#go-between-a-trace-and-its-movie-spot)). Drag the
-  trace's frame cursor and the movie shows that frame; move the movie's time slider and the
+  trace's frame cursor and the movie shows that frame. Move the movie's time slider and the
   cursor follows
   ([how-to](docs/how-to/curate-traces.md#move-through-the-trace-and-the-movie-together)).
 

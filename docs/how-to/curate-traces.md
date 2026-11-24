@@ -122,8 +122,9 @@ FRET plot. The movie panel follows the cursor, and the cursor follows the movie.
   cursor moves to that frame. Before the trace starts or after it ends, the cursor stops at
   the first or last frame of the trace.
 - When you select another molecule in the list, the cursor stays on its frame and the movie
-  shows that frame. When you select a molecule by a click on its spot, the movie stays on its
-  frame and the cursor moves there.
+  shows that frame.
+- When you click a spot to select its molecule, the movie stays on its frame. The cursor
+  moves to that frame.
 
 The link works only while the panel shows the selected molecule's own movie. If you choose
 another movie in the **Movie** box, the cursor and that movie do not move each other.
