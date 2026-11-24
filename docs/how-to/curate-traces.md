@@ -127,6 +127,27 @@ The section bar also shows the next step that `tether status` gives for the open
 Click **Go to** on the bar to open the section of that step. A project made from imported
 traces opens in **Curate and correct**.
 
+A control that needs an earlier step is disabled. Its tooltip names the missing step and
+says what to do, and a screen reader reads the same text. To open the section of that step,
+click **Go to this step**. For a menu command it is the next item in the same menu. For a
+button it is next to the button.
+
+While no project is open, the text is "Open or import a project first." The text for each
+step is:
+
+- **sources and geometry**: Add a movie to the project in Prepare.
+- **map**: Make or choose a map for each movie in Prepare.
+- **trace generation**: Extract the traces of a movie in Prepare.
+- **curation**: Accept or reject the molecules in Curate and correct.
+- **corrections**: Complete the corrections in Curate and correct.
+- **analysis sets**: Make an analysis set in Analyze.
+- **fits**: Fit the molecules in Analyze.
+- **results**: Save a result snapshot in Analyze.
+- **deposit**: Make the deposit package in Deposit.
+
+The same table is `REQUIREMENTS` in
+[`tether.gui.requirements`](../api/gui.md#tether.gui.requirements).
+
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
 where this list shows Ctrl:
