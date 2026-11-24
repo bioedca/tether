@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Tether export provenance file",
-  "description": "The <file>.provenance.json file that every Tether export writes beside its output (tether.project.export.write_provenance_sidecar). The three store exports write fixed parameters; a figure export (tether.analysis.plot_export.export_figure) writes the caller's parameters plus formats, dpi and outputs. Licensed CC0-1.0.",
+  "description": "The <file>.provenance.json file that every Tether export writes beside its output (tether.project.export.write_provenance_sidecar). The three store exports write fixed parameters; a figure export (tether.analysis.plot_export.export_figure) writes the caller's parameters plus formats, dpi and outputs, and data_tables when it also writes the numbers behind the figure. Licensed CC0-1.0.",
   "type": "object",
   "required": [
     "app_version",
@@ -322,6 +322,19 @@
                     "svg",
                     "png"
                   ]
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "data_tables": {
+                "description": "Written only with data_csv=True: each data table's name and the basename of its CSV file (tether.analysis.plot_data).",
+                "type": "object",
+                "required": [
+                  "data"
+                ],
+                "propertyNames": {
+                  "pattern": "^[a-z]+$"
                 },
                 "additionalProperties": {
                   "type": "string"

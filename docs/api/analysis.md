@@ -29,6 +29,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.analysis.overlap
 
+::: tether.analysis.plot_data
+
 ::: tether.analysis.plot_export
 
 ::: tether.analysis.query
