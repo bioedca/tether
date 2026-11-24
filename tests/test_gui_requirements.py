@@ -304,6 +304,19 @@ def _menu_actions(menu):
             yield action
 
 
+def _declared(widget) -> bool:
+    """Whether ``widget`` or a widget that holds it declares a requirement.
+
+    A child of a gated control (the scroll bars of a combo box's list) is disabled
+    because the control is, and the control names the missing step (#630).
+    """
+    while widget is not None:
+        if widget.property(REQUIREMENT_PROPERTY) is not None:
+            return True
+        widget = widget.parentWidget()
+    return False
+
+
 def _disabled_undeclared(shell, state: str) -> set[tuple[str, str, str]]:
     from pyqtgraph.Qt import QtWidgets
 
@@ -321,11 +334,15 @@ def _disabled_undeclared(shell, state: str) -> set[tuple[str, str, str]]:
             for widget in root.findChildren(QtWidgets.QWidget):
                 if not isinstance(widget, kinds) or widget.isEnabled():
                     continue
-                if widget.property(REQUIREMENT_PROPERTY) is None:
+                if not _declared(widget):
                     found.add((state, section, f"widget:{_label(widget)}"))
         for menu in shell.section_menus(section):
             for action in _menu_actions(menu):
                 if action.isEnabled() or action.property(REQUIREMENT_PROPERTY) is not None:
+                    continue
+                # A hidden item is no disabled control the user sees: the gate hides its
+                # own "Go to this step" item while that cannot help (#630).
+                if not action.isVisible():
                     continue
                 found.add((state, section, f"menu:{_label(action)}"))
     return found
