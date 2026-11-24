@@ -459,8 +459,11 @@ def set_checksum(
 
 
 def _expected_sha256(project_path: Path, record: SourceRecord) -> str:
-    """Return the checksum ``record``'s file must have: the registry's, else ``/movies``'."""
-    if record.sha256 or not record.movie_id:
+    """Return the checksum ``record``'s file must have: the registry's, else a movie's ``/movies``'.
+
+    Another role that names a movie (a map image) has no checksum but its own.
+    """
+    if record.sha256 or record.role != "movie" or not record.movie_id:
         return record.sha256
     import h5py  # noqa: PLC0415
 

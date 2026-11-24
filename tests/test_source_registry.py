@@ -444,3 +444,22 @@ def test_a_map_image_that_names_a_movie_keeps_its_own_checksum_in_a_subset(tmp_p
     export_subset_tether(project, out)
     copied = next(r for r in S.read_sources(out) if r.source_id == record.source_id)
     assert copied.sha256 == ""  # not the movie's checksum
+
+
+def test_a_map_image_that_names_a_movie_is_not_checked_against_the_movie(tmp_path) -> None:
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha)
+    image = tmp_path / "map.png"
+    image.write_bytes(b"map")
+    with project.write_lock():
+        record = S.register_source(project, image, role="map_image", movie_id="mov-1")
+        # Its own checksum is stored: the movie's checksum is not its identity.
+        stored = S.set_checksum(project, record.source_id, hashlib.sha256(b"map").hexdigest())
+        assert stored.sha256 == hashlib.sha256(b"map").hexdigest()
+    other = tmp_path / "other.png"
+    other.write_bytes(b"other map")
+    with project.write_lock():
+        record = S.register_source(project, other, role="map_image", movie_id="mov-1")
+        # With no checksum of its own, the movie file is not accepted in its place.
+        with pytest.raises(S.RelinkRefused):
+            S.relink_source(project, record.source_id, movie)
