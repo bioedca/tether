@@ -80,6 +80,8 @@ def _experiment(loops: list[tuple[int, int]], period_ms: float) -> dict[str, Any
                 "dDuration": 0.0,
             },
         }
+        if kind == 2:  # an XY loop counts the positions marked valid
+            here["pItemValid"] = bytes([1] * count)
         if node is not None:
             here["ppNextLevelEx"] = [node]
         node = here
@@ -100,6 +102,7 @@ def write_nd2(
     version: bytes = b"Ver3.0",
     drop_frame: int | None = None,
     bits: int | None = None,
+    attributes: dict[str, Any] | None = None,
 ) -> Path:
     """Write ``frames`` (``(n, h, w)``, one sample per pixel) as a version-3 ND2 file.
 
@@ -107,6 +110,8 @@ def write_nd2(
     one component per pixel, a compression code other than 2 (none), a loop that is
     not time, a version other than 3, or a missing frame chunk. ``row_padding``
     adds bytes at the end of each row, as a camera with an aligned stride does.
+    ``attributes`` overrides entries of ``SLxImageAttributes`` (tiles, a frame
+    count, a frame size that the frame chunks do not hold).
     """
     n, h, w = frames.shape
     itemsize = frames.dtype.itemsize
@@ -130,6 +135,7 @@ def write_nd2(
             "uiVirtualComponents": components,
         }
     }
+    attrs["SLxImageAttributes"].update(attributes or {})
     probe = {"m_ExcitationSpectrum": {"uiCount": 0}, "m_EmissionSpectrum": {"uiCount": 0}}
     planes = {
         f"a{i}": {"sDescription": c, "uiCompCount": 1, "pFluorescentProbe": probe}

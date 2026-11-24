@@ -147,6 +147,62 @@ def test_variants_that_cannot_be_read_fully_are_refused(
         Nd2Movie(path)
 
 
+@pytest.mark.parametrize(
+    ("attributes", "match"),
+    [
+        ({"uiTileWidth": 5}, "stored in tiles"),
+        ({"uiSequenceCount": 0}, "holds no frame"),
+        ({"uiHeight": 9, "uiTileHeight": 9}, "chunk of frame 0 is not a complete frame"),
+    ],
+)
+def test_attributes_the_frames_do_not_match_are_refused(
+    tmp_path: Path, attributes: dict[str, int], match: str
+) -> None:
+    path = write_nd2(tmp_path / "a.nd2", _frames(), attributes=attributes)
+    with pytest.raises(UnsupportedContainerError, match=match):
+        Nd2Movie(path)
+
+
+@pytest.mark.parametrize(
+    ("location", "match"),
+    [
+        (0, "chunk map does not start where the file says"),
+        (1, "no ND2 chunk at byte 1"),
+        (2**40, "past the end of the file"),
+    ],
+)
+def test_a_chunk_map_place_that_is_wrong_is_refused(
+    tmp_path: Path, location: int, match: str
+) -> None:
+    path = write_nd2(tmp_path / "t.nd2", _frames())
+    data = path.read_bytes()
+    path.write_bytes(data[:-8] + struct.pack("<Q", location))
+    with pytest.raises(UnsupportedContainerError, match=match):
+        Nd2Movie(path)
+
+
+def test_a_cut_header_is_refused(tmp_path: Path) -> None:
+    path = write_nd2(tmp_path / "t.nd2", _frames())
+    path.write_bytes(path.read_bytes()[:60])
+    with pytest.raises(UnsupportedContainerError, match="header is not complete"):
+        Nd2Movie(path)
+
+
+def test_a_file_named_nd2_that_is_not_one_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "movie.nd2"
+    path.write_bytes(b"not a movie" * 20)
+    with pytest.raises(UnsupportedContainerError):
+        open_movie_source(path)
+
+
+def test_no_interval_and_no_plane_list_are_unknown(tmp_path: Path) -> None:
+    path = write_nd2(tmp_path / "t.nd2", _frames(), frame_ms=0.0, channels=())
+    with Nd2Movie(path) as movie:
+        meta = movie.metadata
+        assert repr(movie) == "Nd2Movie('t.nd2', frames=6, height=8, width=10)"
+    assert (meta.frame_time.origin, meta.channels.origin) == ("unknown", "unknown")
+
+
 def test_the_first_nd2_format_is_refused_as_jpeg_2000(tmp_path: Path) -> None:
     path = tmp_path / "old.nd2"
     path.write_bytes(b"\x00\x00\x00\x0cjP  \r\n\x87\n" + b"\x00" * 256)
