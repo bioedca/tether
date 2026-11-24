@@ -601,6 +601,54 @@ def test_another_movie_on_screen_is_not_moved_by_the_cursor(section_shell, tmp_p
 
 @needs_napari
 @needs_gl
+def test_back_on_the_molecules_movie_the_cursor_follows_it_again(section_shell, tmp_path) -> None:
+    # Away on the other movie, a drag moves only the cursor. Back on the molecule's movie at
+    # the same frame number, the cursor gets back in step with the movie (#1368 review).
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    _drag_cursor(shell, 3)
+    shell.movie_switcher.setCurrentIndex(1)
+    _drag_cursor(shell, 9)
+    assert panel.current_frame == 3
+
+    shell.movie_switcher.setCurrentIndex(0)
+
+    assert panel.current_frame == 3 and dock.frame_cursor == 3
+    _drag_cursor(shell, 8)
+    assert panel.current_frame == 8
+
+
+@needs_napari
+@needs_gl
+def test_a_shorter_trace_of_the_previous_movie_still_jumps(section_shell, tmp_path) -> None:
+    # Molecule 4 (mov-2, 5 frames) has three frames, molecule 3 of the same movie twelve.
+    # From molecule 3, the user shows mov-1 at frame 40, then selects molecule 4: the jump
+    # switches back to mov-2, which tells frame 4 (40 kept, clamped) on the way. That frame
+    # must not be mapped onto the new 3-frame trace with the old trace's length, which raised
+    # inside the jump and left the switcher on the wrong movie (#1368 review).
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    with h5py.File(path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        table["frame_range"][4] = (0, 3)
+        handle["molecules"]["table"][:] = table
+    shell = _open(section_shell, path)
+    panel, dock = shell.movie_panel, shell.trace_dock
+    donor2, _ = _molecules(path, "mov-2")
+    shell.molecule_list.setCurrentRow(3)
+    shell.movie_switcher.setCurrentIndex(0)
+    panel.viewer.dims.set_current_step(0, 40)
+
+    shell.molecule_list.setCurrentRow(4)
+
+    assert shell.status_message == "Molecule mol-4 (5/6)"
+    assert panel.active_index == 1 and shell.movie_switcher.currentIndex() == 1
+    assert _centre(panel) == tuple(_rowcol(donor2)[1])
+    assert dock.trace.n_frames == 3
+    assert dock.frame_cursor == panel.current_frame == 0
+
+
+@needs_napari
+@needs_gl
 def test_the_frame_link_is_opt_out_in_curate_and_not_a_preference(section_shell, tmp_path) -> None:
     from tether.gui.shell import CURATE_SECTION
 

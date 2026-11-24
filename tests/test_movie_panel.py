@@ -472,7 +472,7 @@ def test_set_frame_moves_the_time_slider_and_tells_the_callbacks(qtbot) -> None:
 def test_a_movie_switch_keeps_the_frame_and_tells_it_once(qtbot, tmp_path) -> None:
     # The second movie has 8 frames, the fixture 50: a switch keeps the frame shown,
     # moved to the shorter movie's last frame. napari resets its slider on the layer swap,
-    # and the callbacks must not hear those passing frames.
+    # and the callbacks must not hear those passing frames, only the one the switch ends on.
     frames = ((np.arange(8 * 48 * 32).reshape(8, 48, 32) % 500) + 100).astype("<u2")
     second = _write_native_movie(tmp_path / "movie2.tif", frames)
     told: list[int] = []
@@ -484,7 +484,10 @@ def test_a_movie_switch_keeps_the_frame_and_tells_it_once(qtbot, tmp_path) -> No
 
         panel.set_active_movie(1)
         assert (panel.n_frames, panel.current_frame) == (8, 5)
-        assert told == []  # the switch ends on the frame it started on
+        # Frame 5 of another movie is another frame shown: told once, at the switch's end.
+        assert told == [5]
+        panel.set_active_movie(1)  # the movie already shown: nothing new
+        assert told == [5]
 
         panel.set_active_movie(0)
         panel.set_frame(40)

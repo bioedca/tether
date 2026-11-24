@@ -127,7 +127,8 @@ FRET plot. The movie panel follows the cursor, and the cursor follows the movie.
   moves to that frame.
 
 The link works only while the panel shows the selected molecule's own movie. If you choose
-another movie in the **Movie** box, the cursor and that movie do not move each other.
+another movie in the **Movie** box, the cursor and that movie do not move each other. When
+you choose the molecule's movie again, the cursor moves to the frame that the movie shows.
 
 To turn the link off, clear **Curation → Link trace and movie frames**. The setting is for
 Curate and correct in this window only. It stays as you set it while the window is open, also

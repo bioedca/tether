@@ -281,10 +281,11 @@ class NapariMoviePanel:
         # so they can be detached on close (the pytest-qt QApplication is shared).
         self._spot_click_callbacks: list = []
         # The frame link (#366): callbacks told the displayed frame each time it
-        # changes, the frame last told (``-1``: none), and whether a movie switch or a
-        # clear is under way (its layer swap passes through frames nobody chose).
+        # changes, the (movie index, frame) last told (``None``: none), and whether a
+        # movie switch or a clear is under way (its layer swap passes through frames
+        # nobody chose).
         self._frame_callbacks: list[Callable[[int], object]] = []
-        self._told_frame = -1
+        self._told: tuple[int, int] | None = None
         self._swapping = False
         self._viewer.dims.events.current_step.connect(self._on_dims_step)
         self.apply_theme(self._theme)
@@ -531,7 +532,7 @@ class NapariMoviePanel:
                     self._viewer.layers.remove(layer)
         finally:
             self._swapping = False
-        self._told_frame = -1
+        self._told = None
         self._movie_layer = None
         self._donor_layer = None
         self._acceptor_layer = None
@@ -720,8 +721,9 @@ class NapariMoviePanel:
         """Call ``callback(frame)`` each time the frame shown changes.
 
         That is a move of napari's time slider by the user or by [`set_frame`][], and
-        the end of a movie switch that shows another frame. A switch calls it once,
-        with the frame it ends on.
+        the end of each switch to another movie, even one that keeps the frame number:
+        another movie on screen is another frame shown. A switch calls it once, with the
+        frame it ends on.
         """
         self._frame_callbacks.append(callback)
 
@@ -734,11 +736,16 @@ class NapariMoviePanel:
             self._tell_frame()
 
     def _tell_frame(self) -> None:
-        """Tell the frame callbacks the frame shown, if it is not the frame last told."""
+        """Tell the frame callbacks the frame shown, unless they were last told this one.
+
+        A frame is a frame **of a movie**: the same frame number of another movie is told
+        again, so a follower that ignored the other movie gets back in step (#366).
+        """
         frame = self.current_frame
-        if frame == self._told_frame:
+        told = (self._active_index, frame)
+        if told == self._told:
             return
-        self._told_frame = frame
+        self._told = told
         if frame < 0:
             return
         for callback in list(self._frame_callbacks):

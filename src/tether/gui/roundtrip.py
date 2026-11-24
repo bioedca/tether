@@ -318,7 +318,13 @@ class MoviePanelLike(Protocol):
 
     def set_frame(self, frame: int) -> None: ...
 
-    def connect_frame_changed(self, callback: Callable[[int], object]) -> None: ...
+    def connect_frame_changed(self, callback: Callable[[int], object]) -> None:
+        """Call ``callback(frame)`` on each change of the frame shown.
+
+        A switch to another movie is a change even when it keeps the frame number, so the
+        link gets back in step when the target movie shows again.
+        """
+        ...
 
 
 class TraceCursorLike(Protocol):
@@ -475,7 +481,7 @@ class FrameLink:
     The link acts only while it is **enabled** (the user can turn it off) and while the
     panel shows the target movie that [`set_target`][] named. When the user switches the
     panel to another movie, neither side moves the other until the target movie shows
-    again.
+    again; the panel then tells its frame, and the cursor moves to it.
 
     **Frames.** Trace frame ``i`` is movie frame ``frame_offset + i`` (the start of the
     molecule's ``frame_range``, §5.1). A frame outside the other side's range moves that
