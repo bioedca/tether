@@ -61,7 +61,11 @@ with the same facts and log excerpt for its own run, because a repeat failure ca
 cause. The next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
 always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
-the Actions page lists every run. The issue does not close itself: close it with the cause. A
+the Actions page lists every run. Each report records its commit. A run on an older commit than
+the latest report changes nothing, also when it finishes later: two runs on `main` can finish in
+either order. The order of the commits on the branch decides, not the time a run finishes. If a
+newer commit fails on a day that already has a failure comment, that comment is edited to show
+it. The issue does not close itself: close it with the cause. A
 pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
 branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
 `ci(drill)`, so it never touches the real issue.
