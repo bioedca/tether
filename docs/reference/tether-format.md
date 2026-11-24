@@ -120,11 +120,13 @@ module named in each section, and treat a missing or unfamiliar payload as norma
 `schema_version` is currently **`3`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
 Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)),
 and version 3 the `/sources` table ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
-A store stamped `1` has neither table and a store stamped `2` has no `/sources` table. Each is
-still a complete project: it reads as generation 1 of each of its movies and as one source
-record for each movie. The first write that adds a table keeps the file as it was beside
-it, as `<stem>.v1-backup.tether` or `<stem>.v2-backup.tether`, and adds every table up to
-version 3. What a bump would mean for a file you already hold, and
+A store stamped `1` has neither table and a store stamped `2` has no `/sources` table.
+
+Each is still a complete project. It reads as generation 1 of each of its movies and as one
+source record for each movie. The first write that adds a table also adds every other table of version 3. It keeps the
+file as it was beside it, as `<stem>.v1-backup.tether` or `<stem>.v2-backup.tether`.
+
+What a bump would mean for a file you already hold, and
 what a non-additive change has to carry before one is allowed, are set out under
 [Project file compatibility](../stability.md#project-file-compatibility); how a
 covered name is retired is the
@@ -607,36 +609,36 @@ and stays out of supervised training until confirmed on the current extraction.
 Group holding `/sources/table` (`SOURCES_DTYPE`, 13 fields), new in `schema_version` 3
 ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
 One row for each source file of the project: a movie, the bead video that made a channel
-map, a map image. The registry records where each file is and what it is; it never copies a
-raw movie into the project. The module is `src/tether/project/sources.py`: `read_sources`,
-`register_source`, `relink_source`; the checksum job is in `src/tether/services/sources.py`.
+map, a map image. The registry records where each file is and what it is. It never copies a
+raw movie into the project. The module is `src/tether/project/sources.py` (`read_sources`,
+`register_source`, `relink_source`), and the checksum job is in `src/tether/services/sources.py`.
 
 A movie with no row (every movie of a store stamped `1` or `2`) reads as one record made
 from its `/movies` row, with the id `movie:<movie_id>`, the stored `uri` as its path and the
-checksum not calculated. Reading writes nothing; the first write that needs the record
+checksum not calculated. Reading writes nothing. The first write that needs the record
 stores it.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `source_id` | `str:utf-8` | scalar | `src-<uuid4 hex>`, or `movie:<movie_id>` for a record first made from `/movies`. Unique in the project. |
 | `relative_path` | `str:utf-8` | scalar | The file's path, read against the project file's folder, with `/` separators. A file on another drive keeps its absolute path. |
-| `original_name` | `str:utf-8` | scalar | The file name when it was registered. |
+| `original_name` | `str:utf-8` | scalar | The file name at registration. |
 | `file_size` | `i8` | scalar | **Bytes.** |
 | `sha256` | `str:utf-8` | scalar | Lower-case hex SHA-256 of the file, or `""` while the checksum is not calculated. |
-| `adapter` | `str:utf-8` | scalar | The adapter that reads the file; `""` when not recorded. |
-| `adapter_version` | `str:utf-8` | scalar | That adapter's version; `""` when not recorded. |
+| `adapter` | `str:utf-8` | scalar | The adapter that reads the file, or `""`. |
+| `adapter_version` | `str:utf-8` | scalar | That adapter's version, or `""`. |
 | `role` | `str:utf-8` | scalar | `movie`, `bead_video` or `map_image`. |
-| `acquisition` | `str:utf-8` | scalar | JSON object of acquisition values; `{}` when none. |
-| `movie_id` | `str:utf-8` | scalar | Join key into `/movies.movie_id` for a movie; else `""`. |
-| `derived_from` | `str:utf-8` | scalar | The `source_id` of the original a derived file was made from; `""` for an original. |
-| `recipe` | `str:utf-8` | scalar | The recipe that made the derived file from its original; `""` for an original. |
+| `acquisition` | `str:utf-8` | scalar | JSON object of acquisition values, or `{}`. |
+| `movie_id` | `str:utf-8` | scalar | Join key into `/movies.movie_id` for a movie, else `""`. |
+| `derived_from` | `str:utf-8` | scalar | The `source_id` of the original a derived file was made from, or `""` for an original. |
+| `recipe` | `str:utf-8` | scalar | The recipe that made the derived file from its original, or `""` for an original. |
 | `created_utc` | `str:utf-8` | scalar | ISO-8601 UTC time the row was first stored. |
 
 **The checksum** is calculated by a stored job (`/settings/jobs`, command `source-checksum`)
-with one part for each source, read in 1 MiB blocks with progress and cancel. **A source that
-moved** is linked again with `relink_source` only when the new file has the checksum the
-registry holds, or, for a movie with none there, the `sha256` of its `/movies` row. **A copy
-for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry and keeps
+with one part for each source. It reads in 1 MiB blocks, with progress and cancel. **A
+source that moved** is linked again with `relink_source` only when the checksums match. The
+new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`. **A copy
+for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
 only the file name of a path that is absolute or steps out of the folder (`..`).
 
 ## `/traces` — the integrated intensity arrays

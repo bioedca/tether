@@ -1176,7 +1176,7 @@ def export_subset_tether(
                 n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
                 _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
-                n_sources = _copy_sources(src, dst, aliases)
+                _copy_sources(src, dst, aliases)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
                 dst.attrs["tether_subset_of"] = path.name
@@ -1207,7 +1207,6 @@ def export_subset_tether(
             "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
             "n_reject_log_rows": n_reject_log,
-            "n_source_records": n_sources,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
             **(
                 {}
