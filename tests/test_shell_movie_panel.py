@@ -411,6 +411,22 @@ def test_enter_jumps_back_to_the_molecules_spot_and_writes_nothing(
 
 @needs_napari
 @needs_gl
+def test_enter_opens_a_closed_movie_dock(section_shell, tmp_path, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    shell = _open(section_shell, _store(tmp_path))
+    dock = shell.movie_dock
+    dock.close()
+    assert dock.isHidden()
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+
+    assert not dock.isHidden()
+    assert shell.status_message.startswith("Jumped to mol-0 in movie ")
+
+
+@needs_napari
+@needs_gl
 def test_a_click_on_either_spot_selects_its_molecule_in_the_movie_shown(
     section_shell, tmp_path
 ) -> None:

@@ -2001,6 +2001,8 @@ class TetherShell:
         if not self._focus_movie(row):
             return
         if self._movie_dock_widget is not None:
+            # A dock the user closed opens again: a jump to a hidden panel shows nothing.
+            self._movie_dock_widget.show()
             self._movie_dock_widget.raise_()
         movie_id = self._roundtrip.index.site(self._roundtrip_site_of_row[row]).movie_id
         names = {m.movie_id: m.name for m in self._project_movies}
