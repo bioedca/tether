@@ -112,8 +112,9 @@ apparent E becomes `1 − E`.
     > `--overwrite` replaces the old project file, with its curation.
 
 5. **A native split.** Extract the movie again with the other `--donor-side` value. With
-   `tether batch`, put `donor_side` in an extraction profile and pass `--profile`.
-   `tether batch` has no `--donor-side` flag.
+   `tether batch`, first move the old project file out of the output folder, because a
+   completed extraction is skipped. Then put `donor_side` in an extraction profile and pass
+   `--profile`. `tether batch` has no `--donor-side` flag.
 6. **A run with `--tmap`.** Check the channel order of the imported map. `--donor-side` cannot
    change it, so extract again with a map whose donor and acceptor crops are in the correct
    order.
@@ -473,7 +474,8 @@ message names the step to run first.
 2. **`intensity_quantity`.** Use `corrected` or `raw`. Only those two layers exist.
 3. **A message that names a step to run first.** Run `compute_photobleach`.
 4. Run `compute_leakage_alpha`.
-5. Run `compute_gamma`.
+5. Run `compute_gamma` only when α is not NaN. With too few donor-only tails, α stays withheld.
+   Then see [The batch says `correct=done` but no corrections were applied](#the-batch-says-correctdone-but-no-corrections-were-applied).
 
 **Why.** `(-1, -1)` means that Tether has not computed photobleaching yet. `alpha` NaN means that
 it has not computed leakage yet. `tether batch` runs the steps in order for you, so you see these
