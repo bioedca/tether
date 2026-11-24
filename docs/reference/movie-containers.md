@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, ZEISS CZI, cellSens VSI), what each reader refuses, and where each metadata value comes from."
+description: "The movie containers Tether reads (TIFF, CZI, ND2, cellSens VSI), what each reader refuses, and where each metadata value comes from."
 ---
 
 <!--
@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Movie containers
 
 **Who this page is for.** Anyone who wants to know whether Tether opens a movie file, why it
-refuses one, and where each metadata value of an opened movie comes from. It assumes you know the
+refuses one, and where each metadata value comes from. It assumes you know the
 container your microscope software writes. It does not assume you know Python.
 
 Tether opens a movie through a reader for its container. The first bytes of the file choose the
@@ -29,7 +29,7 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI, ND2 or
 `.vsi` movie opens through its reader, but extraction refuses it with "extraction reads only TIFF
 today". The changes that let extraction read them are planned (#1388 for ND2, #1390 for CZI,
-#1398 for `.vsi`). Until then, export the movie to uncompressed TIFF.
+and #1398 for `.vsi`). Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
