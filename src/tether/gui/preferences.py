@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 r"""What the application remembers between launches on this computer (#628, ADR-0122).
 
-The desktop application keeps four things from one session to the next:
+The desktop application keeps five things from one session to the next:
 
 * **Recent projects** — the last ten projects opened, newest first, for
   **File → Open recent**.
@@ -13,6 +13,8 @@ The desktop application keeps four things from one session to the next:
 * **Curator name** — the name written into new labels. Unset means the operating-system
   user name, which [`default_labeler`][tether.project.labels.default_labeler] writes, as
   before.
+* **Reopen at launch** — whether a launch with no project named opens the newest recent
+  project, in the section of its next step (#1159). Unset means on.
 
 **Not in the project file.** None of it is written into a ``.tether``: it describes this
 computer and this user, not the data. A project shared with a collaborator carries none of it.
@@ -35,8 +37,8 @@ that runs Tether from a shared account can use it to give each person their own 
 **The format.** One JSON object: ``schema`` (the integer 1), ``recent_projects`` (a list of
 absolute paths), ``resume`` (an object from a project identity to a ``molecule_key``),
 ``layout`` (an object with base64 ``geometry`` and ``state``, and the
-``section_hidden`` dock names) and ``curator_name`` (a
-string). Each key is checked on its own when read: a key that is missing or not in that
+``section_hidden`` dock names), ``curator_name`` (a string) and ``reopen_last_project``
+(a boolean). Each key is checked on its own when read: a key that is missing or not in that
 form reads as its default, and the other keys still read. A file that is not a JSON object
 of this ``schema`` reads as empty. Reading never raises, never creates a file and never
 creates a folder.
@@ -98,8 +100,10 @@ __all__ = [
     "record_layout",
     "record_resume",
     "remove_recent_project",
+    "reopen_last_project",
     "resume_molecule",
     "set_curator_name",
+    "set_reopen_last_project",
     "stored_layout",
     "validate_curator_name",
 ]
@@ -131,6 +135,7 @@ _RECENT = "recent_projects"
 _RESUME = "resume"
 _LAYOUT = "layout"
 _CURATOR = "curator_name"
+_REOPEN = "reopen_last_project"
 
 # The file holds up to RESUME_LIMIT paths plus Qt's layout bytes; anything far larger is
 # not a file this module wrote, and reads as empty rather than being parsed.
@@ -549,5 +554,27 @@ def set_curator_name(name: str | None, preferences_file: Path | None = None) -> 
             data.pop(_CURATOR, None)
         else:
             data[_CURATOR] = value
+
+    return _update(preferences_file, mutate)
+
+
+# --- reopen the last project at launch (#1159) -------------------------------------------
+
+
+def reopen_last_project(preferences_file: Path | None = None) -> bool:
+    """Return whether a launch reopens the newest recent project; on unless turned off.
+
+    A value that is not a boolean reads as the default, on.
+    """
+    value = _read(_resolve(preferences_file)).get(_REOPEN)
+    return value if isinstance(value, bool) else True
+
+
+def set_reopen_last_project(on: bool, preferences_file: Path | None = None) -> Path:
+    """Store whether a launch reopens the newest recent project."""
+    value = bool(on)
+
+    def mutate(data: dict[str, Any]) -> None:
+        data[_REOPEN] = value
 
     return _update(preferences_file, mutate)

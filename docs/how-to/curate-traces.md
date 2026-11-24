@@ -339,6 +339,15 @@ computer:
 - For each project, the molecule you had selected when you closed it.
 - The size of the window and the positions of its panels.
 - The curator name, if you set one.
+- Whether the application opens your last project when it starts.
+
+When you start the application without a project, it opens the project at the top of
+**File → Open recent** again. It shows the section of the next step that `tether status` gives
+for that project, not the section that showed when you closed it. If the file is gone, or the
+project or its next step cannot be read, the start page shows and the status bar says why. To
+start on the start page instead, clear **File → Reopen last project at start**. A project that
+you name when you start the application, or that you open from your file manager, opens in
+place of the last one.
 
 **View → Reset layout** puts the window and its panels back in their first positions. It also
 forgets the saved positions.
