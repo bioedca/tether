@@ -21,7 +21,9 @@ import struct
 import subprocess
 import sys
 import threading
+from collections import namedtuple
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 import pytest
@@ -39,7 +41,7 @@ from tether.io.adapters import (  # noqa: E402
     open_movie_source,
     select_adapter,
 )
-from tether.io.czi import _read_metadata  # noqa: E402
+from tether.io.czi import CziMovie, _read_metadata  # noqa: E402
 
 CZI = Path(__file__).resolve().parent / "fixtures" / "czi"
 
@@ -162,6 +164,148 @@ def test_a_damaged_file_is_refused_not_read_in_part(tmp_path: Path) -> None:
         open_movie_source(path)
 
 
+def test_a_file_czifile_cannot_parse_is_refused(tmp_path: Path, monkeypatch) -> None:
+    import czifile
+
+    def broken(path: Path) -> None:
+        raise ValueError("not a CZI segment")
+
+    monkeypatch.setattr(czifile, "CziFile", broken)
+    with pytest.raises(UnsupportedContainerError, match="cannot be parsed"):
+        CziMovie(CZI / "movie_raw_16x16x4.czi")
+
+
+# --- the structure rules, on directory entries that libCZI does not write -----------------
+
+_Pixel = namedtuple("_Pixel", "name dtype samples")
+_GRAY16 = _Pixel("GRAY16", "<u2", 1)
+
+
+def _entry(t: int = 0, **changes: object) -> SimpleNamespace:
+    """One directory entry of a 16 x 16 Gray16 movie frame at time point ``t``."""
+    fields: dict[str, object] = {
+        "dims": ("T", "C", "Y", "X", "S"),
+        "start": (t, 0, 0, 0, 0),
+        "shape": (1, 1, 16, 16, 1),
+        "pyramid_type": 0,
+        "is_pyramid": False,
+        "scene_index": 0,
+        "mosaic_index": 0,
+        "compression": SimpleNamespace(name="UNCOMPRESSED"),
+        "pixel_type": _GRAY16,
+    }
+    fields.update(changes)
+    return SimpleNamespace(**fields)
+
+
+def _header(**changes: object) -> SimpleNamespace:
+    fields: dict[str, object] = {"file_part": 0, "primary_file_guid": "a", "file_guid": "a"}
+    fields.update(changes)
+    return SimpleNamespace(**fields)
+
+
+def _check(header: SimpleNamespace, entries: list[SimpleNamespace]) -> tuple:
+    movie = object.__new__(CziMovie)
+    movie._path = Path("movie.czi")
+    return movie._check_structure(header, entries)
+
+
+@pytest.mark.parametrize(
+    ("header", "entries", "message"),
+    [
+        (_header(file_part=1), [_entry()], "one part of a multi-file acquisition"),
+        (_header(primary_file_guid="b"), [_entry()], "one part of a multi-file acquisition"),
+        (_header(), [], "holds no image subblock"),
+        (_header(), [_entry(pyramid_type=1)], "image pyramid"),
+        (_header(), [_entry(is_pyramid=True)], "image pyramid"),
+        (
+            _header(),
+            [_entry(0), _entry(1, pixel_type=_Pixel("GRAY8", "u1", 1))],
+            "mixes pixel types",
+        ),
+        (
+            _header(),
+            [_entry(0), _entry(1, dims=("T", "Y", "X"), start=(1, 0, 0), shape=(1, 16, 16))],
+            "different dimensions",
+        ),
+        (
+            _header(),
+            [_entry(0, shape=(1, 2, 16, 16, 1))],
+            "stores more than one of its channels in a subblock",
+        ),
+        (
+            _header(),
+            [
+                _entry(0, dims=("T", "Q", "Y", "X"), start=(0, 0, 0, 0), shape=(1, 1, 16, 16)),
+                _entry(1, dims=("T", "Q", "Y", "X"), start=(1, 1, 0, 0), shape=(1, 1, 16, 16)),
+            ],
+            "holds 2 values of the dimension Q",
+        ),
+        (
+            _header(),
+            [_entry(0), _entry(1, start=(1, 0, 8, 0, 0))],
+            "frames of different size or position",
+        ),
+        (_header(), [_entry(0, shape=(2, 1, 16, 16, 1))], "more than one time point in a subblock"),
+        (
+            _header(),
+            [
+                _entry(dims=("Y", "X"), start=(0, 0), shape=(16, 16)),
+                _entry(dims=("Y", "X"), start=(0, 0), shape=(16, 16)),
+            ],
+            "no time dimension but more than one subblock",
+        ),
+    ],
+)
+def test_a_directory_that_is_not_one_movie_is_refused(header, entries, message: str) -> None:
+    with pytest.raises(UnsupportedContainerError, match=message):
+        _check(header, entries)
+
+
+def test_a_pixel_type_that_is_not_one_real_sample_is_refused() -> None:
+    with pytest.raises(InvalidPixelError, match="UNKNOWN is not one real intensity sample"):
+        _check(_header(), [_entry(pixel_type=_Pixel("UNKNOWN", "u1", 1))])
+
+
+def test_a_single_frame_with_no_time_dimension_is_a_one_frame_movie() -> None:
+    entry = _entry(dims=("Y", "X"), start=(0, 0), shape=(16, 16))
+    assert _check(_header(), [entry]) == (entry,)
+
+
+def test_frames_are_ordered_by_time_point_not_by_directory_order() -> None:
+    entries = [_entry(2), _entry(0), _entry(1)]
+    assert [e.start[0] for e in _check(_header(), entries)] == [0, 1, 2]
+
+
+def _serving(segment: object) -> CziMovie:
+    """A 1-frame 16 x 16 movie whose one subblock reads back as ``segment``."""
+    movie = CziMovie(CZI / "movie_raw_16x16x4.czi")
+    movie._entries = (SimpleNamespace(read_segment_data=lambda czi: segment),)
+    movie._shape = (1, 16, 16)
+    return movie
+
+
+def test_a_deleted_subblock_is_refused_not_served() -> None:
+    with _serving(object()) as movie, pytest.raises(ValueError, match="deleted subblock"):
+        movie.read_frames(0, 1)
+
+
+def test_a_subblock_of_the_wrong_size_is_refused_not_served() -> None:
+    import czifile
+
+    segment = object.__new__(czifile.CziSubBlockSegmentData)
+    segment.data = lambda: np.zeros(8, dtype="<u2")  # type: ignore[method-assign]
+    with _serving(segment) as movie, pytest.raises(ValueError, match="decodes to 8 pixels"):
+        movie.read_frames(0, 1)
+
+
+def test_the_repr_names_the_file_and_its_shape() -> None:
+    with CziMovie(CZI / "movie_raw_16x16x4.czi") as movie:
+        assert repr(movie) == (
+            "CziMovie('movie_raw_16x16x4.czi', frames=4, height=16, width=16, dtype='<u2')"
+        )
+
+
 def test_the_extraction_path_still_reads_only_tiff() -> None:
     """``open_movie`` keeps its TIFF-only refusal until its callers read through read_frames."""
     from tether.io.movie import open_movie
@@ -191,6 +335,11 @@ def test_metadata_reads_each_value_from_the_xml() -> None:
     assert (meta.frame_time.value, meta.frame_time.origin) == (0.05, "file")
     assert (meta.pixel_size.value, meta.pixel_size.origin) == (0.16, "file")
     assert (meta.channels.value, meta.channels.origin) == (("Cy3",), "file")
+
+
+def test_a_file_with_no_xml_metadata_has_every_value_unknown() -> None:
+    meta = _read_metadata(None)
+    assert {meta.frame_time.origin, meta.pixel_size.origin, meta.channels.origin} == {"unknown"}
 
 
 @pytest.mark.parametrize(
