@@ -192,6 +192,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 | [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
 | [0141](0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md) | The update helper moves the install aside, installs unattended, and puts it back on failure | accepted | §7.12 (FR-UPDATE), §4.1 (application shell), §11.2 (tunables) |
+| [0143](0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md) | Deep-LASI detection mode 5 is ported, and mode 4 stays refused because Deep-LASI cannot run it | accepted | §7.1 FR-EXTRACT, §11.2 (the particle-detection rows), Appendix E stage 3 |
 
 <!-- gen:adr-index end -->
 

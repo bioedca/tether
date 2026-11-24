@@ -1178,8 +1178,8 @@ application and has full command-line and batch parity (§7.11).
   the apertures and the background with a view of overlap, edges and a trace preview
   ([#922](https://github.com/bioedca/tether/issues/922)). The run integrates the selected movies by applying the
   map to the source coordinates, as a checkpointed job (FR-WORKFLOW-5), and writes a new trace generation (§7.1).
-  The detector modes of today are wavelet, intensity and bandpass; broader parity with the detector modes of
-  Deep-LASI comes after `v1.0.0` ([#924](https://github.com/bioedca/tether/issues/924)).
+  The detector modes are wavelet, intensity, bandpass and ZMW intensity (Deep-LASI modes 1, 2, 3 and 5); Deep-LASI's
+  mode 4 (local-variance) is not ported, because Deep-LASI itself cannot run it ([#924](https://github.com/bioedca/tether/issues/924), ADR-0143).
 
 **What is in `v1.0.0` (maintainer decision 2026-11-14, card A1, option B).** In `v1.0.0`: the service layer and the
 recipe, the channel layouts and the map file, the colocalization rule and the trace generations, the correction
@@ -1642,10 +1642,11 @@ this section.
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |
-| Particle detection mode | `wavelet` (à trous mode 1; class default) — selectable `{wavelet, intensity, bandpass}` (mode 3 = `find_part_bpass_sort.m`) | `deeplasi/functions/mapping/findPart.m:1,18-62` (`method` dispatch); Tether multi-mode detector (ADR-0021) |
+| Particle detection mode | `wavelet` (à trous mode 1; class default) — selectable `{wavelet, intensity, bandpass, zmw}` (mode 3 = `find_part_bpass_sort.m`; `zmw` = mode 5; mode 4 is refused because it cannot run in Deep-LASI) | `deeplasi/functions/mapping/findPart.m:1,18-62` (`method` dispatch); Tether multi-mode detector (ADR-0021, ADR-0143) |
 | Detection threshold (intensity mode) | t = 0.5 (fraction of detection-image max); band-pass fine-threshold 3 % of bpass max; bpass `lnoise` = 1 / `lobject` = 7 | `deeplasi/functions/mapping/findPart.m:21-28,107-115`, `external/bpass.m`; [Crocker1996] |
 | Detection threshold (bandpass mode) | t = 0.98 — **dual-use**: floor pixels below t·max **and** keep only the top 1−t fraction of band-pass values (percentile sort); bpass `lnoise` = 1 / `lobject` = 9; `imregionalmax` → centroid. (t==0 → 0.01.) In production Deep-LASI's `findPart` supplies the GUI `DetectionThreshold` instead | `deeplasi/functions/mapping/find_part_bpass_sort.m`, `external/bpass.m`; [Crocker1996] |
-| Minimum spot separation (`min_separation`) | unset → each detection mode's own: **8 px** keep-brightest NMS for `wavelet`, **3 px** (the PSF disk radius) for `intensity` and `bandpass`; a value given applies to every mode | Tether (ADR-0022); Deep-LASI applies no effective separation (`deeplasi/functions/mapping/findPart.m:66-69`) |
+| Detection threshold (zmw mode) | t = 0.5 (fraction of detection-image max; Deep-LASI gives mode 5 no default, so the intensity mode's); `imfilter` with `fspecial('disk', 1)`, zero padding; fine-threshold 3 % of the filtered max; 3 × 3 erosion padded with 0 (MATLAB's `bwmorph`) | `deeplasi/functions/mapping/findPart.m:50-58` (ADR-0143) |
+| Minimum spot separation (`min_separation`) | unset → each detection mode's own: **8 px** keep-brightest NMS for `wavelet`, **3 px** (the PSF disk radius) for `intensity`, `bandpass` and `zmw`; a value given applies to every mode | Tether (ADR-0022); Deep-LASI applies no effective separation (`deeplasi/functions/mapping/findPart.m:66-69`) |
 | Donor half (`donor_side`) | `left` — the horizontal half of the frame that carries donor emission; ignored with an imported `.tmap`, which carries its own channel geometry; the advisory donor-side check reads it back (ADR-0070) | Tether (§7.1) |
 | Aperture (PSF disk / BG ring) | 21×21 grid; disk r = 3 (29 px); ring inner 6 / outer 8 (84 px); dead-zone 3 < d ≤ 6 | `deeplasi/functions/filtering/circ.m:5-32`, `classes/TRACERdata.m:92-100` |
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
