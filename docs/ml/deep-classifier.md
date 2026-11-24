@@ -97,7 +97,7 @@ trained = train_classifier(dataset)            # lazily imports torch; needs the
 scores = predict_proba(trained, dataset)       # per-molecule accept probability, rows aligned
 ```
 
-`build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
+`build_deep_dataset` builds the framework-free substrate (base env). `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
 hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
@@ -124,7 +124,7 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
+Labels are the shared **binary** accept(1)/reject(0) curation labels. The six-way
 DeepFRET taxonomy awaits the category codec of ADR-0023 and is a later extension.
 
 ## Why a third isolated environment
@@ -145,13 +145,13 @@ maintainer-approved PR — not a casual bump.
 
 The split runs through the code, too. The framework-agnostic **dataset substrate**
 (`tether.ml.deep.dataset`, pure NumPy) lives in the base env and is covered by the default
-3-OS test matrix; **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
+3-OS test matrix. **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
 so merely importing the module in the base env pulls no framework. Only calling
 `train_classifier` / `predict_proba` needs the `deep/` stack.
 
 ### The `deep/` environment
 
-`deep/environment.yml` expresses the constraints; the committed, multi-platform
+`deep/environment.yml` expresses the constraints. The committed, multi-platform
 `deep/conda-lock.yml` pins the exact versions and is the single source of truth (the required
 `conda-lock-verify` check restores it and never solves fresh). It is **CPU-only and
 cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
@@ -163,7 +163,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
   init, which pulls the ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  project-file bridge). The scikit-learn and xgboost packages stay lazy and are not needed here.
 
 ### Continuous integration
 

@@ -172,8 +172,9 @@ a line starting `detection: mode`. Each line names what was applied. Then check 
       halves; extract this movie again with --donor-side right.` The halves are swapped.
       Extract again as the message says, with `--overwrite`, which replaces
       `movie.tether`. With `--tmap`, the message names the channel order of the map instead,
-      because `--donor-side` is ignored. Extract again with a correctly oriented map, or
-      without `--tmap`. With a channel layout from Python
+      because `--donor-side` is ignored. Extract again with a correctly oriented map. Or
+      extract without `--tmap`, and give the `--donor-side` of the true donor. With a
+      channel layout from Python
       ([other layouts](../compatibility.md#acquisition-geometry)), the message names a
       change to the layout. Give the other half as the donor, or exchange `donor_rect` and
       `acceptor_rect`.
@@ -185,8 +186,9 @@ a line starting `detection: mode`. Each line names what was applied. Then check 
     molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
     **donor** trace (green) should step **up**. If it steps down instead, close the project
     in `tether-gui`. Then extract again with the other `--donor-side` and `--overwrite`.
-    If you extracted with `--tmap`, extract again with a correctly oriented map or without
-    `--tmap` instead.
+
+    If you extracted with `--tmap`, extract again with a correctly oriented map instead. Or
+    extract without `--tmap`, and give the `--donor-side` of the true donor.
 
 ## Add another movie to a project
 

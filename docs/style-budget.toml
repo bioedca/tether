@@ -204,8 +204,8 @@ retired = 0
 
 [pages."docs/ml/deep-classifier.md"]
 kind = "descriptive"
-long_share = 16.7
-semicolons = 7
+long_share = 13.9
+semicolons = 2
 long_paragraphs = 0
 retired = 0
 

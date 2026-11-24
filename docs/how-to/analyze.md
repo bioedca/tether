@@ -181,18 +181,22 @@ column and its unit.
    one of its dwells both started and ended inside a trace. So a state that molecules stay in
    until the trace ends has no curve.
 3. The dwell-time axis reads seconds when `dt` is anything other than 1, and frames at
-   `dt = 1` ([`dt`](../reference/parameters.md#param-dt)). With a frame time of exactly
-   1 second, the axis still says frames, but the numbers are the same. The printed rates are
-   per second either way.
+    `dt = 1` ([`dt`](../reference/parameters.md#param-dt)). With a frame time of exactly
+    1 second, the axis still says frames, but the numbers are the same. The printed rates are
+    per second either way.
 
-   One `dt` applies to every molecule. So it is right only when all the molecules come from
-   movies recorded at that frame time. Your project may hold movies recorded at different
-   frame times. Then run the script once per frame time. Use that frame time as `dt` and those
-   molecules as `molecule_keys` in `dwell_settings`.
+    One `dt` applies to every molecule. So it is right only when all the molecules come from
+    movies recorded at that frame time. If your project holds movies recorded at different
+    frame times, do these steps once for each frame time:
 
-   Give the dwell files of each run names of their own. For example, use
-   `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`. A run that reuses a
-   name overwrites the files that the earlier run wrote.
+    1. Set `dt` to that frame time.
+    2. Put the molecules of the movies with that frame time as `molecule_keys` in
+       `dwell_settings`.
+    3. Give the dwell files of this run names of their own. For example, use
+       `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`. A run that
+       reuses a name overwrites the files that the earlier run wrote.
+    4. Run the script.
+
 4. The script prints one rate for each state whose fit succeeded, from the
    single-exponential fit. After the `±` comes the half-width of its 95% confidence interval
    ([dwell-fit `ci_level`](../reference/parameters.md#param-dwell-model)). A state whose fit
