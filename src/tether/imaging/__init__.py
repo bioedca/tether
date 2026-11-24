@@ -60,6 +60,7 @@ from tether.imaging.detect import (
     detect_spots_bandpass,
     detect_spots_by_mode,
     detect_spots_intensity,
+    detect_spots_zmw,
     detection_image,
 )
 from tether.imaging.extract import (
@@ -152,6 +153,7 @@ __all__ = [
     "detect_spots_bandpass",
     "detect_spots_by_mode",
     "detect_spots_intensity",
+    "detect_spots_zmw",
     "detection_image",
     "estimate_similarity_prealign",
     "estimate_translation_prealign",
