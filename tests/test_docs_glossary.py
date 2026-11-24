@@ -195,7 +195,7 @@ def test_each_entry_opens_with_a_short_plain_definition(heading: str, block: lis
     definition = _definition(block)
     assert definition, f"{heading!r} has no definition paragraph"
     assert "`" not in definition, f"{heading!r} opens with a code identifier: {definition!r}"
-    said = sentences(definition)
+    said = sentences(definition, every=True)
     assert len(said) <= MAX_DEFINITION_SENTENCES, f"{heading!r} definition: {said}"
     for sentence in said:
         count = len(words(sentence))
