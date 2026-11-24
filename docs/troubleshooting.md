@@ -388,7 +388,10 @@ that one finds nothing.
 | `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
 | `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
-| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether does not read this movie container (.czi). Tether reads: TIFF (.tif, .tiff); ND2 (.nd2). …` | A vendor container (`.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: this container opens, but extraction reads only TIFF today; …` | An ND2 movie given to extraction. Tether's ND2 reader opens it from Python, but extraction reads only TIFF. | Export the movie to uncompressed TIFF. |
+| `…: the ND2 file holds more than a time series (Z planes). …`, `…: each pixel has 2 components …`, `…: the ND2 frames are compressed (lossless). …`, `…: Tether does not read padded ND2 rows. …`, `…: this ND2 file is format Ver2.0; …` | An ND2 variant that the reader cannot read fully ([ND2 movies](compatibility.md#nd2-movies)). It refuses the file rather than read part of it. | Export the movie (each position, plane or channel on its own) to uncompressed TIFF. |
+| `…: frame 12 of 400 is missing from the file; …` or `…: the ND2 chunk map is missing at the end of the file; …` | An ND2 file that is an incomplete copy, or an acquisition that did not finish. | Copy the file again from the acquisition machine. |
 
 Two more from the same family, raised by `tether.project.extract`:
 

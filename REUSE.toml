@@ -162,6 +162,22 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Pengning Xu, Jiahui Zhang, Feng Pan, Chelsea Mahn, Christopher Roland, Celeste Sagui, Keith Weninger (Zenodo 10.5281/zenodo.7853531)"
 SPDX-License-Identifier = "CC0-1.0"
 
+# Public ND2 files (#902, ADR-0148): verbatim copies of one file of each of two Zenodo records,
+# doi:10.5281/zenodo.17487086 (Bakker, Glyco-PAINT reference) and doi:10.5281/zenodo.24363428
+# (Chiaruttini, Bio-Formats PR 4511), CC-BY-4.0. tests/fixtures/nd2/reference.json is Tether's own.
+# Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2"]
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Hans Bakker, Leiden University (Zenodo 10.5281/zenodo.17487086)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["tests/fixtures/nd2/ZC.nd2"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Nicolas Chiaruttini, EPFL (Zenodo 10.5281/zenodo.24363428)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

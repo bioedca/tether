@@ -997,6 +997,44 @@ its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the me
 the archive; manifest ids `weninger-hairpin-traces` (the archive) and
 `weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.
 
+## Public ND2 files (#902, ADR-0148) — **CC-BY-4.0**
+
+External third-party data under a different licence, two verbatim copies (no transformation) of
+public Zenodo files, annotated CC-BY-4.0 in `REUSE.toml` and named in `NOTICE`. They are the test
+files of Tether's own ND2 reader (`tether.io.nd2`); the maintainer's card D2 (option B, 2026-11-14)
+asks for a public file with a licence that permits the copy.
+
+| Fixture | Record | Size | SHA-256 | Content |
+|---|---|---|---|---|
+| `tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2` | Bakker H., "Glyco-PAINT reference", Zenodo **doi:10.5281/zenodo.17487086** (2025-10-30, Leiden University) | 708,608 B | `b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d` | ND2 version 3.0, one frame of 512 × 512 `uint16` from a single-molecule PAINT microscope, 0.160325 µm per pixel |
+| `tests/fixtures/nd2/ZC.nd2` | Chiaruttini N., "nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511", Zenodo **doi:10.5281/zenodo.24363428** (2026-11-19, EPFL) | 495,616 B | `bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae` | ND2 version 3.0, 2 Z planes × 2 channels (Cy5, Cy3) of 32 × 32 `uint16`; the reader must refuse it |
+
+The records' MD5 values (`62bbc09fe7e6638e3cf04d960a51b59f`, `108e4f8dc7a6591dfdd99edcac0a64da`)
+match the downloads. **Accessed:** 2026-11-24, from
+`https://zenodo.org/records/<record>/files/<name>?download=1`. Manifest ids
+`nd2-glyco-paint-bf-frame` and `nd2-bioformats-pr4511-zc`.
+
+**The pixel reference.** The frame of the first file was exported to TIFF by Bio-Formats
+`bfconvert` **7.3.1** (build `41e12f630ad7349caa0293cba23948c17d22732b`, 11 July 2024; the
+`bioformats_package.jar` of the python-bioformats 4.1.0 wheel, jar SHA-256
+`289af1d5c9b34766fccea1fc7deb072b2e8ce445b6fe9a5677bce2e95bdc8cc9`) with
+`java -cp bioformats_package.jar loci.formats.tools.ImageConverter -nogroup -overwrite
+221012-Exp-1-A1-1-BF.nd2 bf_reference.tif`. The TIFF (528,690 B, SHA-256
+`17c22d24b0d1bc2f9f95bd8fb34912faacf88e8038c9fcb7c214823a6ff85cea`) is not committed; the
+SHA-256 of its pixels as C-order little-endian `uint16` bytes,
+`2806dc93e8f93c847eb8ff2ff67af8c388a416d8ed6f3ee0c31306982bccf143`, is in
+`tests/fixtures/nd2/reference.json`, with the metadata values. `nd2.imread` of the `nd2` package
+0.12.0 (PyPI, BSD-3-Clause) gives the same pixel digest, the same pixel size and the same channel
+name; Bio-Formats reports the same `PhysicalSizeX`/`PhysicalSizeY` and channel name.
+
+**The synthetic files.** A time series, a frame time and each refused variant come from
+`tests/_nd2_synth.py`, because neither public file is a time series. On 2026-11-24 the `nd2`
+package 0.12.0 read a 64-frame `uint16`, a 5-frame row-padded `uint16` and a 4-frame `float32`
+file of that writer to the written frames, frame times, pixel size and channel name, and
+Bio-Formats 7.3.1 exported the unpadded two to the written frames. For the padded file the two
+readers disagree (Bio-Formats reads the padding as pixels), which is why the reader refuses padded
+rows.
+
 ## Update-verifier attestation answer and `gh` report (#333)
 
 Two JSON files the update verifier's tests (`tests/test_update_verify.py`) replay byte for byte, so

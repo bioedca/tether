@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from os import PathLike
     from types import TracebackType
 
-__all__ = ["TIFF_ADAPTER", "MovieReader", "open_movie"]
+__all__ = ["EXTRACTED_CONTAINERS", "TIFF_ADAPTER", "MovieReader", "open_movie"]
 
 # TIFF compression schemes that can discard information. Conversion cannot recover
 # values that a lossy stream lost, and the Compression tag does not say whether a
@@ -415,6 +415,13 @@ TIFF_ADAPTER = MovieAdapter(
     open=MovieReader,
 )
 """The built-in adapter for uncompressed multi-page TIFF, the first in the registry."""
+
+EXTRACTED_CONTAINERS: tuple[str, ...] = (TIFF_ADAPTER.name,)
+"""The names of the adapters whose movies extraction reads; [`open_movie`][] refuses the rest.
+
+A folder or a pattern given to ``tether batch`` contributes only the files of these
+readers, so an ND2 original beside its TIFF export is not taken as a second movie.
+"""
 
 
 def open_movie(path: str | PathLike[str]) -> MovieReader:

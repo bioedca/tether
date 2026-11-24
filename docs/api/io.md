@@ -29,6 +29,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.movie
 
+::: tether.io.nd2
+
 ::: tether.io.recover
 
 ::: tether.io.schema
