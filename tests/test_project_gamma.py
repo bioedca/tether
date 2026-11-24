@@ -378,7 +378,8 @@ def test_missing_trace_layer_raises_keyerror(tmp_path: Path) -> None:
 
 
 def test_only_new_group_is_settings_gamma(tmp_path: Path) -> None:
-    # schema-guard: the writer may add ONLY the additive /settings/gamma group.
+    # schema-guard: the writer may add ONLY the additive /settings/gamma group and the
+    # additive γ evidence table beside it (#927).
     path = tmp_path / "g.tether"
     _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1)
     with h5py.File(path, "r") as f:
@@ -386,7 +387,7 @@ def test_only_new_group_is_settings_gamma(tmp_path: Path) -> None:
     compute_gamma(path)
     with h5py.File(path, "r") as f:
         after = _all_names(f)
-    assert set(after) - set(before) == {"settings/gamma"}
+    assert set(after) - set(before) == {"settings/gamma", "settings/gamma_contributors"}
 
 
 def test_nonzero_frame_range_start_converts_correctly(tmp_path: Path) -> None:
