@@ -658,10 +658,15 @@ approved again
 
 `/generations/label_reviews` is an optional append-only dataset. Each row stores the
 current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
-row index of a human accept or reject in `/labels/table`. A value of `-1` marks a
-carried label that is pending review after a clear or in an exported subset. The
-last review row for a molecule applies. A carry-over in `carried_keys` starts pending
-and stays out of supervised training until confirmed on the current extraction.
+row index of a human accept or reject in `/labels/table`, or of a confirmation. A value
+of `-1` marks a carried label that is pending review after a clear or in an exported
+subset. The last review row for a molecule applies. A carry-over in `carried_keys` starts
+pending and stays out of supervised training until confirmed on the current extraction.
+
+A confirmation (`tether.project.generation_reconcile.confirm_carried`, the reconciliation
+page, #923) is one human row of `/labels/table` with the molecule's current label, who
+confirmed and when. It does not change the label, and the earlier rows keep the original
+curator and time.
 
 ## `/sources` — the source registry
 

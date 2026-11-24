@@ -7,7 +7,8 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has eight subcommands: `tether extract` and `tether batch` write projects,
+command line has nine subcommands: `tether extract` and `tether batch` write projects,
+`tether reextract` extracts a movie of a project again as a new trace generation,
 `tether idealize` fits the traces of a project that exists, `tether map create` writes a
 channel map file for later extractions, `tether info` only reads projects and prints a
 summary, `tether status` only reads a project and prints which steps are complete, which
@@ -334,6 +335,56 @@ If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
 than a silent pass.
+
+## `tether reextract`
+
+Extract a movie that a project holds again, as a new *trace generation*
+([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). Use it
+when the map, the channel geometry or an extraction option of a movie you have curated
+changes. The earlier extraction is never overwritten: it stays readable in the project, labels
+and all.
+
+```text
+tether reextract [-h] [--map PATH] [--tmap PATH] [--tdat PATH] [--profile PATH]
+                 [--match-px PX]
+                 project movie
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | the `.tether` project that holds the movie |
+| `movie` | *(required)* | the movie file, with the bytes the project recorded |
+| `--map PATH` | none | apply a saved Tether `.npz` map file instead of a native fit, never with `--tmap` |
+| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit |
+| `--tdat PATH` | none | apply the particle-detection mode of a Deep-LASI `.tdat`, as for `tether extract` |
+| `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). Without one, each option has the default of `tether extract` |
+| `--match-px PX` | `None` | the "did not move" distance in pixels. `None` is 0.5 px (`GENERATION_MATCH_PX`) |
+
+**What moves to the new generation.** A molecule of the new extraction within `--match-px`
+of a molecule of the previous one (each the other's closest) *did not move*. It keeps that
+molecule's key, and its label, category and analysis window move to it with the mark
+**carried**. A carried label does not train the ranker until a person confirms it in the
+application (Curation → Reconcile trace generation…), or accepts or rejects the molecule
+again. Every fit and correction of the movie becomes stale. The aperture options of the
+profile (`disk_radius`, `ring_inner`, `ring_outer`, `bg_window`) must equal the project's.
+
+The command holds the project's writer lock for the whole run, so it refuses a project
+that the application or another command has open for writing. It prints the counts of
+the three lists that the reconciliation page shows:
+
+```console
+$ tether reextract experiment.tether movie_010.tif --map beads.npz
+Extracted 214 molecule(s) as generation 2 of movie movie_010 -> experiment.tether
+  198 carried (198 waiting for confirmation), 16 new, 9 lost. The fits and corrections of the movie are stale
+```
+
+A **new** molecule has no partner in the previous generation, so it has no labels. A
+**lost** molecule of the previous generation has no partner in the new one. It and its
+labels stay readable in the previous generation. `tether status` prints the same counts.
+Exit codes: `0` the new generation was written, `1` the run failed and the project is
+unchanged (for example, the movie is not in the project, or the project is locked), `2`
+bad command-line arguments. A recipe step runs the same command:
+`{"command": "reextract", "fields": {"project": ..., "movie": ...}}`.
 
 ## `tether batch`
 
@@ -740,8 +791,8 @@ tether run [-h] [--dry-run] [--resume] recipe
 | `--resume` | off | skip the completed steps at the start of the latest run and continue from the first unfinished step |
 
 Each step runs through its service command, in order, as a job stored in the project that
-the step writes (the `output` of `extract`, the `project` of `idealize`, the `into` of
-`batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
+the step writes (the `output` of `extract`, the `project` of `reextract` and of `idealize`,
+the `into` of `batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
 its number. Tether also records progress in its per-user state for the recipe's path and
 contents. This includes successful steps that write no single project, such as `map` or
 `batch` without `into`. The run stops at the first failed step.
@@ -1024,6 +1075,7 @@ out/movie_010.tether
     results: not available in this version (#943)
   Deposit
     deposit: not available in this version (#956)
+  new trace generations: 1 movie(s), 198 carried (12 waiting for confirmation), 16 new, 9 lost
   stale: 1
     fit vbconhmm: 3 of 184 molecules changed since the fit (their traces, window or correction factors)
   jobs: none
@@ -1075,6 +1127,12 @@ and changes the version if it renames or removes a key, or changes the meaning o
 | `next_step.stage` | its stage key, or `null` when every available stage is ready |
 | `next_step.section` | its section, or `null` |
 | `next_step.action` | what to do |
+| `reconciliation` | the molecules of the movies extracted again ([`tether reextract`](#tether-reextract)). The text output prints this line only when `movies` is not `0` |
+| `reconciliation.movies` | how many movies have more than one trace generation |
+| `reconciliation.carried` | the molecules whose labels moved from the previous generation |
+| `reconciliation.new` | the molecules of the active generation with no partner in the previous one |
+| `reconciliation.lost` | the molecules of the previous generation with no partner in the active one |
+| `reconciliation.waiting` | the carried molecules that wait for a person to confirm them |
 
 ## `tether idealize`
 
@@ -1377,8 +1435,8 @@ shows the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract`, `tether batch`, `tether idealize`, `tether map create` and `tether approve`
-are each the command-line route of one *service command*
+`tether extract`, `tether reextract`, `tether batch`, `tether idealize`, `tether map create`
+and `tether approve` are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -1393,6 +1451,7 @@ two differ:
 | Command | Request | Result | What it does |
 |---|---|---|---|
 | `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether reextract` | `tether.services.reextract.ReextractRequest` (version 1) | `tether.services.reextract.ReextractResult` | extract a movie of a .tether project again, as a new trace generation |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
 | `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
 | `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
