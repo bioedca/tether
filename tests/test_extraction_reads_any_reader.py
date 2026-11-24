@@ -65,14 +65,19 @@ def _movie_frames() -> np.ndarray:
     return frames
 
 
+_NAME = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010"
+
+
 @pytest.fixture
 def pair(tmp_path: Path) -> tuple[Path, Path]:
     """One movie as an ND2 original and as its (big-endian) TIFF export, in two folders."""
     frames = _movie_frames()
     (tmp_path / "nd2").mkdir()
     (tmp_path / "tif").mkdir()
-    nd2 = write_nd2(tmp_path / "nd2" / "movie.nd2", frames)
-    tif = tmp_path / "tif" / "movie.tif"
+    # The names follow the acquisition convention (PRD Appendix A), so the condition and
+    # the video index parsed from them are compared too.
+    nd2 = write_nd2(tmp_path / "nd2" / f"{_NAME}.nd2", frames)
+    tif = tmp_path / "tif" / f"{_NAME}.tif"
     tifffile.imwrite(tif, frames.astype(">u2"), photometric="minisblack", byteorder=">")
     return nd2, tif
 
@@ -83,7 +88,11 @@ def _assert_same_extraction(a: Path, b: Path) -> None:
     for name in traces_a:
         assert traces_a[name].dtype == traces_b[name].dtype, name
         np.testing.assert_array_equal(traces_a[name], traces_b[name], err_msg=name)
-    np.testing.assert_array_equal(read_molecules(a)["donor_xy"], read_molecules(b)["donor_xy"])
+    molecules_a, molecules_b = read_molecules(a), read_molecules(b)
+    np.testing.assert_array_equal(molecules_a["donor_xy"], molecules_b["donor_xy"])
+    # One condition, parsed from the movie's name with its container suffix stripped.
+    assert set(molecules_a["condition_id"]) == set(molecules_b["condition_id"])
+    assert len(set(molecules_a["condition_id"])) == 1
 
 
 # --- extraction: the ND2 and its TIFF export give the same traces ------------------------
@@ -150,7 +159,7 @@ def test_tether_batch_extracts_an_nd2_folder(pair: tuple[Path, Path], tmp_path: 
     for folder, out in ((nd2.parent, out_nd2), (tif.parent, out_tif)):
         rc = main(["batch", str(folder), "-d", str(out), "--no-idealize"])
         assert rc == 0
-    _assert_same_extraction(out_nd2 / "movie.tether", out_tif / "movie.tether")
+    _assert_same_extraction(out_nd2 / f"{_NAME}.tether", out_tif / f"{_NAME}.tether")
 
 
 def test_tether_batch_refuses_an_original_beside_its_export(
