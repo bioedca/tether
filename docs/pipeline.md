@@ -83,10 +83,11 @@ movie's row stores.
 ### Detect
 
 `tether.imaging.detect` finds candidate spots in both halves. It ports Deep-LASI's detection
-methods 1 to 3, so a movie can be extracted with the method and threshold its `.tdat`
-recorded; methods 4 (local variance) and 5 (ZMW intensity) are not ported, and a `.tdat` that
-names one is refused rather than run with a substitute
-([ADR-0021](adr/0021-particle-detection-modes.md);
+methods 1, 2, 3 and 5 (ZMW intensity), so a movie can be extracted with the method and
+threshold its `.tdat` recorded; method 4 (local variance) is not ported, because Deep-LASI's
+own method 4 cannot run, and a `.tdat` that names it is refused rather than run with a
+substitute ([ADR-0021](adr/0021-particle-detection-modes.md);
+[ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md),
 [Does Tether fit my data?](compatibility.md#legacy-project-files)).
 
 - **Writes:** nothing on its own; the spots feed registration and colocalization.

@@ -294,6 +294,15 @@ FRET_cloud script output on the smfret-analysis2 test data  (GPL-3.0-only)  —
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv
 
+ZEN test movie of ZEISS  (CC-BY-4.0)  — Rhode S, "CZI (Carl Zeiss Image)
+  dataset with artificial test camera images with various dimension for testing
+  libraries reading," Zenodo (2022), doi:10.5281/zenodo.7015307 (CC-BY-4.0).
+  Tether bundles the two frames of its movie T=2_CH=1.czi, exported to TIFF by
+  ZEISS pylibCZIrw 6.1.0, as the reference of the CZI adapter's bit-for-bit test
+  (#903). The file is licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the author travels with it:
+    tests/fixtures/czi/zeiss_t2_ch1_reference.tif
+
 Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
   preferred states of complementary trinucleotide repeat DNA hairpins
@@ -316,6 +325,21 @@ PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for th
   for a comparison test (issue #720). That file is CC0-1.0 (see
   LICENSES/CC0-1.0.txt and the REUSE.toml annotation), NOT GPL-3.0. PySMACKS
   itself is NOT vendored.
+
+Deep-LASI DNA-origami detection image  (CC-BY-4.0)  — Wanninger S, Asadiatouei P,
+  Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC, "Deep-LASI: deep-learning
+  assisted, single-molecule imaging analysis of multi-color DNA origami
+  structures", Nat Commun 14:6564 (2023), doi:10.1038/s41467-023-42272-9; data:
+  Zenodo record 7561162 (Figure_2.zip), CC-BY-4.0. Tether bundles a 128 x 128
+  crop of one detection image saved in that archive, values unchanged, as
+  tests/fixtures/deep_lasi_findpart_images/public.csv (made by
+  scripts/make_deeplasi_findpart_images.py), used only as the input of a
+  comparison with Deep-LASI's own particle detection (#924, ADR-0143). The spot
+  positions Deep-LASI found on that crop are computed from it and are also
+  CC-BY-4.0:
+  tests/fixtures/reference/deep-lasi/findpart-zmw/public_t1.csv,
+  tests/fixtures/reference/deep-lasi/findpart-zmw/public_t2.csv,
+  tests/fixtures/reference/deep-lasi/findpart-zmw/public_t3.csv. Deep-LASI itself is NOT vendored: its repository has no licence file.
 
 Measured PPR-RNA and Hsp70/Hsp90 smFRET traces  (CC-BY-4.0)  — Marzano N, et al.,
   Nucleic Acids Research 52(22):14154-14170 (2024), doi:10.1093/nar/gkae984;

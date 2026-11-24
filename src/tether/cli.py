@@ -184,7 +184,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         choices=DETECTION_MODES,
         help=(
             "particle-detection method (Deep-LASI findPart mode; default: wavelet). "
-            "'intensity'/'bandpass' also honor --detection-threshold. "
+            "'intensity'/'bandpass'/'zmw' also honor --detection-threshold. "
             "Mutually exclusive with --tdat, which supplies the mode"
         ),
     )
@@ -196,8 +196,8 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         metavar="FRAC",
         help=(
             "detection threshold as a fraction of the detection-image max, in [0, 1) "
-            "(intensity/bandpass modes only; default: each mode's own — intensity 0.5, "
-            "bandpass 0.98; ignored by wavelet). Mutually exclusive with --tdat"
+            "(intensity/bandpass/zmw modes only; default: each mode's own — intensity 0.5, "
+            "bandpass 0.98, zmw 0.5; ignored by wavelet). Mutually exclusive with --tdat"
         ),
     )
     extract.add_argument(
@@ -214,7 +214,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         default=None,
         help=(
             "minimum spot separation in px; unset uses each detection mode's faithful "
-            "default (wavelet 8, intensity/bandpass 3)"
+            "default (wavelet 8, intensity/bandpass/zmw 3)"
         ),
     )
     extract.add_argument(

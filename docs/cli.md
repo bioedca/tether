@@ -89,7 +89,7 @@ on one dual-channel TIFF movie and write a new `.tether` project.
 
 ```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
-               [--detection-mode {wavelet,intensity,bandpass}]
+               [--detection-mode {wavelet,intensity,bandpass,zmw}]
                [--detection-threshold FRAC] [--window WINDOW]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
@@ -107,10 +107,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
 | `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
-| `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
-| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
+| `--detection-mode {wavelet,intensity,bandpass,zmw}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass`/`zmw` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
+| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98`, zmw `0.5` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass/zmw modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
 | `--window WINDOW` | `21` | aperture / crop-box side length in px, odd |
-| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass 3) | minimum spot separation in px |
+| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass/zmw 3) | minimum spot separation in px |
 | `--detection-block DETECTION_BLOCK` | `50` | moving-average block size for the detection image |
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
@@ -468,8 +468,11 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  a Tether movie reader opens, in any case. Today these are `.tif` and `.tiff`. With
-  `--recursive` it also gives the movies in its sub-folders.
+  a Tether movie reader opens, in any case. Today these are `.tif`, `.tiff` and `.czi`. With
+  `--recursive` it also gives the movies in its sub-folders. Extraction does not read a `.czi`
+  movie yet (#1390), so each one fails its extraction stage with a message that says so
+  ([Movie containers](reference/movie-containers.md)). To leave them out, name the TIFF files or
+  a `*.tif` pattern.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
@@ -483,7 +486,7 @@ gives no movie stops the run before anything is written, and the message names i
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .czi); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each

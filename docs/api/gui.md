@@ -57,6 +57,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.reconcile
 
+::: tether.gui.requirements
+
 ::: tether.gui.roundtrip
 
 ::: tether.gui.sections

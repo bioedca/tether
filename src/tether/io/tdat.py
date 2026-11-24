@@ -101,14 +101,22 @@ _FLAG_START = 12  # bCh1..bCh4 occupy columns 12..15
 _NFILE_COL = 16
 
 # Deep-LASI findPart.m ``method`` code -> Tether ParticleDetectionMode string value
-# (mapping/findPart.m:18-30). ``DetectionMode`` is a Literal of the three valid mode
-# strings — a type only, NOT an import of tether.imaging.detect, so io stays decoupled
-# from the imaging layer while static checkers still get the narrow type; a test locks
-# these equal to the enum's member values. Modes 4 (local-variance) and 5 (ZMW
-# intensity) are not ported, so a .tdat saved with one of them is refused rather than
-# silently mis-detected.
-DetectionMode = Literal["wavelet", "intensity", "bandpass"]
-_DETECTION_MODE_BY_CODE: dict[int, DetectionMode] = {1: "wavelet", 2: "intensity", 3: "bandpass"}
+# (mapping/findPart.m:18-58). ``DetectionMode`` is a Literal of the valid mode strings —
+# a type only, NOT an import of tether.imaging.detect, so io stays decoupled from the
+# imaging layer while static checkers still get the narrow type; a test locks these
+# equal to the enum's member values. Mode 5 (ZMW intensity) is ported (ADR-0143). Mode 4
+# (local-variance) is not: at the pinned Deep-LASI commit it reads a variable ``r`` that
+# nothing has set, so Deep-LASI itself cannot detect with it, and a .tdat that names it
+# is refused rather than detected with an invented method.
+DetectionMode = Literal["wavelet", "intensity", "bandpass", "zmw"]
+_DETECTION_MODE_BY_CODE: dict[int, DetectionMode] = {
+    1: "wavelet",
+    2: "intensity",
+    3: "bandpass",
+    5: "zmw",
+}
+# findPart.m mode 4: why it is refused (ADR-0143), named in the error message.
+_LOCAL_VARIANCE_CODE = 4
 # classes/TRACERdata.m:62 — ParticleDetectionMode defaults to 1 (wavelet); a .tdat
 # that predates the field (or a minimal one) decodes to that class default.
 _DEFAULT_DETECTION_MODE_CODE = 1
@@ -169,7 +177,7 @@ class TdatDetectionSettings:
     ----------
     mode:
         the Tether [`ParticleDetectionMode`][tether.imaging.detect.ParticleDetectionMode] string
-        (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``) for the Deep-LASI
+        (``"wavelet"`` / ``"intensity"`` / ``"bandpass"`` / ``"zmw"``) for the Deep-LASI
         ``findPart`` method the movie was detected with.
     threshold:
         the **mapping/detection reference channel**'s ``DetectionThreshold`` as a
@@ -320,21 +328,30 @@ def _reference_channel_threshold(file: h5py.File, temp: h5py.Group) -> float | N
 def _detection_settings(file: h5py.File, temp: h5py.Group) -> TdatDetectionSettings:
     """Decode [`TdatDetectionSettings`][] from the ``temp`` struct.
 
-    Maps the Deep-LASI ``findPart`` ``method`` code to the Tether mode string; an
-    unported mode (4 local-variance / 5 ZMW, or any out-of-range code) is refused
-    so an import can never silently mis-detect with the wrong method. The
-    per-channel ``DetectionThreshold`` of the mapping-reference channel is decoded
-    from the MCOS ``Channel`` blob when present (`_reference_channel_threshold`).
+    Maps the Deep-LASI ``findPart`` ``method`` code to the Tether mode string. Mode 4
+    (local-variance) and any out-of-range code are refused, so an import can never
+    silently detect with the wrong method: Deep-LASI's own mode 4 cannot run at the
+    pinned commit (ADR-0143). The per-channel ``DetectionThreshold`` of the
+    mapping-reference channel is decoded from the MCOS ``Channel`` blob when present
+    (`_reference_channel_threshold`).
     """
     code = _detection_mode_code(temp)
     try:
         mode = _DETECTION_MODE_BY_CODE[code]
     except KeyError:
         supported = sorted(_DETECTION_MODE_BY_CODE)
+        names = "/".join(_DETECTION_MODE_BY_CODE[c] for c in supported)
+        if code == _LOCAL_VARIANCE_CODE:
+            reason = (
+                "mode 4 'local-variance' is not ported: Deep-LASI's own mode 4 reads a "
+                "variable that is never set and stops with an error, so there is no "
+                "Deep-LASI result to match (ADR-0143)"
+            )
+        else:
+            reason = "it is not a Deep-LASI findPart mode"
         raise ValueError(
             f"Deep-LASI ParticleDetectionMode {code} is not supported by Tether "
-            f"(only {supported} = wavelet/intensity/bandpass; modes 4 'local-variance' "
-            "and 5 'ZMW intensity' are not ported)"
+            f"(only {supported} = {names}; {reason})"
         ) from None
     return TdatDetectionSettings(mode=mode, threshold=_reference_channel_threshold(file, temp))
 
