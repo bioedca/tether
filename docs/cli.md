@@ -755,6 +755,14 @@ tether run: stopped at approval step 'gamma.approve' for 'KJG_231027': the recip
   continue: tether run recipe.json --resume
 ```
 
+You can copy each command and run it as printed. A path or a subject that holds a space
+is put in quotes: double quotes for the Tether Command Prompt on Windows, and shell quotes
+on macOS and Linux, for example `--subject 'condition 1'`. The command that `tether run`
+prints when a step fails is quoted in the same way. On Windows, the Tether Command Prompt
+still reads a value that holds a `"` together with `&`, `|`, `<`, `>` or `^`, or that holds a
+`%NAME%` of the environment, before Tether gets it. Type such a value by hand
+([#1354](https://github.com/bioedca/tether/issues/1354)).
+
 No command reaches an approval step yet: the map, correction and fit steps that reach
 them come with #918, #930 and #939, so a recipe that names a policy today is refused
 with the reason.
