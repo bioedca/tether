@@ -261,3 +261,23 @@ def test_each_section_opens_from_each_section_with_the_keyboard(section_shell, q
             qtbot.keyClick(focus, combo.key(), combo.keyboardModifiers())
             assert shell.section == target, (start, target)
     assert shell.curation_project is not None  # a switch changes no write state (ADR-0055)
+
+
+@pytest.mark.gui
+@needs_qt
+def test_the_next_step_follows_a_curation_decision(shell, tmp_path, qtbot) -> None:
+    # Codex review of #1330: the bar must not keep a step the last write finished.
+    from tether.gui.curation import Command, CurationAction
+    from tether.project import readiness as rd
+
+    path = _imported(tmp_path)
+    assert shell.load_project(path) is not None
+    before = rd.read_project_readiness(path).next_step
+    assert before.stage == "curation"
+    assert shell.next_step_text == f"Next step: {before.action}"
+    for row in range(shell.molecule_list.count()):
+        shell.molecule_list.setCurrentRow(row)
+        shell.controller.dispatch(Command(CurationAction.ACCEPT))
+    after = rd.read_project_readiness(path).next_step
+    assert after.stage != "curation"
+    qtbot.waitUntil(lambda: shell.next_step_text == f"Next step: {after.action}", timeout=3000)

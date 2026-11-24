@@ -203,6 +203,10 @@ _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
+#: After a write that can change a stage (a curation decision, a fit, a return leg), the
+#: guided next step is read again once the writes stop for this long (#897).
+_READINESS_REFRESH_DEBOUNCE_MS = 250
+
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
@@ -766,6 +770,10 @@ class TetherShell:
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
         self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
+        self._readiness_refresh_timer = QtCore.QTimer()
+        self._readiness_refresh_timer.setSingleShot(True)
+        self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
+        self._readiness_refresh_timer.timeout.connect(self.refresh_readiness)
 
         # Central surface: the pyqtgraph trace dock, behind the start page that shows
         # while no project is open and no molecules are loaded (#629).
@@ -2908,6 +2916,7 @@ class TetherShell:
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
         self._histogram_refresh_timer.stop()
+        self._readiness_refresh_timer.stop()
         self._reset_movie_panel()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
@@ -3305,6 +3314,7 @@ class TetherShell:
                 self._show_stored_windows(self._session_project.path, keys)
             except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
                 summary = f"{summary}; the trace view could not reread the windows: {exc}"
+        self._queue_readiness_refresh()
         self._status(summary)
         return applied
 
@@ -3623,6 +3633,11 @@ class TetherShell:
         if self._histogram_dock is not None and self._histogram_seam is not None:
             self._histogram_refresh_timer.start()
 
+    def _queue_readiness_refresh(self) -> None:
+        """Read the guided next step again once a burst of writes ends (#897)."""
+        if self._project_path is not None:
+            self._readiness_refresh_timer.start()
+
     def _run_queued_histogram_refresh(self) -> None:
         """Apply one coalesced refresh and surface a delayed failure without crashing."""
         error = self._refresh_open_histogram()
@@ -3694,6 +3709,7 @@ class TetherShell:
 
         target = trace.name or trace.molecule_key
         self._queue_open_histogram_refresh()
+        self._queue_readiness_refresh()
         if action is CurationAction.UNREJECT or not self._advance_after_curation:
             self._status(f"{completed} {target}")
             return
@@ -3961,6 +3977,7 @@ class TetherShell:
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_open_histogram_refresh()
+        self._queue_readiness_refresh()
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
@@ -4090,6 +4107,7 @@ class TetherShell:
             self._status(f"Idealize failed for {key}: {outcome.error}")
             return
         idealized = outcome.value
+        self._queue_readiness_refresh()
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -4153,6 +4171,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._lock_release_timer.stop()
         self._histogram_refresh_timer.stop()
+        self._readiness_refresh_timer.stop()
         future = self._idealize_future
         writable_project = self._curation_project
         session_project = self._session_project
