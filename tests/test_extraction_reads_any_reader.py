@@ -311,3 +311,95 @@ def test_the_movie_panel_service_gives_a_view_for_nd2_and_the_map_for_tiff(
     with pytest.raises(TypeError, match="movie source"):
         movie_frames(np.zeros((2, 2, 2)))  # type: ignore[arg-type]
     assert ".nd2" in movie_file_suffixes()
+
+
+# --- the edges of the block read and the view, on a source written here ------------------
+
+
+class _Source:
+    """A minimal ``MovieSource`` over an array, for the edges no real reader reaches."""
+
+    def __init__(self, frames: np.ndarray, *, bad_block: bool = False) -> None:
+        self.frames = frames
+        self.path = Path("memory.src")
+        self.shape = tuple(frames.shape)
+        self.n_frames = frames.shape[0]
+        self.pixel_type = frames.dtype.str
+        self.bad_block = bad_block
+
+    def read_frames(self, start: int, stop: int) -> np.ndarray:
+        out = self.frames[start:stop]
+        return out.astype(np.float32) if self.bad_block else out.copy()
+
+
+def test_spool_refuses_a_block_size_below_one() -> None:
+    with pytest.raises(ValueError, match="block must be >= 1"):
+        spool_frames(_Source(np.zeros((2, 2, 2), "<u2")), block=0)  # type: ignore[arg-type]
+
+
+def test_spool_of_a_movie_with_no_frames_is_an_empty_array() -> None:
+    out = spool_frames(_Source(np.zeros((0, 4, 4), ">u2")))  # type: ignore[arg-type]
+    assert out.shape == (0, 4, 4)
+    assert out.dtype == np.dtype(">u2")
+
+
+def test_spool_refuses_a_block_of_the_wrong_type() -> None:
+    with pytest.raises(ValueError, match="came back as"):
+        spool_frames(_Source(np.zeros((3, 2, 2), "<u2"), bad_block=True))  # type: ignore[arg-type]
+
+
+def test_spool_keeps_a_big_endian_type_and_its_order() -> None:
+    from tether.io.frames import _byteorder  # noqa: PLC0415, PLC2701
+
+    frames = np.arange(24, dtype=">u2").reshape(2, 3, 4)
+    out = spool_frames(_Source(frames), block=1)  # type: ignore[arg-type]
+    assert out.dtype == np.dtype(">u2")
+    np.testing.assert_array_equal(out, frames)
+    assert _byteorder(out.dtype) == ">"
+    assert _byteorder(np.dtype("<u2")) == "<"
+
+
+class _FullDisk:
+    """A temporary file whose writes fail with the given ``errno``."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+    def __enter__(self) -> _FullDisk:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def write(self, _data: object) -> int:
+        raise OSError(self.code, "write failed")
+
+
+def test_a_full_temporary_folder_is_named_with_the_size(monkeypatch) -> None:
+    import errno  # noqa: PLC0415
+
+    monkeypatch.setattr("tether.io.frames.tempfile.TemporaryFile", lambda: _FullDisk(errno.ENOSPC))
+    with pytest.raises(OSError, match=r"no room in the temporary folder .* \(48 bytes\)") as err:
+        spool_frames(_Source(np.zeros((3, 2, 4), "<u2")))  # type: ignore[arg-type]
+    assert err.value.errno == errno.ENOSPC
+
+
+def test_any_other_write_error_is_raised_as_it_is(monkeypatch) -> None:
+    import errno  # noqa: PLC0415
+
+    monkeypatch.setattr("tether.io.frames.tempfile.TemporaryFile", lambda: _FullDisk(errno.EIO))
+    with pytest.raises(OSError, match="write failed"):
+        spool_frames(_Source(np.zeros((3, 2, 4), "<u2")))  # type: ignore[arg-type]
+
+
+def test_the_view_protocol_edges() -> None:
+    frames = np.arange(5 * 3 * 2, dtype="<u2").reshape(5, 3, 2)
+    view = FrameView(_Source(frames))  # type: ignore[arg-type]
+    assert view.size == frames.size
+    assert [f.tolist() for f in view] == [f.tolist() for f in frames]
+    assert repr(view) == "FrameView('memory.src', frames=5, height=3, width=2)"
+    np.testing.assert_array_equal(view[[0, 3]], frames[[0, 3]])
+    assert view[3:1].shape == (0, 3, 2)
+    assert np.asarray(view, dtype=np.float64).dtype == np.float64
+    with pytest.raises(ValueError, match="no-copy"):
+        view.__array__(copy=False)
