@@ -498,6 +498,69 @@ Reinstalling will not fix it. Two causes produce it:
 
 Everything else, keyed by the message you saw, is in [Troubleshooting](troubleshooting.md).
 
+## Update Tether
+
+To move to a newer release, remove the old install first. Then install the new release into the
+same folder.
+
+Your work and your settings stay:
+
+- Projects, movies and exports that you saved outside the install folder are not touched.
+- The [settings file](#settings-tether-keeps-outside-the-install-folder) is outside the install
+  folder. The new release keeps your answer to the update question and your trace colors.
+
+> **Check the folder first.** Removing the old install deletes everything in the install folder.
+> If you saved a project, a movie or an export there, move it to another folder first.
+
+Do these steps on any system:
+
+1. Close every Tether window.
+2. Download and check the new installer, as [step 1](#1-download-the-installer-for-your-computer)
+   and [step 2](#2-check-the-download) tell you.
+3. Remove the old install, as [Uninstall](#uninstall) tells you for your system. You can keep
+   the PATH line from step 4, but see the note below.
+4. Make sure that the install folder is gone. If it is still there, delete it.
+5. Install the new release, as [step 3](#3-run-the-installer) tells you. Use the same folder as
+   before.
+6. Open a new terminal and run `tether --version`. It prints the version of the new release.
+
+**The PATH line.** Installers up to and including 1.0.0-rc3 put the launchers in `bin`. Later
+installers put them in `launchers`. If you move from such an installer to a later one, change
+`bin` to `launchers` in your PATH line.
+
+**What these steps rest on.** Tether's installer build workflow tests these steps on Windows,
+macOS and Linux. It records an answer to the update question, removes the install and installs again. The
+settings file stays the same, byte for byte, and the new install reads the same answer. In
+that test, the same release is installed twice.
+
+The same test also runs the installer over an existing install, without a removal first:
+
+- On Windows and macOS, the installer stopped with an error.
+- On Linux, the installer stopped with *"File or directory already exists"*. It then names an
+  `-u` option that updates an existing install. Tether's tests ran `-u` only with the same
+  release twice, so this guide does not use it.
+
+Two releases installed side by side have not been tested. This guide does not cover that.
+
+### Find out when a newer release is out
+
+Tether can tell you when a newer release is published. The check is off until you turn it on.
+To turn it on or off, use **Help → Check for new releases at startup**. The first time the
+application starts, a bar also asks you. Its answers are **Check for new releases** and
+**Don't check**.
+
+When a newer release exists, a bar at the top of the window says:
+
+> *Tether &lt;new version&gt; is available (you have &lt;your version&gt;). Open the Releases
+> page to download it.*
+
+The link opens the [Releases page](https://github.com/bioedca/tether/releases). Tether
+downloads nothing. To install the new release, do the steps above.
+
+The [privacy policy](privacy.md) says what the check sends. The
+[settings section](#settings-tether-keeps-outside-the-install-folder) says where Tether keeps
+your answer, and how an administrator turns the check off for every user.
+
 ## Uninstall
 
 Tether keeps to its one folder, so removing it is mostly deleting that folder. If you did the
