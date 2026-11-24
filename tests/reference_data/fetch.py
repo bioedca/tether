@@ -31,6 +31,12 @@ is written to a temporary file of its own (``<name>.<random>.part``) and renamed
 checksum matched. A download that does not arrive (HTTP 404, a moved record, no network) raises
 :class:`DownloadFailed`, which names the set and the URL.
 
+A failure that another try can fix -- a read that times out, a reset connection, an HTTP 5xx, 408
+or 429 -- is tried again after the waits of :data:`RETRY_WAITS`, each time from an empty file
+(#1229). A 4xx answer and a wrong checksum are never tried again: they are findings about the
+upstream file. Once one set has used all its attempts on a host, later sets from that host in the
+same process get one attempt, so an outage of the whole host stays inside the job's time limit.
+
 ``python tests/reference_data/fetch.py cache-key`` prints the manifest part of the weekly job's
 cache key. It depends only on the ids and checksums of the ``download`` entries, so an edit to a
 citation keeps the cache and a new or changed file replaces it; the job adds the month, so that the
@@ -44,8 +50,10 @@ import os
 import re
 import sys
 import tempfile
+import time
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -75,6 +83,14 @@ _ENV = re.compile(r"TETHER_[A-Z0-9_]+")
 #: A NoDerivatives licence (for example CC-BY-NC-ND-4.0): ADR-0083 keeps unchanged copies only.
 _NO_DERIVATIVES = re.compile(r"-ND(-|$)")
 _CHUNK = 1 << 20
+#: The waits, in seconds, before the second and the third attempt of a download that failed in a
+#: way another try can fix (#1229). The weekly run of 2026-11-18 lost three tests to two Zenodo
+#: read timeouts and one HTTP 500; one of those URLs downloaded with its checksum minutes later.
+RETRY_WAITS = (15.0, 45.0)
+#: HTTP answers that say the server, not the file, is the problem now.
+_TRANSIENT_HTTP = frozenset({408, 429})
+#: The hosts on which a set used all its attempts in this process.
+_GAVE_UP: set[str] = set()
 
 
 class ChecksumMismatch(RuntimeError):
@@ -281,10 +297,54 @@ def _skip(reason: str) -> None:
     pytest.skip(reason)
 
 
-def _download(d: Dataset, target: Path, opener: Callable) -> Path:
+def _transient(exc: BaseException | None) -> bool:
+    """Whether another try can fix this failure: a timeout, a reset, an HTTP 5xx, 408 or 429."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code in _TRANSIENT_HTTP
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def _download(
+    d: Dataset, target: Path, opener: Callable, sleep: Callable[[float], None] = time.sleep
+) -> Path:
+    host = urllib.parse.urlsplit(d.download_url or "").netloc
+    waits = () if host in _GAVE_UP else RETRY_WAITS
+    attempts = len(waits) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return _download_once(d, target, opener)
+        except _Unavailable as failed:
+            exc = failed.__cause__
+            if attempt < attempts and _transient(exc):
+                wait = waits[attempt - 1]
+                print(
+                    f"{d.id}: attempt {attempt} of {attempts} failed ({exc}); "
+                    f"trying again in {wait:g} s",
+                    file=sys.stderr,
+                )
+                sleep(wait)
+                continue
+            tries = f" on each of {attempt} attempts" if attempt > 1 else ""
+            if attempt > 1:
+                _GAVE_UP.add(host)
+            # An HTTP 404 or 410 says the upstream file moved or was withdrawn; say which set
+            # and which URL, not only the status line (#755).
+            raise DownloadFailed(
+                f"{d.id}: the download from {d.download_url} failed ({exc}){tries}; the upstream "
+                "file is absent, moved or unreachable, and no file is used"
+            ) from exc
+    raise AssertionError("unreachable")  # pragma: no cover - the loop returns or raises
+
+
+class _Unavailable(Exception):
+    """One attempt of a download did not arrive; ``__cause__`` is the network error."""
+
+
+def _download_once(d: Dataset, target: Path, opener: Callable) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     # A temporary file of its own, created exclusively, so a second process that downloads the
-    # same set into the same cache can neither truncate it nor delete it (#795 review).
+    # same set into the same cache can neither truncate it nor delete it (#795 review). Each
+    # attempt writes a new one, so no byte of a failed attempt reaches the next (#1229).
     handle, name = tempfile.mkstemp(prefix=target.name + ".", suffix=".part", dir=target.parent)
     part = Path(name)
     digest = hashlib.sha256()
@@ -302,12 +362,7 @@ def _download(d: Dataset, target: Path, opener: Callable) -> Path:
                         digest.update(chunk)
                         out.write(chunk)
             except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                # An HTTP 404 or 410 says the upstream file moved or was withdrawn; say which set
-                # and which URL, not only the status line (#755).
-                raise DownloadFailed(
-                    f"{d.id}: the download from {d.download_url} failed ({exc}); the upstream "
-                    "file is absent, moved or unreachable, and no file is used"
-                ) from exc
+                raise _Unavailable from exc
         if digest.hexdigest() != d.sha256:
             raise ChecksumMismatch(
                 f"{d.id}: SHA-256 of the download from {d.download_url} is {digest.hexdigest()}, "
@@ -326,6 +381,7 @@ def path_for(
     repo: Path = REPO,
     cache_dir: Path | None = None,
     opener: Callable = urllib.request.urlopen,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Path:
     """The local path of a verified reference file, or a skip that says why it is not here."""
     datasets = load_manifest() if manifest is None else manifest
@@ -354,7 +410,7 @@ def path_for(
             f"{d.id}: not in the cache {cache}, and downloads are off "
             f"({DOWNLOAD_ENV}=1 allows them)"
         )
-    return _download(d, path, opener)
+    return _download(d, path, opener, sleep)
 
 
 if __name__ == "__main__":

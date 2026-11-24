@@ -79,7 +79,10 @@ file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for
 only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `workstation` (a
 directory that an environment variable names). A test skips, with the reason, when its tier is not
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
-limits and the cache rule.
+limits and the cache rule. A download that times out, loses its connection or gets an HTTP 5xx,
+408 or 429 answer is tried again two times, after 15 s and 45 s, from an empty file (#1229). An
+HTTP 4xx answer and a wrong checksum are not tried again, because they tell that the upstream file
+moved or changed.
 
 **The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
 Fei and Mondragón, *Nature Communications* **15**:6592 (2024),

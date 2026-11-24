@@ -293,10 +293,22 @@ class _Opener:
         return io.BytesIO(self.data)
 
 
+class _Waits:
+    """Stands in for ``time.sleep``: it records each wait and does not wait."""
+
+    def __init__(self) -> None:
+        self.seconds: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.seconds.append(seconds)
+
+
 @pytest.fixture(autouse=True)
 def _downloads_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(fetch.DOWNLOAD_ENV, raising=False)
     monkeypatch.delenv("TETHER_DEMO_DIR", raising=False)
+    # A host that ran out of attempts in one test must not shorten the attempts of the next.
+    monkeypatch.setattr(fetch, "_GAVE_UP", set())
 
 
 def test_a_corrupted_cached_file_is_refused_with_both_checksums(tmp_path: Path) -> None:
@@ -388,9 +400,140 @@ def test_an_absent_upstream_file_fails_with_the_set_and_url(
         raise error
 
     with pytest.raises(fetch.DownloadFailed) as err:
-        fetch.path_for("demo", manifest={"demo": d}, cache_dir=tmp_path, opener=opener)
+        fetch.path_for(
+            "demo", manifest={"demo": d}, cache_dir=tmp_path, opener=opener, sleep=_Waits()
+        )
     assert str(err.value).startswith("demo: the download from " + d.download_url)
     assert "absent, moved or unreachable" in str(err.value)
+    assert [p for p in tmp_path.rglob("*") if p.is_file()] == []
+
+
+class _Flaky:
+    """An upstream that fails the first ``failures`` requests, then serves ``data``.
+
+    ``mid_stream`` makes a failed request send part of the file before its read times out, as a
+    stalled Zenodo transfer does, so the test sees whether those bytes reach the next attempt.
+    """
+
+    def __init__(self, failures: int, error: Exception, *, mid_stream: bool = False) -> None:
+        self.failures, self.error, self.mid_stream, self.calls = failures, error, mid_stream, 0
+
+    def __call__(self, url: str, timeout: float) -> io.BytesIO:
+        self.calls += 1
+        if self.calls > self.failures:
+            return io.BytesIO(_PAYLOAD)
+        if not self.mid_stream:
+            raise self.error
+        error = self.error
+
+        class _Stalls(io.BytesIO):
+            def read(self, size: int | None = -1) -> bytes:
+                if self.tell():
+                    raise error
+                return super().read(4)
+
+        return _Stalls(b"XXXX" + _PAYLOAD)
+
+
+def _server_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://zenodo.org/x", code, "server error", None, None)
+
+
+@pytest.mark.parametrize(
+    ("error", "mid_stream"),
+    [
+        (TimeoutError("The read operation timed out"), False),
+        (TimeoutError("The read operation timed out"), True),
+        (urllib.error.URLError(TimeoutError("timed out")), False),
+        (ConnectionResetError("Connection reset by peer"), True),
+        (_server_error(500), False),
+        (_server_error(503), False),
+        (_server_error(429), False),
+    ],
+    ids=["timeout", "timeout-mid-stream", "url-timeout", "reset-mid-stream", "500", "503", "429"],
+)
+def test_a_transient_upstream_failure_is_tried_again_and_verified(
+    tmp_path: Path, monkeypatch, error, mid_stream
+) -> None:
+    """#1229: the weekly run of 2026-11-18 failed three tests on two Zenodo read timeouts and one
+    HTTP 500, and the same URL that timed out at 14:46 downloaded with its checksum minutes later.
+
+    A failure of that kind is tried again after a wait, from an empty file, and the bytes are
+    verified against the manifest checksum as before.
+    """
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    opener, waits = _Flaky(2, error, mid_stream=mid_stream), _Waits()
+    path = fetch.path_for(
+        "demo",
+        manifest={"demo": _entry("download")},
+        cache_dir=tmp_path,
+        opener=opener,
+        sleep=waits,
+    )
+    assert path.read_bytes() == _PAYLOAD
+    assert opener.calls == 3
+    assert waits.seconds == list(fetch.RETRY_WAITS)
+    assert [p for p in tmp_path.rglob("*") if p.is_file()] == [path]
+
+
+@pytest.mark.parametrize("code", [400, 403, 404, 410])
+def test_a_moved_or_refused_upstream_file_is_not_tried_again(
+    tmp_path: Path, monkeypatch, code
+) -> None:
+    """A 4xx answer says the file moved, was withdrawn or is refused; another try cannot fix it."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    opener, waits = (
+        _Flaky(9, urllib.error.HTTPError("https://zenodo.org/x", code, "x", None, None)),
+        _Waits(),
+    )
+    with pytest.raises(fetch.DownloadFailed, match=f"HTTP Error {code}"):
+        fetch.path_for(
+            "demo",
+            manifest={"demo": _entry("download")},
+            cache_dir=tmp_path,
+            opener=opener,
+            sleep=waits,
+        )
+    assert opener.calls == 1 and waits.seconds == []
+
+
+def test_a_wrong_checksum_is_not_tried_again(tmp_path: Path, monkeypatch) -> None:
+    """Changed upstream bytes are a finding, never a reason to download until they match."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    opener, waits = _Opener(b"other bytes\n"), _Waits()
+    with pytest.raises(fetch.ChecksumMismatch):
+        fetch.path_for(
+            "demo",
+            manifest={"demo": _entry("download")},
+            cache_dir=tmp_path,
+            opener=opener,
+            sleep=waits,
+        )
+    assert opener.calls == 1 and waits.seconds == []
+
+
+def test_an_upstream_that_stays_down_fails_after_the_last_attempt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The attempts are bounded, the message counts them, and no file is left in the cache.
+
+    After one set has used all its attempts, the next set from the same host gets one attempt,
+    so an outage of the whole host stays within the job's time limit.
+    """
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    attempts = len(fetch.RETRY_WAITS) + 1
+    opener, waits = _Flaky(99, _server_error(500)), _Waits()
+    manifest = {
+        "demo": _entry("download"),
+        "other": _entry("download", id="other", download_url="https://zenodo.org/records/1/f"),
+    }
+    with pytest.raises(fetch.DownloadFailed) as err:
+        fetch.path_for("demo", manifest=manifest, cache_dir=tmp_path, opener=opener, sleep=waits)
+    assert f"on each of {attempts} attempts" in str(err.value)
+    assert opener.calls == attempts and waits.seconds == list(fetch.RETRY_WAITS)
+    with pytest.raises(fetch.DownloadFailed, match="HTTP Error 500"):
+        fetch.path_for("other", manifest=manifest, cache_dir=tmp_path, opener=opener, sleep=waits)
+    assert opener.calls == attempts + 1 and waits.seconds == list(fetch.RETRY_WAITS)
     assert [p for p in tmp_path.rglob("*") if p.is_file()] == []
 
 
