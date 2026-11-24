@@ -324,8 +324,10 @@ def _download(
                 )
                 sleep(wait)
                 continue
-            tries = f" on each of {attempt} attempts" if attempt > 1 else ""
-            if attempt > 1:
+            tries = f" on attempt {attempt} of {attempts}" if attempt > 1 else ""
+            if attempt == attempts > 1 and _transient(exc):
+                # Only a set that used every attempt on a failure another try could fix says the
+                # host is down; a 404 after a timeout says only that this one file moved.
                 _GAVE_UP.add(host)
             # An HTTP 404 or 410 says the upstream file moved or was withdrawn; say which set
             # and which URL, not only the status line (#755).

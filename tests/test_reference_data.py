@@ -497,6 +497,32 @@ def test_a_moved_or_refused_upstream_file_is_not_tried_again(
     assert opener.calls == 1 and waits.seconds == []
 
 
+def test_a_moved_file_after_a_timeout_leaves_the_host_its_attempts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A timeout and then a 404 end one download early; another set on that host still gets
+    every attempt (Greptile on #1364)."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    errors = [TimeoutError("timed out"), _server_error(404)]
+
+    def opener(url: str, timeout: float) -> io.BytesIO:
+        if errors:
+            raise errors.pop(0)
+        return io.BytesIO(_PAYLOAD)
+
+    waits = _Waits()
+    manifest = {
+        "demo": _entry("download"),
+        "other": _entry("download", id="other", download_url="https://zenodo.org/records/1/f"),
+    }
+    with pytest.raises(fetch.DownloadFailed, match="HTTP Error 404"):
+        fetch.path_for("demo", manifest=manifest, cache_dir=tmp_path, opener=opener, sleep=waits)
+    assert set() == fetch._GAVE_UP
+    flaky = _Flaky(2, TimeoutError("timed out"))
+    path = fetch.path_for("other", manifest=manifest, cache_dir=tmp_path, opener=flaky, sleep=waits)
+    assert path.read_bytes() == _PAYLOAD and flaky.calls == 3
+
+
 def test_a_wrong_checksum_is_not_tried_again(tmp_path: Path, monkeypatch) -> None:
     """Changed upstream bytes are a finding, never a reason to download until they match."""
     monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
@@ -529,7 +555,7 @@ def test_an_upstream_that_stays_down_fails_after_the_last_attempt(
     }
     with pytest.raises(fetch.DownloadFailed) as err:
         fetch.path_for("demo", manifest=manifest, cache_dir=tmp_path, opener=opener, sleep=waits)
-    assert f"on each of {attempts} attempts" in str(err.value)
+    assert f"on attempt {attempts} of {attempts}" in str(err.value)
     assert opener.calls == attempts and waits.seconds == list(fetch.RETRY_WAITS)
     with pytest.raises(fetch.DownloadFailed, match="HTTP Error 500"):
         fetch.path_for("other", manifest=manifest, cache_dir=tmp_path, opener=opener, sleep=waits)
