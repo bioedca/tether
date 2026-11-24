@@ -32,7 +32,8 @@ from reference_data import fetch
 pytestmark = pytest.mark.workstation
 
 PREFIX, ROLE, OTHER = "tbox-", "wt5_run", "wt5_other"
-JOINED_MOLECULES = 163  # the four runs: 66, 8, 64 and 25 molecules, the whole column
+RUN_MOLECULES = [66, 8, 64, 25]  # the four runs, in the order of their ids
+JOINED_MOLECULES = sum(RUN_MOLECULES)  # 163, the whole column
 
 
 def test_the_5um_wt_column_is_the_four_joined_runs(private_data) -> None:
@@ -62,7 +63,7 @@ def test_the_5um_wt_column_is_the_four_joined_runs(private_data) -> None:
         first_unmatched_block=got["unmatched"][0] + 1 if got["unmatched"] else 0,
     )
     print({k: v for k, v in got.items() if k != "unmatched"}, len(got["unmatched"]))
-    assert sum(got["run_molecules"]) == JOINED_MOLECULES, got["run_molecules"]
+    assert got["run_molecules"] == RUN_MOLECULES, got["run_molecules"]
     assert got["column_molecules"] == JOINED_MOLECULES, got["column_molecules"]
     assert got["leading_equal"] == JOINED_MOLECULES, got
     assert not got["unmatched"], got["unmatched"]
