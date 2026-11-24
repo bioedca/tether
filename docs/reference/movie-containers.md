@@ -24,11 +24,10 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | TIFF | `.tif`, `.tiff` | Tether, with tifffile |
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
 
-Extraction (the application, `tether extract` and `tether batch`) reads TIFF and ND2
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI and ND2
 ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
-movie opens through the reader, but extraction refuses it with "this CZI movie opens, but
-extraction does not read CZI yet". The change that lets extraction read CZI is planned (#1390).
-Until then, export the movie to uncompressed TIFF.
+movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
+that the reader refuses (for example, two channels) fails with the reader's own message.
 
 ## TIFF
 

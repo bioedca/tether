@@ -26,9 +26,9 @@ treat it as unsupported.)
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-color*, or *confocal point detectors* describes your setup, it does not — see
 [What Tether does not do](#what-tether-does-not-do). If your movies are in a vendor
-container (`.czi`, `.sif`), export them to uncompressed TIFF first and Tether will read them.
-Tether opens a ZEISS `.czi` movie of one channel (see
-[Movie containers](reference/movie-containers.md)), but extraction does not read CZI yet.
+container (`.sif`, `.vsi`), export them to uncompressed TIFF first and Tether will read them.
+Tether reads a ZEISS `.czi` movie of one channel and extracts it as it extracts a TIFF (see
+[Movie containers](reference/movie-containers.md)).
 Tether reads a current ND2 movie with its own reader and extracts it as it extracts a TIFF (see
 [ND2 movies](#nd2-movies)).
 
@@ -60,7 +60,7 @@ return wrong data quietly, which is worse than failing.
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
 message says so. A container Tether does not read, such as a `.czi`, is refused too.
-That message lists what Tether reads (today, TIFF and ND2) and names the Bio-Formats route for
+That message lists what Tether reads (today, TIFF, CZI and ND2) and names the Bio-Formats route for
 the others.
 
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
