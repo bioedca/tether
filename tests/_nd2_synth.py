@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Write small ND2 (format version 3) files for the ND2 reader tests (#902, ADR-0144).
+"""Write small ND2 (format version 3) files for the ND2 reader tests (#902, ADR-0148).
 
 The public ND2 files of the fixture record are one frame and one Z/C stack, so a
 time series, a frame time, and each variant that the reader refuses come from this

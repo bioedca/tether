@@ -1,5 +1,5 @@
 {
-  "about": "Reference values for the ND2 reader tests (#902, ADR-0144). See tests/fixtures/PROVENANCE.md, section 'Public ND2 files'.",
+  "about": "Reference values for the ND2 reader tests (#902, ADR-0148). See tests/fixtures/PROVENANCE.md, section 'Public ND2 files'.",
   "files": {
     "221012-Exp-1-A1-1-BF.nd2": {
       "source": "Zenodo record 17487086, doi:10.5281/zenodo.17487086 (Bakker H., 'Glyco-PAINT reference', 2025), CC-BY-4.0",

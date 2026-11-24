@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tether's own ND2 reader (#902, ADR-0144): public files, metadata origins, refusals.
+"""Tether's own ND2 reader (#902, ADR-0148): public files, metadata origins, refusals.
 
 The conformance module runs the shared tests on a synthetic ND2 time series. This
 module adds what only ND2 has: a real public file read bit for bit against a

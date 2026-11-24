@@ -2653,7 +2653,7 @@ extract_of = ["weninger-hairpin-traces"]
 extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
 citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
 
-# --- public ND2 files (#902, ADR-0144): Zenodo, CC-BY-4.0, verbatim copies ---------------------
+# --- public ND2 files (#902, ADR-0148): Zenodo, CC-BY-4.0, verbatim copies ---------------------
 
 [[dataset]]
 id = "nd2-glyco-paint-bf-frame"

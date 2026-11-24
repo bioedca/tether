@@ -80,7 +80,7 @@ The reference acquisition the performance envelope is written against is a
 ## ND2 movies
 
 Tether reads a Nikon NIS-Elements `.nd2` movie with its own reader, `tether.io.nd2`, and no
-reader package ([ADR-0144](adr/0144-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md)).
+reader package ([ADR-0148](adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md)).
 It opens through the registry: `tether.io.adapters.open_movie_source("movie.nd2")` gives the
 geometry, the pixel type, a frame-range read and the metadata below. **Extraction (the
 application and `tether extract`) still reads only TIFF** and refuses an ND2 movie with a message.

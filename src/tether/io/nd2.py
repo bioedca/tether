@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tether's own reader for Nikon NIS-Elements ``.nd2`` movies (#902, ADR-0144).
+"""Tether's own reader for Nikon NIS-Elements ``.nd2`` movies (#902, ADR-0148).
 
 An ND2 file of format version 3 is a sequence of *chunks*. Each chunk starts with a
 16-byte header (the magic ``0x0ABECEDA``, the length of its name and the length of

@@ -997,7 +997,7 @@ its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the me
 the archive; manifest ids `weninger-hairpin-traces` (the archive) and
 `weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.
 
-## Public ND2 files (#902, ADR-0144) — **CC-BY-4.0**
+## Public ND2 files (#902, ADR-0148) — **CC-BY-4.0**
 
 External third-party data under a different licence, two verbatim copies (no transformation) of
 public Zenodo files, annotated CC-BY-4.0 in `REUSE.toml` and named in `NOTICE`. They are the test

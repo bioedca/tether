@@ -162,7 +162,7 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Pengning Xu, Jiahui Zhang, Feng Pan, Chelsea Mahn, Christopher Roland, Celeste Sagui, Keith Weninger (Zenodo 10.5281/zenodo.7853531)"
 SPDX-License-Identifier = "CC0-1.0"
 
-# Public ND2 files (#902, ADR-0144): verbatim copies of one file of each of two Zenodo records,
+# Public ND2 files (#902, ADR-0148): verbatim copies of one file of each of two Zenodo records,
 # doi:10.5281/zenodo.17487086 (Bakker, Glyco-PAINT reference) and doi:10.5281/zenodo.24363428
 # (Chiaruttini, Bio-Formats PR 4511), CC-BY-4.0. tests/fixtures/nd2/reference.json is Tether's own.
 # Attributed in NOTICE and tests/fixtures/PROVENANCE.md.

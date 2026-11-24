@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0144 — Tether reads ND2 with its own reader and no reader package
+# 0148 — Tether reads ND2 with its own reader and no reader package
 
 - **Status:** accepted
 - **Date:** 2026-11-24
