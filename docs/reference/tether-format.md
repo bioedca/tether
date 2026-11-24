@@ -666,7 +666,10 @@ pending and stays out of supervised training until confirmed on the current extr
 A confirmation (`tether.project.generation_reconcile.confirm_carried`, the reconciliation
 page, #923) is one human row of `/labels/table` with the molecule's current label, who
 confirmed and when. It does not change the label, and the earlier rows keep the original
-curator and time.
+curator and time. A confirmed reject that has a reason also gets a copy of its
+`/labels/reject_log` row, with who confirmed and when, so the reason stays joined. The
+reconciliation of a later generation passes over a confirmation that kept the label, so
+the curator shown is still the person who set it.
 
 ## `/sources` — the source registry
 

@@ -157,6 +157,47 @@ def test_a_confirmation_removes_the_mark_and_records_who_and_when(tmp_path) -> N
     assert len(labels.read_labels(project)) == len(after)
 
 
+def test_a_confirmation_does_not_become_the_curator_of_the_next_generation(tmp_path) -> None:
+    # Labelled by "original" in generation 1, confirmed in 2, carried again into 3.
+    project, movie, stayed, _moved = first_generation(tmp_path)
+    reextract(project, movie, LOW)
+    gr.confirm_carried(project, [stayed], labeler="reviewer", timestamp=T1)
+    reextract(project, movie, LOW)
+
+    carried = {
+        m.molecule_key: m for m in gr.reconcile_generation(project, movie_id(project)).carried
+    }
+    assert carried[stayed].waiting
+    assert (carried[stayed].labeler, carried[stayed].labelled_utc) == ("original", T0)
+
+
+def test_a_confirmed_reject_keeps_its_reason(tmp_path) -> None:
+    project, movie, _stayed, _moved = first_generation(tmp_path)
+    reextract(project, movie, LOW)
+    dim = key_at(project, *DONOR[2])
+    labels.reject(
+        project,
+        dim,
+        reason=labels.REJECT_REASON_OTHER,
+        note="too dim",
+        labeler="second",
+        timestamp=T0,
+    )
+    reextract(project, movie, LOW)
+    assert dim in carried_molecule_keys(project)
+
+    gr.confirm_carried(project, [dim], labeler="reviewer", timestamp=T1)
+
+    record = labels.reject_record_of(project, dim)
+    assert record is not None
+    assert (text(record["reason"]), text(record["note"])) == (labels.REJECT_REASON_OTHER, "too dim")
+    assert (text(record["labeler"]), text(record["timestamp"])) == ("reviewer", T1)
+    carried = {
+        m.molecule_key: m for m in gr.reconcile_generation(project, movie_id(project)).carried
+    }
+    assert (carried[dim].labeler, carried[dim].confirmed_by) == ("second", "reviewer")
+
+
 def test_an_uncurated_carried_molecule_is_confirmed_too(tmp_path) -> None:
     project, movie, _stayed, _moved = first_generation(tmp_path)
     reextract(project, movie, LOW)
@@ -238,7 +279,7 @@ def _profile(tmp_path: Path, threshold: float) -> Path:
     return path
 
 
-def test_the_service_command_makes_the_same_move(tmp_path) -> None:
+def test_the_service_command_makes_the_same_move(tmp_path, monkeypatch) -> None:
     project, movie, stayed, moved = first_generation(tmp_path)
     request = ReextractRequest(
         project=str(project),
@@ -247,7 +288,19 @@ def test_the_service_command_makes_the_same_move(tmp_path) -> None:
         detection_mode="intensity",
         detection_threshold=LOW,
     )
+    from tether.project.lock import lock_path
+
+    real = gr.reconcile_generation
+    locked: list[bool] = []
+
+    def reconcile(path, movie):
+        locked.append(lock_path(path).exists())
+        return real(path, movie)
+
+    monkeypatch.setattr(gr, "reconcile_generation", reconcile)
     result = run(request)
+    # The lists are read under the lock of the extraction, so they are of its generation.
+    assert locked == [True]
     assert result.summary.generation.generation == 2
     assert result.summary.n_carried == 1
     assert [m.molecule_key for m in result.reconciliation.carried] == [stayed]

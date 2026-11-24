@@ -198,9 +198,27 @@ def _human_rows(labels: np.ndarray) -> dict[str, list[int]]:
     return out
 
 
-def _labelled(labels: np.ndarray, rows: list[int], before: int | None) -> tuple[str, str]:
-    """``(labeler, timestamp)`` of the latest of ``rows`` before index ``before``."""
+def _labelled(
+    labels: np.ndarray, rows: list[int], before: int | None, reviews: frozenset[int]
+) -> tuple[str, str]:
+    """``(labeler, timestamp)`` of who set the label, from ``rows`` before index ``before``.
+
+    A review event (an index in ``reviews``) that keeps the label it found is a
+    confirmation of an earlier generation, not a curation, so it is passed over and the
+    curator before it is given. A review that changed the label is a curation.
+    """
+    from tether.project.labels import CurationLabel  # noqa: PLC0415
+
     earlier = [i for i in rows if before is None or i < before]
+    while earlier and earlier[-1] in reviews:
+        found = (
+            int(labels[earlier[-2]]["label_value"])
+            if len(earlier) > 1
+            else int(CurationLabel.UNCURATED)
+        )
+        if int(labels[earlier[-1]]["label_value"]) != found:
+            break
+        earlier.pop()
     if not earlier:
         return "", ""
     row = labels[earlier[-1]]
@@ -237,6 +255,7 @@ def _reconcile_in(f: Any, movie_id: str) -> GenerationReconciliation | None:
     labels = f["labels"][TABLE][()]
     human = _human_rows(labels)
     reviews = generations.label_reviews_in(f)
+    review_events = frozenset(e for e in reviews.values() if 0 <= e < len(labels))
     carried_keys = set(active.carried_keys)
 
     carried: list[ReconciledMolecule] = []
@@ -246,12 +265,14 @@ def _reconcile_in(f: Any, movie_id: str) -> GenerationReconciliation | None:
         key, mid = _text(row["molecule_key"]), _text(row["molecule_id"])
         active_keys.add(key)
         if key not in carried_keys:
-            labeler, when = _labelled(labels, human.get(key, []), None)
+            labeler, when = _labelled(labels, human.get(key, []), None, review_events)
             new.append(_molecule(NEW, row, labeler=labeler, labelled_utc=when))
             continue
         event = reviews.get(mid, generations.PENDING_LABEL_REVIEW)
         confirmed = 0 <= event < len(labels)
-        labeler, when = _labelled(labels, human.get(key, []), event if confirmed else None)
+        labeler, when = _labelled(
+            labels, human.get(key, []), event if confirmed else None, review_events
+        )
         by, at = (
             (_text(labels[event]["labeler"]), _text(labels[event]["timestamp"]))
             if confirmed
@@ -272,7 +293,7 @@ def _reconcile_in(f: Any, movie_id: str) -> GenerationReconciliation | None:
         key = _text(row["molecule_key"])
         if key in active_keys:
             continue
-        labeler, when = _labelled(labels, human.get(key, []), None)
+        labeler, when = _labelled(labels, human.get(key, []), None, review_events)
         lost.append(_molecule(LOST, row, labeler=labeler, labelled_utc=when))
     return GenerationReconciliation(
         movie_id=movie_id,
@@ -339,6 +360,75 @@ def _check_timestamp(timestamp: str) -> None:
         raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
 
 
+def _reject_reasons(f: Any, labels: np.ndarray, keys: list[str]) -> dict[str, Any]:
+    """Return the reason row of the current reject of each of ``keys`` rejected now.
+
+    The join is the one of [`reject_record_of`][tether.project.labels.reject_record_of]:
+    the latest human row of the key is a reject, and one ``"reject"`` reason row has its
+    key, labeler and timestamp. A key whose join is missing or names more than one row
+    has no entry, so no reason is attributed to it.
+    """
+    from tether.project.labels import (  # noqa: PLC0415
+        LABEL_SOURCE_HUMAN,
+        REJECT_EVENT,
+        REJECT_LOG,
+        CurationLabel,
+    )
+
+    wanted = set(keys)
+    log = f["labels"].get(REJECT_LOG)
+    if not wanted or log is None:
+        return {}
+    joins: dict[tuple[str, str, str], int] = {}
+    current: dict[str, tuple[str, str, str]] = {}
+    for row in labels:
+        key = _text(row["molecule_key"])
+        if key not in wanted or _text(row["source"]) != LABEL_SOURCE_HUMAN:
+            continue
+        join = (key, _text(row["labeler"]), _text(row["timestamp"]))
+        if int(row["label_value"]) == CurationLabel.REJECT:
+            joins[join] = joins.get(join, 0) + 1
+            current[key] = join
+        else:
+            current.pop(key, None)
+    found: dict[tuple[str, str, str], list[Any]] = {}
+    for row in log[()]:
+        join = (_text(row["molecule_key"]), _text(row["labeler"]), _text(row["timestamp"]))
+        if join in joins and _text(row["event"]) == REJECT_EVENT:
+            found.setdefault(join, []).append(row)
+    return {
+        key: found[join][0]
+        for key, join in current.items()
+        if joins[join] == 1 and len(found.get(join, ())) == 1
+    }
+
+
+def _append_reasons(f: Any, rows: np.ndarray, reasons: dict[str, Any]) -> None:
+    """Give each confirmed reject in ``rows`` the reason of the reject it confirms.
+
+    The copy carries the reason, note and value of ``reasons`` under the labeler and
+    timestamp of the confirmation row, so the reason stays joined to the current reject.
+    """
+    from tether.project.labels import REJECT_LOG  # noqa: PLC0415
+
+    copies = []
+    for row in rows:
+        reason = reasons.get(_text(row["molecule_key"]))
+        if reason is None:
+            continue
+        copy = reason.copy()
+        copy["labeler"] = row["labeler"]
+        copy["timestamp"] = row["timestamp"]
+        copy["condition_id"] = row["condition_id"]
+        copies.append(copy)
+    if not copies:
+        return
+    log = f["labels"][REJECT_LOG]
+    start = log.shape[0]
+    log.resize((start + len(copies),))
+    log[start:] = copies
+
+
 def confirm_carried(
     project_path: str | PathLike[str],
     molecule_keys: Iterable[str],
@@ -353,7 +443,9 @@ def confirm_carried(
     ``/labels/table``: the key, ``labeler``, ``timestamp``, ``source_file``, source
     ``"human"``, the full human weight and the molecule's **current** label, so the label
     does not change. The row is linked to the molecule's current ``molecule_id`` in
-    ``/generations/label_reviews``. The earlier rows are not changed. A key confirmed
+    ``/generations/label_reviews``. A confirmed reject with a reason also gets a copy of
+    that reason in ``/labels/reject_log``, under the new row's labeler and timestamp, so
+    the reason stays readable. The earlier rows are not changed. A key confirmed
     before (by a confirmation, or by an accept or reject on this generation) is reported in
     ``already`` and gets no row. All the rows are written in one open of the file.
 
@@ -427,8 +519,10 @@ def confirm_carried(
             row["label_value"] = molecule.curation_label
             row["condition_id"] = conditions[molecule.molecule_id]
         table = f["labels"][TABLE]
+        reasons = _reject_reasons(f, table[()], [m.molecule_key for m in todo])
         start = table.shape[0]
         table.resize((start + len(rows),))
         table[start:] = rows
         generations.append_label_reviews(f, {m.molecule_id: start + i for i, m in enumerate(todo)})
+        _append_reasons(f, rows, reasons)
     return ConfirmResult(tuple(m.molecule_key for m in todo), already, labeler, timestamp)

@@ -112,7 +112,8 @@ def run(request: ReextractRequest) -> ReextractResult:
                 publish_guard=guard,
                 match_px=request.match_px,
             )
-        reconciliation = reconcile_generation(request.project, summary.extraction.movie_id)
+            # Read under the same lock, so the lists are those of this new generation.
+            reconciliation = reconcile_generation(request.project, summary.extraction.movie_id)
     except (ExtractionError, LockError, OSError) as exc:
         raise CommandFailed(str(exc)) from exc
     assert reconciliation is not None  # a new generation always has a previous one
