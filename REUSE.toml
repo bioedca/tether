@@ -162,6 +162,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Pengning Xu, Jiahui Zhang, Feng Pan, Chelsea Mahn, Christopher Roland, Celeste Sagui, Keith Weninger (Zenodo 10.5281/zenodo.7853531)"
 SPDX-License-Identifier = "CC0-1.0"
 
+# ZEN test movie of ZEISS (#903, ADR-0144): the two frames of T=2_CH=1.czi of Zenodo
+# 10.5281/zenodo.7015307 (Rhode S, CC-BY-4.0), exported to TIFF by ZEISS pylibCZIrw 6.1.0
+# (scripts/make_czi_fixtures.py --reference). The other files of tests/fixtures/czi/ are
+# Tether's own synthetic files and keep the blanket licence. See NOTICE and
+# tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/czi/zeiss_t2_ch1_reference.tif"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Sebastian Rhode, Carl Zeiss Microscopy GmbH (Zenodo 10.5281/zenodo.7015307)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

@@ -294,6 +294,15 @@ FRET_cloud script output on the smfret-analysis2 test data  (GPL-3.0-only)  —
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv
 
+ZEN test movie of ZEISS  (CC-BY-4.0)  — Rhode S, "CZI (Carl Zeiss Image)
+  dataset with artificial test camera images with various dimension for testing
+  libraries reading," Zenodo (2022), doi:10.5281/zenodo.7015307 (CC-BY-4.0).
+  Tether bundles the two frames of its movie T=2_CH=1.czi, exported to TIFF by
+  ZEISS pylibCZIrw 6.1.0, as the reference of the CZI adapter's bit-for-bit test
+  (#903). The file is licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the author travels with it:
+    tests/fixtures/czi/zeiss_t2_ch1_reference.tif
+
 Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
   preferred states of complementary trinucleotide repeat DNA hairpins
