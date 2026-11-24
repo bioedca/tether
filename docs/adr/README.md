@@ -191,6 +191,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0138](0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md) | An independent scikit-learn fit is the reference for the `vbgmm` key, and the pinned tMAVEN fails it | accepted | §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
 | [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 | [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
+| [0144](0144-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 

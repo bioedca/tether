@@ -16,9 +16,10 @@ reads is refused with [`UnsupportedContainerError`][], whose message lists the
 containers that Tether reads and names the Bio-Formats route for the others.
 
 This module is Qt-free and imports no reader package at import time; the
-built-in TIFF adapter ([`tether.io.movie.TIFF_ADAPTER`][]) is registered the first
-time the registry is read. ADR-0113 records the interface and the rule by which a
-reader package can enter the base lock.
+built-in adapters (TIFF, [`tether.io.movie.TIFF_ADAPTER`][], then ND2,
+[`tether.io.nd2.ND2_ADAPTER`][]) are registered the first time the registry is
+read. ADR-0113 records the interface and the rule by which a reader package can
+enter the base lock.
 """
 
 from __future__ import annotations
@@ -241,8 +242,15 @@ def _ensure_builtins() -> None:
         if _BUILTINS_LOADED:
             return
         from tether.io.movie import TIFF_ADAPTER
+        from tether.io.nd2 import ND2_ADAPTER
 
-        _register(TIFF_ADAPTER)
+        before = list(_REGISTRY)
+        try:
+            for builtin in (TIFF_ADAPTER, ND2_ADAPTER):
+                _register(builtin)
+        except BaseException:
+            _REGISTRY[:] = before  # all of the built-ins or none, so a retry is clean
+            raise
         _BUILTINS_LOADED = True
 
 
@@ -279,7 +287,7 @@ def _register(adapter: MovieAdapter) -> None:
 
 
 def registered_adapters() -> tuple[MovieAdapter, ...]:
-    """Return the registered adapters, in registration order (the TIFF adapter first)."""
+    """Return the registered adapters, in registration order (TIFF first, then ND2)."""
     _ensure_builtins()
     with _LOCK:
         return tuple(_REGISTRY)

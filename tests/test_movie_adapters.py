@@ -60,12 +60,12 @@ def test_tiff_is_the_first_registered_adapter() -> None:
 
 
 def test_unknown_container_lists_readers_and_names_bio_formats(tmp_path: Path) -> None:
-    path = tmp_path / "movie.nd2"
-    path.write_bytes(b"\xda\xce\xbe\x0a" + b"\x00" * 64)
+    path = tmp_path / "movie.czi"
+    path.write_bytes(b"ZISRAWFILE" + b"\x00" * 64)
     with pytest.raises(UnsupportedContainerError) as err:
         select_adapter(path)
     msg = str(err.value)
-    assert ".nd2" in msg
+    assert ".czi" in msg
     assert "TIFF (.tif, .tiff)" in msg, "the message lists the containers Tether reads"
     assert "Bio-Formats" in msg, "the message names the route for other containers"
 
@@ -107,7 +107,7 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
     with pytest.raises(ValueError, match="already claims"):
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
-    assert [a.name for a in registered_adapters()] == ["TIFF", "Later"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "ND2", "Later"]
 
 
 def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,7 +126,7 @@ def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(adapters, "_register", _fail_once)
     with pytest.raises(RuntimeError, match="simulated"):
         registered_adapters()
-    assert [a.name for a in registered_adapters()] == ["TIFF"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "ND2"]
 
 
 def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,7 +144,7 @@ def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) ->
         th.start()
     for th in threads:
         th.join()
-    assert seen == [("TIFF",)] * 8
+    assert seen == [("TIFF", "ND2")] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:

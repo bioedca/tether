@@ -2652,3 +2652,27 @@ tier = "git"
 extract_of = ["weninger-hairpin-traces"]
 extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
 citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
+
+# --- public ND2 files (#902, ADR-0144): Zenodo, CC-BY-4.0, verbatim copies ---------------------
+
+[[dataset]]
+id = "nd2-glyco-paint-bf-frame"
+source = "doi:10.5281/zenodo.17487086"
+record_url = "https://zenodo.org/records/17487086"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2"
+size = 708608
+sha256 = "b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d"
+tier = "git"
+citation = "Bakker H. Glyco-PAINT reference. Zenodo (2025). doi:10.5281/zenodo.17487086"
+
+[[dataset]]
+id = "nd2-bioformats-pr4511-zc"
+source = "doi:10.5281/zenodo.24363428"
+record_url = "https://zenodo.org/records/24363428"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/ZC.nd2"
+size = 495616
+sha256 = "bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae"
+tier = "git"
+citation = "Chiaruttini N. nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511. Zenodo (2026). doi:10.5281/zenodo.24363428"

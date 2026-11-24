@@ -32,8 +32,9 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=512"]
         # The laboratory's frets.dat (#796, ADR-0086) is 845,100 B, a verbatim reference file
-        # inside the manifest's 1 MB limit for its git tier (ADR-0073).
-        exclude: ^tests/fixtures/ha_sam_sah/frets\.dat$
+        # inside the manifest's 1 MB limit for its git tier (ADR-0073). The public ND2 frame
+        # (#902, ADR-0144) is 708,608 B, a verbatim Zenodo file inside the same limit.
+        exclude: ^tests/fixtures/(ha_sam_sah/frets\.dat|nd2/221012-Exp-1-A1-1-BF\.nd2)$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.19

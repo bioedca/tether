@@ -97,15 +97,30 @@ def test_a_relative_pattern_is_expanded_from_the_current_folder(
 
 def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkeypatch) -> None:
     # Item 1 of #653: "The accepted extensions are the ones the reader supports."
-    from tether.io import adapters  # noqa: PLC0415
+    from tether.io import adapters, movie  # noqa: PLC0415
 
     assert movie_suffixes() == (".tif", ".tiff")
-    extra = SimpleNamespace(name="Other", extensions=(".nd2",))
+    extra = SimpleNamespace(name="Other", extensions=(".oth",))
     real = adapters.registered_adapters()
     monkeypatch.setattr(adapters, "registered_adapters", lambda: (*real, extra))
-    _touch(tmp_path / "a.nd2")
+    monkeypatch.setattr(movie, "EXTRACTED_CONTAINERS", (*movie.EXTRACTED_CONTAINERS, "Other"))
+    _touch(tmp_path / "a.oth")
     _touch(tmp_path / "b.tif")
-    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.nd2", "b.tif"]
+    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.oth", "b.tif"]
+
+
+def test_a_folder_gives_no_movie_that_extraction_refuses(tmp_path: Path) -> None:
+    """ND2 opens through the registry (#902) but extraction reads only TIFF.
+
+    A folder that holds an ND2 original beside its TIFF export must give the TIFF only:
+    the ND2 would fail its extraction stage, and its stem would collide with the TIFF's.
+    """
+    from tether.io.adapters import registered_adapters  # noqa: PLC0415
+
+    assert "ND2" in [a.name for a in registered_adapters()]
+    _touch(tmp_path / "movie.nd2")
+    _touch(tmp_path / "movie.tif")
+    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["movie.tif"]
 
 
 def test_a_file_named_on_its_own_is_kept_whatever_its_name(tmp_path: Path) -> None:
