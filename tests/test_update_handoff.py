@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -742,6 +743,9 @@ def _windows_layout(prefix: Path, version: str, *, marker: str) -> None:
     env_dir = prefix / "envs" / "tether"
     if not (env_dir / "python.exe").exists():
         venv.EnvBuilder(system_site_packages=True, with_pip=False).create(env_dir)
+        # A conda env keeps python.exe at its root, where the helper runs it; a venv keeps
+        # it in Scripts. Its launcher finds pyvenv.cfg beside itself just as well.
+        shutil.copy2(env_dir / "Scripts" / "python.exe", env_dir / "python.exe")
     (env_dir / "conda-meta").mkdir(exist_ok=True)
     (prefix / ".nonadmin").write_text("", encoding="utf-8")
     (prefix / "marker.txt").write_text(marker, encoding="utf-8")

@@ -143,6 +143,8 @@ if ($rc -eq 0 -and (Test-Path -LiteralPath $python -PathType Leaf)) {
         }
     }
     $checked = ($check.ExitCode -eq 0)
+} elseif ($rc -eq 0) {
+    Write-Log "the new install has no $python"
 }
 if ($checked) {
     Remove-Item -LiteralPath $Backup -Recurse -Force -ErrorAction SilentlyContinue
