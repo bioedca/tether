@@ -229,7 +229,11 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         # Step 4's note: that warning stays in the status bar until the learner clicks
         # **Dismiss** (#1274), else it hides step 5's line (#1312).
         _dismiss_as_the_page_says(qtbot, shell, warned=bool(no_panel))
-        assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
+        # Each row names the molecule, then its state (#630), as the page says.
+        assert [lst.item(i).text() for i in range(lst.count())] == [
+            f"mol-{i} · Undecided" for i in range(3)
+        ]
+        assert "`mol-0 · Undecided`" in page
         assert lst.currentRow() == 0
 
         def press(key: QtCore.Qt.Key) -> str:

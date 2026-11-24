@@ -677,7 +677,7 @@ Tether **shall** present a multi-movie round-trip browser:
   analysis-window **start** (`pre_list`) and `[`/`]` nudge the **end** (`post_list`) — distinct bounds, not one
   action; `R` reset, `P` photobleach, `G` grid) for muscle-memory continuity, and adds the Tether-only actions
   **`Space` = accept, `Backspace`/`Delete` = reject, `Enter` = jump to the movie spot (round-trip focus), `I` =
-  one-click idealize**. tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
+  one-click idealize, `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
   v1** so no Tether-only binding shadows them. The integer↔category lookup pins **tMAVEN class 0 ↔ Tether
   "uncategorized"** and named categories ↔ tMAVEN classes ≥ 1, so a tMAVEN round-trip never silently turns an
   uncategorized trace into a named category (§7.4, Appendix D).

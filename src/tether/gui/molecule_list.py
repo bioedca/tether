@@ -139,9 +139,11 @@ def state_icon(curation: str, active: theme.Theme | None = None) -> Any:
 
     active = active or theme.current()
     size = 2 * _MARK_PX
-    pixmap = QtGui.QPixmap(size, size)
-    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
     colour = QtGui.QColor(active.state(STATE_TOKENS[curation]))
+    clear = QtGui.QColor(colour)
+    clear.setAlpha(0)  # the background round the mark: the state colour, fully transparent
+    pixmap = QtGui.QPixmap(size, size)
+    pixmap.fill(clear)
     painter = QtGui.QPainter(pixmap)
     painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
     box = QtCore.QRectF(6, 6, size - 12, size - 12)

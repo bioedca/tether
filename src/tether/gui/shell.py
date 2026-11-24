@@ -1617,9 +1617,9 @@ class TetherShell:
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
         # A navigation action (#630): it selects a row and never reorders the list (§7.5).
-        # Its key has a modifier, so it shadows no bare curation key (§7.3).
+        # Its key is the curation key U (the keymap's, so it acts only in this section);
+        # a section menu action carries no shortcut of its own.
         self._act_next_undecided = menu.addAction("Next &undecided molecule")
-        self._act_next_undecided.setShortcut("Ctrl+U")
         self._act_next_undecided.triggered.connect(self.select_next_undecided)
         self.require(self._act_next_undecided, "traces")
 
@@ -4004,6 +4004,7 @@ class TetherShell:
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
+            next_undecided=self.select_next_undecided,
             assign_category=self._assign_category,
             clear_category=self._clear_category,
             window_start=lambda delta: self._nudge_window(0, delta),

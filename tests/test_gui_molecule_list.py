@@ -12,8 +12,8 @@ PRD §7.3 and §7.5. The rules under test, one or more tests each:
 4. The header counts equal the counts in the store, for the movie and for the project.
 5. Each filter lists exactly the molecules in that state or category, in the stored order;
    the arrow keys step through the shown rows only.
-6. "Next undecided" selects the next undecided molecule in list order and says when none
-   is left.
+6. "Next undecided" (the key U, or the Curation menu) selects the next undecided molecule
+   in list order and says when none is left.
 7. A list of 5,000 molecules fills, and steps a row, within the §11.2 budget.
 8. The filter and "Next undecided" say which step is missing while there are no traces.
 
@@ -349,21 +349,22 @@ def test_a_new_category_adds_its_filter(shell, qtbot, tmp_path) -> None:
 def test_next_undecided_follows_the_list_order_and_says_when_none_is_left(
     shell, qtbot, tmp_path
 ) -> None:
-    from pyqtgraph.Qt import QtGui
+    from tether.gui.curation import Command, CurationAction
 
     project, keys = _store(tmp_path, n=5)
     for key in (keys[0], keys[2], keys[3]):
         project.accept(key)
     assert shell.load_project(project.path) is not None
     action = shell._act_next_undecided
-    assert action.shortcut() == QtGui.QKeySequence("Ctrl+U")
     assert action.isEnabled()
+    # Its key is the curation key U, so it acts only where the curation keys act (§7.3).
+    assert shell.keymap.chords_for(Command(CurationAction.NEXT_UNDECIDED)) == [(ord("U"), 0)]
     shell.molecule_list.setCurrentRow(1)
     before = _texts(shell)
 
-    action.trigger()
+    _press(qtbot, shell, "Key_U")
     assert shell.molecule_list.currentRow() == 4
-    action.trigger()  # after the last row the search goes on from the top
+    action.trigger()  # the menu item; after the last row the search goes on from the top
     assert shell.molecule_list.currentRow() == 1
     assert shell.status_message.endswith("(from the top of the list)")
     assert _texts(shell) == before  # a navigation action never reorders the list

@@ -104,7 +104,8 @@ Opened tutorial.tether — 3 molecule(s)
 ```
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
-selected. The large panel shows the trace of the selected molecule. On top are the donor
+selected. Each row shows the state of the molecule after its name, `Undecided` for now, for
+example `mol-0 · Undecided`. The large panel shows the trace of the selected molecule. On top are the donor
 intensity in green, the acceptor intensity in magenta and their total in gray. Underneath is
 its apparent FRET efficiency in blue.
 
