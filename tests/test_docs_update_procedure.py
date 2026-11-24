@@ -91,7 +91,7 @@ def test_install_guide_has_the_update_section_before_uninstall() -> None:
     assert text.index("\n## Update Tether\n") < text.index("\n## Uninstall\n")
     section = _section(text, "Update Tether")
     assert re.search(r"^1\. ", section, re.MULTILINE), "the procedure is not numbered"
-    assert "`tether --version`" in section
+    assert "(#5-check-that-tether-runs)" in section
     assert "(#uninstall)" in section
     assert "(#3-run-the-installer)" in section
 

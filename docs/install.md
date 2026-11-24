@@ -516,13 +516,15 @@ Do these steps on any system:
 
 1. Close every Tether window.
 2. Download and check the new installer, as [step 1](#1-download-the-installer-for-your-computer)
-   and [step 2](#2-check-the-download) tell you.
+   and [step 2](#2-check-the-download) tell you. Those steps name the files and the tag of the
+   release that this page documents. Use the file names and the tag of your new release.
 3. Remove the old install, as [Uninstall](#uninstall) tells you for your system. You can keep
    the PATH line from step 4, but see the note below.
 4. Make sure that the install folder is gone. If it is still there, delete it.
 5. Install the new release, as [step 3](#3-run-the-installer) tells you. Use the same folder as
    before.
-6. Open a new terminal and run `tether --version`. It prints the version of the new release.
+6. Check the version, as [step 5](#5-check-that-tether-runs) tells you. It prints the version of
+   the new release.
 
 **The PATH line.** Installers up to and including 1.0.0-rc3 put the launchers in `bin`. Later
 installers put them in `launchers`. If you move from such an installer to a later one, change
