@@ -43,7 +43,7 @@ from pathlib import Path
 import pytest
 
 _RUNNER = Path(__file__).resolve().parents[1] / "scripts" / "workstation" / "run_private_checks.py"
-_OTHER_TIERS = ("large", "sidecar", "deep")
+_OTHER_TIERS = ("large", "sidecar", "deep", "bioformats")
 
 
 @functools.cache
@@ -99,7 +99,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     ]
     if clashes:
         raise pytest.UsageError(
-            "a `workstation` test may carry no other tier marker (large, sidecar, deep), because "
+            "a `workstation` test may carry no other tier marker (large, sidecar, deep, bioformats), "
+            "because "
             "that tier's CI job would select it; offenders: " + ", ".join(sorted(clashes))
         )
 

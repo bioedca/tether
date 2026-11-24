@@ -13,12 +13,13 @@ opens it. **The content decides, and the extension only breaks a tie**: a TIFF
 saved as ``movie.dat`` still opens as a TIFF, and a file named ``movie.tif``
 whose first bytes are not a TIFF header is refused. A container that no adapter
 reads is refused with [`UnsupportedContainerError`][], whose message lists the
-containers that Tether reads and names the Bio-Formats route for the others.
+containers that Tether reads and names the Bio-Formats route.
 
 This module is Qt-free and imports no reader package at import time; the
-built-in TIFF adapter ([`tether.io.movie.TIFF_ADAPTER`][]) is registered the first
-time the registry is read. ADR-0113 records the interface and the rule by which a
-reader package can enter the base lock.
+built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]) and then cellSens VSI
+([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
+ADR-0143), are registered the first time the registry is read. ADR-0113 records the
+interface and the rule by which a reader package can enter the base lock.
 """
 
 from __future__ import annotations
@@ -240,9 +241,18 @@ def _ensure_builtins() -> None:
     with _LOCK:
         if _BUILTINS_LOADED:
             return
+        from tether.io.bioformats import BIOFORMATS_ADAPTER
         from tether.io.movie import TIFF_ADAPTER
 
-        _register(TIFF_ADAPTER)
+        # All or none: a failure part way leaves the registry as it was, so the retry on
+        # the next read does not find half of the built-ins already registered.
+        before = list(_REGISTRY)
+        try:
+            _register(TIFF_ADAPTER)
+            _register(BIOFORMATS_ADAPTER)
+        except BaseException:
+            _REGISTRY[:] = before
+            raise
         _BUILTINS_LOADED = True
 
 
@@ -318,10 +328,9 @@ def select_adapter(path: str | PathLike[str]) -> MovieAdapter:
         )
     raise UnsupportedContainerError(
         f"{p}: Tether does not read this movie container "
-        f"({ext or 'no extension'}). Tether reads: {readable}. A container that no "
-        "base reader covers, for example .vsi, goes through the optional Bio-Formats "
-        "route, which is not available yet; until then, export the movie to "
-        "uncompressed TIFF."
+        f"({ext or 'no extension'}). Tether reads: {readable}. The cellSens .vsi "
+        "files go through the optional Bio-Formats stack (see the install guide); for "
+        "another container, export the movie to uncompressed TIFF."
     )
 
 

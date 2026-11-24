@@ -107,7 +107,7 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
     with pytest.raises(ValueError, match="already claims"):
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
-    assert [a.name for a in registered_adapters()] == ["TIFF", "Later"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "cellSens VSI", "Later"]
 
 
 def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,7 +126,29 @@ def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(adapters, "_register", _fail_once)
     with pytest.raises(RuntimeError, match="simulated"):
         registered_adapters()
-    assert [a.name for a in registered_adapters()] == ["TIFF"]
+    assert [a.name for a in registered_adapters()] == ["TIFF", "cellSens VSI"]
+
+
+def test_a_failure_after_the_first_builtin_leaves_no_half_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed second built-in rolls the first one back, so the retry does not clash."""
+    monkeypatch.setattr(adapters, "_REGISTRY", [])
+    monkeypatch.setattr(adapters, "_BUILTINS_LOADED", False)
+    real = adapters._register
+    calls: list[str] = []
+
+    def _fail_second(adapter: MovieAdapter) -> None:
+        calls.append(adapter.name)
+        if len(calls) == 2:
+            raise RuntimeError("simulated failure of the second built-in")
+        real(adapter)
+
+    monkeypatch.setattr(adapters, "_register", _fail_second)
+    with pytest.raises(RuntimeError, match="second built-in"):
+        registered_adapters()
+    assert adapters._REGISTRY == []
+    assert [a.name for a in registered_adapters()] == ["TIFF", "cellSens VSI"]
 
 
 def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,7 +166,7 @@ def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) ->
         th.start()
     for th in threads:
         th.join()
-    assert seen == [("TIFF",)] * 8
+    assert seen == [("TIFF", "cellSens VSI")] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:
