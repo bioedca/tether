@@ -61,7 +61,7 @@ _EXPECTED_OPTION_COUNTS = {
     "metadata": 5,
     "export table": 4,
     "export traces": 5,
-    "export subset": 5,
+    "export subset": 6,
 }
 
 # The top-level subcommands, each a column of the exit-code table. `export` is one column:

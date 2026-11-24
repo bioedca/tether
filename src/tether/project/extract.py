@@ -10,8 +10,8 @@ dual-channel TIFF movie into a populated ``.tether`` project::
     -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
 The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
-``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
-PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
+``intensity``, ``bandpass``, ``zmw``} with an optional ``options.detection_threshold``;
+PRD §11.2, ADR-0021, ADR-0143) so a movie can be extracted with the Deep-LASI ``findPart``
 method it was actually detected with. The default ``wavelet`` reproduces the
 historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies both
 the mode (``temp/ParticleDetectionMode``) and the mapping-reference channel's
@@ -240,8 +240,8 @@ class ExtractOptions:
                 f"detection_mode must be one of {DETECTION_MODES}, got {self.detection_mode!r}"
             )
         # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
-        # by the intensity/bandpass detectors; ``None`` lets each mode use its own
-        # faithful default (intensity 0.5, bandpass 0.98 — PRD §11.2). When supplied
+        # by the intensity/bandpass/zmw detectors; ``None`` lets each mode use its own
+        # faithful default (intensity 0.5, bandpass 0.98, zmw 0.5 — PRD §11.2). When supplied
         # it must lie in the detectors' own [0, 1) domain (a fraction of the
         # detection-image max). It is recorded but inert under the wavelet mode.
         if self.detection_threshold is not None and not 0.0 <= self.detection_threshold < 1.0:
@@ -250,7 +250,7 @@ class ExtractOptions:
                 f"max), got {self.detection_threshold}"
             )
         # ``min_separation`` is optional: ``None`` (default) lets each detection mode
-        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass
+        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass/zmw
         # 3 px; ADR-0022). When supplied it overrides that for every mode and must be
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:

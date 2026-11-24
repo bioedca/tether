@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-24T18:49:01+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "8fb5ab086e31a2aedabe8e9916ae51c3b16ff58e"
+  },
+  "inputs": {
+    "images": {
+      "public.csv": "2b88841dd45d06a175de8cb7cd8f8c74d6e19402be3e93aaf1e376f798136ca4",
+      "synthetic.csv": "4b66fff82006910de371b23f9ecfd51e6a09a974e51f5b38fdc72a4228a62ab3"
+    }
+  },
+  "manual_steps": [],
+  "matlab": {
+    "release": "2023b",
+    "version": "23.2.0.2859533 (R2023b) Update 10"
+  },
+  "method": "matlab-batch",
+  "os": "Windows-11-10.0.26300-SP0",
+  "outputs": {
+    "mode4_error.txt": "086cc16a96ba29f846cfdd23a3db79022870b551d64178933b1a4ad6b8a89339",
+    "public_t1.csv": "c443975e7772873c35272b3733982fed5a2dbff554cd0d59406a174739320b5a",
+    "public_t2.csv": "acb44facca8ddeac161099c7171938e4c8aa5e8f10383e2cd328e42ef9dd3b51",
+    "public_t3.csv": "9e1a053b3d77399c6c01e6e5659fe868ddb3ec9d8df5419b2aa5b2e9809e7239",
+    "synthetic_t1.csv": "1c3931a60f4cf6fc0c6d17dcc70084266730020403c06d0638d15ac95e68d942",
+    "synthetic_t2.csv": "3255cf995d607ad64f0a435785ea7a226f2b07bd438313ee3716fefba7108fd5",
+    "synthetic_t3.csv": "0ff8f537f055270ce1d8d334b2030784653e123ff1a783e8c3fb9b35d2903bf7"
+  },
+  "params": {
+    "mode": 5,
+    "refine": false,
+    "thresholds": [
+      0.1,
+      0.3,
+      0.5
+    ]
+  },
+  "record_version": 1,
+  "task": "findpart",
+  "tool": {
+    "commit": "d2d348cb44804f91555aec9c79413c26bf6de045",
+    "name": "deep-lasi",
+    "url": "https://gitlab.com/simon71/deeplasi"
+  }
+}
