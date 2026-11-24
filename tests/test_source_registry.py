@@ -430,3 +430,17 @@ def test_a_stored_movie_record_with_no_checksum_takes_the_extraction_checksum_in
     export_subset_tether(project, out)
     copied = next(r for r in S.read_sources(out) if r.source_id == "movie:mov-1")
     assert copied.sha256 == sha
+
+
+def test_a_map_image_that_names_a_movie_keeps_its_own_checksum_in_a_subset(tmp_path) -> None:
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, _ = _project(tmp_path, movie_sha=sha)
+    image = tmp_path / "map.png"
+    image.write_bytes(b"map")
+    with project.write_lock():
+        record = S.register_source(project, image, role="map_image", movie_id="mov-1")
+    out = tmp_path / "subset" / "subset.tether"
+    out.parent.mkdir()
+    export_subset_tether(project, out)
+    copied = next(r for r in S.read_sources(out) if r.source_id == record.source_id)
+    assert copied.sha256 == ""  # not the movie's checksum

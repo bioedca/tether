@@ -959,7 +959,9 @@ def _copy_sources(
     for row in movies["table"][()] if movies is not None else ():
         known[_text(row["movie_id"])] = _text(row["sha256"]).lower()
     records = [
-        replace(r, sha256=known.get(r.movie_id, "")) if r.movie_id and not r.sha256 else r
+        replace(r, sha256=known.get(r.movie_id, ""))
+        if r.role == "movie" and r.movie_id and not r.sha256
+        else r
         for r in records
     ]
     if aliases is not None:
