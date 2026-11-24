@@ -342,3 +342,24 @@ def test_a_lock_lost_during_a_checksum_stops_its_write(tmp_path) -> None:
     with pytest.raises(LockedError):
         run_checksum_job(project, job.job_id, file_progress=steal_and_leave)
     assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+def test_a_lock_lost_during_a_relink_stops_its_write(tmp_path) -> None:
+    project, movie = _project(tmp_path, movie_sha=hashlib.sha256(_MOVIE_BYTES).hexdigest())
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    project.acquire_lock()
+    stolen: list[bool] = []
+
+    def steal_and_leave(*_: object) -> None:
+        if not stolen:
+            stolen.append(True)
+            thief.steal_lock()
+            thief.release_lock()  # no lock file is left, which a plain writer check accepts
+
+    before = project.path.read_bytes()
+    with pytest.raises(LockedError):
+        S.relink_source(project, "movie:mov-1", moved, progress=steal_and_leave)
+    assert project.path.read_bytes() == before
+    assert not S.read_sources(project.path)[0].stored

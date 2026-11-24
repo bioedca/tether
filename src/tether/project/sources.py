@@ -241,8 +241,9 @@ def _write(
 ) -> None:
     """Run ``change(table)`` on ``/sources/table`` under the writer lock.
 
-    ``guard`` (default: the handle's writer check) runs once the file is open and before
-    the change, so a job can bind the write to the lock epoch it started under. A store
+    ``guard`` (default: the handle's writer check) runs before the upgrade and again once the
+    file is open and before the change, so a long write binds to the lock epoch it started
+    under. A store
     stamped before 3 first gains the table through a guarded write that backs the file up
     as it was (PRD §5.4).
     """
@@ -255,17 +256,16 @@ def _write(
     )
     from tether.project._guarded_publish import guarded_project_write  # noqa: PLC0415
 
-    project._assert_writable()
+    check = guard or project._assert_writable
+    check()
     if read_schema_version(project.path) < SOURCES_SINCE:
         with (
-            guarded_project_write(
-                project.path, write_guard=project._assert_writable, label="sources"
-            ) as staged,
+            guarded_project_write(project.path, write_guard=check, label="sources") as staged,
             h5py.File(staged, "r+") as f,
         ):
             upgrade_skeleton(f)
     with h5py.File(project.path, "r+") as f:
-        (guard or project._assert_writable)()
+        check()
         change(f[_GROUP][_TABLE])
 
 
@@ -459,6 +459,33 @@ def same_file(expected_sha256: str, candidate_sha256: str) -> bool:
     return bool(expected_sha256) and expected_sha256.lower() == candidate_sha256.lower()
 
 
+def _lock_epoch_guard(project: Project) -> Callable[[], None]:
+    """Bind a long write to the lock epoch it starts under; return the check to run before it.
+
+    A retained lock binds to its own nonce; otherwise the present lock file's nonce. An absent
+    lock refuses with ``LockedError``. The check refuses when the epoch has changed since, so
+    a steal during a long read stops the write even when the thief has released the lock.
+    """
+    from tether.project import lock  # noqa: PLC0415
+
+    def nonce() -> str:
+        project._assert_writable()
+        if project._held_lock is not None:  # a retained lock binds to its own nonce
+            return project._assert_held_lock()
+        current = lock.read_lock(project.path)
+        if current is None:
+            raise lock.LockedError(None, path=project.lock_path)
+        return current.nonce
+
+    epoch = nonce()
+
+    def check() -> None:
+        if nonce() != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
+
+    return check
+
+
 def relink_source(
     project: Project,
     source_id: str,
@@ -471,7 +498,8 @@ def relink_source(
 
     The new file is read once ([`file_sha256`][]; a front end runs this off the window
     thread). On a match the record's path and size are updated, and a checksum not yet in
-    the registry is stored. Needs the writer lock.
+    the registry is stored. Needs the writer lock; the write checks the lock epoch the call
+    started under, so a steal during the read stops it.
 
     Raises
     ------
@@ -479,6 +507,7 @@ def relink_source(
         If the checksum differs, or no checksum is known to compare with. Nothing is
         written.
     """
+    guard = _lock_epoch_guard(project)
     record = _find(project.path, source_id)
     expected = _expected_sha256(project.path, record)
     if not expected:
@@ -497,4 +526,5 @@ def relink_source(
         relative_path=_stored_path(project.path, new_path),
         file_size=int(os.stat(new_path).st_size),
         sha256=actual,
+        guard=guard,
     )

@@ -95,7 +95,8 @@ read stops the write, as the coordinator's own writes do.
 two checksums are equal. The expected checksum is the registry's, or, for a movie whose record has
 none, the `sha256` of its `/movies` row, which every native extraction records. A checksum that is
 not known decides nothing, so a source with none is refused rather than linked on trust. On a match
-the record's path and size change and the checksum is stored. `same_file` is the rule that the
+the record's path and size change and the checksum is stored. Like the checksum job, the write
+checks the lock epoch the call started under. `same_file` is the rule that the
 missing-movie prompt (#638) shares.
 
 ### Paths and the copy for sharing
