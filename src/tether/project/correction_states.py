@@ -39,11 +39,11 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from pathlib import Path
 
     from tether.project.core import Project
 
@@ -60,6 +60,7 @@ __all__ = [
     "CorrectionTransitionError",
     "Transition",
     "TransitionRecord",
+    "mark_traces_replaced_in",
     "read_correction_state",
     "read_correction_transitions",
     "require_analysis_mode",
@@ -422,6 +423,15 @@ def _dependencies_current(
             {"node": m.node, "instance": m.instance, "event": m.event}
             for m in read_stale_marks(path)
         ]
+    wanted = _approved_versions(rows)
+    for mark in marks:
+        if wanted.get(mark["node"]) == mark["instance"]:
+            return False, f"{mark['node']} {mark['instance']!r} is stale ({mark['event']})"
+    return True, ""
+
+
+def _approved_versions(rows: Sequence[Mapping[str, str]]) -> dict[str, str]:
+    """Return the last approved ``factor_version`` and the last applied ``correction_version``."""
     wanted: dict[str, str] = {}
     for row in rows:
         detail = json.loads(row["detail"]) if row["detail"] else {}
@@ -429,10 +439,7 @@ def _dependencies_current(
             wanted["factor_version"] = str(detail.get("factor_version", ""))
         elif row["event"] == CorrectionEvent.APPLY_CORRECTION:
             wanted["correction_version"] = str(detail.get("correction_version", ""))
-    for mark in marks:
-        if wanted.get(mark["node"]) == mark["instance"]:
-            return False, f"{mark['node']} {mark['instance']!r} is stale ({mark['event']})"
-    return True, ""
+    return wanted
 
 
 def _stale_mark_rows(f: object) -> list[dict[str, str]]:
@@ -606,6 +613,110 @@ def _send_event_held(
 
     _append(project.path, row, check)
     return read_correction_state(project.path, scope)
+
+
+#: The edge a new trace generation takes out of each state after the approval that has one:
+#: the traces the factors and the review were read from are replaced (#1284, ADR-0136).
+_TRACES_REPLACED: dict[CorrectionState, CorrectionEvent] = {
+    CorrectionState.ANALYSIS_READY: CorrectionEvent.FACTOR_EVIDENCE_CHANGES,
+    CorrectionState.CORRECTED_REVIEW: CorrectionEvent.CALIBRATION_EVIDENCE_CHANGES,
+}
+
+#: The states in which an approval is in force; a new generation marks its versions stale.
+_APPROVAL_IN_FORCE = frozenset(
+    {
+        CorrectionState.CALIBRATION_APPROVED,
+        CorrectionState.CORRECTED_REVIEW,
+        CorrectionState.ANALYSIS_READY,
+    }
+)
+
+#: The ADR-0103 edge from ``trace_generation`` into each version a new generation marks.
+_GENERATION_EDGES = {"factor_version": 7, "correction_version": 8}
+
+
+def mark_traces_replaced_in(
+    path: str | Path,
+    *,
+    movie_id: str,
+    generation_id: str,
+    scope: str = PROJECT_SCOPE,
+) -> CorrectionStatus | None:
+    """Store that a new trace generation replaced traces the correction state was read from.
+
+    The store-path form a staged publish calls, under the writer lock the caller holds
+    (as [`mark_stale_in`][tether.project.jobs.mark_stale_in] is): ``reextract_movie``
+    writes it into the staged copy, so the transition is published with the generation
+    or not at all (#1284, ADR-0136). A new generation integrates every trace of the movie
+    again and resets its applied factors, so the contributor evidence of the approved
+    factors and the reviewed corrected traces both change: ANALYSIS_READY takes *factor or
+    contributor evidence changes* and CORRECTED_REVIEW *calibration evidence changes*, and
+    both reach CALIBRATION_STALE, where corrected analysis is refused until the factors are
+    approved again. The actor is the policy that names the generation.
+
+    While an approval is in force (CALIBRATION_APPROVED, CORRECTED_REVIEW, ANALYSIS_READY)
+    the approved ``factor_version`` and the applied ``correction_version`` are also marked
+    stale through edges 7 and 8 of ADR-0103
+    ([`mark_records_stale_in`][tether.project.jobs.mark_records_stale_in]), whether or not
+    their inputs were recorded. G03 has no edge out of CALIBRATION_APPROVED for changed
+    evidence, so there the marks are what stop the approval: *finish review* reads them and
+    refuses until the factors are approved again. In any other state nothing is written,
+    and ``None`` is returned when no transition is written.
+    """
+    from tether.project.dependency_graph import EDGES  # noqa: PLC0415
+    from tether.project.jobs import StaleMark, mark_records_stale_in  # noqa: PLC0415
+
+    _check_scope(scope)
+    status, rows = _snapshot(path, scope)
+    if status.state in _APPROVAL_IN_FORCE:
+        stamp = datetime.now(UTC).isoformat(timespec="microseconds")
+        marks = []
+        for node, version in sorted(_approved_versions(rows).items()):
+            if not version:
+                continue
+            number = _GENERATION_EDGES[node]
+            (graph_edge,) = (e for e in EDGES if e.number == number)
+            marks.append(
+                StaleMark(
+                    node=node,
+                    instance=version,
+                    edge=number,
+                    upstream_node="trace_generation",
+                    upstream_instance=movie_id,
+                    edited_node="trace_generation",
+                    edited_instance=movie_id,
+                    event=graph_edge.event,
+                    timestamp=stamp,
+                )
+            )
+        mark_records_stale_in(path, marks)
+    event = _TRACES_REPLACED.get(status.state)
+    if event is None:
+        return None
+    (edge,) = (t for t in TRANSITIONS if t.source is status.state and t.event is event)
+    actor = Actor.policy(f"a new trace generation of the movie {movie_id}")
+    detail = {"movie_id": movie_id, "generation_id": generation_id}
+    row = {
+        "scope": scope,
+        "from_state": status.state.value,
+        "event": event.value,
+        "to_state": edge.target.value,
+        "by": actor.by,
+        "actor": actor.name,
+        "detail": json.dumps(detail, sort_keys=True),
+        "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
+        "app_version": _app_version(),
+    }
+    seen = len(rows)
+
+    def check(f: object) -> None:
+        if len([r for r in _rows(f) if r["scope"] == scope]) != seen:
+            raise CorrectionTransitionError(
+                f"the correction state of the {scope} changed while a new generation was stored"
+            )
+
+    _append(Path(path), row, check)
+    return read_correction_state(path, scope)
 
 
 def _choose(

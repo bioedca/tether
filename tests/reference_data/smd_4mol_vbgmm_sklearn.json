@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "issue": 1302,
+  "adr": "0138",
+  "description": "Independent reference for tMAVEN's plain vbGMM (sidecar key vbgmm) on tests/fixtures/smd_4mol.hdf5: scikit-learn BayesianGaussianMixture with tMAVEN's vbGMM priors on the same pooled, clipped FRET. Written by `python tests/_vbgmm_reference.py write` in the base environment; checked by tests/test_vbgmm_reference.py and compared with the live fit by tests/test_sidecar_driver.py.",
+  "fixture": {
+    "path": "tests/fixtures/smd_4mol.hdf5",
+    "group": "dataset",
+    "sha256": "227930deeb3ca03d9ec437d37d72432944028f2bf2ceb07b00e2b7fd35301fe8"
+  },
+  "data": {
+    "definition": "FRET = raw[:, :, 1] / (raw.sum(2) + 1e-300) in each molecule's tMAVEN pre_list:post_list window, molecules in SMD order, concatenated; values outside [-1.0, 2.0] or NaN replaced by numpy.random.RandomState(666).uniform draws, molecule by molecule",
+    "n_points": 6799,
+    "n_clipped": 858,
+    "sha256_kept_float64_le": "8809584173fd1d141747e8680a35f0c4e1bf61397a8cd8e0f9e40cabd8a00ff7",
+    "sha256_clipped_mask": "1511e98a969b227822537fba3dcb458705d799c99b32deb65e3cd8b0395272dc",
+    "clipped_sum": 412.62302116031333
+  },
+  "tmaven": {
+    "commit": "10f4230",
+    "method": "modeler.run_vbgmm",
+    "priors": {
+      "beta": 0.25,
+      "a": 0.1,
+      "b": 0.01,
+      "pi": 1.0
+    },
+    "nstates": 3,
+    "nrestarts": 1,
+    "seed": 1076
+  },
+  "comparator": {
+    "library": "scikit-learn",
+    "class": "sklearn.mixture.BayesianGaussianMixture",
+    "covariance_type": "full",
+    "priors": {
+      "weight_concentration_prior_type": "dirichlet_distribution",
+      "weight_concentration_prior": 1.0,
+      "mean_precision_prior": 0.25,
+      "degrees_of_freedom_prior": 0.2,
+      "covariance_prior": 0.02
+    },
+    "settings": {
+      "init_params": "kmeans",
+      "n_init": 10,
+      "max_iter": 20000,
+      "tol": 1e-12,
+      "random_state": 1302
+    },
+    "numpy_version": "2.1.3",
+    "scipy_version": "1.18.0",
+    "h5py_version": "3.16.0"
+  },
+  "fit": {
+    "sklearn_version": "1.9.0",
+    "converged": true,
+    "n_iter": 236,
+    "lower_bound": 952.7315806698657,
+    "means": [
+      -0.7684930620295103,
+      0.08162324167602479,
+      0.5626705374717187
+    ],
+    "fractions": [
+      0.03098148530771768,
+      0.23231786321090225,
+      0.7367006514813821
+    ],
+    "variances": [
+      0.01919089463603377,
+      0.007591235251289761,
+      0.33085929075667336
+    ],
+    "sklearn_weights": [
+      0.031114836608622753,
+      0.232362415757941,
+      0.7365227476334363
+    ]
+  },
+  "tolerance": {
+    "status": "approved by the maintainer (bioedca) on 2026-11-23 in the #1302 thread, with the strict expected failure and follow-up #1337",
+    "means_max_abs": 0.03,
+    "fractions_max_abs": 0.01,
+    "basis": "tMAVEN's own vbGMM updates run to convergence (its convergence test off; 20000 and 60000 iterations give the same result) land within 0.0225 of the reference means and 0.0065 of its fractions. That residual is the mean prior alone: tMAVEN centres each state's prior on that state's k-means start, scikit-learn centres every state's prior on the data mean; the same updates with the shared data-mean prior, started from tMAVEN's converged point, reach the reference within 5e-5. Each limit is above the residual and far below the deviation of the stopped fit (0.44 and 0.38)."
+  },
+  "measured": {
+    "retrieved": "2026-11-23",
+    "vbgmm_key": {
+      "what": "run_vbfret(model_type='vbgmm', nstates=3, nrestarts=1, seed=1076) in the sidecar environment (tMAVEN 10f4230)",
+      "iteration": 2,
+      "lower_bound_by_iteration": [
+        -8462.89327630281,
+        -8548.171905375235,
+        -8581.519210056416
+      ],
+      "means": [
+        -0.5551279565095891,
+        0.18486303446012983,
+        1.006505163719888
+      ],
+      "fractions": [
+        0.08190701250757,
+        0.557066576672322,
+        0.3610264108201087
+      ],
+      "deviation": {
+        "means_max_abs": 0.4438346262481694,
+        "fractions_max_abs": 0.37567424066127336
+      }
+    },
+    "tmaven_updates_converged": {
+      "what": "tmaven.controllers.modeler.gmm_vb.vb_em_gmm on the same data and priors, k-means start, seed 1076, threshold -inf, 20000 and 60000 iterations",
+      "means": [
+        -0.79094843,
+        0.08147149,
+        0.55581306
+      ],
+      "fractions": [
+        0.02789122,
+        0.2289305,
+        0.74317828
+      ],
+      "deviation": {
+        "means_max_abs": 0.022455367970489748,
+        "fractions_max_abs": 0.006477628518617884
+      }
+    }
+  }
+}

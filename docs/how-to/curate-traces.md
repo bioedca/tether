@@ -6,16 +6,16 @@ description: "Look at each extracted trace in the Tether application window and 
 
 ## Who this page is for
 
-You have a `.tether` project with extracted traces, from
+You have a `.tether` project with extracted traces. They come from
 [Extract traces from a dual-view movie](extract-traces.md) or from a
-[Deep-LASI import](../io/legacy-import.md), and you want to decide which molecules go into
-your analysis. You will look at each trace in the desktop application and mark it accepted or
+[Deep-LASI import](../io/legacy-import.md). You want to decide which molecules go into your
+analysis. You will look at each trace in the desktop application and mark it accepted or
 rejected.
 
 ## Before you start
 
 - The project file, here called `movie.tether`.
-- The desktop application. After an installer install it starts with `tether-gui`; see
+- The desktop application. After an installer install, it starts with `tether-gui`. See
   [Launching Tether after an installer install](../cli.md#launching-tether-after-an-installer-install).
 - No other Tether application window, script or batch run has the same project open. Only one writer may
   change a project at a time, and a second application window opens it read-only. See
@@ -28,10 +28,14 @@ rejected.
 tether-gui movie.tether
 ```
 
-On Windows and Linux you can also start Tether from the Start menu or applications menu. The
-application window then shows the start page. Click **Open project…** there, choose **File → Open
-project…**, or drop the `.tether` file on the application window. A dropped file of a different type does
-not open, and the status bar says why.
+On Windows and Linux, you can also start Tether from the Start menu or applications menu. The
+application window then shows the start page. To open the project, do one of these:
+
+- Click **Open project…** on the start page.
+- Choose **File → Open project…**.
+- Drop the `.tether` file on the application window.
+
+A dropped file of a different type does not open, and the status bar says why.
 
 **File → Open recent** lists the last ten projects you opened on this computer. A project
 whose file was moved or deleted shows grayed out, with its path.
@@ -43,8 +47,8 @@ count:
 Opened movie.tether — 412 molecule(s)
 ```
 
-If that line ends in `(read-only)` after the file name, another writer holds the project and
-nothing you mark will be saved. Close the other writer and open the project again.
+If that line ends in `(read-only)` after the file name, another writer holds the project.
+Then nothing you mark will be saved. Close the other writer and open the project again.
 
 The **Movie** box above the list names each movie of the project by its file name. The
 **Movie** panel on the right shows the chosen movie. A green dot marks each donor spot, and a
@@ -69,9 +73,11 @@ A project you opened before on this computer opens at the molecule you last had 
 
 ## 2. Move from trace to trace
 
-The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath. Readers with a red-green color-vision deficiency can tell these colors apart. For a
+The list on the left holds every molecule. The large panel shows the selected one. On top are
+the donor (green), the acceptor (magenta) and their total (gray). Underneath is its apparent
+FRET efficiency (blue).
+
+Readers with a red-green color-vision deficiency can tell these colors apart. For a
 red acceptor, select **View → Trace colors → Classic green and red**. See
 [Trace colors](../reference/gui-theme.md#select-the-trace-colors).
 
@@ -116,7 +122,7 @@ same way before Tether closes.
 2. Press **Backspace** or **Delete** to reject it. The status bar reads `Rejected` followed by
    the ID.
 
-Each decision is written into the project as you make it; there is no save step.
+Each decision is written into the project as you make it. There is no save step.
 
 After an accept or a reject, Tether shows the next molecule in the list. One key decides and
 moves on. The status bar then reads `Accepted` or `Rejected` and the ID. After that it names the
@@ -178,9 +184,9 @@ After **R**, that detection may set the window of the molecule automatically aga
 
 - To accept a molecule you rejected, select it and press **Space**. Tether then shows the
   next molecule, as after any accept.
-- To return a rejected molecule to *uncurated*, select it and click **Un-reject selected** in
-  the panel on the left, or move the focus to it with **Tab** and press **Space** or **Enter**.
-  The status bar reads `Un-rejected` and the ID. On a molecule that is
+- To return a rejected molecule to *uncurated*, select it. Then click **Un-reject selected**
+  in the panel on the left. You can also move the focus to that button with **Tab** and press
+  **Space** or **Enter**. The status bar reads `Un-rejected` and the ID. On a molecule that is
   not rejected it reads `Un-reject unavailable: selected molecule is not rejected` and changes
   nothing.
 
@@ -241,7 +247,7 @@ gets its first key, unless you already use that key.
   rejected one does: it replaces the rejection and puts the molecule back in.
 - **Reject** keeps the molecule out of population analyses and idealization, and out of the
   trace matrix and subset exports. The molecule-table CSV still lists it, with `reject` in
-  its `curation_label` column, because that table is a full inventory
+  its `curation_label` column. That table is a full inventory
   ([Exports: selection](../reference/exports.md#selection)).
 
 Accepts and rejects are also the training labels for the quality ranker that orders molecules
@@ -261,10 +267,12 @@ login name. The application keeps the name for your next session on this compute
 
 From a script, pass the name with
 `labeler=`. For example, this script un-rejects every rejected molecule in the project and
-credits the change to `your-name`. Close the Tether application window first, then run it with the Python
-that came with Tether (`~/tether/envs/tether/bin/python` on Linux,
-`~/Tether/envs/tether/bin/python` on macOS, `$env:USERPROFILE\Tether\envs\tether\python.exe`
-on Windows, at the default install locations):
+credits the change to `your-name`. Close the Tether application window first. Then run the
+script with the Python that came with Tether. At the default install locations, that is:
+
+- `~/tether/envs/tether/bin/python` on Linux.
+- `~/Tether/envs/tether/bin/python` on macOS.
+- `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows.
 
 ```python
 from tether.project.core import Project

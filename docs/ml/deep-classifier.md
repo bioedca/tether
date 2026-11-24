@@ -9,21 +9,25 @@ curation labels, or use one to sort traces. It assumes you can build a conda env
 lock file and call Tether from Python. A GPU is optional.
 
 Tether has an optional **deep** trace classifier. It scores each molecule
-[accept/reject](../pipeline.md#curate) from its raw windowed donor/acceptor intensities, in the
-DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
+[accept/reject](../pipeline.md#curate) from its raw windowed donor/acceptor intensities. It is
+in the DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
 ([Thomsen 2020](#deepfret); [Wanninger 2023](#deeplasi); [Li 2020](#autosim)). It is a
-**terminal optional add-on**: the classifier is a strict superset of the CPU app, and the
-CPU base app is unaffected.
+**terminal optional add-on**. The classifier is a strict superset of the CPU app, and the CPU
+base app is unaffected.
 
-The classifier is a 1-D CNN/LSTM. The load-bearing requirement in Tether's product
-specification is that *"a deep classifier trains on the shared label store **and is
+The classifier is a 1-D CNN/LSTM. Its load-bearing requirement comes from Tether's product
+specification. It reads: *"a deep classifier trains on the shared label store **and is
 optional — the CPU base app is unaffected**."*
 
-This page puts what you run first: **setup** (the CPU environment from the committed lock,
-then the CUDA wheel for a GPU), then **using the classifier** (the training/inference API and its
-preprocessing contract), and last **why** the add-on lives in a third isolated environment, with
-the lock it pins and the two advisory CI legs. The design rationale is recorded in ADR-0047
-(*Deep-model optional stack + torch-free dataset substrate*).
+This page puts what you run first:
+
+1. **Setup**: the CPU environment from the committed lock, then the CUDA wheel for a GPU.
+2. **Using the classifier**: the training/inference API and its preprocessing contract.
+3. **Why** the add-on lives in a third isolated environment, with the lock it pins and the two
+   advisory CI legs.
+
+ADR-0047 (*Deep-model optional stack + torch-free dataset substrate*) records the design
+rationale.
 
 > **You do not need any of this to run Tether.** The base app never imports a deep-learning
 > framework. Everything below is opt-in, for users who want to train or run the deep model on
@@ -32,14 +36,14 @@ the lock it pins and the two advisory CI legs. The design rationale is recorded 
 ## Setup
 
 The add-on runs in its own `tether-deep` environment, built from the committed
-`deep/conda-lock.yml`. That lock is CPU-only; a GPU box adds a CUDA PyTorch wheel on top.
+`deep/conda-lock.yml`. That lock is CPU-only. A GPU box adds a CUDA PyTorch wheel on top.
 [Why a third isolated environment](#why-a-third-isolated-environment) below explains the split.
 
 ### CPU setup (local)
 
-Build the environment from the committed lock — restore it, never solve fresh — then install
-Tether without dependencies (the lock is authoritative), exactly as CONTRIBUTING describes for
-the base and sidecar stacks:
+Build the environment from the committed lock. Restore it, and never solve it fresh. Then
+install Tether without dependencies, because the lock is authoritative. CONTRIBUTING describes
+the same steps for the base and sidecar stacks:
 
 ```bash
 conda-lock install --name tether-deep deep/conda-lock.yml
@@ -47,7 +51,7 @@ conda activate tether-deep
 pip install -e . --no-deps
 ```
 
-Verify the two halves co-import:
+Verify that the two halves import together:
 
 ```bash
 python -c "import torch, tether.ml.deep.dataset; print(torch.__version__)"
@@ -55,21 +59,23 @@ python -c "import torch, tether.ml.deep.dataset; print(torch.__version__)"
 
 ### GPU (CUDA) setup
 
-The CUDA build is the **documented, unpinned** path (ADR-0047): the committed
-`deep/conda-lock.yml` stays CPU-only for reproducible CI, and a CUDA build is selected at
-install time on a GPU box. The RTX-4060 is the reference GPU floor. In the deep environment
-(or a fresh virtualenv), install a CUDA PyTorch wheel from the PyTorch index whose channel
-matches your installed NVIDIA driver (see the PyTorch
-[Start Locally](https://pytorch.org/get-started/locally/) selector):
+The CUDA build is the **documented, unpinned** path (ADR-0047). The committed
+`deep/conda-lock.yml` stays CPU-only for reproducible CI. You select a CUDA build at install
+time on a GPU box. The RTX-4060 is the reference GPU floor.
+
+The channel of the CUDA wheel must match your installed NVIDIA driver. The PyTorch
+[Start Locally](https://pytorch.org/get-started/locally/) selector shows which channel to use.
+In the deep environment (or a fresh virtualenv), install a CUDA PyTorch wheel from the PyTorch
+index:
 
 ```bash
 # cu126 / cu124 / cu128 — pick the channel matching your NVIDIA driver
 pip install "torch>=2.2,<3" --index-url https://download.pytorch.org/whl/cu126
 ```
 
-The CUDA wheel bundles the CUDA runtime, so only an NVIDIA **driver** is required — no
-system CUDA toolkit. This install is intentionally outside pin-and-hold; it is only ever
-exercised on the advisory GPU CI leg (below), never on a gating check.
+The CUDA wheel bundles the CUDA runtime. So you need only an NVIDIA **driver**, and no system
+CUDA toolkit. This install is intentionally outside pin-and-hold. Only the advisory GPU CI leg
+(below) exercises it, never a gating check.
 
 ## Using the classifier
 
@@ -91,7 +97,7 @@ trained = train_classifier(dataset)            # lazily imports torch; needs the
 scores = predict_proba(trained, dataset)       # per-molecule accept probability, rows aligned
 ```
 
-`build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
+`build_deep_dataset` builds the framework-free substrate (base env). `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
 hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
@@ -118,7 +124,7 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
+Labels are the shared **binary** accept(1)/reject(0) curation labels. The six-way
 DeepFRET taxonomy awaits the category codec of ADR-0023 and is a later extension.
 
 ## Why a third isolated environment
@@ -139,13 +145,13 @@ maintainer-approved PR — not a casual bump.
 
 The split runs through the code, too. The framework-agnostic **dataset substrate**
 (`tether.ml.deep.dataset`, pure NumPy) lives in the base env and is covered by the default
-3-OS test matrix; **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
+3-OS test matrix. **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
 so merely importing the module in the base env pulls no framework. Only calling
 `train_classifier` / `predict_proba` needs the `deep/` stack.
 
 ### The `deep/` environment
 
-`deep/environment.yml` expresses the constraints; the committed, multi-platform
+`deep/environment.yml` expresses the constraints. The committed, multi-platform
 `deep/conda-lock.yml` pins the exact versions and is the single source of truth (the required
 `conda-lock-verify` check restores it and never solves fresh). It is **CPU-only and
 cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
@@ -157,7 +163,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
   init, which pulls the ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  project-file bridge). The scikit-learn and xgboost packages stay lazy and are not needed here.
 
 ### Continuous integration
 

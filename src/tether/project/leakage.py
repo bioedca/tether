@@ -285,6 +285,11 @@ def _drop_gamma_settings(f: object) -> None:
     settings = f[_SETTINGS]  # type: ignore[index]
     if _GAMMA_SETTINGS in settings:
         del settings[_GAMMA_SETTINGS]
+    # The γ evidence table was measured with the superseded α too (#927). The decisions
+    # of people and recipes stay: the next γ pass reads them again.
+    from tether.project.gamma_contributors import drop_contributors  # noqa: PLC0415
+
+    drop_contributors(f)
 
 
 def _stamp_leakage_settings(

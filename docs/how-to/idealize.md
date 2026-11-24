@@ -6,26 +6,27 @@ description: "Fit a hidden Markov model to the traces of a project to get the FR
 
 ## Who this page is for
 
-You have a `.tether` project of extracted traces, ideally curated and corrected already, and
-you want Tether to fit a hidden Markov model to them: a small set of FRET states and, for each
-molecule, the state it is in at every frame. That fit is what the transition-density and
-dwell-time analyses read.
+You have a `.tether` project of extracted traces, ideally curated and corrected already. You
+want Tether to fit a hidden Markov model to them. The model is a small set of FRET states. For
+each molecule, it also gives the state the molecule is in at every frame. The
+transition-density and dwell-time analyses read that fit.
 
 ## Before you start
 
 - The project file, here called `movie.tether`.
 - The tMAVEN sidecar, the separate environment every fit runs in. An installer sets it up
-  for you and nothing more is needed. From a source checkout, build it with
-  [Guided sidecar setup](../idealize/standalone-tmaven-handoff.md#guided-sidecar-setup) and set
-  `TETHER_SIDECAR_PYTHON` to the interpreter it prints. If a fit says it cannot find the
-  sidecar, see [Idealization cannot find the sidecar
+  for you, and nothing more is needed. From a source checkout, build it with
+  [Guided sidecar setup](../idealize/standalone-tmaven-handoff.md#guided-sidecar-setup). Then
+  set `TETHER_SIDECAR_PYTHON` to the interpreter it prints. If a fit says that it cannot find
+  the sidecar, see [Idealization cannot find the sidecar
   interpreter](../troubleshooting.md#idealization-cannot-find-the-sidecar-interpreter).
 - For a whole-project fit, a terminal where the `tether` command runs
-  ([Command line](../cli.md#launching-tether-after-an-installer-install)). For a Python
-  script instead, the Python that came with Tether:
-  `~/tether/envs/tether/bin/python` on Linux, `~/Tether/envs/tether/bin/python` on macOS, or
-  `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
-  locations. Close the project in the desktop application before running a script on it.
+  ([Command line](../cli.md#launching-tether-after-an-installer-install)).
+- For a Python script instead, the Python that came with Tether. At the default install
+  locations, it is `~/tether/envs/tether/bin/python` on Linux and
+  `~/Tether/envs/tether/bin/python` on macOS. On Windows, it is
+  `$env:USERPROFILE\Tether\envs\tether\python.exe`. Close the project in the desktop
+  application before you run a script on it.
 - Your curation done. Rejected molecules are left out of a fit, so
   [curate the traces](curate-traces.md) first.
 - Your corrections done. Changing α or γ after a fit makes it stale, so
@@ -34,36 +35,38 @@ dwell-time analyses read.
 ## Choose a method
 
 - **To look at one trace:** press **I** in the desktop application. The status bar calls
-  this the one-click vbFRET fit, but it runs the same consensus VB-HMM as a whole-project
-  fit, on the selected molecule alone, and stores the result under the model name `vbfret`.
-  It is for checking a trace by eye, not for analysis, so do not report it as a vbFRET fit.
-- **For a population analysis:** fit the whole project with the **consensus VB-HMM**, one
-  shared model across all molecules. This is Tether's default and what `tether batch` runs.
+  this the one-click vbFRET fit. But it runs the same consensus VB-HMM as a whole-project fit,
+  on the selected molecule alone. It stores the result under the model name `vbfret`. It is
+  for a look at one trace, not for analysis. So do not report it as a vbFRET fit.
+- **For a population analysis:** fit the whole project with the **consensus VB-HMM**. That is
+  one shared model across all molecules. This is Tether's default and what `tether batch` runs.
   Use it unless you have a reason not to.
 - **For per-molecule state selection under a shared prior:** fit the whole project with
-  **ebFRET** instead. It learns a shared prior across the molecules while choosing states
-  molecule by molecule, and it varies more from run to run than the consensus model.
-- **To fit by hand in tMAVEN's own application window:** use **Hand-off → Hand to tMAVEN…**, fit and edit
-  there, then bring the result back with **Hand-off → Import return leg…**.
+  **ebFRET** instead. It learns a shared prior across the molecules while it chooses states
+  molecule by molecule. It varies more from run to run than the consensus model.
+- **To fit by hand in tMAVEN's own application window:** use **Hand-off → Hand to tMAVEN…**.
+  Fit and edit there. Then bring the result back with **Hand-off → Import return leg…**.
   [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) covers it.
 
 ## Look at one trace
 
-1. Open the project with `tether-gui movie.tether` and select a molecule that is not
-   rejected.
-2. Press **I**. The status bar reads `Idealizing` followed by the molecule's ID.
-3. Wait. The first fit after Tether starts is much slower than later ones, and the application window stays
-   usable meanwhile.
-4. When the status bar reads `Idealized` and the ID, a stepped line is drawn over the
-   blue efficiency trace. The line is black in the light theme and white in the dark theme
-   ([Application window themes and trace colors](../reference/gui-theme.md#trace-colors)).
+1. Open the project with `tether-gui movie.tether`.
+2. Select a molecule that is not rejected.
+3. Press **I**. The status bar reads `Idealizing` followed by the molecule's ID.
+4. Wait. The first fit after Tether starts is much slower than later ones. The application
+   window stays usable meanwhile.
 
-Each press stores its fit as the project's `vbfret` model and replaces whatever that model held
-before, so it never builds up a population fit.
+When the status bar reads `Idealized` and the ID, a stepped line is drawn over the blue
+efficiency trace. The line is black in the light theme and white in the dark theme
+([Application window themes and trace colors](../reference/gui-theme.md#trace-colors)).
+
+Each press stores its fit as the project's `vbfret` model. It replaces whatever that model held
+before. So it never builds up a population fit.
 
 ## Fit the whole project
 
-Close the project in the desktop application, then run:
+1. Close the project in the desktop application.
+2. Run this command:
 
 ```console
 tether idealize movie.tether
@@ -109,32 +112,32 @@ print("state levels:", stored.means)
 The options are arguments there: `nstates=2`, `model_type="ebhmm"`, `overwrite=True` and
 `seed=1`.
 
-A large project can take a long time, and the first fit of a session is slow. If a fit is
-stopped for running too long, see [Idealization times out, or is restarted
-repeatedly](../troubleshooting.md#idealization-times-out-or-is-restarted-repeatedly)
+A large project can take a long time, and the first fit of a session is slow. A fit can be
+stopped for running too long. Then see
+[Idealization times out, or is restarted repeatedly](../troubleshooting.md#idealization-times-out-or-is-restarted-repeatedly)
 ([`timeout`](../reference/parameters.md#param-sidecar-timeout)).
 
 ## Check that it worked
 
-1. The command, or the script, prints the model name, its state count and how many molecules
-   it covers. The molecule count should match the molecules you did not reject.
+1. The command, or the script, prints the model name and its state count. It also prints how
+   many molecules the model covers. The molecule count should match the molecules you did not reject.
 2. The state levels are the FRET efficiencies of the states. They should sit where the plateaus
    in your traces sit.
-3. With `tether batch`, read the end-of-run summary: an `idealize` stage reported `deferred`
-   means it never ran, because no sidecar was found. See [The batch finished "ok" but nothing
-   was idealized](../troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+3. With `tether batch`, read the end-of-run summary. An `idealize` stage reported `deferred`
+   means that it never ran, because no sidecar was found. See
+   [The batch finished "ok" but nothing was idealized](../troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
 
 ## After you change the project
 
-If you changed α or γ since the fit, for example by running the corrections again, the
-affected molecules are now *stale*, and the transition and dwell-time analyses leave them out. Fit the same molecules
-again:
+You may have changed α or γ since the fit, for example when you ran the corrections again.
+Then the affected molecules are now *stale*. The transition and dwell-time analyses leave them
+out. Fit the same molecules again:
 
 ```console
 tether idealize movie.tether --stale-only
 ```
 
-For each model the command prints how many molecules were stale and how many current. It
+For each model, the command prints how many molecules were stale and how many current. It
 refits each model that has a stale molecule, with the settings stored in the model. It
 refits all the molecules of that model. A consensus or ebFRET model is one fit over all of
 them. A model with no stale molecule is left as it is. From Python, the same refit of one
@@ -148,13 +151,16 @@ reidealize("movie.tether", "vbconhmm")
 
 This works for a model fitted in Tether. A model you imported through the
 [standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) cannot be refitted this
-way, so hand the molecules to tMAVEN again and import the new fit.
+way. For such a model, hand the molecules to tMAVEN again and import the new fit.
 
-If you rejected or un-rejected molecules since the fit, `--stale-only` and `reidealize` are
-not enough, because they keep the molecules the model was first fitted on. Run the fit you made in
-[Fit the whole project](#fit-the-whole-project) again, with the same settings and
-`--overwrite` (or `overwrite=True`) added. A call without them falls back to the defaults, so it fits a different
-model, or replaces the `vbconhmm` model while leaving the one you fitted untouched:
+You may have rejected or un-rejected molecules since the fit. Then `--stale-only` and
+`reidealize` are not enough, because they keep the molecules the model was first fitted on.
+Run the fit you made in [Fit the whole project](#fit-the-whole-project) again. Use the same
+settings, and add `--overwrite` (or `overwrite=True`).
+
+A call without the same settings falls
+back to the defaults. So it fits a different model. Or it replaces the `vbconhmm` model and
+leaves the one you fitted untouched:
 
 ```python
 stored = idealize_molecules("movie.tether", overwrite=True)  # the default consensus fit
