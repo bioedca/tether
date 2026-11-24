@@ -85,14 +85,14 @@ It opens through the registry: `tether.io.adapters.open_movie_source("movie.nd2"
 geometry, the pixel type, a frame-range read and the metadata below.
 
 **Extraction reads an ND2 movie** (the application, `tether extract` and `tether batch`). It copies
-the frames to a temporary file, a block of frames at a time, and extracts from that copy with the
-same steps as for a TIFF. An ND2 movie and its TIFF export therefore give the same traces
+the frames to a temporary file, a block of frames at a time. Then it extracts from that copy with
+the same steps as for a TIFF. An ND2 movie and its TIFF export therefore give the same traces
 ([ADR-0149](adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
 
 The copy is the size of the movie and is in the system temporary folder. The operating system deletes it
-when the extraction ends. A `tether batch` folder that holds an ND2 original beside its TIFF
-export (`x.nd2` and `x.tif`) is refused before anything is written, because the two files are one
-movie. Move or rename one of them.
+when the extraction ends. A `tether batch` folder can hold an ND2 original beside its TIFF
+export (`x.nd2` and `x.tif`). The two files are one movie, so the batch refuses that folder
+before it writes anything. Move or rename one of them.
 
 | Requirement | Detail |
 |---|---|
