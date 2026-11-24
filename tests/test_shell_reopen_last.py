@@ -223,3 +223,20 @@ def test_nothing_is_written_into_the_project_file(launch, tmp_path) -> None:
     first.close()
     launch().close()
     assert _digest(path) == before
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_failed_save_shows_the_stored_answer_again(launch, tmp_path, monkeypatch) -> None:
+    shell = launch()
+    assert shell.reopen_last_action.isChecked()
+
+    def _refuse(*_args, **_kwargs):
+        raise OSError("read-only folder")
+
+    monkeypatch.setattr(preferences, "set_reopen_last_project", _refuse)
+    shell.reopen_last_action.trigger()
+    # The next launch still reopens, so the menu says so, and the error says why.
+    assert shell.reopen_last_action.isChecked()
+    assert shell.status_message == "Could not save preferences: read-only folder"
+    assert preferences.reopen_last_project(preferences.preferences_path()) is True

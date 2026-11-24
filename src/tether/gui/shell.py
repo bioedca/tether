@@ -2311,25 +2311,38 @@ class TetherShell:
         return self._act_reopen_last
 
     def set_reopen_last_project(self, on: bool) -> bool:
-        """Turn on or off the reopening of the last project at launch; return if it was saved."""
+        """Turn on or off the reopening of the last project at launch; return if it was saved.
+
+        When the preferences file cannot be written, the action shows the stored answer
+        again, so the menu never shows a setting the next launch will not use.
+        """
         on = bool(on)
         # The menu click has checked the action already; a call from code checks it here,
         # without the toggled signal calling this method a second time.
-        blocked = self._act_reopen_last.blockSignals(True)
-        try:
-            self._act_reopen_last.setChecked(on)
-        finally:
-            self._act_reopen_last.blockSignals(blocked)
+        self._check_reopen_last(on)
         saved = self._remember(
             lambda: preferences.set_reopen_last_project(on, self._preferences_file)
         )
-        if saved:
+        if not saved:
+            self._check_reopen_last(
+                self._preferences_file is not None
+                and preferences.reopen_last_project(self._preferences_file)
+            )
+        else:
             self._status(
                 "The last project opens again at the next start"
                 if on
                 else "The next start shows the start page"
             )
         return saved
+
+    def _check_reopen_last(self, on: bool) -> None:
+        """Check or clear **Reopen last project at start** without its toggled signal."""
+        blocked = self._act_reopen_last.blockSignals(True)
+        try:
+            self._act_reopen_last.setChecked(on)
+        finally:
+            self._act_reopen_last.blockSignals(blocked)
 
     def reopen_last_project(self) -> str | None:
         """At launch, open the newest recent project in the section of its next step (#1159).
