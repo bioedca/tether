@@ -89,8 +89,10 @@ you allow it** (below).
   or copy them into a bug report. Each line holds the time, the level and the text of one
   message. The log holds no trace data and no file contents. A message that shows a file
   path, such as the project you opened, keeps that path. The log keeps at most about 4 MB in
-  four files. It is **never transmitted by Tether**. Delete the folder and it is gone.
-  [Troubleshooting](troubleshooting.md#i-missed-a-message-in-the-status-bar) lists the folder
+  four files. When the file is larger than about 1 MB, Tether renames it `tether.log.1` and keeps
+  the three newest old files. If Tether cannot write the file, it stops writing it for that
+  session. The log is **never transmitted by Tether**. Delete the folder and it is gone.
+  [Troubleshooting](troubleshooting.md#a-status-bar-message-went-away-before-you-read-it) lists the folder
   on each system, and **Help → Open log folder** opens it.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
