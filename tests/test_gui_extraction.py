@@ -409,6 +409,24 @@ def test_an_unreadable_movie_is_a_message_not_a_traceback(page, qtbot, tmp_path)
 
 @pytest.mark.gui
 @needs_qt
+def test_a_failed_preview_clears_the_last_movie_and_residuals(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_movie(tmp_path / "movie.tif"))
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert page.overlay_views and page._residual_label.text()
+    page.set_movie(tmp_path / "missing.tif")
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert "Preview failed" in page.error_label.text()
+    # The last movie's spots and residuals belong to other inputs, so none stay on show.
+    assert page.overlay_views == ()
+    assert page.panels[0].movies == []
+    assert page._view_combo.count() == 0
+    assert page._residual_label.text() == ""
+
+
+@pytest.mark.gui
+@needs_qt
 def test_a_map_file_preview_skips_the_fit(page, qtbot, tmp_path) -> None:
     from tether.imaging.calibrate import save_map
 

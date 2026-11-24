@@ -395,8 +395,11 @@ class ExtractionSection:
         from tether.gui.tasks import TaskState
 
         if outcome.state is not TaskState.DONE:
+            # The last preview's movie and residuals belong to other inputs: clear them.
             self._preview = None
             self._show_stages(None)
+            self._residual_label.setText("")
+            self._clear_movie()
             self._error_label.setText(f"Preview failed: {outcome.error}")
             self._status(f"Preview failed: {outcome.error}")
             return
