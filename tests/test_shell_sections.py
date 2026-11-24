@@ -64,9 +64,10 @@ def test_central_widget_is_one_stack_with_a_page_per_registered_section(shell) -
     stack = shell.window.centralWidget()
     assert isinstance(stack, QtWidgets.QStackedWidget)
     assert stack is shell.section_stack
-    assert shell.sections.ids == _SECTIONS
-    assert stack.count() == len(shell.sections)
-    for index, section_id in enumerate(shell.sections.ids):
+    assert shell.sections.ids == (*_SECTIONS, "deposit")
+    assert shell.sections.visible_ids == _SECTIONS  # Deposit is hidden until #956 (#897)
+    assert stack.count() == len(_SECTIONS)
+    for index, section_id in enumerate(shell.sections.visible_ids):
         assert stack.widget(index) is shell.section_page(section_id)
     # The page of Curate and correct holds the start page and the trace dock.
     assert shell.trace_dock.widget.parent() is not None
@@ -96,10 +97,10 @@ def test_the_view_menu_switches_the_section(shell) -> None:
     assert shell.section == "prepare"
     assert shell.section_stack.currentWidget() is shell.section_page("prepare")
     titles = [action.text() for action in shell.section_actions.values()]
-    assert titles == [spec.title for spec in shell.sections]
+    assert titles == [spec.title for spec in shell.sections.visible_sections()]
 
 
-def test_an_unknown_section_raises_and_changes_nothing(shell) -> None:
+def test_an_unknown_or_hidden_section_raises_and_changes_nothing(shell) -> None:
     shell.set_section("analyze")
     with pytest.raises(KeyError, match="deposit"):
         shell.set_section("deposit")

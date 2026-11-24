@@ -194,8 +194,9 @@ theme and white in the dark theme
 
 ## 8. Draw the population histogram
 
-1. Choose **View → Section → Analyze**. Each section has its own menus, and the **Analysis**
-   menu is in this one.
+1. Choose **View → Section → Analyze**. You can also click **Analyze** on the section bar, or
+   press Ctrl+3 (Cmd+3 on macOS). Each section has its own menus, and the **Analysis** menu is
+   in this one.
 2. Choose **Analysis → Population histogram…**.
 
 A **Population histogram** panel opens, and the status bar reads:
