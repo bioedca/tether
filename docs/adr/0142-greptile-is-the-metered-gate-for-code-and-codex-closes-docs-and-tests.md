@@ -154,25 +154,37 @@ At most one Greptile review on a pull request, and on the fallback at most one C
 grant as two constants: `GRANT_CREDITS = 50` and `GRANT_CYCLE = "2026-11"` (the cycle that started
 on 2026-11-17; the grant came on 2026-11-19 00:33Z).
 
-- In each cycle from the grant's on, the credits Tether uses above 45 draw on the grant, and never
-  more than it has left. The script reads every earlier cycle of the grant to know what is left.
+- On Greptile's usage page the grant is credit on the seat: it is drawn once the seat's included
+  50 for the cycle are used, whichever repository spends it. So with the whole seat read, each
+  cycle from the grant's on draws the seat's credits above 50 on the grant, never more than it has
+  left, and the seat holds its 50 plus what the earlier cycles left of the grant.
+- With Tether alone read (a cloud session, `--repo bioedca/tether`, ADR-0099 item 6), the script
+  cannot see the other repositories. It draws Tether's credits above 45 on the grant, which
+  assumes the other two keep within the 5 the share leaves them, and it says that the grant left
+  can then read high. The dashboard's credits left and the script's figure for Tether may differ;
+  the lower one governs.
 - Tether's limit in a cycle is 45 plus what the earlier cycles left of the grant. When the grant is
   used, the limit is 45 again (decision 2).
-- The output prints the grant used this cycle, the grant left and the limit. `--fail-over-share`
-  exits 1 when Tether is at its limit.
-- The credits Tether draws on the grant are outside the seat's included 50, so the whole-seat
-  balance subtracts only the rest. An empty seat stops a Tether review only when that review
-  would draw on the seat: once Tether has used its 45 and the grant has credit left, the next
-  review draws on the grant (Codex on #1369).
+- The output prints the grant used this cycle, the grant left and the limit, and with the whole
+  seat read the seat's credits left. `--fail-over-share` exits 1 when Tether is at its limit, or
+  when the whole seat was read and has no credit left, its 50 and the grant both used. A seat past
+  its 50 with grant left still has credit (Codex on #1369).
 - Any failed read, of this cycle or of an earlier one, is UNKNOWN (exit 2), never a partial count.
-- A cloud session reads Tether alone with `--repo bioedca/tether` (ADR-0099 item 6).
 
 The figures are a proxy. A past cycle can read low (ADR-0099: a summary comment edited in a later
 cycle counts in the later one), so the grant left can read high. Reconcile against the Greptile
 dashboard (Settings, Usage), as the script's docstring says.
 
-On 2026-11-23 ~20:50Z the script read Tether at 53 for the cycle 2026-11-17 to 2026-12-17: 45 of the
-share and 8 of the grant, which leaves 42 of the grant and a limit of 95 this cycle.
+Two readings of the cycle 2026-11-17 to 2026-12-17:
+
+- 2026-11-23 ~20:50Z, the script with Tether alone: Tether at 53, so 45 of the share and 8 of the
+  grant, 42 of the grant left and a limit of 95.
+- 2026-11-24 ~18:50Z, the script with Tether alone: Tether at 62, 33 of the grant left for
+  Tether. At 20:22Z the maintainer read **29 credits available until 2026-12-17** on the dashboard.
+  The seat holds 100 this cycle (50 included and the grant of 50), so the seat had used 71, which is
+  9 more than Tether's 62. The likely reason is the other two repositories, which a cloud session
+  cannot read, though it was not checked from here. The dashboard's 29 is the lower figure, so it
+  governs.
 
 ### 7. The queue pace
 

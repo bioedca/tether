@@ -208,15 +208,19 @@ def _next_month(month: str) -> str:
     return f"{year + 1:04d}-01" if number == 12 else f"{year:04d}-{number + 1:02d}"
 
 
-def grant_draws(used_by_cycle: list[int]) -> list[int]:
-    """What Tether drew on the one-time grant in each cycle, from `GRANT_CYCLE` on, in order.
+def grant_draws(used_by_cycle: list[int], base: int = REPO_SHARE) -> list[int]:
+    """What was drawn on the one-time grant in each cycle, from `GRANT_CYCLE` on, in order.
 
-    A cycle draws its credits above `REPO_SHARE`, and never more than the grant has left, so the
-    draws add up to `GRANT_CREDITS` at most and every cycle after that has the limit of 45 alone.
+    A cycle draws its credits above ``base``, and never more than the grant has left, so the draws
+    add up to `GRANT_CREDITS` at most and every cycle after that has the limit of 45 alone. With the
+    whole seat read, ``base`` is the seat's `INCLUDED_CREDITS` and the counts are the seat's: on
+    Greptile's usage page the grant is credit on the seat, drawn once the included 50 are used,
+    whichever repository spends it. With Tether alone, ``base`` is `REPO_SHARE`, which assumes the
+    other repositories keep within the 5 the share leaves them.
     """
     left, draws = GRANT_CREDITS, []
     for used in used_by_cycle:
-        draw = min(left, max(0, used - REPO_SHARE))
+        draw = min(left, max(0, used - base))
         draws.append(draw)
         left -= draw
     return draws
@@ -491,37 +495,53 @@ def main() -> int:
         )
         return EXIT_UNKNOWN
 
-    # The grant: what Tether drew on it in the cycles before this one, each read whole like this
-    # one. A past cycle can read low (ADR-0099: a summary edited later counts in the later cycle),
-    # and the dashboard settles it.
+    # The grant: what was drawn on it in the cycles before this one, each read whole like this one -
+    # the seat's credits above its 50 where the whole seat is read, Tether's above 45 where only
+    # Tether is. A past cycle can read low (ADR-0099: a summary edited later counts in the later
+    # cycle), and the dashboard settles it.
     granted = month >= GRANT_CYCLE and TETHER in selected
+    used = sum(per_repo.values())
     grant_before = drawn = 0
     if granted:
         earlier: list[int] = []
         past = GRANT_CYCLE
         try:
             while past < month:
-                earlier.append(_credits(TETHER, *_cycle(past))[0])
+                counted = REPOS if whole_seat else (TETHER,)
+                earlier.append(sum(_credits(repo, *_cycle(past))[0] for repo in counted))
                 past = _next_month(past)
         except Unreadable as exc:
             print(f"error: cannot count the grant - {exc}", file=sys.stderr)
             print("The grant left is UNKNOWN. Re-run, or read Settings -> Usage.", file=sys.stderr)
             return EXIT_UNKNOWN
-        draws = grant_draws([*earlier, per_repo[TETHER]])
+        if whole_seat:
+            draws = grant_draws([*earlier, used], INCLUDED_CREDITS)
+        else:
+            draws = grant_draws([*earlier, per_repo[TETHER]])
         grant_before = GRANT_CREDITS - sum(draws[:-1])
         drawn = draws[-1]
     limit = REPO_SHARE + grant_before
 
-    used = sum(per_repo.values())
-    # Credits Tether drew on the grant are outside the seat's included 50.
-    left = INCLUDED_CREDITS - (used - drawn)
+    # The seat holds its included 50 and what is left of the grant (ADR-0142).
+    left = INCLUDED_CREDITS + grant_before - used
     print(f"Greptile credits — seat {SEAT}, cycle {start} to {end} (exclusive)")
-    if whole_seat:
+    if whole_seat and granted:
+        print(
+            f"  used {used} of {INCLUDED_CREDITS} included plus {grant_before} of the one-time "
+            f"grant; {left} remaining"
+        )
+    elif whole_seat:
         print(f"  used {used} of {INCLUDED_CREDITS} included; {left} remaining")
     else:
         # No seat balance is printed from a partial count: it would read HIGH by exactly what the
         # unread repositories spent. The maintainer reconciles the seat in Settings -> Usage.
         print(f"  seat total NOT READ: counted {', '.join(selected)} only")
+        if granted:
+            print(
+                "  the other repositories draw on the grant too once the seat's 50 are used, so"
+                "\n  the grant left below reads HIGH by what they spent past 5; Settings -> Usage"
+                "\n  shows the seat's credits left, and the lower figure governs"
+            )
     print()
     for repo in selected:
         share = ""
@@ -548,20 +568,19 @@ def main() -> int:
         "\n  against Settings -> Usage before relying on the remaining figure."
     )
     if args.fail_over_budget and left <= 0:
-        print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
+        print("\nerror: the seat has no credits left this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     if args.fail_over_share and per_repo[TETHER] >= limit:
         print(f"\nerror: Tether has used its limit of {limit} this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
-    # Tether's next review draws on the grant once its share is used and the grant has credit left;
-    # then the seat's included credits are not what it spends (Codex P2 on #1369).
-    from_grant = per_repo[TETHER] >= REPO_SHARE and grant_before - drawn > 0
-    if args.fail_over_share and whole_seat and left <= 0 and not from_grant:
+    # The grant counts in `left`, so a seat whose included 50 are used still has the grant to
+    # spend (Codex P2 on #1369).
+    if args.fail_over_share and whole_seat and left <= 0:
         # Tether's share is a ceiling inside the seat, never a credit of its own: where the whole
         # seat was read and it is empty, nothing may be spent however little Tether used (Codex
         # P2 on #1036). A partial count cannot see this, which is why ADR-0099 has the maintainer
         # reconcile the seat.
-        print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
+        print("\nerror: the seat has no credits left this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     return 0
 

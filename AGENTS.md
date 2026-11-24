@@ -204,8 +204,8 @@ validity turns on it being the right test — must satisfy both.
   what the gate requires must not keep evidence gathered under the old requirement.
 - **Metered credits are the maintainer's money.** Greptile is 50 credits per seat per month shared
   across `tether`, `Yeliztli` and `tbox-finder`. Tether's limit is 45 a cycle from the 17th plus
-  what is left of a one-time grant of 50; a standard review costs one credit, a TREX one three, so
-  never ask TREX. **A quota refusal from any provider means the provider did not review, and never
+  what is left of a one-time grant of 50, and a lower count on Greptile's usage page governs; a
+  standard review costs one credit, a TREX one three, so never ask TREX. **A quota refusal from any provider means the provider did not review, and never
   counts as a pass.** Copilot is advisory and satisfies nothing.
 - **CodeRabbit, the fallback, is asked once** with the **full-review** command (the bare
   incremental one applies only where automatic reviews are *paused*; they are *disabled* here, so it

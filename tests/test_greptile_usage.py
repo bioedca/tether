@@ -879,20 +879,74 @@ def test_an_unreadable_earlier_cycle_makes_the_grant_unknown(
     assert "UNKNOWN" in capsys.readouterr().err
 
 
-def test_credits_drawn_on_the_grant_are_outside_the_seats_fifty(
+def _others(prs: dict[str, list], reviews: dict[int, list], counts: dict[str, int]) -> None:
+    """Add Yeliztli pull requests with one Greptile review each, ``counts[date]`` on ``date``."""
+    prs["bioedca/Yeliztli"] = []
+    for when, count in counts.items():
+        for _ in range(count):
+            number = 1000 + len(prs["bioedca/Yeliztli"])
+            prs["bioedca/Yeliztli"].append(_pr(number, updated="2027-01-20T00:00:00Z"))
+            reviews[number] = [_review(when=when)]
+
+
+def _seat(monkeypatch: pytest.MonkeyPatch, cycle: str) -> int:
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", cycle, "--fail-over-share"])
+    return usage.main()
+
+
+def test_the_seat_holds_its_fifty_and_what_is_left_of_the_grant(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """53 for Tether (8 from the grant) and 2 elsewhere is 47 of the seat's included 50."""
+    """53 for Tether and 2 elsewhere is 55 of the 50 + 50 the seat holds in the grant's cycle."""
     prs, reviews = _tether({_NOV: 53})
-    prs["bioedca/Yeliztli"] = [_pr(100, updated=_NOV), _pr(101, updated=_NOV)]
-    reviews[100] = [_review(when=_NOV)]
-    reviews[101] = [_review(when=_NOV)]
+    _others(prs, reviews, {_NOV: 2})
     monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
-    monkeypatch.setattr(
-        "sys.argv", ["greptile_usage.py", "--cycle", "2026-11", "--fail-over-share"]
+    assert _seat(monkeypatch, "2026-11") == 0
+    assert "used 55 of 50 included plus 50 of the one-time grant; 45 remaining" in (
+        capsys.readouterr().out
     )
-    assert usage.main() == 0
-    assert "3 remaining" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("tether", "others"), [(53, 5), (44, 6)])
+def test_a_seat_past_its_fifty_still_spends_the_grant(
+    monkeypatch: pytest.MonkeyPatch, tether: int, others: int
+) -> None:
+    """Codex P2 on #1369: with the seat's included 50 used, the grant is still credit on it."""
+    prs, reviews = _tether({_NOV: tether})
+    _others(prs, reviews, {_NOV: others})
+    monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
+    assert _seat(monkeypatch, "2026-11") == 0
+
+
+@pytest.mark.parametrize(("others", "code"), [(9, 0), (10, 1)])
+def test_the_seat_is_empty_when_its_fifty_and_the_grant_are_used(
+    monkeypatch: pytest.MonkeyPatch, others: int, code: int
+) -> None:
+    """November's 95 + 5 used the whole grant, so December's seat holds 50: 40 + 10 empties it."""
+    prs, reviews = _tether({_NOV: 95, _DEC: 40})
+    _others(prs, reviews, {_NOV: 5, _DEC: others})
+    monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
+    assert _seat(monkeypatch, "2026-12") == (usage.EXIT_OVER_BUDGET if code else 0)
+
+
+def test_with_the_whole_seat_the_grant_is_drawn_by_the_seat(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """November: Tether 40 and Yeliztli 20 is 60, 10 past the seat's 50, so 40 of the grant are
+    left in December, whatever Tether's own count was (the dashboard, 2026-11-24: 29 left)."""
+    prs, reviews = _tether({_NOV: 40, _DEC: 1})
+    _others(prs, reviews, {_NOV: 20})
+    monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
+    assert _seat(monkeypatch, "2026-12") == 0
+    assert "40 of 50 left; limit this cycle 85)" in capsys.readouterr().out
+
+
+def test_tether_alone_says_the_grant_left_can_read_high(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(usage, "_gh", _paged(*_tether({_NOV: 53})))
+    assert _run(monkeypatch, "2026-11", "--fail-over-share") == 0
+    assert "the lower figure governs" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -930,21 +984,3 @@ def test_kind_is_unknown_when_the_files_cannot_be_read(monkeypatch: pytest.Monke
     monkeypatch.setattr(usage, "_gh", lambda *args: {"message": "Not Found"})
     monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--kind", "7"])
     assert usage.main() == usage.EXIT_UNKNOWN
-
-
-@pytest.mark.parametrize(("tether", "code"), [(53, 0), (44, 1)])
-def test_an_empty_seat_stops_only_a_review_that_would_draw_on_it(
-    monkeypatch: pytest.MonkeyPatch, tether: int, code: int
-) -> None:
-    """Codex P2 on #1369: with the seat's included 50 used, a Tether review past 45 still draws
-    on the grant, while one under 45 would draw on the empty seat."""
-    prs, reviews = _tether({_NOV: tether})
-    others = 50 - min(tether, usage.REPO_SHARE)
-    prs["bioedca/Yeliztli"] = [_pr(200 + n, updated=_NOV) for n in range(others)]
-    for n in range(others):
-        reviews[200 + n] = [_review(when=_NOV)]
-    monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
-    monkeypatch.setattr(
-        "sys.argv", ["greptile_usage.py", "--cycle", "2026-11", "--fail-over-share"]
-    )
-    assert usage.main() == (usage.EXIT_OVER_BUDGET if code else 0)
