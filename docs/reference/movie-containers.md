@@ -28,7 +28,7 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF, ND2 and cellSens VSI
 ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A
-`.vsi` movie needs the optional Bio-Formats stack; without it, extraction fails with the message
+`.vsi` movie needs the optional Bio-Formats stack. Without it, extraction fails with the message
 that says how to install it. A CZI movie opens through the reader, but extraction refuses it with
 "this CZI movie opens, but extraction does not read CZI yet". The change that lets extraction read
 CZI is planned (#1390). Until then, export the movie to uncompressed TIFF.

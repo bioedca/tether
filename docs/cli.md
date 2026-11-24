@@ -84,7 +84,7 @@ Running `tether` with no subcommand prints the top-level help and exits 0.
 ## `tether extract`
 
 Run the native extraction pipeline — split → detect → register → colocalize → integrate —
-on one dual-channel movie (TIFF or ND2) and write a new `.tether` project.
+on one dual-channel movie (TIFF, ND2 or cellSens .vsi) and write a new `.tether` project.
 
 ```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
@@ -102,7 +102,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movie` | *(required)* | path to the dual-channel movie (TIFF or ND2) |
+| `movie` | *(required)* | path to the dual-channel movie (TIFF, ND2 or cellSens .vsi) |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
 | `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
@@ -357,7 +357,7 @@ tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movies` | *(required, one or more)* | dual-channel movies (TIFF or ND2): each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
+| `movies` | *(required, one or more)* | dual-channel movies (TIFF, ND2 or cellSens .vsi): each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
 | `--recursive` | off | a folder argument also includes the movies in its sub-folders |
 | `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. Nothing is written, and no movie is read except to hash it under `--into` ([see below](#check-a-batch-before-it-runs-dry-run)) |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(this or `--into`)* | directory for the per-movie `.tether` projects (created if absent) |
@@ -424,7 +424,7 @@ command gives the same movies in PowerShell, cmd and bash:
   ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
   folder (`x.nd2` and `x.tif`, or `x.vsi` and `x.tif`) is one movie, so the run stops before
   anything is written and the message names both files. Move or rename one. A `.vsi` movie needs
-  the optional Bio-Formats stack; without it, its stage fails with the install message.
+  the optional Bio-Formats stack. Without it, its stage fails with the install message.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
