@@ -698,8 +698,17 @@ with one part for each source. It reads in 1 MiB blocks, with progress and cance
 whose checksum differs from the one already known (the registry's or `/movies.sha256`) fails
 its part, and nothing is written.
 
+**Only a file can be a source.** `register_source` refuses a folder. A file outside the
+project's folder is accepted.
+
 **A source that moved** is linked again with `relink_source` only when the checksums match.
 The new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`.
+The size stored is the size of the file that was read.
+
+**A file replaced during the read is not stored.** The checksum records the device and
+inode of the file it read and the bytes read. Just before the write, the checksum job and
+`relink_source` check that the path still names that file at that size. If another process
+replaced or changed the file, the write is refused (`SourceReplaced`) and nothing is stored.
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It keeps
 only the file name of a path that is absolute or steps out of the folder (`..`). A plain

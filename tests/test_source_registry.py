@@ -8,6 +8,8 @@ Headless (no Qt). Each test reads the project file back, so it checks what is st
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 import threading
 from pathlib import Path
 
@@ -463,3 +465,88 @@ def test_a_map_image_that_names_a_movie_is_not_checked_against_the_movie(tmp_pat
         # With no checksum of its own, the movie file is not accepted in its place.
         with pytest.raises(S.RelinkRefused):
             S.relink_source(project, record.source_id, movie)
+
+
+#: Windows refuses to replace a file that is open, so the file cannot change during the read.
+_POSIX_ONLY = pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not replace a file that is open"
+)
+
+
+def _replace_once(path: Path, data: bytes) -> object:
+    """Return a progress callback that replaces the file at ``path`` (a new file) once."""
+    done: list[bool] = []
+
+    def replace_file(*_: object) -> None:
+        if not done:
+            done.append(True)
+            staged = path.with_name(path.name + ".new")
+            staged.write_bytes(data)
+            os.replace(staged, path)
+
+    return replace_file
+
+
+def test_a_folder_cannot_be_registered_and_writes_nothing(tmp_path) -> None:
+    project, _ = _project(tmp_path)
+    folder = tmp_path / "beads"
+    folder.mkdir()
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.tif"
+    outside.write_bytes(b"outside")
+    with project.write_lock():
+        before = project.path.read_bytes()
+        with pytest.raises(ValueError, match="not a file"):
+            S.register_source(project, folder, role="bead_video")
+        assert project.path.read_bytes() == before
+        # A regular file outside the project's folder is still a valid source.
+        record = S.register_source(project, outside, role="map_image")
+    assert record.relative_path == f"../{outside.name}"
+    assert [r.source_id for r in S.read_sources(project.path) if r.stored] == [record.source_id]
+
+
+def test_the_checksum_names_the_file_it_read() -> None:
+    path = Path(__file__)
+    digest = S.file_sha256(path)
+    info = os.stat(path)
+    assert digest.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert (digest.size, digest.device, digest.inode) == (info.st_size, info.st_dev, info.st_ino)
+
+
+def test_a_relink_stores_the_size_of_the_file_it_hashed(tmp_path) -> None:
+    project, movie = _project(tmp_path, movie_sha=hashlib.sha256(_MOVIE_BYTES).hexdigest())
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    with project.write_lock():
+        record = S.relink_source(project, "movie:mov-1", moved)
+    assert record.file_size == len(_MOVIE_BYTES)
+    (stored,) = S.read_sources(project.path)
+    assert stored.file_size == len(_MOVIE_BYTES)
+
+
+@_POSIX_ONLY
+def test_a_file_replaced_during_a_relink_is_not_stored(tmp_path) -> None:
+    project, movie = _project(tmp_path, movie_sha=hashlib.sha256(_MOVIE_BYTES).hexdigest())
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    with project.write_lock():
+        before = project.path.read_bytes()
+        with pytest.raises(S.SourceReplaced):
+            S.relink_source(
+                project, "movie:mov-1", moved, progress=_replace_once(moved, b"another file")
+            )
+        assert project.path.read_bytes() == before
+    assert not S.read_sources(project.path)[0].stored
+
+
+@_POSIX_ONLY
+def test_a_file_replaced_during_the_checksum_job_is_not_stored(tmp_path) -> None:
+    project, movie = _project(tmp_path)
+    project.acquire_lock()
+    try:
+        job = submit_checksum_job(project)
+        replace_file = _replace_once(movie, b"another file")
+        out = run_checksum_job(project, job.job_id, file_progress=lambda *a: replace_file())
+    finally:
+        project.release_lock()
+    assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    assert not S.read_sources(project.path)[0].checksum_calculated
