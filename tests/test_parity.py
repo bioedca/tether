@@ -946,3 +946,35 @@ def test_read_model_reads_the_per_trace_models(tmp_path):
     assert model.trace_level[1].means.tolist() == [0.2]
     assert model.trace_level[0].idealized.shape == (3,)
     assert model.trace_level[0].model_type == "vb HMM_tracelevel"
+
+
+def test_state_paths_of_a_per_trace_model_use_each_trace_s_own_means():
+    # The ensemble means of a per-trace model are NaN; nearest-NaN would put every frame in
+    # state 0 and erase every transition (Codex review of #1374).
+    from tether.idealize.driver import _state_paths_from_model, dwells_from_states
+
+    rows = [[0.1, 0.1, 0.6, 0.6, NAN], [0.3, 0.8, 0.8, 0.3, 0.3]]
+    traces = [_trace(rows[0], -1.0), _trace(rows[1], -2.0)]
+    model = _per_trace(traces)
+    model.idealized = np.asarray(rows)
+    paths = _state_paths_from_model(model)
+    assert sorted(paths) == [0, 1]
+    assert paths[0].tolist() == [0, 0, 1, 1, NO_STATE]
+    assert paths[1].tolist() == [0, 1, 1, 0, 0]
+    assert [(d.state, d.start, d.length) for d in dwells_from_states(paths[1], 1)] == [
+        (0, 0, 1),
+        (1, 1, 2),
+        (0, 3, 2),
+    ]
+    # A molecule with no per-trace model gets no path rather than a made-up one.
+    model.trace_level = {0: traces[0]}
+    assert sorted(_state_paths_from_model(model)) == [0]
+
+
+def test_state_paths_of_an_ensemble_model_use_the_shared_means():
+    from tether.idealize.driver import _state_paths_from_model
+
+    model = _model([0.2, 0.7], idealized=[[0.2, 0.7, NAN], [0.69, 0.21, 0.2]])
+    paths = _state_paths_from_model(model)
+    assert paths[0].tolist() == [0, 1, NO_STATE]
+    assert paths[1].tolist() == [1, 0, 0]

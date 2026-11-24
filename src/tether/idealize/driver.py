@@ -141,7 +141,7 @@ class Dwell:
     """A single contiguous dwell in one molecule's idealized state path."""
 
     molecule_index: int  # index into the SMD molecule order
-    state: int  # state index into StateModel.means
+    state: int  # state index into StateModel.means (a per-trace model: that trace's means)
     start: int  # first frame of the dwell
     length: int  # number of frames
 
@@ -151,7 +151,9 @@ class IdealizationResult:
     """Outcome of a headless vbFRET round-trip.
 
     ``state_paths`` maps each idealized SMD molecule index to its integer state
-    path (``NO_STATE`` outside the window). ``molecule_keys`` carries the
+    path (``NO_STATE`` outside the window). For a per-trace vbFRET model the
+    indices are that trace's own states (sorted as its per-trace ``means``), not
+    states shared across molecules. ``molecule_keys`` carries the
     Tether ``molecule_key`` of each SMD molecule (from the superset group) when
     present, so a result row maps back to its store molecule without relying on
     order; the general scrambled-order return leg is handled separately by
@@ -321,6 +323,43 @@ def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarra
         diffs = np.abs(idealized[finite][:, None] - means[None, :])
         out[finite] = np.argmin(diffs, axis=1).astype("int64")
     return out
+
+
+def _state_paths_from_model(model: StateModel) -> dict[int, np.ndarray]:
+    """Each fitted molecule's integer state path, keyed by SMD molecule index.
+
+    An ensemble model maps every molecule's ``idealized`` row to the nearest of its
+    shared ``means`` ([`states_from_idealized`][]). A **per-trace** model (one whose
+    ensemble ``means`` are all NaN and which carries ``trace_level``, as
+    ``model_type="vbfret"`` writes) has no shared states: each molecule's row maps to
+    the nearest of **that trace's own** means, so its state indices are labels of
+    that trace alone. A molecule with no per-trace model, or whose per-trace model has
+    no finite mean, gets no path. Returns ``{}`` when the model has no
+    ``idealized`` array.
+    """
+    if model.idealized is None or not model.means.size:
+        return {}
+    idealized = np.asarray(model.idealized, dtype="float64")
+    if idealized.ndim == 1:
+        idealized = idealized[None, :]
+    ran = model.ran if model.ran.size else np.arange(idealized.shape[0], dtype="int64")
+    ensemble = np.asarray(model.means, dtype="float64").reshape(-1)
+    paths: dict[int, np.ndarray] = {}
+    if model.trace_level is not None and not np.isfinite(ensemble).any():
+        for mol_idx in ran.tolist():
+            trace = model.trace_level.get(int(mol_idx))
+            if trace is None:
+                continue
+            means = np.asarray(trace.means, dtype="float64").reshape(-1)
+            means = means[np.isfinite(means)]
+            if not means.size:
+                continue
+            paths[mol_idx] = states_from_idealized(idealized[mol_idx][None, :], means)[0]
+        return paths
+    all_paths = states_from_idealized(idealized, ensemble)
+    for mol_idx in ran.tolist():
+        paths[mol_idx] = all_paths[mol_idx]
+    return paths
 
 
 def dwells_from_states(state_path: np.ndarray, molecule_index: int) -> list[Dwell]:
@@ -573,15 +612,10 @@ def run_vbfret(
     smd = read_smd(smd_path, group)
     molecule_keys = smd.molecule_keys
 
-    state_paths: dict[int, np.ndarray] = {}
+    state_paths = _state_paths_from_model(model)
     dwells: list[Dwell] = []
-    if model.idealized is not None and model.means.size:
-        all_paths = states_from_idealized(model.idealized, model.means)
-        ran = model.ran if model.ran.size else np.arange(all_paths.shape[0], dtype="int64")
-        for mol_idx in ran.tolist():
-            row = all_paths[mol_idx]
-            state_paths[mol_idx] = row
-            dwells.extend(dwells_from_states(row, mol_idx))
+    for mol_idx, row in state_paths.items():
+        dwells.extend(dwells_from_states(row, mol_idx))
 
     return IdealizationResult(
         model=model,

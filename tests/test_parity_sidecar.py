@@ -35,6 +35,7 @@ import pytest
 
 from _sidecar_gate import requires_sidecar
 from tether.idealize import (
+    NO_STATE,
     compare_models,
     load_frozen_tolerance,
     read_model,
@@ -292,6 +293,14 @@ def test_4mol_per_trace_vbfret_same_seed_gives_the_same_model(tmp_path, capsys):
             assert 1 <= trace.nstates <= 4
             assert trace.elbo is not None and np.isfinite(trace.elbo)
             assert np.isfinite(trace.idealized).any()
+        # The returned paths use each trace's own states: a trace whose idealized row takes
+        # k levels has a path with k states, so its transitions and dwells survive.
+        assert sorted(result.state_paths) == [0, 1, 2, 3]
+        for mol, path in result.state_paths.items():
+            row = result.model.trace_level[mol].idealized
+            levels = np.unique(row[np.isfinite(row)])
+            assert np.unique(path[path != NO_STATE]).size == levels.size
+        assert len(result.dwells) >= len(result.state_paths)
 
     a = _model_datasets(fits["a"].model_path)
     b = _model_datasets(fits["b"].model_path)
