@@ -194,6 +194,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0143](0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md) | Deep-LASI detection mode 5 is ported, and mode 4 stays refused because Deep-LASI cannot run it | accepted | §7.1 FR-EXTRACT, §11.2 (the particle-detection rows), Appendix E stage 3 |
 | [0144](0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md) | CZI movies are read with czifile, and only as one whole movie | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0146](0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md) | The map file is a separate asset, and its reuse checks the optics, not the date | accepted | §7.1 (FR-EXTRACT), Appendix E stage 10, §5 (data model) |
+| [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 
