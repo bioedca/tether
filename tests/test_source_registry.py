@@ -410,3 +410,23 @@ def test_a_subset_keeps_the_extraction_checksum_of_a_movie_not_yet_registered(
     subset = Project(out)
     with subset.write_lock():
         assert S.relink_source(subset, record.source_id, moved).relative_path == "../moved.tif"
+
+
+def test_a_stored_movie_record_with_no_checksum_takes_the_extraction_checksum_into_a_subset(
+    tmp_path,
+) -> None:
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, _ = _project(tmp_path, movie_sha=sha)
+    derived = tmp_path / "movie-crop.tif"
+    derived.write_bytes(b"crop")
+    with project.write_lock():  # stores the movie's record, with no checksum of its own
+        S.register_source(
+            project, derived, role="map_image", derived_from="movie:mov-1", recipe="crop"
+        )
+    original = next(r for r in S.read_sources(project.path) if r.source_id == "movie:mov-1")
+    assert original.stored and not original.sha256
+    out = tmp_path / "subset" / "subset.tether"
+    out.parent.mkdir()
+    export_subset_tether(project, out)
+    copied = next(r for r in S.read_sources(out) if r.source_id == "movie:mov-1")
+    assert copied.sha256 == sha

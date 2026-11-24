@@ -122,9 +122,10 @@ Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extractio
 and version 3 the `/sources` table ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
 A store stamped `1` has neither table and a store stamped `2` has no `/sources` table.
 
-Each is still a complete project. It reads as generation 1 of each of its movies and as one
-source record for each movie. The first write that adds a table also adds every other table of version 3. It keeps the
-file as it was beside it, as `<stem>.v1-backup.tether` or `<stem>.v2-backup.tether`.
+Each is still a complete project, and it reads as one source record for each movie. A store
+stamped `1` also reads as generation 1 of each of its movies. The first write that adds a
+table also adds every other table of version 3. It keeps the file as it was beside it, as
+`<stem>.v1-backup.tether` or `<stem>.v2-backup.tether`.
 
 What a bump would mean for a file you already hold, and
 what a non-additive change has to carry before one is allowed, are set out under

@@ -110,7 +110,7 @@ made from `/movies`, so the subset still says where its molecules came from) and
 sharing (`curator_alias`), keeps only the file name of a path that is absolute or has a `..` step
 (`shareable_path`), as it does for `PATH_ATTRS`. A plain subset reads each relative path against
 the source project's folder and stores it relative to the subset's, so it names the same file. The
-subset carries no `/movies` rows, so a movie record not yet stored takes the checksum of its
+subset carries no `/movies` rows, so a movie record with no checksum of its own takes the one of its
 `/movies` row with it, and the subset can still link the file again.
 
 ### Consequences
