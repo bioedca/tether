@@ -96,6 +96,18 @@ def test_install_guide_has_the_update_section_before_uninstall() -> None:
     assert "(#3-run-the-installer)" in section
 
 
+def test_commit_lookup_example_names_the_documented_release() -> None:
+    """The update step's commit lookup agrees with the release the page pins (#583's guard)."""
+    from test_docs_install_release import INSTALL_RELEASE, INSTALL_RELEASE_COMMIT
+
+    section = _section(INSTALL.read_text(encoding="utf-8"), "Update Tether")
+    lookup = re.search(r"gh api repos/bioedca/tether/commits/v(\S+) --jq \.sha", section)
+    assert lookup, "the update step does not show how to get the new release's commit"
+    assert lookup.group(1) == INSTALL_RELEASE
+    assert f"For `v{INSTALL_RELEASE}`, it prints `{INSTALL_RELEASE_COMMIT}`." in section
+    assert "`--source-digest`" in section and "`--source-ref`" in section
+
+
 def test_quoted_labels_are_the_programs_labels() -> None:
     section = _section(INSTALL.read_text(encoding="utf-8"), "Update Tether")
     literals = _string_literals(ast.parse(NOTICE_SOURCE.read_text(encoding="utf-8")))
