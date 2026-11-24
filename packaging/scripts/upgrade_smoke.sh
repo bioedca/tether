@@ -166,8 +166,11 @@ expect_declined "remove-then-install"
 # to the result file when it is done; nothing here touches the install folder itself.
 result="$("$py" -c 'from tether.gui.update_handoff import result_path; print(result_path())' | tr -d '\r')"
 if [ "$RUNNER_OS" = "Windows" ]; then result_u="$(cygpath -u "$result")"; else result_u="$result"; fi
-installer_file="$(ls packaging/dist/*.exe packaging/dist/*.pkg packaging/dist/*.sh 2>/dev/null | head -1)"
-if [ "$RUNNER_OS" = "Windows" ]; then installer_arg="$(cygpath -w "$installer_file")"; else installer_arg="$installer_file"; fi
+# The installer the legs above ran (an `ls` of the other platforms' globs would fail the
+# pipeline under `pipefail`).
+if [ "$RUNNER_OS" = "Windows" ]; then installer_arg="$exe_w"
+elif [ "$RUNNER_OS" = "macOS" ]; then installer_arg="$pkg"
+else installer_arg="$sh_installer"; fi
 version="$("$py" -m tether --version | tr -d '\r' | awk '{print $2}')"
 report ""
 report "#### In-app hand-off ($version over $version)"
