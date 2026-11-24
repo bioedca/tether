@@ -110,9 +110,17 @@ def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkey
 
 
 def test_a_folder_gives_the_nd2_movies_that_extraction_reads(tmp_path: Path) -> None:
-    """Extraction reads ND2 (#1388), so a folder gives its ``.nd2`` files."""
+    """Extraction reads ND2 (#1388), so a folder gives its ``.nd2`` files.
+
+    CZI (#903) opens through the registry, but extraction does not read it yet (#1390),
+    so a folder does not give a ``.czi`` file.
+    """
+    from tether.io.adapters import registered_adapters  # noqa: PLC0415
+
+    assert {"ND2", "CZI"} <= {a.name for a in registered_adapters()}
     _touch(tmp_path / "a.nd2")
     _touch(tmp_path / "b.tif")
+    _touch(tmp_path / "c.czi")
     assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.nd2", "b.tif"]
 
 
@@ -122,6 +130,7 @@ def test_an_original_beside_its_tiff_export_is_refused_by_name(tmp_path: Path) -
     They are one movie in two containers; the batch does not choose one for the user.
     """
     _touch(tmp_path / "movie.nd2")
+    _touch(tmp_path / "movie.czi")
     _touch(tmp_path / "movie.tif")
     movies = expand_movie_arguments([str(tmp_path)])
     with pytest.raises(OutputNameCollision, match="one name in two containers") as err:

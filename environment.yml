@@ -41,6 +41,13 @@ dependencies:
   # --- storage / IO ---
   - h5py>=3.11
   - tifffile>=2024.7.2
+  # --- CZI movie reader (#903; deliberate base-lock bump, ADR-0144) ---
+  # czifile (BSD-3-Clause) reads Zeiss ZEN .czi movies for the CZI adapter, which
+  # imports it only inside its open (ADR-0113 rule 6). Pinned exactly: its API is
+  # not stable between revisions, and 2026.6.12 is the newest revision whose
+  # imagecodecs floor (>=2026.6.6) the locked imagecodecs already meets, so the
+  # re-lock adds czifile and xarray and moves nothing else.
+  - czifile==2026.6.12
   # --- ML ranker (M5 S3; deliberate base-lock bump, ADR-0004) ---
   # scikit-learn + xgboost back the per-condition quality ranker (PRD §7.5):
   # XGBoost's native learn-to-rank objectives target precision@k;

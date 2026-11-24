@@ -1034,6 +1034,53 @@ its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the me
 the archive; manifest ids `weninger-hairpin-traces` (the archive) and
 `weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.
 
+## CZI movies for the CZI adapter (#903, ADR-0144)
+
+Tether writes no CZI, and the ZISRAW specification permits no third-party writer, so the CZI
+test files were written by **ZEISS libCZI**, through its Python binding **pylibCZIrw 6.1.0**
+(LGPL-3.0; not in any Tether lock), with `scripts/make_czi_fixtures.py`. Their pixels are
+synthetic and seeded, so they are Tether's own work: **License:** `GPL-3.0-or-later` (REUSE
+blanket). A second run writes the same pixels but not the same bytes (libCZI writes a new file
+GUID each time).
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/czi/movie_zstd_64x64x64.czi` | 64 frames of 64 x 64 Gray16, `zstd1` (Zstd with the byte shuffle), the frames of seed 901 of the adapter conformance module; pixel size 0.16 um, channel `Cy3` | 489,568 B | `d0332f0e7468f29df05b87feff7203b6fd42007021c62203d4332ca70b1a31ed` |
+| `tests/fixtures/czi/movie_raw_16x16x4.czi` | 4 uncompressed frames of 16 x 16 Gray16 (seed 903); pixel size 0.1 um, channel `Cy5` | 5,984 B | `649eac21954d00a1d3f9752f8ead8e6f72a1fe196bd1a898613f434eb4afd651` |
+| `tests/fixtures/czi/two_channels.czi` | refusal: C = 2 | 3,104 B | `4f07756edf0a2551933b7579ce261a6e62293c7a530903e235d7ba378ec28120` |
+| `tests/fixtures/czi/two_scenes.czi` | refusal: two scenes | 3,040 B | `9b286a2e3ba9723646f385fa32cb71fd8812c8e165fbb76cadfd491dfd502b01` |
+| `tests/fixtures/czi/z_stack.czi` | refusal: Z = 2 | 3,040 B | `8a4fcf8f7165f2913b78404864371bb3a8c590dc829fa9abfea2707553939f26` |
+| `tests/fixtures/czi/two_tiles.czi` | refusal: one frame in two mosaic tiles | 3,040 B | `85575afd053660a26ac2bc42281a6106d8eeb8c004301d668a40e470bcf3dac1` |
+| `tests/fixtures/czi/rgb.czi` | refusal: Bgr24 pixels | 3,168 B | `20af768a446dfa61c2b7168fcaf99ccca181a875d4ae266641a57c7ecf83e111` |
+| `tests/fixtures/czi/gap_in_time.czi` | refusal: frames T = 0 and T = 2, no T = 1 | 3,040 B | `89621cab03c988a64147b343dfe0aaf4e231ce83591bf2110c1268618c3afba6` |
+
+### ZEN test movie of ZEISS (reference export) — **CC-BY-4.0**
+
+External third-party data under a different licence: **Rhode S**, *CZI (Carl Zeiss Image)
+dataset with artificial test camera images with various dimension for testing libraries
+reading*, Zenodo **doi:10.5281/zenodo.7015307** (published 2022-08-22), **CC-BY-4.0**: files
+written by ZEN with a simulated microscope and a test camera. It is annotated CC-BY-4.0 in
+`REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+The movie `T=2_CH=1.czi` (1,566,976 B, MD5 `149841db10463f836a9a148937a050c7` as the record
+states, SHA-256 `3a182cd9818fa9d8543ffee717226177ca2df3f9ff91e4d4c3175a613876e0ef`; manifest id
+`zeiss-czi-t2-ch1`, tier `download`) is larger than the git tier allows and is not committed.
+Its two uncompressed 256 x 256 Gray16 frames were read with **pylibCZIrw 6.1.0** (ZEISS libCZI,
+`CziReader.read` of each plane `T = 0, 1`, `C = 0`, `Z = 0`, default region) and saved with
+**tifffile 2026.6.1** as an uncompressed little-endian TYX TIFF
+(`scripts/make_czi_fixtures.py --reference T=2_CH=1.czi`; manifest id
+`zeiss-czi-t2-ch1-reference`):
+
+| Fixture | Source | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/czi/zeiss_t2_ch1_reference.tif` | the two frames of `T=2_CH=1.czi` | 262,518 B | `e06060e4b4141531445545c5f077c0f11579289d74285e9bf9c8025b8be57f68` |
+
+The two-channel movie `T=3_CH=2.czi` of the same record (2,110,368 B, MD5
+`19173922f52cbe67e3ce740a2c66a237`, SHA-256
+`abcaaaa3e44440e463383cb697e11ac180df510f4dd0d81a30feaaf6f2895a67`; manifest id
+`zeiss-czi-t3-ch2`) is the public refusal case. The weekly `reference-data` job downloads both
+movies. **Accessed:** 2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
 ## Public ND2 files (#902, ADR-0148) — **CC-BY-4.0**
 
 External third-party data under a different licence, two verbatim copies (no transformation) of
