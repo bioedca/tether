@@ -852,13 +852,10 @@ def _archived_conditions(f: Any, movie_id: str) -> set[str] | None:
 
     ``None`` when no archived generation of the movie has a molecule (#1284).
     """
-    from tether.io.generations import ARCHIVE  # noqa: PLC0415
+    from tether.io.generations import archived_generations  # noqa: PLC0415
 
-    archive = f.get("generations/" + ARCHIVE + "/" + movie_id)
-    if archive is None:
-        return None
-    for name in sorted(archive, key=int, reverse=True):
-        conditions = archive[name]["molecules"]["condition_id"][()]
+    for _, group in reversed(archived_generations(f, movie_id)):
+        conditions = group["molecules"]["condition_id"][()]
         if len(conditions):
             return {_decode_key(c) for c in conditions}
     return None
@@ -874,13 +871,11 @@ def _key_unmatched_molecules(
     new_movie: Any,
 ) -> None:
     """Key new sites by camera position and give a returning site a fresh key."""
-    from tether.io.generations import ARCHIVE  # noqa: PLC0415
+    from tether.io.generations import archived_generations  # noqa: PLC0415
 
     held = {_decode_key(k) for k in previous["molecule_key"]}
-    archive = f.get("generations/" + ARCHIVE + "/" + movie.movie_id)
-    if archive is not None:
-        for name in archive:
-            held.update(_decode_key(k) for k in archive[name]["molecules"]["molecule_key"][()])
+    for _, group in archived_generations(f, movie.movie_id):
+        held.update(_decode_key(k) for k in group["molecules"]["molecule_key"][()])
     unmatched = np.flatnonzero(~matched)
     camera_xy = _frame_xy(rows["donor_xy"][unmatched], new_movie)
     for index, xy in zip(unmatched, camera_xy, strict=True):
@@ -924,7 +919,8 @@ def write_generation(
 
     ``movie.movie_id`` names the movie, and ``movie.sha256`` must be its content hash:
     a generation is a new extraction of the same bytes. The movie's active generation
-    is first copied, unchanged, to ``/generations/archive/<movie_id>/<n>``
+    is first copied, unchanged, to ``/generations/archive/<name>/<n>``, ``<name>`` being
+    `tether.io.generations.archive_name` of the movie ID
     (`tether.io.generations.archive_active`); its rows then leave ``/molecules``,
     ``/traces`` and ``/patches``, and the new generation's rows are appended, so every
     reader of those arrays reads the new generation. The movie's ``/movies`` row, layout
