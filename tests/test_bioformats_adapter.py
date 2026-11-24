@@ -207,6 +207,17 @@ def test_a_runner_that_dies_is_a_runner_error(tmp_path, fake_runner) -> None:
     assert "noise on stderr" in str(err.value), "the message carries the runner's last output"
 
 
+def test_a_runner_whose_pipes_close_before_it_exits_is_a_runner_error(
+    tmp_path, fake_runner
+) -> None:
+    # Windows CI showed this order: the pipe closes, the exit status is not there yet, and
+    # closing the broken stdin raised EINVAL over the runner error.
+    path = _vsi(tmp_path, crash_slowly=True)
+    with pytest.raises(BioformatsRunnerError, match="exit status 3") as err:
+        open_movie_source(path)
+    assert "noise on stderr" in str(err.value), "the message carries the runner's last output"
+
+
 def test_a_python_that_does_not_start_is_unavailable(tmp_path, monkeypatch) -> None:
     fake = tmp_path / "python"
     fake.write_text("not a program")

@@ -6,14 +6,18 @@ It speaks the runner's protocol (one JSON line in, one JSON line and the frame b
 serves the frames of ``<movie>.frames.npy``, so the base matrix tests the base side of the
 Bio-Formats route — the pipe, the replies, the adapter and the conformance tests of #901 —
 without the optional stack. ``<movie>.meta.json``, if present, holds the metadata reply and
-may set ``"refuse": [kind, message]`` to make ``open`` refuse. The live runner is tested in
+may set ``"refuse": [kind, message]`` to make ``open`` refuse, ``"crash"`` to make it exit 3,
+or ``"crash_slowly"`` to close its pipes first and exit 3 a moment later (the order Windows
+shows the parent). The live runner is tested in
 the ``bioformats`` tier (``tests/test_*_bioformats.py``).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +48,11 @@ def main() -> int:
                 _reply(out, {"ok": False, "error": kind, "message": message})
                 continue
             if meta.get("crash"):
+                return 3
+            if meta.get("crash_slowly"):
+                os.close(0)
+                os.close(1)
+                time.sleep(0.5)
                 return 3
             frames = np.load(path.with_name(path.name + ".frames.npy"), mmap_mode="r")
             _reply(

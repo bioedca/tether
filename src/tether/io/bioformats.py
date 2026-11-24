@@ -148,7 +148,10 @@ class _Runner:
             except (BrokenPipeError, OSError, ValueError):
                 line = b""
             if not line:
-                proc.poll()
+                # The pipe can close before the process is reaped (seen on Windows), so wait
+                # a bounded time for the exit status rather than read ``None`` from poll().
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=_EXIT_WAIT)
                 raise BioformatsRunnerError(
                     "the Bio-Formats runner stopped without a reply "
                     f"(exit status {proc.returncode}). Its last output: {self._stderr_tail()}"
@@ -176,7 +179,10 @@ class _Runner:
                 proc.wait()
         for stream in (proc.stdin, proc.stdout):
             if stream is not None:
-                stream.close()
+                # Closing a pipe whose reader has died flushes into a broken pipe, which
+                # Windows reports as EINVAL; the process is gone either way.
+                with contextlib.suppress(OSError):
+                    stream.close()
         self._stderr.close()
 
 
