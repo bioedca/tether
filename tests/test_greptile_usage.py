@@ -930,3 +930,19 @@ def test_kind_is_unknown_when_the_files_cannot_be_read(monkeypatch: pytest.Monke
     monkeypatch.setattr(usage, "_gh", lambda *args: {"message": "Not Found"})
     monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--kind", "7"])
     assert usage.main() == usage.EXIT_UNKNOWN
+
+
+@pytest.mark.parametrize(("tether", "code"), [(53, 0), (44, 1)])
+def test_an_empty_seat_stops_only_a_review_that_would_draw_on_it(
+    monkeypatch: pytest.MonkeyPatch, tether: int, code: int
+) -> None:
+    """Codex P2 on #1369: with the seat's included 50 used, a Tether review past 45 still draws
+    on the grant, while one under 45 would draw on the empty seat."""
+    prs, reviews = _tether({_NOV: tether})
+    others = 50 - min(tether, usage.REPO_SHARE)
+    prs["bioedca/Yeliztli"] = [_pr(200 + n, updated=_NOV) for n in range(others)]
+    for n in range(others):
+        reviews[200 + n] = [_review(when=_NOV)]
+    monkeypatch.setattr(usage, "_gh", _paged(prs, reviews))
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-11", "--fail-over-share"])
+    assert usage.main() == (usage.EXIT_OVER_BUDGET if code else 0)

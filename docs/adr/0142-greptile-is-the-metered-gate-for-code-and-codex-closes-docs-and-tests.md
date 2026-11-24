@@ -161,7 +161,9 @@ on 2026-11-17; the grant came on 2026-11-19 00:33Z).
 - The output prints the grant used this cycle, the grant left and the limit. `--fail-over-share`
   exits 1 when Tether is at its limit.
 - The credits Tether draws on the grant are outside the seat's included 50, so the whole-seat
-  balance subtracts only the rest.
+  balance subtracts only the rest. An empty seat stops a Tether review only when that review
+  would draw on the seat: once Tether has used its 45 and the grant has credit left, the next
+  review draws on the grant (Codex on #1369).
 - Any failed read, of this cycle or of an earlier one, is UNKNOWN (exit 2), never a partial count.
 - A cloud session reads Tether alone with `--repo bioedca/tether` (ADR-0099 item 6).
 

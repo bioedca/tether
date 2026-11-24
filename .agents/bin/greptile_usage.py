@@ -553,7 +553,10 @@ def main() -> int:
     if args.fail_over_share and per_repo[TETHER] >= limit:
         print(f"\nerror: Tether has used its limit of {limit} this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
-    if args.fail_over_share and whole_seat and left <= 0:
+    # Tether's next review draws on the grant once its share is used and the grant has credit left;
+    # then the seat's included credits are not what it spends (Codex P2 on #1369).
+    from_grant = per_repo[TETHER] >= REPO_SHARE and grant_before - drawn > 0
+    if args.fail_over_share and whole_seat and left <= 0 and not from_grant:
         # Tether's share is a ceiling inside the seat, never a credit of its own: where the whole
         # seat was read and it is empty, nothing may be spent however little Tether used (Codex
         # P2 on #1036). A partial count cannot see this, which is why ADR-0099 has the maintainer
