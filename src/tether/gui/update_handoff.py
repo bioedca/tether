@@ -64,12 +64,14 @@ command costs no Qt import in the newly installed copy.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import enum
 import hashlib
 import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -592,20 +594,75 @@ def _hand_off(
 # --- after the installer: the launch surface ---------------------------------------------------
 
 
+def _run_bounded(
+    argv: Sequence[str], env: Mapping[str, str] | None, timeout: float = CHECK_TIMEOUT_S
+) -> tuple[int, str] | None:
+    """Run *argv* for at most *timeout* seconds; ``(exit status, output)``, or None.
+
+    A launcher is a ``cmd /c`` or ``sh`` script, so the program that might hang is a child
+    of the process started here. On a timeout the whole tree is stopped, and the output goes
+    to a file rather than a pipe, so that nothing it started can hold this check open.
+    """
+    windows = os.name == "nt"
+    with tempfile.TemporaryFile() as out:
+        try:
+            process = subprocess.Popen(  # noqa: S603 - argv is built here, never from input
+                list(argv),
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+                env=None if env is None else dict(env),
+                start_new_session=not windows,
+            )
+        except OSError:
+            return None
+        try:
+            status = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _stop_tree(process, windows=windows, env=env)
+            return None
+        out.seek(0)
+        return status, out.read().decode("utf-8", errors="replace")
+
+
+def _stop_tree(
+    process: subprocess.Popen[bytes], *, windows: bool, env: Mapping[str, str] | None
+) -> None:
+    """Stop *process* and everything it started, then reap it."""
+    if windows:
+        environ = os.environ if env is None else env
+        system_root = environ.get("SystemRoot") or environ.get("SYSTEMROOT") or r"C:\Windows"
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(  # noqa: S603 - argv is built here, never from input
+                [
+                    str(Path(system_root) / "System32" / "taskkill.exe"),
+                    "/PID",
+                    str(process.pid),
+                    "/T",
+                    "/F",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+                check=False,
+            )
+    else:
+        with contextlib.suppress(OSError):
+            os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        process.kill()
+    with contextlib.suppress(subprocess.SubprocessError):
+        process.wait(timeout=30)
+
+
 def _run_version(argv: Sequence[str], env: Mapping[str, str] | None) -> Version | None:
-    try:
-        run = subprocess.run(  # noqa: S603 - argv is built here, never from input
-            list(argv),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=CHECK_TIMEOUT_S,
-            check=False,
-            env=None if env is None else dict(env),
-        )
-    except (OSError, subprocess.SubprocessError):
+    ran = _run_bounded(argv, env)
+    if ran is None:
         return None
-    words = run.stdout.decode("utf-8", errors="replace").split()
-    if run.returncode != 0 or len(words) < 2 or words[-2] != "tether":
+    status, output = ran
+    words = output.split()
+    if status != 0 or len(words) < 2 or words[-2] != "tether":
         return None
     return parse_version(words[-1])
 
@@ -647,27 +704,20 @@ def _windows_shortcut(link: Path, env: Mapping[str, str]) -> tuple[str, str] | N
     system_root = env.get("SystemRoot") or env.get("SYSTEMROOT") or r"C:\Windows"
     child = dict(env)
     child["TETHER_LNK"] = str(link)
-    try:
-        run = subprocess.run(  # noqa: S603 - argv is built here, never from input
-            [
-                str(Path(system_root) / _POWERSHELL),
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);"
-                '"$($s.TargetPath)|$($s.Arguments)"',
-            ],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=CHECK_TIMEOUT_S,
-            check=False,
-            env=child,
-        )
-    except (OSError, subprocess.SubprocessError):
+    ran = _run_bounded(
+        [
+            str(Path(system_root) / _POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);"
+            '"$($s.TargetPath)|$($s.Arguments)"',
+        ],
+        child,
+    )
+    if ran is None or ran[0] != 0:
         return None
-    if run.returncode != 0:
-        return None
-    target, _, arguments = run.stdout.decode("utf-8", errors="replace").strip().partition("|")
+    target, _, arguments = ran[1].strip().partition("|")
     return target, arguments
 
 

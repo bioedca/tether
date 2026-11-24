@@ -21,6 +21,7 @@ The real installers run through the same helper in ``packaging/scripts/upgrade_s
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import re
 import shutil
@@ -171,6 +172,42 @@ def test_the_helper_is_started_before_tether_is_asked_to_quit(tmp_path: Path, pl
     else:
         assert argv[:2] == ["/bin/sh", argv[1]] and argv[1].endswith("update_handoff.sh")
         assert argv[2] == "4242" and argv[3] == str(rig.prefix) and argv[11] == "--"
+
+
+_HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("PySide6", "pytestqt"))
+
+
+@pytest.mark.gui
+@pytest.mark.skipif(not _HAS_QT, reason="PySide6/pytest-qt not installed")
+@pytest.mark.parametrize(
+    "starts, outcome, open_after",
+    [(True, HandoffOutcome.HANDED_OFF, False), (False, HandoffOutcome.REFUSED, True)],
+)
+def test_a_real_window_closes_only_once_the_helper_reports(
+    qtbot, tmp_path: Path, starts: bool, outcome: HandoffOutcome, open_after: bool
+):
+    """The GUI side, headless: Tether's window closes after the helper says it runs, and
+    stays open, with the reason to give the user, when the helper never says so."""
+    from PySide6.QtWidgets import QWidget
+
+    rig = Rig(tmp_path)
+    rig.starts = starts
+    window = QWidget()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+
+    def quit_app() -> None:
+        rig.events.append("quit")
+        window.close()
+
+    result = rig.run(quit_app=quit_app)
+    qtbot.wait(50)
+    assert result.outcome is outcome, result.reason
+    assert window.isVisible() is open_after
+    assert rig.events == (["spawn", "quit"] if starts else ["spawn"])
+    if not starts:
+        assert rig.spawned[0].killed and "nothing was changed" in result.reason
 
 
 @pytest.mark.parametrize("answer", [None, False])
@@ -887,6 +924,44 @@ def test_the_windows_helper_never_runs_a_replaced_file(windows_rig: WindowsRig):
     assert run.returncode == 1
     assert rig.report() == ("unchanged", "1.0.1", "the update file is not the verified file")
     assert _tree(rig.prefix) == before
+
+
+def test_a_hung_launcher_check_stops_the_whole_tree(tmp_path: Path):
+    """A launcher is cmd /c or sh: the program that hangs is its child, and may hold the
+    output open. The check must stop all of it in time, not wait on a pipe (#331)."""
+    pid_file = tmp_path / "grandchild.pid"
+    child = (
+        "import subprocess, sys; "
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); "
+        "open(sys.argv[1], 'w').write(str(p.pid)); p.wait()"
+    )
+    started = time.monotonic()
+    assert (
+        update_handoff._run_bounded([sys.executable, "-c", child, str(pid_file)], None, 3) is None
+    )
+    assert time.monotonic() - started < 60
+    grandchild = int(pid_file.read_text())
+    deadline = time.monotonic() + 10
+    while _alive(grandchild) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert not _alive(grandchild)
+
+
+def _alive(pid: int) -> bool:
+    if os.name == "nt":
+        found = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, check=False
+        )
+        return str(pid).encode() in found.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    # A zombie answers kill -0 until its new parent reaps it.
+    stat = Path(f"/proc/{pid}/stat")
+    return not (stat.exists() and stat.read_text().split(") ")[-1].startswith("Z"))
 
 
 def test_the_helpers_share_one_report_vocabulary():
