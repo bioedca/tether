@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import http.client
 import io
 import re
 import shutil
@@ -446,11 +447,21 @@ def _server_error(code: int) -> urllib.error.HTTPError:
         (TimeoutError("The read operation timed out"), True),
         (urllib.error.URLError(TimeoutError("timed out")), False),
         (ConnectionResetError("Connection reset by peer"), True),
+        (http.client.IncompleteRead(b"XXXX", 12), True),
         (_server_error(500), False),
         (_server_error(503), False),
         (_server_error(429), False),
     ],
-    ids=["timeout", "timeout-mid-stream", "url-timeout", "reset-mid-stream", "500", "503", "429"],
+    ids=[
+        "timeout",
+        "timeout-mid-stream",
+        "url-timeout",
+        "reset-mid-stream",
+        "incomplete-read-mid-stream",
+        "500",
+        "503",
+        "429",
+    ],
 )
 def test_a_transient_upstream_failure_is_tried_again_and_verified(
     tmp_path: Path, monkeypatch, error, mid_stream

@@ -46,6 +46,7 @@ first run of each month downloads every set again from upstream.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import os
 import re
 import sys
@@ -89,6 +90,9 @@ _CHUNK = 1 << 20
 RETRY_WAITS = (15.0, 45.0)
 #: HTTP answers that say the server, not the file, is the problem now.
 _TRANSIENT_HTTP = frozenset({408, 429})
+#: The errors of a request or a read that did not arrive. ``IncompleteRead`` is a response that
+#: closed before its declared length, which is a lost connection too.
+_NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead)
 #: The hosts on which a set used all its attempts in this process.
 _GAVE_UP: set[str] = set()
 
@@ -301,7 +305,7 @@ def _transient(exc: BaseException | None) -> bool:
     """Whether another try can fix this failure: a timeout, a reset, an HTTP 5xx, 408 or 429."""
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code >= 500 or exc.code in _TRANSIENT_HTTP
-    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+    return isinstance(exc, _NETWORK_ERRORS)
 
 
 def _download(
@@ -363,7 +367,7 @@ def _download_once(d: Dataset, target: Path, opener: Callable) -> Path:
                             )
                         digest.update(chunk)
                         out.write(chunk)
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            except _NETWORK_ERRORS as exc:
                 raise _Unavailable from exc
         if digest.hexdigest() != d.sha256:
             raise ChecksumMismatch(
