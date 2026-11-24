@@ -143,11 +143,12 @@ export_subset_tether(
 show_identity("deposit/accepted.tether")
 ```
 
-On the command line, `--curator-alias` does the same. Give a `--molecule-key` for each
-accepted molecule, or leave it out to export every molecule that is not rejected:
+On the command line, `--curator-alias` does the same. Give one `--molecule-key` for each key
+in `accepted`, so that the copy keeps the molecules of step 2. Without `--molecule-key`, the
+export takes every molecule that is not rejected, also the molecules nobody reviewed:
 
 ```bash
-tether export subset tutorial.tether -o deposit/accepted.tether --include-raw --curator-alias curator --overwrite
+tether export subset tutorial.tether -o deposit/accepted.tether --include-raw --curator-alias curator --overwrite --molecule-key KEY1 --molecule-key KEY2
 ```
 
 The curator check prints aliases such as `curator-1`. One person keeps the same alias
