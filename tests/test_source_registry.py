@@ -550,3 +550,31 @@ def test_a_file_replaced_during_the_checksum_job_is_not_stored(tmp_path) -> None
         project.release_lock()
     assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
     assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_file_replaced_after_the_read_is_not_stored(tmp_path, monkeypatch, writer) -> None:
+    """Replaced between the hash and the write: refused on every OS, Windows included."""
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha if writer == "relink" else "")
+    read = S.file_sha256
+
+    def read_then_replace(path, **kwargs):
+        digest = read(path, **kwargs)  # the handle is closed again here
+        _replace_once(Path(path), b"another file")()
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_replace)
+    project.acquire_lock()
+    try:
+        before = project.path.read_bytes()
+        if writer == "relink":
+            with pytest.raises(S.SourceReplaced):
+                S.relink_source(project, "movie:mov-1", movie)
+            assert project.path.read_bytes() == before
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    finally:
+        project.release_lock()
+    assert not S.read_sources(project.path)[0].checksum_calculated

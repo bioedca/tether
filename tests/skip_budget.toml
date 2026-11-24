@@ -34,7 +34,8 @@ max_skipped = 56
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 39
+# 41 since #1356 added two source-registry tests that replace a file while it is open.
+max_skipped = 41
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -50,6 +51,15 @@ min_collected = 12
 max_skipped = 11
 
 # --- Expected skips on the three required legs ---------------------------------------------
+
+[[skip]]
+test = "tests/test_source_registry.py::test_a_file_replaced_during_*_is_not_stored"
+reason = "Windows does not replace a file that is open"
+jobs = ["test (windows-latest)"]
+why = """The two tests replace the file from the progress callback, while the checksum still \
+has it open (#1356). Windows refuses to replace a file that a process has open, so that race \
+cannot happen there. test_a_file_replaced_after_the_read_is_not_stored covers the same check \
+on every leg by replacing the file after the read closes it."""
 
 [[skip]]
 test = "tests/test_coverage_floors.py::test_floors_never_go_down"
