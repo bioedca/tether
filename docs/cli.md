@@ -249,7 +249,7 @@ projects. Each project records the **map id** and the **sha256** of the map file
 so two projects that used the same map name the same file. Before a map registers a
 movie, Tether checks that the map fits the movie. The check compares the optics, never
 the date: an old map with the same optics is as good as a new one
-([ADR-0141](adr/0141-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)).
+([ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)).
 
 | The map and the movie differ in | Result |
 |---|---|
@@ -754,7 +754,7 @@ removes only its own file. The writer lock, whenever it is taken, leaves a
 
 The map file has a `format_version` (now `2`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. Version 2 makes the map a
-separate asset ([ADR-0141](adr/0141-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)):
+separate asset ([ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)):
 besides the transform and the channel geometry, it holds the map id, its origin (`beads`,
 `tmap` or `native-fit`), the source ids of the files it was made from, the channel layout,
 the quality record, the optics text, the pixel size, the time it was saved and the Tether

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The map file as a separate, reusable asset, and the reuse check (#916, ADR-0141).
+"""The map file as a separate, reusable asset, and the reuse check (#916, ADR-0146).
 
 The workflow plan's mapping lane (G02) stores the map as a "separate reusable map file:
 source IDs + geometry + transform" and asks "map accepted with recorded QC?". Its note 02
@@ -102,7 +102,7 @@ MAP_ORIGIN_NATIVE_FIT = "native-fit"
 #: Every origin a map file may record.
 MAP_ORIGINS = (MAP_ORIGIN_BEADS, MAP_ORIGIN_TMAP, MAP_ORIGIN_NATIVE_FIT)
 
-#: The arrays format version 2 adds to every map file (ADR-0141).
+#: The arrays format version 2 adds to every map file (ADR-0146).
 _ASSET_KEYS = (
     "map_id",
     "map_origin",
@@ -429,7 +429,7 @@ def _json(value: Any) -> np.ndarray:
 
 
 def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
-    """Write ``asset`` as a ``.npz`` map file at format version 2 (ADR-0141).
+    """Write ``asset`` as a ``.npz`` map file at format version 2 (ADR-0146).
 
     Every array of a version-1 file is written as before, so every reader of version 1
     finds them; the asset record is added as plain arrays and JSON strings. Nothing is

@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0141 — The map file is a separate asset, and its reuse checks the optics, not the date
+# 0146 — The map file is a separate asset, and its reuse checks the optics, not the date
 
 - **Status:** accepted
 - **Date:** 2026-11-24

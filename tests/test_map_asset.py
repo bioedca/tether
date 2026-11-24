@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The map file as a separate asset and its reuse check (#916, ADR-0141).
+"""The map file as a separate asset and its reuse check (#916, ADR-0146).
 
 Acceptance criteria of #916, in order: the map file holds the asset record (format
 version 2); one map file serves more than one project, each recording the map id and the

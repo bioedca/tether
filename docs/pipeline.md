@@ -121,7 +121,7 @@ than six bead spots in either half is refused
 Python entry point only for now: `tether extract` has no option to use such a map yet.
 
 The map file is an asset of its own ([`tether.imaging.map_asset`](api/imaging.md#tether.imaging.map_asset),
-[ADR-0141](adr/0141-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)):
+[ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)):
 besides the transform it holds a map id, its origin, the source ids, the channel layout, the
 quality record, an optics text, the pixel size, the time and the Tether version. A project
 records the id and the checksum of each map file it used. Before a map file registers a movie,

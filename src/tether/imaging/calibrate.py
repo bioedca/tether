@@ -107,7 +107,7 @@ LOW_CONFIDENCE_TAG = "low-confidence-registration"
 #: written before the field existed reads as version ``0``; it holds the same
 #: arrays. [`load_map`][] refuses a file whose version is newer than this one,
 #: because it may hold fields this Tether would silently drop. ADR-0128 records
-#: this rule. Version 2 adds the map asset record (#916, ADR-0141): map id, origin,
+#: this rule. Version 2 adds the map asset record (#916, ADR-0146): map id, origin,
 #: source ids, channel layout, quality record, optics text, pixel size, time and
 #: Tether version ([`tether.imaging.map_asset`][]).
 MAP_FORMAT_VERSION = 2
@@ -673,7 +673,7 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
     with ``allow_pickle=False`` (the default). Map files are kept separate from
     session ``.tether`` files (mirroring ``.tmap`` vs ``.tdat``).
 
-    The file is a full map asset (#916, ADR-0141): a new map id, the origin, source
+    The file is a full map asset (#916, ADR-0146): a new map id, the origin, source
     ids and quality record that the provenance gives, the time and the Tether version
     ([`MapAsset.from_registration_map`][tether.imaging.map_asset.MapAsset.from_registration_map]).
     To record a channel layout, an optics text or a pixel size as well, save a
