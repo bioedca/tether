@@ -27,14 +27,14 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 *three-color*, or *confocal point detectors* describes your setup, it does not — see
 [What Tether does not do](#what-tether-does-not-do). If your movies are in a vendor
 container (`.nd2`, `.czi`, `.sif`), export them to uncompressed TIFF first and Tether will
-read them. Tether opens a ZEISS `.czi` movie of one channel, but extraction does not read it yet
-(see [Movie containers](reference/movie-containers.md)).
+read them. Tether opens a ZEISS `.czi` movie of one channel and an Andor `.sif` movie of raw
+counts, but extraction does not read them yet (see [Movie containers](reference/movie-containers.md)).
 
 ## Movie files
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF; a ZEISS `.czi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
+| Container | multi-page TIFF; a ZEISS `.czi` or Andor `.sif` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
 | Compression | **none** — the movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |

@@ -1081,6 +1081,77 @@ The two-channel movie `T=3_CH=2.czi` of the same record (2,110,368 B, MD5
 `zeiss-czi-t3-ch2`) is the public refusal case. The weekly `reference-data` job downloads both
 movies. **Accessed:** 2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
 
+## Andor Solis SIF files for the SIF adapter (#904, ADR-0150)
+
+Tether reads SIF with its own reader (`src/tether/io/sif.py`), so each check below compares it
+with files that **Andor Solis** wrote and with an independent reader, **sif_parser 0.3.6**
+(BSD-3-Clause, PyPI; not in any Tether lock), installed in a scratch environment with numpy
+2.5.5 and tifffile 2026.11.16. sif_parser returns the stored row order (bottom row first); every
+reference below reverses the rows, as Tether and Solis's own TIFF export do.
+
+### ZnO-PVA spectra of Chukova O — **CC-BY-4.0**
+
+External third-party data under a different licence: **Chukova O**, *Data on Luminescence
+properties of ZnO-PVA nanoparticles*, Zenodo **doi:10.5281/zenodo.18293266** (published
+2026-01-18), **CC-BY-4.0**: spectra that Solis wrote from an Andor DU920P camera (format version
+65567, one 1 x 1024 frame each, full vertical binning), with the ASCII export that Solis made of
+each. It is annotated CC-BY-4.0 in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+| Fixture | What it is | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `tests/fixtures/sif/ZP2270-1.sif` | a spectrum of data type `Counts`, unchanged | 8,514 B | `904b370c1b60bc11be559fc85841e781` | `1120e508c7f4f7b2d9c384b9010c1762c35b713fcf3a046712caddb0729fd28b` |
+| `tests/fixtures/sif/ZP2270-1.asc` | Solis's ASCII export of it (wavelength and counts, tab-separated, decimal comma), unchanged | 17,281 B | `7e97e21d25b224f20c0e26925572345a` | `78bbf9c699762f6945db12ad0ed13e2a60ca077498d2f65dbbee2d97788a3d48` |
+| `tests/fixtures/sif/ZP1-1.sif` | a spectrum of data type `Counts (Bg Corrected)` with a background block, unchanged: the refusal case | 16,894 B | `4222a3e5b4e8d3741ece7ac737c3ab79` | `58feb756603df669a872819799d01b034d8e492686cc57acdc1031898d204638` |
+| `tests/fixtures/sif/ZP2270-1_reference.tif` | the frame of `ZP2270-1.sif` as sif_parser 0.3.6 reads it, saved by tifffile 2026.11.16 as an uncompressed `float32` TIFF (`python scripts/make_sif_reference.py ZP2270-1.sif ZP2270-1_reference.tif`) | 4,368 B | — | `fddcd1dab834f90cfcf8001bfb5ed5f95711211b6e4bbc0a3c9b183f987b8aca` |
+
+On 2026-11-24 all 106 SIF files of this record and of its companion record
+(doi:10.5281/zenodo.24287163, same author and licence) were read: the 9 of data type `Counts`
+equal sif_parser 0.3.6 bit for bit, the 97 of data type `Counts (Bg Corrected)` are refused, and
+all 90 that have a Solis ASCII export equal it value for value (sif_parser). **Accessed:**
+2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+### Andor Zyla image of Wu Y — **CC0-1.0**
+
+**Wu Y**, *Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and
+diet-enhanced long-term memory*, Dryad **doi:10.5061/dryad.80gb5mkpx**, mirrored on Zenodo
+record 4904806 (published 2021-06-08), **CC0-1.0**. Two of its files are `download` entries of
+the manifest, so the weekly `reference-data` job reads them; neither is committed:
+
+| Manifest id | File | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `wu-magfret-c739-sif` | `c739xMagFRET_1.sif`: one 2048 x 2048 frame of an Andor Zyla 4.2P, format version 65567, data type `Counts` | 16,781,286 B | `ac3039b7e6dd28f56e75e69c59f387fd` | `7022eff33764fcf5e954025d1f932ff91a59d62fd52b35815e761f1d21cb01e2` |
+| `wu-magfret-c739-solis-tiff` | `c739xMagFRET_1.tif`: the 8-bit TIFF that Solis exported from it (software tag `Andor Technology`, description `Andor SOLIS`) | 4,213,274 B | `43937be9f462e7b105329092ab6e7af9` | `807cd682ea532dcb135b77a046721b1489f60b2a99b62814e49db4681e4b94e9` |
+
+The pixel SHA-256 of the frame as sif_parser 0.3.6 reads it (rows reversed, C-order
+little-endian `float32`), `e7819391c89d539458d3d9690c08a2b0baad8771b3a612880bc407c7a1922b9d`, is in
+`tests/fixtures/sif/reference.json` (`python scripts/make_sif_reference.py c739xMagFRET_1.sif
+--digest`). The Solis TIFF is a linear 8-bit scale of the counts: after a least-squares fit, the
+frame in Tether's row order maps onto it within one grey level (correlation 0.99998), and the
+stored row order does not (correlation 0.64). That fixes the row order. **Accessed:** 2026-11-24.
+
+### Andor iXon movie of Chazot-Franguiadakis L (checked once, not a fixture)
+
+The SIF movie `L_110424_Au_50z_HIV_GFP_MM24_10%_FSB_dil100_200nm_0.0mbar_1.sif` of **Chazot-
+Franguiadakis L**, *Movies of HIV (VLP) particles through 200 nm nanopores*, Zenodo
+**doi:10.5281/zenodo.11185140**, **CC-BY-4.0** (262,149,548 B, MD5
+`628b99552d9ec967197da318447430f3`, SHA-256
+`a9f34089086125a64e0933c4ac2471f9aabebf66fc0fda77add9873dc14ecd01`) is a 250-frame kinetic series
+of an Andor iXon 897 (512 x 512, format version 65566). It is over the 200 MB download limit, so
+no test reads it. On 2026-11-24 Tether read its 250 frames, every value a whole number of counts
+from 173 to 16,460 (pixel SHA-256 `e6364eaa2114aec9dc323efdde2e97a917f5e4fc765a97fd8872e65718e4978e`),
+with the frame time 0.03035 s; the header's time stamps step by 30,350 µs. sif_parser 0.3.6 cannot
+open this file (`UnicodeDecodeError` in its header parser), so it gave no reference here. The
+`SIFReader` of Bio-Formats (read from its source, `ome/bioformats` `develop`, 2026-11-24; not run)
+places the frames 8 bytes before the end of the file; on this file that is the offset Tether finds,
+5,540, since the frames are followed only by the four block flags `0\n0\n0\n0\n`.
+
+### The synthetic SIF files
+
+`tests/_sif_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. On 2026-11-24 sif_parser 0.3.6 read four of its files (64 x 64 x 64; 5 x 8 x 12 with a
+0.1 s kinetic cycle; 3 x 4 x 6 with 2 x 4 binning; a flag line of `0`) to the written frames and
+kinetic cycle times. **License:** `GPL-3.0-or-later` (REUSE blanket).
+
 ## Update-verifier attestation answer and `gh` report (#333)
 
 Two JSON files the update verifier's tests (`tests/test_update_verify.py`) replay byte for byte, so
