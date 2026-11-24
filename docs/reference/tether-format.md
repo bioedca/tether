@@ -399,6 +399,19 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 40-frame store, one bleaching and two non-bleaching molecules read
 `[[30, 20], [40, 40], [40, 40]]` against `frame_range` `[[0, 40], [0, 40], [0, 40]]`.
 
+**`alpha` and `gamma` NaN.** A NaN factor means the min-qualifying-traces gate withheld it.
+The NaN **stays in `/molecules.alpha` / `.gamma`**: absent a manual override,
+`compute_corrected_fret` only stamps `correction_method` / `correction_confidence`. So NaN
+factors next to `apparent-E (corrections unavailable)` are the *expected* signature of a
+withhold, not corruption. A missing factor never becomes a NaN in E (ADR-0003).
+
+E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
+there. For apparent E that is a frame with zero total intensity. For corrected E it is a frame
+where `I_A,corr + γ·I_D,corr` is zero. So a frame with both channels at zero is NaN in both, but
+a frame whose donor and acceptor only cancel can have a finite corrected E. That per-frame NaN
+is not the factor sentinel. The factor NaN is also distinct from the `-1` undetected sentinel
+above and from `NO_STATE` ([glossary](../glossary.md#withheld-factor-nan-sentinel)).
+
 **`tags`.** Two tags are emitted by shipped code:
 
 | Tag | Constant | When |
@@ -443,6 +456,14 @@ temperature, laser power); `date`, `replicate` and the source file deliberately 
 ([ADR-0033](../adr/0033-condition-identity-and-rekey.md)). `condition_id` is derived
 from that key as `cond-<first 12 hex of its sha256>`
 (`ConditionKey.condition_id()` in `src/tether/io/filename.py`).
+
+The project file is not part of the identity either: two projects whose `/conditions` rows
+carry the same confirmed key hold the same condition
+([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)). A key parsed from a filename is
+provisional until it is confirmed. The parse gives no buffer, temperature or laser power, so two
+provisional keys can agree for two different conditions. Two near-miss filename parses yield
+different ids and stay separate by default. Collapsing them requires an explicit confirmed
+re-key ([ADR-0033](../adr/0033-condition-identity-and-rekey.md)).
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
@@ -516,6 +537,22 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 | `weight` | `f8` | scalar | Effective training weight, dimensionless. Human labels are `1.0`; provisional weights decay as human labels accrue and this column is **rewritten** at retrain. |
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
 | `condition_id` | `str:utf-8` | scalar | The condition the label is scoped to. |
+
+A **reject is a reversible tag that persists, never a deletion**. It carries across files on
+`molecule_key`, it is reversible in one call (`tether.project.labels.unreject`), and the
+**toggleable** curation filter excludes it (`include_rejected=False` by default).
+`tether.project.labels.accept` / `reject` / `unreject` each append one provenance-stamped row to
+`/labels/table`. `unreject` appends one only when the molecule really is rejected: on any other
+state it is a documented no-op that writes nothing. The GUI exposes that reversal as
+**Un-reject selected** in the Browser dock, a visible control rather than a hidden global
+shortcut.
+
+Nothing appends a row for a category assignment. `category` lives only on `/molecules`.
+No row is ever deleted (a reversal is logged as its own row), but those three wrappers are not
+the log's only appenders. `tether.project.reconstruct` records provisional Deep-LASI accept
+priors through `set_curation_label`. `tether.project.merge` appends a contributor's human rows
+when two projects are merged, matched and de-duplicated, with each appended row's
+`condition_id` rewritten to the owner project's value.
 
 ### `/labels/reject_log` — the reason of each reject
 

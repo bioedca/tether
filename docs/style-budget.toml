@@ -78,7 +78,7 @@ retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
-long_share = 35.2
+long_share = 31.9
 semicolons = 35
 long_paragraphs = 2
 retired = 4
@@ -218,21 +218,21 @@ retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 16.4
+long_share = 12.4
 semicolons = 22
 long_paragraphs = 1
 retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
-long_share = 34.5
+long_share = 28.8
 semicolons = 14
 long_paragraphs = 2
 retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 21.5
+long_share = 19.4
 semicolons = 28
 long_paragraphs = 0
 retired = 0
@@ -323,10 +323,10 @@ retired = 0
 
 [pages."docs/glossary.md"]
 kind = "descriptive"
-long_share = 22.8
-semicolons = 28
-long_paragraphs = 2
-retired = 2
+long_share = 1.9
+semicolons = 11
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
