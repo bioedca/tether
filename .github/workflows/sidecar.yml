@@ -53,8 +53,8 @@ on:
     # parity break that landed via a semantic conflict between two green PRs stayed
     # invisible until the nightly `schedule` fired — up to ~24h of red `main`. The
     # relevance step below treats any non-`pull_request` event as "run the full live
-    # suite", so a merge to `main` always exercises the real fits. `mq/**` holds the
-    # merge-queue candidates (#1267), which run the full live suite for the same reason.
+    # suite", so a merge to `main` always exercises the real fits.
+    # `mq/**`: merge-queue candidates (#1267) run the full live suite for the same reason.
     branches: [main, "mq/**"]
   workflow_dispatch:
   schedule:

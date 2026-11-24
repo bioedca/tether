@@ -102,7 +102,8 @@ def test_reconcile_has_one_group_and_is_never_cancelled() -> None:
     assert "concurrency" not in QUEUE_DOC, "a workflow group would make a join wait"
     reconcile, record = JOBS["reconcile"]["concurrency"], JOBS["record"]["concurrency"]
     assert reconcile == {"group": "merge-queue-reconcile", "cancel-in-progress": False}
-    assert record == {"group": "merge-queue-pr-${{ inputs.pr }}", "cancel-in-progress": False}
+    # A waiting join or leave is never replaced by a later one for the same pull request.
+    assert record == {**reconcile, "group": "merge-queue-pr-${{ inputs.pr }}", "queue": "max"}
 
 
 def test_every_job_that_can_write_waits_for_the_observe_mode() -> None:
