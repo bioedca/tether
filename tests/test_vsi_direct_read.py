@@ -15,11 +15,16 @@ agree between ranges, metadata with an origin, a clean close). It then compares 
 frames with the export under each of the eight rotations and mirror images of the frame, and
 records which one matches, if any: that is the number the rotation finding of #887 needs. The
 comparison is recorded, not asserted, because the export route is the thing under test.
+
+Where the export matches under one of them, the check also extracts the ``.vsi`` itself
+(``tether extract``, through the spool of #1388) and the export turned back into the
+``.vsi``'s orientation, and records whether the two give the same traces, bit for bit (#1398).
 """
 
 from __future__ import annotations
 
 import tracemalloc
+from pathlib import Path
 
 import pytest
 
@@ -44,11 +49,47 @@ def _transform(frames: np.ndarray, k: int, flip: bool) -> np.ndarray:
     return out[:, :, ::-1] if flip else out
 
 
+def _untransform(frames: np.ndarray, k: int, flip: bool) -> np.ndarray:
+    """The inverse of [`_transform`][]: from the export's orientation back to the ``.vsi``'s."""
+    out = frames[:, :, ::-1] if flip else frames
+    return np.rot90(out, k=-k, axes=(1, 2))
+
+
+#: Frames turned and written at a time, so the export is never held in memory whole.
+_CHUNK = 64
+
+
+def _extracted_traces_match(vsi: Path, export: Path, k: int, flip: bool, tmp: Path) -> dict:
+    """Extract the ``.vsi`` and the export in the ``.vsi``'s orientation; compare the traces."""
+    from tether.cli import main  # noqa: PLC0415
+    from tether.imaging.extract import read_molecules, read_traces  # noqa: PLC0415
+
+    tifffile = pytest.importorskip("tifffile")
+    turned = tmp / "export-turned.tif"
+    with open_movie_source(export) as source, tifffile.TiffWriter(turned) as writer:
+        for start in range(0, source.n_frames, _CHUNK):
+            stop = min(start + _CHUNK, source.n_frames)
+            block = _untransform(np.asarray(source.read_frames(start, stop)), k, flip)
+            for frame in block:
+                writer.write(np.ascontiguousarray(frame), contiguous=True)
+    out_vsi, out_export = tmp / "vsi.tether", tmp / "export.tether"
+    rc_vsi = main(["extract", str(vsi), "-o", str(out_vsi)])
+    rc_export = main(["extract", str(turned), "-o", str(out_export)])
+    numbers = {"extract_vsi_rc": rc_vsi, "extract_export_rc": rc_export}
+    if rc_vsi == 0 and rc_export == 0:
+        a, b = read_traces(out_vsi), read_traces(out_export)
+        same = sorted(a) == sorted(b) and all(np.array_equal(a[n], b[n]) for n in a)
+        numbers["molecules_vsi"] = len(read_molecules(out_vsi))
+        numbers["molecules_export"] = len(read_molecules(out_export))
+        numbers["traces_match"] = int(same)
+    return numbers
+
+
 def _ids(private_data) -> list[str]:
     return [i for i in private_data.ids if i.startswith(PREFIX) and VSI in private_data.roles(i)]
 
 
-def test_a_vsi_movie_conforms_and_is_compared_with_its_export(private_data) -> None:
+def test_a_vsi_movie_conforms_and_is_compared_with_its_export(private_data, tmp_path) -> None:
     ids = _ids(private_data)
     if not ids:
         pytest.skip(f"no {PREFIX}NN id with the role {VSI!r} in the mapping")
@@ -104,4 +145,13 @@ def test_a_vsi_movie_conforms_and_is_compared_with_its_export(private_data) -> N
             numbers["export_match"] = int(match >= 0)
             numbers["export_quarter_turns"] = TRANSFORMS[match][0] if match >= 0 else -1
             numbers["export_mirrored"] = int(TRANSFORMS[match][1]) if match >= 0 else -1
+            if match >= 0:
+                work = tmp_path / neutral_id
+                work.mkdir()
+                k, flip = TRANSFORMS[match]
+                numbers.update(
+                    _extracted_traces_match(
+                        path, private_data.path(neutral_id, EXPORT), k, flip, work
+                    )
+                )
         private_data.record(neutral_id, **numbers)

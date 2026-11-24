@@ -107,7 +107,13 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
     with pytest.raises(ValueError, match="already claims"):
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "cellSens VSI", "Later"]
+    assert [a.name for a in registered_adapters()] == [
+        "TIFF",
+        "CZI",
+        "ND2",
+        "cellSens VSI",
+        "Later",
+    ]
 
 
 def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
