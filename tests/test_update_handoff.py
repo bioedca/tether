@@ -42,6 +42,7 @@ from tether.gui.update_handoff import (
     EXIT_WAIT_TIMEOUT_S,
     HELPER_START_TIMEOUT_S,
     INSTALL_TIMEOUT_S,
+    LOCK_SUFFIX,
     HandoffOutcome,
     HandoffRefused,
     HandoffUnavailable,
@@ -348,6 +349,11 @@ def test_check_install(tmp_path: Path):
     with pytest.raises(HandoffUnavailable, match="home folder"):
         check_install(linux, "macos", home=home)
     check_install(_fake_install(home / "Tether", "macos"), "macos", home=home)
+    lock = linux.with_name(linux.name + LOCK_SUFFIX)
+    lock.mkdir()
+    with pytest.raises(HandoffUnavailable, match="already running"):
+        check_install(linux, "linux", home=home)
+    lock.rmdir()
     leftover = linux.with_name(linux.name + BACKUP_SUFFIX)
     leftover.mkdir()
     with pytest.raises(HandoffUnavailable, match="earlier update"):
@@ -732,6 +738,21 @@ def test_the_helper_waits_for_tether_and_gives_up_without_change(tmp_path: Path)
 
 
 @_posix_only
+def test_a_second_helper_for_the_same_install_changes_nothing(tmp_path: Path):
+    """Two hand-offs of one install: the helper that finds the lock taken stops at once."""
+    rig = HelperRig(tmp_path)
+    rig.old_install()
+    before = _tree(rig.prefix)
+    lock = rig.prefix.with_name("Tether" + LOCK_SUFFIX)
+    lock.mkdir()
+    run = rig.run(rig.installer("ok"))
+    assert run.returncode == 1
+    assert not rig.started.exists() and rig.report() is None
+    assert _tree(rig.prefix) == before
+    assert lock.is_dir()
+
+
+@_posix_only
 def test_a_leftover_backup_is_never_overwritten(tmp_path: Path):
     rig = HelperRig(tmp_path)
     rig.old_install()
@@ -835,6 +856,11 @@ _windows_only = pytest.mark.skipif(
 
 
 class WindowsRig(HelperRig):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        # A space in the folder name, as in a user folder named after a person: cmd /c quoting.
+        self.prefix = tmp_path / "my apps" / "Tether"
+
     def old_install(self) -> None:
         _windows_layout(self.prefix, "1.0.0", marker="old")
 
@@ -962,6 +988,20 @@ def _alive(pid: int) -> bool:
     # A zombie answers kill -0 until its new parent reaps it.
     stat = Path(f"/proc/{pid}/stat")
     return not (stat.exists() and stat.read_text().split(") ")[-1].startswith("Z"))
+
+
+@_windows_only
+def test_the_windows_helper_refuses_a_second_update(windows_rig: WindowsRig):
+    rig = windows_rig
+    rig.old_install()
+    before = _tree(rig.prefix)
+    lock = rig.prefix.with_name("Tether" + LOCK_SUFFIX)
+    lock.write_text("", encoding="utf-8")
+    run = rig.run(rig.installer("ok"))
+    assert run.returncode == 1
+    assert not rig.started.exists() and rig.report() is None
+    assert _tree(rig.prefix) == before
+    assert lock.is_file()
 
 
 def test_the_helpers_share_one_report_vocabulary():

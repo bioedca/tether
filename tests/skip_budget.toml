@@ -30,11 +30,11 @@ max_skipped = 23
 [jobs."test (macos-latest)"]
 min_collected = 4011
 # 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
-max_skipped = 60
+max_skipped = 61
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 49
+max_skipped = 50
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -132,7 +132,7 @@ docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a 
 test = "tests/test_update_handoff.py::test_the_windows_helper_*"
 reason = "update_handoff.ps1 is the Windows helper"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
-why = """The four tests run the Windows update helper under Windows PowerShell against a fake \
+why = """The five tests run the Windows update helper under Windows PowerShell against a fake \
 NSIS installer (#331, ADR-0141); test (windows-latest) runs them. The macOS and Linux helper runs \
 on those two legs in the same module."""
 
@@ -140,7 +140,7 @@ on those two legs in the same module."""
 test = "tests/test_update_handoff.py::test_*"
 reason = "update_handoff.sh is the macOS and Linux helper"
 jobs = ["test (windows-latest)"]
-why = """Seven tests run the macOS and Linux update helper with /bin/sh against a fake .sh \
+why = """Eight tests run the macOS and Linux update helper with /bin/sh against a fake .sh \
 installer (#331, ADR-0141); test (ubuntu-latest) and test (macos-latest) run them, and Windows \
 runs its own helper's tests in the same module."""
 

@@ -81,6 +81,10 @@ script of the platform beside the copy and starts it detached: `update_handoff.s
 `-ExecutionPolicy Bypass` for that one process. When the helper reports that it runs, and only
 then, Tether quits. The helper:
 
+0. takes the lock of the install, `<prefix>.tether-update-lock` (a folder made with `mkdir` on
+   macOS and Linux, a file opened with `CreateNew` on Windows: one step that fails when it
+   exists), and holds it until it ends; a second helper for the same install stops before it
+   reports that it runs, so its Tether stays open and nothing changes;
 1. waits for Tether's process to end (at most `EXIT_WAIT_TIMEOUT_S`, else it stops with nothing
    changed) — the Windows ordering, *launch, then exit*, used on every platform;
 2. hashes its copy again and stops if it is not the verified file;
@@ -134,7 +138,8 @@ puts out of scope; this residual is the same capability, not a new one.
   is stopped after 5 s and must be put back.
 - **Bad / accepted.** A power cut or a killed helper between steps 3 and 6 leaves
   `<prefix>.tether-update-backup` and no `<prefix>`. Renaming it back restores the previous
-  install; the user documentation for updating (#602) must say so.
+  install; the user documentation for updating (#602) must say so. A killed helper also leaves
+  its lock, and Tether then says an update is already running and names the lock to remove.
 - **Bad / accepted.** After a restore, what the new installer's `post_install` wrote outside the
   folder stays: the Start Menu shortcuts, the `.desktop` entry, the file type, and `Tether.app`
   point at the same folder and so start the restored copy, but the Windows *Installed apps* entry

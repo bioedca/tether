@@ -7,6 +7,7 @@
 # the new install is in place: that folder is moved aside below.
 #
 # The steps are those of update_handoff.sh, each only when the one before it passed:
+#   0. take the lock of this install, <Prefix>.tether-update-lock, held until the script ends;
 #   1. say it runs (-Started), then wait for Tether (-TetherPid) to exit. This is the
 #      ordering Windows forces: a running Tether keeps python.exe and its DLLs in the
 #      install folder open, and an open file can be neither renamed nor replaced;
@@ -34,6 +35,8 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $Backup = "$Prefix.tether-update-backup"
+$Lock = "$Prefix.tether-update-lock"
+$LockHandle = $null
 $Failed = "$Prefix.tether-update-failed"
 $Work = Split-Path -Parent $Installer
 $Log = [IO.Path]::ChangeExtension($Result, '.log')
@@ -66,12 +69,25 @@ function Stop-Helper([int]$Code) {
     # The private folder goes, installer copy included; but only a folder that
     # tether.gui.update_handoff made (its name says so). Anything else keeps all but the copy.
     Set-Location -LiteralPath ([IO.Path]::GetTempPath())
+    if ($null -ne $LockHandle) {
+        $LockHandle.Close()
+        Remove-Item -LiteralPath $Lock -Force -ErrorAction SilentlyContinue
+    }
     if ((Split-Path -Leaf $Work) -like 'tether-update-*') {
         Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
     } else {
         Remove-Item -LiteralPath $Installer -Force -ErrorAction SilentlyContinue
     }
     exit $Code
+}
+
+# 0. One helper per install. CreateNew makes the file or fails because it exists, in one
+# step, so of two helpers started together exactly one goes on; the other says nothing to
+# -Result and does not report -Started, so its Tether stays open.
+try {
+    $LockHandle = [IO.File]::Open($Lock, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+} catch {
+    Stop-Helper 1
 }
 
 [IO.File]::WriteAllText($Started, '', $Utf8)

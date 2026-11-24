@@ -92,6 +92,7 @@ __all__ = [
     "FAILED_SUFFIX",
     "HELPER_START_TIMEOUT_S",
     "INSTALL_TIMEOUT_S",
+    "LOCK_SUFFIX",
     "RESULT_FILENAME",
     "HandoffOutcome",
     "HandoffRefused",
@@ -132,6 +133,13 @@ BACKUP_SUFFIX = ".tether-update-backup"
 
 FAILED_SUFFIX = ".tether-update-failed"
 """Appended to a partial install the helper could not delete before it restored the backup."""
+
+LOCK_SUFFIX = ".tether-update-lock"
+"""Appended to the install folder's name for the lock a helper holds while it runs.
+
+A folder on macOS and Linux, a file on Windows; either is made in one step that fails when
+it exists, so two helpers never change the same install at the same time.
+"""
 
 RESULT_FILENAME = "update-result.txt"
 """The helper's one-line report, beside the settings file (ADR-0095)."""
@@ -249,6 +257,12 @@ def check_install(prefix: Path, platform: str, *, home: Path | None = None) -> N
         raise HandoffUnavailable("Tether cannot update itself on this operating system.")
     if not os.access(prefix.parent, os.W_OK):
         raise HandoffUnavailable("Tether cannot write to the folder that holds its install.")
+    lock = prefix.with_name(prefix.name + LOCK_SUFFIX)
+    if os.path.lexists(lock):
+        raise HandoffUnavailable(
+            f"An update of this copy of Tether is already running ({lock}). If none is, "
+            "remove that and try again."
+        )
     for suffix in (BACKUP_SUFFIX, FAILED_SUFFIX):
         leftover = prefix.with_name(prefix.name + suffix)
         if os.path.lexists(leftover):
@@ -595,9 +609,11 @@ def _hand_off(
 
 
 def _run_bounded(
-    argv: Sequence[str], env: Mapping[str, str] | None, timeout: float = CHECK_TIMEOUT_S
+    argv: Sequence[str] | str, env: Mapping[str, str] | None, timeout: float = CHECK_TIMEOUT_S
 ) -> tuple[int, str] | None:
     """Run *argv* for at most *timeout* seconds; ``(exit status, output)``, or None.
+
+    A string is a Windows command line, passed on as it is written.
 
     A launcher is a ``cmd /c`` or ``sh`` script, so the program that might hang is a child
     of the process started here. On a timeout the whole tree is stopped, and the output goes
@@ -607,7 +623,7 @@ def _run_bounded(
     with tempfile.TemporaryFile() as out:
         try:
             process = subprocess.Popen(  # noqa: S603 - argv is built here, never from input
-                list(argv),
+                argv if isinstance(argv, str) else list(argv),
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=subprocess.DEVNULL,
@@ -656,7 +672,7 @@ def _stop_tree(
         process.wait(timeout=30)
 
 
-def _run_version(argv: Sequence[str], env: Mapping[str, str] | None) -> Version | None:
+def _run_version(argv: Sequence[str] | str, env: Mapping[str, str] | None) -> Version | None:
     ran = _run_bounded(argv, env)
     if ran is None:
         return None
@@ -770,7 +786,11 @@ def check_launch_surface(
                 problems.append(f"{bat} does not start {scripts / (name + '.exe')}")
         system_root = env.get("SystemRoot") or env.get("SYSTEMROOT") or r"C:\Windows"
         cmd = str(Path(system_root) / "System32" / "cmd.exe")
-        got = _run_version([cmd, "/d", "/c", str(launchers / "tether.bat"), "--version"], env)
+        # cmd /c drops the first and the last quote of what follows it, so a quoted path
+        # with arguments needs one more pair around it all; /s makes that rule the only one.
+        # Without it an install folder with a space in its name fails this check (#331).
+        line = f'"{cmd}" /d /s /c ""{launchers / "tether.bat"}" --version"'
+        got = _run_version(line, env)
         if got != want:
             problems.append(f"{launchers / 'tether.bat'} --version does not report {version}")
         gui = scripts / "tether-gui.exe"

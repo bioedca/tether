@@ -11,6 +11,7 @@
 #                     INSTALL_TIMEOUT -- INSTALLER-ARGV...
 #
 # Steps, each only when the one before it passed:
+#   0. take the lock of this install, PREFIX.tether-update-lock, held until the script ends;
 #   1. say it runs (STARTED), then wait for Tether (PID) to exit;
 #   2. hash INSTALLER again; it must still be SHA256, the file that was verified;
 #   3. move PREFIX aside to PREFIX.tether-update-backup (a rename);
@@ -40,6 +41,8 @@ install_timeout=$9
 shift 10
 
 backup="$prefix.tether-update-backup"
+lock="$prefix.tether-update-lock"
+locked=0
 failed="$prefix.tether-update-failed"
 workdir=$(dirname "$installer")
 log="${result%.txt}.log"
@@ -59,12 +62,21 @@ finish() {
   # The private folder goes, installer copy included; but only a folder that
   # tether.gui.update_handoff made (its name says so). Anything else keeps all but the copy.
   cd / || true
+  if [ "$locked" = 1 ]; then rmdir "$lock" 2> /dev/null; fi
   case "$(basename "$workdir")" in
     tether-update-*) rm -rf "$workdir" ;;
     *) rm -f "$installer" ;;
   esac
   exit "$1"
 }
+
+# 0. One helper per install. mkdir either makes the folder or fails because it exists, in
+# one step, so of two helpers started together exactly one goes on; the other says nothing
+# to RESULT and does not report STARTED, so its Tether stays open.
+if ! mkdir "$lock" 2> /dev/null; then
+  finish 1
+fi
+locked=1
 
 : > "$started"
 : > "$log"
