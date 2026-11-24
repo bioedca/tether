@@ -86,7 +86,7 @@
   "measured": {
     "retrieved": "2026-11-23",
     "vbgmm_key": {
-      "what": "run_vbfret(model_type='vbgmm', nstates=3, nrestarts=1, seed=1076) in the sidecar environment (tMAVEN 10f4230)",
+      "what": "run_vbfret(model_type='vbgmm', nstates=3, nrestarts=1, seed=1076) in the sidecar environment (tMAVEN 10f4230), with tMAVEN's own vbGMM loop, as the key ran before #1337 and as tmaven_vbgmm_loop=True still runs it",
       "iteration": 2,
       "lower_bound_by_iteration": [
         -8462.89327630281,
@@ -123,6 +123,36 @@
       "deviation": {
         "means_max_abs": 0.022455367970489748,
         "fractions_max_abs": 0.006477628518617884
+      }
+    },
+    "vbgmm_key_corrected_loop": {
+      "what": "the same run_vbfret call with Tether's corrected vbGMM loop, which the key runs since #1337 (ADR-0139); measured 2026-11-23",
+      "iteration": 99,
+      "maxiters": 100,
+      "stopped_by": "tMAVEN's modeler.maxiters (100): the relative increase of the bound at the last step is 3.6e-8, above modeler.converge (1e-8); with maxiters 20000 the convergence test ends the fit at iteration 105 and the means move by at most 2e-4",
+      "lower_bound_first_three": [
+        -5681.964447797147,
+        -5614.847245695236,
+        -5587.853168431273
+      ],
+      "lower_bound_last_three": [
+        -5292.800248941621,
+        -5292.80000758429,
+        -5292.799817528363
+      ],
+      "means": [
+        -0.7905986725846315,
+        0.08149181129662612,
+        0.5560494770440815
+      ],
+      "fractions": [
+        0.027961256054394215,
+        0.22913240491196327,
+        0.7429063390336447
+      ],
+      "deviation": {
+        "means_max_abs": 0.02210561055512117,
+        "fractions_max_abs": 0.006205687552262584
       }
     }
   }
