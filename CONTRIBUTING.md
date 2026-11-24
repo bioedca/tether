@@ -245,9 +245,10 @@ a napari `Viewer`, it also joins `VIEWER_SECTIONS`, because macOS offscreen cann
 `--strict-markers` rejects an *unregistered* marker only where a test applies it. It does
 **not** check the names in a `-m` expression, so a typo there is not an error. `-m deepp`
 deselects every test, and pytest exits 5 with no message about the unknown name.
+
 `-m "not largge"` is a valid filter that excludes nothing. So that typo silently pulls the
-optional tiers back into the run, and the run does not fail. Read the collected count, not only
-the exit code.
+optional tiers back into the run. Again, pytest does not report the unknown name, so nothing tells
+you that the filter is wrong. Read the collected count, not only the exit code.
 
 `tests/test_marker_contract.py` enforces two naming rules:
 
