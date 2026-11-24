@@ -58,10 +58,19 @@ class CommandFailed(ServiceError):
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Request:
-    """The base class of every service-command request."""
+    """The base class of every service-command request.
+
+    ``PATH_FIELDS`` names the fields that hold a path, so a recipe can read a relative path
+    from the folder of the recipe file and write one relative to it (#899).
+    ``PROJECT_FIELD`` names the field that holds the one ``.tether`` project the command
+    writes, or is ``None`` when it writes no single project; a recipe run stores the job of
+    the step in that project.
+    """
 
     COMMAND: ClassVar[str] = ""
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ()
+    PROJECT_FIELD: ClassVar[str | None] = None
 
 
 _SCALARS: tuple[type, ...] = (str, int, float, bool)

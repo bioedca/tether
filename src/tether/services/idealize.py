@@ -67,6 +67,8 @@ class IdealizeRequest(Request):
 
     COMMAND: ClassVar[str] = "idealize"
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ("project", "sidecar_python")
+    PROJECT_FIELD: ClassVar[str | None] = "project"
 
     project: str
     method: str | None = None

@@ -700,6 +700,94 @@ arrays and text and is read with pickling switched off, so no stored Python obje
 run when a map is loaded. [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
 records this version rule.
 
+## `tether run`
+
+Run a recipe file: a list of service requests, the same requests that `tether extract`,
+`tether batch`, `tether idealize` and `tether map create` send
+([service commands](#service-commands)). The application writes one with
+**File → Save as recipe…**. The [recipe guide](how-to/run-a-recipe.md) shows a full one.
+
+```text
+tether run [-h] [--dry-run] [--resume] recipe
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `recipe` | required | the recipe file (`.json`) |
+| `--dry-run` | off | print the steps, the inputs of each step and each approval step, and change nothing |
+| `--resume` | off | skip the completed steps at the start of the latest run and continue from the first unfinished step |
+
+Each step runs through its service command, in order, as a job stored in the project that
+the step writes (the `output` of `extract`, the `project` of `idealize`, the `into` of
+`batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
+its number. Tether also records progress in its per-user state for the recipe's path and
+contents. This includes successful steps that write no single project, such as `map` or
+`batch` without `into`. The run stops at the first failed step.
+
+A count-only extraction records progress in the recipe checkpoint and leaves the named
+project untouched.
+
+Running without `--resume` starts a new checkpoint. `--resume` retries the first unfinished
+step and runs every step after it again, since those steps can depend on its results.
+When no step is complete, as for a changed recipe, `--resume` starts from the first step.
+
+The run stops when a step defers a stage. If the step has a job, Tether stores it as `failed`.
+`--resume` runs that step again, so the command's own checkpoint can finish the deferred stage
+before the next recipe step starts. Tether reads relative paths from the recipe file's folder.
+
+A recipe is refused before anything runs when it is not valid: an unknown command, field
+or version, a value of the wrong type, a policy with a missing value, a **publish step**
+(a recipe can make and upload a deposit draft, but it can never publish, card B3), an
+`approve` step (a recipe approves only with a policy), or a field that names an account
+secret.
+
+For recipe idealization, select the sidecar interpreter locally with `TETHER_SIDECAR_PYTHON`
+or use the installed sidecar. A recipe cannot select the interpreter.
+
+At a step that needs a person, a policy that the recipe names for the step decides
+(ADR-0102). With no policy and no approval recorded, the run stops with exit code `4` and
+prints the command that approves the step and the one that continues:
+
+```text
+tether run: stopped at approval step 'gamma.approve' for 'KJG_231027': the recipe has no policy for it.
+  evidence: runs/gamma-KJG_231027.json
+  approve:  tether approve exp.tether gamma.approve --subject KJG_231027 --report runs/gamma-KJG_231027.json
+  continue: tether run recipe.json --resume
+```
+
+No command reaches an approval step yet: the map, correction and fit steps that reach
+them come with #918, #930 and #939, so a recipe that names a policy today is refused
+with the reason.
+
+Exit codes: `0` every step ran (or `--dry-run` printed its plan), `1` a step failed, `2`
+the recipe was refused and nothing ran, `3` no step failed but a stage was deferred (as
+for [`tether batch`](#tether-batch)), `4` the run stopped at a step that needs a person.
+
+## `tether approve`
+
+Record that a person approved a step that needs a person, on the evidence of its report
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+```text
+tether approve [-h] --subject SUBJECT --report REPORT [--by NAME]
+               project {map.accept,alpha.confirm,gamma.approve,fit.select}
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | required | the `.tether` project to record the approval in |
+| `step` | required | the approval step: `map.accept`, `alpha.confirm`, `gamma.approve` or `fit.select` |
+| `--subject SUBJECT` | required | what is approved: the map, the condition or the analysis set |
+| `--report REPORT` | required | the report that is the evidence: a `.json` file. Each PNG beside it whose name starts with its stem is recorded too |
+| `--by NAME` | the curator name of new labels | the name of the person |
+
+The approval is one row of `/settings/approvals`: the step and subject, `person` and the
+name, the SHA-256 of each report file, and the time. When `tether run` stopped in this
+project, the row also names that recipe, and `tether run RECIPE --resume` then goes on
+past the step. Exit codes: `0` recorded, `1` the write failed (for example, the project is
+locked), `2` refused before any write (an unknown step, an empty subject, a report that is
+not a readable `.json` file, a project that cannot be opened).
+
 ## `tether info`
 
 Print a summary of what one or more projects hold, without the application and without a
@@ -1259,8 +1347,8 @@ shows the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract`, `tether batch`, `tether idealize` and `tether map create` are each the
-command-line route of one *service command*
+`tether extract`, `tether batch`, `tether idealize`, `tether map create` and `tether approve`
+are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -1278,6 +1366,7 @@ two differ:
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
 | `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
 | `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
+| `tether approve` | `tether.services.approve.ApproveRequest` (version 1) | `tether.services.approve.ApproveResult` | record that a person approved a step that needs a person |
 <!-- service-commands:end -->
 
 A request is plain data with one text form: a JSON object with the command name, the
@@ -1301,8 +1390,8 @@ The field names are the option names with `_` for `-`. Both requests also hold t
 fields of an [extraction profile](#extraction-profiles), and `--profile` sets
 them: the file itself is not part of the request, so a request holds every value it ran
 with. Two `tether batch` flags are positive fields: `--no-idealize` is
-`"idealize": false` and `--no-defer` is `"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
-these requests ([#899](https://github.com/bioedca/tether/issues/899)).
+`"idealize": false` and `--no-defer` is `"defer_if_unavailable": false`. A recipe file, which
+[`tether run`](#tether-run) reads, is a list of these requests.
 
 ## Exit codes
 
@@ -1353,9 +1442,9 @@ detail is in stdout and the log. The progress lines on stderr are for watching t
 
 ### Exit code `4`: a person must approve a step
 
-Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
-before a step that needs a person, because nothing approved that step. No command returns
-it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+Code `4` has one meaning in every `tether` command: the run stopped before a step that
+needs a person, because nothing approved that step. [`tether run`](#tether-run) returns it.
+`tether batch` never returns it, because it applies its `--policy` rule to the
 map and accepts the estimated correction factors, as it does now
 ([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
 

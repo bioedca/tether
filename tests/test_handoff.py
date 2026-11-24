@@ -826,6 +826,73 @@ def test_apply_nonzero_class_writes_the_lookup_category(tmp_path):
         assert diff_manifest(build_manifest(), introspect(f)) == []
 
 
+def _ids(path) -> list[str]:
+    return [
+        m.decode() if isinstance(m, bytes) else str(m) for m in read_molecules(path)["molecule_id"]
+    ]
+
+
+def _categories(path) -> list[str]:
+    return [
+        c.decode() if isinstance(c, bytes) else str(c) for c in read_molecules(path)["category"]
+    ]
+
+
+def test_apply_refuses_a_class_proposal_the_preview_did_not_show(tmp_path):
+    """#1290: a list reordered between preview and apply must not write the new name."""
+    from tether.project.conditions import set_category_list
+
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["A", "B"])
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([1, 0]))
+    ids = _ids(proj.path)
+
+    report = read_return_leg(proj, ret)
+    shown = {t.molecule_id: t.class_change for t in report.class_changes}
+    assert shown[ids[0]].proposed_category == "A"
+
+    set_category_list(proj.path, _PARSED.condition_id, ["B", "A"])
+    # The Project facade forwards ``previewed`` to the module-level commit.
+    applied = proj.apply_reconcile(ret, accept_classes=[ids[0]], previewed=report)
+    assert applied.classes_applied == []
+    assert applied.classes_stale == [ids[0]]
+    assert _categories(proj.path)[0] == ""  # neither the shown "A" nor the stale "B"
+
+
+def test_apply_refuses_a_class_the_preview_showed_as_unmapped(tmp_path):
+    """#1290: ``accept_classes=True`` does not reach a class that became mapped after."""
+    from tether.project.conditions import set_category_list
+
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["A"])
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 0]))
+    ids = _ids(proj.path)
+
+    report = read_return_leg(proj, ret)
+    set_category_list(proj.path, _PARSED.condition_id, ["A", "B"])  # class 2 now maps to B
+    applied = apply_reconcile(proj, ret, accept_classes=True, previewed=report)
+    assert applied.classes_applied == []
+    assert applied.classes_stale == [ids[0]]
+    assert _categories(proj.path)[0] == ""
+
+
+def test_apply_with_an_unchanged_lookup_writes_what_the_preview_showed(tmp_path):
+    """#1290: passing the preview changes nothing while the lookup is unchanged."""
+    donor, acceptor = _step_trace(3, 20), _step_trace(3, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    _seed_categories(proj.path, ["static", "dynamic"])
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, classes=np.array([2, 1, 0]))
+    ids = _ids(proj.path)
+
+    report = read_return_leg(proj, ret)
+    applied = apply_reconcile(proj, ret, accept_classes=True, previewed=report)
+    assert sorted(applied.classes_applied) == sorted(ids[:2])
+    assert applied.classes_stale == []
+    assert _categories(proj.path) == ["dynamic", "static", ""]
+
+
 # --------------------------------------------------------------------------- #
 # return leg — non-destructive model import
 # --------------------------------------------------------------------------- #

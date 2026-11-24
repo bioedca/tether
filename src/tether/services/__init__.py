@@ -19,6 +19,7 @@ True
 
 from __future__ import annotations
 
+from tether.services.approve import ApproveRequest, ApproveResult
 from tether.services.base import (
     CommandFailed,
     Request,
@@ -49,6 +50,8 @@ from tether.services.registry import (
 
 __all__ = [
     "COMMANDS",
+    "ApproveRequest",
+    "ApproveResult",
     "BatchRequest",
     "BatchResult",
     "CommandFailed",

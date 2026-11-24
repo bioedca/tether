@@ -39,6 +39,7 @@ class MapCreateRequest(Request):
 
     COMMAND: ClassVar[str] = "map"
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ("source", "output")
 
     source: str
     output: str

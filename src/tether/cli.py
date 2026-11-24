@@ -50,6 +50,8 @@ from tether.extract_choices import (
 from tether.idealize_choices import IDEALIZE_METHODS
 from tether.services import (
     COMMANDS,
+    ApproveRequest,
+    ApproveResult,
     BatchRequest,
     BatchResult,
     CommandFailed,
@@ -122,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
         # A registered command with no route fails here, for every CLI call, as well as
         # in the test that names it (unrouted_commands).
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
+    _add_run_parser(subparsers)
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
     add_export_parser(subparsers)
@@ -984,6 +987,155 @@ def _run_map(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_approve_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``approve`` subcommand (a person approves an approval step, ADR-0102)."""
+    from tether.services.recipe import APPROVAL_STEPS  # noqa: PLC0415
+
+    approve = subparsers.add_parser(
+        "approve",
+        help=summary,
+        description=(
+            "Record that a person approved a step that needs a person, on the evidence of "
+            "its report (ADR-0102). When 'tether run' stopped at the step (exit code 4), "
+            "the record names that recipe, and 'tether run RECIPE --resume' goes on past "
+            "the step. Exit codes: 0 recorded, 1 failed, 2 refused (nothing written)."
+        ),
+    )
+    approve.add_argument("project", help="the .tether project to record the approval in")
+    approve.add_argument("step", choices=APPROVAL_STEPS, help="the approval step")
+    approve.add_argument(
+        "--subject", required=True, help="what is approved: the map, the condition or the set"
+    )
+    approve.add_argument(
+        "--report",
+        required=True,
+        help="the report that is the evidence (.json; its PNG images beside it are recorded too)",
+    )
+    approve.add_argument(
+        "--by",
+        default=None,
+        metavar="NAME",
+        help="the name of the person (default: the curator name of new labels)",
+    )
+
+
+def _approve_request(args: argparse.Namespace) -> ApproveRequest:
+    """Build the ``approve`` request from the parsed options."""
+    return ApproveRequest(
+        project=args.project,
+        step=args.step,
+        subject=args.subject,
+        report=args.report,
+        by=args.by,
+    )
+
+
+def _run_approve(args: argparse.Namespace) -> int:
+    """Handle ``tether approve``; exit 2 on a refused request, 1 on a failed write."""
+    try:
+        result: ApproveResult = run_service(_approve_request(args))
+    except RequestRefused as exc:
+        print(f"tether approve: {exc}", file=sys.stderr)
+        return 2
+    except CommandFailed as exc:
+        print(f"tether approve: {exc}", file=sys.stderr)
+        return 1
+    approval = result.approval
+    print(
+        f"{result.project}: {approval.step} for {approval.subject!r} approved by {approval.actor}"
+    )
+    if approval.recipe_sha256:
+        print(f"  for the recipe {approval.recipe_sha256[:12]}; continue it with --resume")
+    return 0
+
+
+#: Exit code of every ``tether`` command that stopped because a person must act
+#: (ADR-0102 §2); no command uses ``4`` for another meaning.
+EXIT_APPROVAL_NEEDED = 4
+
+
+def _add_run_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``run`` subcommand (run a recipe file, #899)."""
+    run = subparsers.add_parser(
+        "run",
+        help="run the steps of a recipe file, each as a stored job",
+        description=(
+            "Run a recipe: a JSON file that lists service requests "
+            "(ADR-0100). Each step runs through its service command as a job stored in the "
+            "project it writes. At a step that needs a person, a policy that the recipe "
+            "names decides; with no policy the run stops (exit code 4) and names the "
+            "command that approves and the one that continues. Exit codes: 0 every step "
+            "ran, 1 a step failed, 2 the recipe was refused (nothing ran), 3 no step failed "
+            "but a stage was deferred, 4 stopped at a step that needs a person."
+        ),
+    )
+    run.add_argument("recipe", help="the recipe file (.json)")
+    run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the steps, the inputs of each and each approval step; change nothing",
+    )
+    run.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip the steps that a run of this recipe completed and go on from there",
+    )
+
+
+def _print_stop(args: argparse.Namespace, stop: object) -> None:
+    from tether.services.recipe import ApprovalStop  # noqa: PLC0415
+
+    assert isinstance(stop, ApprovalStop)
+    print(f"tether run: {stop}.", file=sys.stderr)
+    if stop.report:
+        print(f"  evidence: {stop.report}", file=sys.stderr)
+    report = stop.report or "REPORT.json"
+    print(
+        f"  approve:  tether approve {stop.project} {stop.step} --subject {stop.subject} "
+        f"--report {report}",
+        file=sys.stderr,
+    )
+    print(f"  continue: tether run {args.recipe} --resume", file=sys.stderr)
+
+
+def _run_recipe(args: argparse.Namespace) -> int:
+    """Handle ``tether run``: ``0``, ``1`` failed, ``2`` refused, ``3`` deferred, ``4`` stop."""
+    from tether.services.recipe import (  # noqa: PLC0415
+        RecipeError,
+        plan_recipe,
+        read_recipe,
+        run_recipe,
+    )
+
+    try:
+        recipe = read_recipe(args.recipe)
+        if args.dry_run:
+            for line in plan_recipe(recipe, resume=args.resume):
+                print(line)
+            return 0
+        total = len(recipe.steps)
+
+        def report(outcome: object) -> None:
+            text = f"step {outcome.number}/{total} {outcome.command}: {outcome.state}"
+            print(text + (f": {outcome.message}" if outcome.message else ""))
+
+        result = run_recipe(recipe, resume=args.resume, progress=report)
+    except RecipeError as exc:
+        print(f"tether run: {exc}", file=sys.stderr)
+        return 2
+    if result.failed:
+        print(
+            f"tether run: a step failed; fix it and continue with tether run {args.recipe} "
+            "--resume",
+            file=sys.stderr,
+        )
+        return 1
+    if result.stop is not None:
+        _print_stop(args, result.stop)
+        return EXIT_APPROVAL_NEEDED
+    return BATCH_EXIT_DEFERRED if result.deferred else 0
+
+
 @dataclasses.dataclass(frozen=True)
 class _Route:
     """The command-line route of one service command."""
@@ -998,6 +1150,7 @@ _ROUTES: dict[str, _Route] = {
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
     "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
     "map": _Route(_add_map_parser, _map_request, _run_map),
+    "approve": _Route(_add_approve_parser, _approve_request, _run_approve),
 }
 
 
@@ -1347,6 +1500,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     route = _ROUTES.get(command)
     if route is not None:
         return route.invoke(args)
+    if command == "run":
+        return _run_recipe(args)
     if command == "info":
         return _run_info(args)
     if command == "metadata":
