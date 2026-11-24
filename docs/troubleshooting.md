@@ -341,8 +341,9 @@ they tell you which half of the problem you have.
    or import the real calibration with `--tmap`.
 
 Defaults worth knowing: `--detection-threshold` is ignored by the `wavelet` mode, and
-defaults to `0.5` for `intensity` and `0.98` for `bandpass`. Omitting `--min-separation`
-gives each mode its own faithful default (wavelet 8 px, intensity/bandpass 3 px;
+defaults to `0.5` for `intensity` and `zmw` and `0.98` for `bandpass`. Omitting
+`--min-separation` gives each mode its own faithful default (wavelet 8 px,
+intensity/bandpass/zmw 3 px;
 ADR-0022).
 
 ### Extraction found far fewer, or far more, molecules than expected
@@ -413,7 +414,7 @@ value gives the usage line, `invalid choice: '<value>' (choose from …)` and ex
 | Message | Fix |
 |---|---|
 | `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` (library call; the CLI refuses it at parse time) |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three (library call; the CLI refuses it at parse time) |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass', 'zmw'), got 'gaussian'` | pick one of the four (library call; the CLI refuses it at parse time) |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | it is a fraction, not a count |
 | `min_separation must be > 0, got -1.0` | omit it to get each mode's faithful default |
 | `window must be a positive odd integer, got 20` | the aperture side must be odd (default 21) |
@@ -708,7 +709,7 @@ restarts.
 **Symptom.**
 
 ```text
-tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3] = wavelet/intensity/bandpass; modes 4 'local-variance' and 5 'ZMW intensity' are not ported)
+tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3, 5] = wavelet/intensity/bandpass/zmw; mode 4 'local-variance' is not ported: Deep-LASI's own mode 4 reads a variable that is never set and stops with an error, so there is no Deep-LASI result to match (ADR-0143))
 ```
 
 Raised by `tether.io.tdat`, wrapped by `tether.project.extract`. A related message tells you

@@ -55,6 +55,8 @@ tests/fixtures/campos_chavez_2024/** -text
 tests/fixtures/ha_sam_sah/** -text
 # Weninger-laboratory hairpin movie (#798): verbatim binary .traces bytes, SHA-256 in the manifest.
 tests/fixtures/weninger_hairpin/** -text
+# The detection images Deep-LASI's findPart is run on (#924): the run records their SHA-256.
+tests/fixtures/deep_lasi_findpart_images/** -text
 
 # --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
 # The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks

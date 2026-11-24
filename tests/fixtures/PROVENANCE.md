@@ -638,6 +638,43 @@ smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`, `NOTIC
 `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv`,
 `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv`.
 
+## Deep-LASI detection images (findPart comparison, #924, ADR-0143) — **CC-BY-4.0** (one file)
+
+The inputs of the `findpart` task of `scripts/reference/matlab/deep_lasi.py`, made by
+`scripts/make_deeplasi_findpart_images.py` (each value written as the shortest repr of its double,
+one image row per line, so the same source gives the same bytes):
+
+- `tests/fixtures/deep_lasi_findpart_images/public.csv` (98,472 B · plain git, SHA-256
+  `2b88841dd45d06a175de8cb7cd8f8c74d6e19402be3e93aaf1e376f798136ca4`) — rows 1-128 and columns
+  257-384 (1-based, MATLAB's orientation) of the first `Cumulated` image of channel 1 in
+  `DNAorigami_GR_2state_7p5nt_1color.tdat` (797,424,164 B, SHA-256
+  `4248894186a6353c7c642c20a73d8b33b72b7fcb7c00393a862fa243f10a0d72`), the one file of
+  `Figure_2.zip` (487,933,185 B, SHA-256
+  `fccd230c630272503bcf7d3dbe1c7953c10adb9a6d87ba9570d7d1153ec570ee`, MD5
+  `df27b3884d2dc4ef1ba9aef9e83ead76` as Zenodo lists it) of Zenodo record 7561162 (Wanninger
+  *et al.*, *Nat Commun* 14:6564, 2023, doi:10.1038/s41467-023-42272-9). `Cumulated` is the
+  detection image Deep-LASI made and saved (its moving-average maximum projection); no value is
+  changed. **Accessed:** 2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0. Manifest id
+  `deeplasi-findpart-public-image` (an extract of the workstation entry `deeplasi-zenodo-fig2`).
+- `tests/fixtures/deep_lasi_findpart_images/synthetic.csv` (48,074 B · plain git, SHA-256
+  `4b66fff82006910de371b23f9ecfd51e6a09a974e51f5b38fdc72a4228a62ab3`) — seven Gaussian spots
+  (σ = 1.3 px), three of them on or next to the image edge, on a uniform background of
+  amplitude 0.02 seeded with 924. Tether's own; GPL-3.0-or-later with the repository.
+
+`tests/fixtures/reference/deep-lasi/findpart-zmw/` is the frozen output of Deep-LASI's own
+`findPart` (mode 5, thresholds 0.1, 0.3 and 0.5, background mask of length 1, no refinement) on
+those two images, made by the `findpart` task of `scripts/reference/matlab/deep_lasi.py` with
+Deep-LASI at `d2d348c` and MATLAB R2023b Update 10 on the maintainer's workstation (2026-11-24),
+with `provenance.json` as the harness record. Three files are spot positions computed from the
+CC-BY-4.0 crop, so they carry **CC-BY-4.0** (`REUSE.toml`, `NOTICE`, manifest ids
+`deeplasi-findpart-public-t1` to `-t3`):
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t1.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t2.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t3.csv`.
+`synthetic_t1.csv` to `synthetic_t3.csv`, `mode4_error.txt` (the error MATLAB gave for mode 4)
+and `provenance.json` carry the repository's licence. Nothing of Deep-LASI itself is in the
+repository.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the
