@@ -8,8 +8,11 @@ that made it. One generation of a movie is **active**: its molecules are the mov
 rows of ``/molecules`` and of every ``/traces`` and ``/patches`` array, so every reader
 of those arrays reads the active generation. When a movie is extracted again, the
 generation that was active is first copied, unchanged, to
-``/generations/archive/<movie_id>/<generation>`` and stays readable there through
+``/generations/archive/<name>/<generation>`` and stays readable there through
 [`read_generation`][]. An extraction never overwrites and never deletes a generation.
+``<name>`` is [`archive_name`][] of the movie ID: the ID itself unless it holds ``%`` or
+``/`` or is ``.`` or ``..``, which are escaped, so ``run-a`` and ``run-a/1`` get
+separate archives (#1308).
 
 A store with no row for a movie (every store written before ``schema_version`` 2) reads
 as generation 1 of that movie; reading it writes nothing.
@@ -22,6 +25,7 @@ one is [`tether.project.extract.reextract_movie`][].
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,6 +41,10 @@ __all__ = [
     "Generation",
     "GenerationData",
     "active_generation",
+    "archive_movie_id",
+    "archive_name",
+    "archived_generation",
+    "archived_generations",
     "carried_molecule_keys",
     "match_previous",
     "read_generation",
@@ -54,6 +62,9 @@ GENERATION_MATCH_PX = 0.5
 ARCHIVE = "archive"
 
 _GROUP = "generations"
+# The escapes of [`archive_name`][]; "%" is escaped first, so the encoding is reversible.
+_ESCAPES = {"%": "%25", "/": "%2F"}
+_UNESCAPES = {"%25": "%", "%2F": "/", "%2E": "."}
 _TABLE = "table"
 _LABEL_REVIEWS = "label_reviews"
 # A carried label has no eligible human event on this extraction yet.
@@ -412,19 +423,91 @@ def active_data(f: Any, movie_id: str) -> tuple[np.ndarray, np.ndarray, dict, di
     return movie, molecules, traces, patches, flags
 
 
+def archive_name(movie_id: str) -> str:
+    """Return the name of the archive group of ``movie_id`` under ``/generations/archive``.
+
+    The name is the movie ID with ``%`` written ``%25`` and ``/`` written ``%2F``, and an
+    ID of only ``.`` or ``..`` written ``%2E`` or ``%2E%2E``: HDF5 reads ``/`` as a group
+    separator and ``.`` as the group itself. Every other ID is its own name, so archives of
+    such IDs written before #1308 read unchanged. [`archive_movie_id`][] reverses it.
+
+    Raises
+    ------
+    ValueError
+        If ``movie_id`` is empty: no HDF5 name is empty.
+    """
+    if not movie_id:
+        raise ValueError("an empty movie_id has no generation archive")
+    name = "".join(_ESCAPES.get(char, char) for char in movie_id)
+    return name.replace(".", "%2E") if name in (".", "..") else name
+
+
+def archive_movie_id(name: str) -> str:
+    """Return the movie ID whose [`archive_name`][] is ``name`` (its inverse)."""
+    return re.sub("%(?:25|2F|2E)", lambda escape: _UNESCAPES[escape.group(0)], name)
+
+
+def archived_generation(f: Any, movie_id: str, generation: int) -> Any | None:
+    """Return the archive group of one generation of ``movie_id``, or ``None``.
+
+    The group is looked up at [`archive_name`][] of the movie ID. An archive written
+    before #1308 under an ID that holds ``/`` sits at the unescaped, nested path, and is
+    read from there when no escaped one exists. Only a group that holds ``molecules`` is
+    a generation, so the nested group of another movie is never taken for one.
+    """
+    import h5py  # noqa: PLC0415
+
+    archive = f.get(f"{_GROUP}/{ARCHIVE}")
+    if archive is None:
+        return None
+    names = [archive_name(movie_id)]
+    if all(part not in ("", ".", "..") for part in movie_id.split("/")):
+        names.append(movie_id)  # the path written before #1308
+    for name in dict.fromkeys(names):
+        group = archive.get(f"{name}/{int(generation)}")
+        if isinstance(group, h5py.Group) and "molecules" in group:
+            return group
+    return None
+
+
+def archived_generations(f: Any, movie_id: str) -> list[tuple[int, Any]]:
+    """Return ``(generation, group)`` for every archived generation of ``movie_id``.
+
+    Oldest first. The generations are the ones ``/generations/table`` records for the
+    movie and that are not active, not the names found under the archive, so a group
+    that another movie's ID nests there is never read as one of this movie's.
+    """
+    out = []
+    for record in generations_in(f, movie_id):
+        if record.active or not record.recorded:
+            continue
+        group = archived_generation(f, movie_id, record.generation)
+        if group is not None:
+            out.append((record.generation, group))
+    return out
+
+
 def archive_active(f: Any, record: Generation) -> None:
     """Copy the active generation ``record`` of its movie to the archive, unchanged.
 
-    Writes ``/generations/archive/<movie_id>/<generation>`` with ``movie`` (the
-    ``/movies`` row), ``molecules``, ``acceptor_detected``, ``traces/<layer>`` (cut to the
-    movie's frame count), ``patches/<layer>`` and, when the movie has one, its ``layout``
-    record. Refuses a generation that is already archived: an archive is written once.
+    Writes ``/generations/archive/<name>/<generation>``, ``<name>`` being
+    [`archive_name`][] of the movie ID, with ``movie`` (the ``/movies`` row),
+    ``molecules``, ``acceptor_detected``, ``traces/<layer>`` (cut to the movie's frame
+    count), ``patches/<layer>`` and, when the movie has one, its ``layout`` record.
+    Refuses a generation that is already archived: an archive is written once. Also
+    refuses when that path holds the nested archive of another movie ID, which only an
+    archive written before #1308 can make; nothing is then moved or overwritten.
     """
-    archive = f[_GROUP].require_group(ARCHIVE).require_group(record.movie_id)
+    if archived_generation(f, record.movie_id, record.generation) is not None:
+        raise ValueError(
+            f"generation {record.generation} of movie {record.movie_id!r} is already archived"
+        )
+    archive = f[_GROUP].require_group(ARCHIVE).require_group(archive_name(record.movie_id))
     name = str(record.generation)
     if name in archive:
         raise ValueError(
-            f"generation {record.generation} of movie {record.movie_id!r} is already archived"
+            f"generation {record.generation} of movie {record.movie_id!r} cannot be archived: "
+            f"{archive.name}/{name} holds the archive of another movie ID, written before #1308"
         )
     movie, molecules, traces, patches, flags = active_data(f, record.movie_id)
     group = archive.create_group(name, track_order=True)
@@ -467,7 +550,11 @@ def read_generation(
         if wanted.active:
             movie, molecules, traces, patches, flags = active_data(f, movie_id)
         else:
-            stored = f[_GROUP][ARCHIVE][movie_id][str(wanted.generation)]
+            stored = archived_generation(f, movie_id, wanted.generation)
+            if stored is None:
+                raise KeyError(
+                    f"generation {wanted.generation} of movie {movie_id!r} has no archive"
+                )
             movie = stored["movie"][()]
             molecules = stored["molecules"][()]
             flags = stored["acceptor_detected"][()]

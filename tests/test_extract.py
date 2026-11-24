@@ -644,3 +644,105 @@ def test_write_extraction_returns_compatible_project(tmp_path: Path) -> None:
 
 def _as_str(value: object) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+# --- generation archives of layout-free movie IDs (#1308) ----------------------
+
+
+def _generation_2(project: Path, movie_id: str, sha: str, donor: list[float]) -> None:
+    """Write generation 2 of ``movie_id`` on a guarded stage, as ``reextract_movie`` does."""
+    from tether.project._guarded_publish import guarded_project_write
+
+    mols = _molecules(np.array([donor]))
+    traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols)
+    with guarded_project_write(project, write_guard=lambda: None, label="test") as stage:
+        write_generation(
+            stage, movie=_movie(movie_id, sha=sha), molecules=mols, traces=traces, parsed=_PARSED
+        )
+
+
+def _keys(rows: np.ndarray) -> list[str]:
+    return [_as_str(k) for k in rows["molecule_key"]]
+
+
+def test_movie_ids_that_differ_by_a_slash_keep_separate_generation_archives(
+    tmp_path: Path,
+) -> None:
+    from tether.io.generations import read_generation, read_generations
+
+    project = tmp_path / "p.tether"
+    create_project(project)
+    _extract_into(project, movie_id="run-a", sha="a" * 64, donor=np.array([[20.0, 20.0]]))
+    _extract_into(project, movie_id="run-a/1", sha="b" * 64, donor=np.array([[40.0, 30.0]]))
+    first = {m: _keys(read_generation(project, m).molecules) for m in ("run-a", "run-a/1")}
+
+    _generation_2(project, "run-a/1", "b" * 64, [44.0, 30.0])
+    _generation_2(project, "run-a", "a" * 64, [24.0, 20.0])  # raised KeyError before #1308
+
+    for movie_id in ("run-a", "run-a/1"):
+        assert [g.generation for g in read_generations(project, movie_id)] == [1, 2]
+        archived = read_generation(project, movie_id, 1)
+        assert _keys(archived.molecules) == first[movie_id]
+        assert _as_str(archived.movie["movie_id"][0]) == movie_id
+        active = read_generation(project, movie_id)
+        assert active.generation.generation == 2 and active.molecules.shape == (1,)
+        assert _keys(active.molecules) != first[movie_id]
+    with h5py.File(project, "r") as f:
+        assert sorted(f["generations/archive"]) == ["run-a", "run-a%2F1"]
+        assert list(f["generations/archive/run-a"]) == ["1"]
+
+
+@pytest.mark.parametrize(
+    ("movie_id", "name"),
+    [
+        ("run-a", "run-a"),
+        ("run-a/1", "run-a%2F1"),
+        ("50%/b", "50%25%2Fb"),
+        ("a%2Fb", "a%252Fb"),
+        (".", "%2E"),
+        ("..", "%2E%2E"),
+        ("./x", ".%2Fx"),
+        ("/", "%2F"),
+    ],
+)
+def test_the_archive_name_of_a_movie_id_is_reversible(movie_id: str, name: str) -> None:
+    from tether.io.generations import archive_movie_id, archive_name
+
+    assert archive_name(movie_id) == name
+    assert archive_movie_id(name) == movie_id
+
+
+def test_an_archive_written_before_the_encoding_still_reads(tmp_path: Path) -> None:
+    from tether.io.generations import read_generation
+
+    project = tmp_path / "p.tether"
+    create_project(project)
+    _extract_into(project, movie_id="run-a", sha="a" * 64, donor=np.array([[20.0, 20.0]]))
+    _extract_into(project, movie_id="run-a/1", sha="b" * 64, donor=np.array([[40.0, 30.0]]))
+    first = _keys(read_generation(project, "run-a/1").molecules)
+    _generation_2(project, "run-a/1", "b" * 64, [44.0, 30.0])
+    with h5py.File(project, "r+") as f:  # the nested layout the archive had before #1308
+        archive = f["generations/archive"]
+        archive.move("run-a%2F1", "legacy")
+        archive.create_group("run-a")
+        archive.move("legacy", "run-a/1")
+    assert _keys(read_generation(project, "run-a/1", 1).molecules) == first
+
+    # Generation 1 of run-a would go where the nested archive is: refused, nothing changed.
+    before = project.read_bytes()
+    with pytest.raises(ValueError, match=r"holds the archive of another movie ID"):
+        _generation_2(project, "run-a", "a" * 64, [24.0, 20.0])
+    assert project.read_bytes() == before
+    assert _keys(read_generation(project, "run-a/1", 1).molecules) == first
+
+
+def test_a_refused_generation_of_a_slash_id_leaves_the_project_unchanged(tmp_path: Path) -> None:
+    project = tmp_path / "p.tether"
+    create_project(project)
+    _extract_into(project, movie_id="run-a", sha="a" * 64, donor=np.array([[20.0, 20.0]]))
+    _extract_into(project, movie_id="run-a/1", sha="b" * 64, donor=np.array([[40.0, 30.0]]))
+    _generation_2(project, "run-a/1", "b" * 64, [44.0, 30.0])
+    before = project.read_bytes()
+    with pytest.raises(ValueError, match="other bytes"):
+        _generation_2(project, "run-a/1", "c" * 64, [48.0, 30.0])
+    assert project.read_bytes() == before
