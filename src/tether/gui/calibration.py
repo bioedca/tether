@@ -60,6 +60,7 @@ class ChannelMapActions:
     ``.tether`` in the shell (the shell's ``load_project``); ``window`` parents the
     file dialogs; ``indicator`` is the busy indicator a running command shows (an
     object with ``start(name)`` and ``stop()``, default none).
+    ``warning`` shows extraction warnings and defaults to ``status``.
 
     [`make_map`][tether.gui.calibration.ChannelMapActions.make_map] and
     [`extract_with_map`][tether.gui.calibration.ChannelMapActions.extract_with_map]
@@ -76,8 +77,10 @@ class ChannelMapActions:
         open_project: Callable[[Path], object],
         window: Any = None,
         indicator: Any = None,
+        warning: Callable[[str], None] | None = None,
     ) -> None:
         self._status = status
+        self._warning = warning if warning is not None else status
         self._open_project = open_project
         self._window = window
         self._map_path: Path | None = None
@@ -223,9 +226,11 @@ class ChannelMapActions:
         where = summary.output_path.name
         if opened is None:  # the shell refused or failed the open; the movie is saved
             where += " (saved, not opened: use File > Open project once the shell is free)"
-        self._status(
+        warnings = _extraction_warnings(summary)
+        post = self._warning if warnings else self._status
+        post(
             f"Extracted {summary.n_molecules} molecule(s) with channel map "
-            f"{map_path.name} -> {where}{_extraction_warnings(summary)}"
+            f"{map_path.name} -> {where}{warnings}"
         )
 
     # --- dialogs ----------------------------------------------------------------
