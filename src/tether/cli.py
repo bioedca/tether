@@ -1089,6 +1089,8 @@ def _windows_word(word: str) -> str:
     A word with a space or a sign that the console reads (``&``, ``|``, ``<``, ``>``, ``^``)
     goes in double quotes. Inside them a ``"`` gets a backslash, and so does each backslash
     before a ``"``, which is how a Windows program splits its command line into words.
+    Quotes do not stop ``cmd.exe`` from expanding a ``%NAME%`` of the environment, so a
+    word that holds one can change when it is pasted; a Windows path seldom holds one.
     """
     if _PLAIN_WINDOWS_WORD.fullmatch(word):
         return word
