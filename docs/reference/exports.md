@@ -41,7 +41,7 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.project.export.export_molecule_table_csv` | `<name>.csv` + `<name>.csv.provenance.json` | You want one row per molecule for a spreadsheet, R/pandas, Prism or Origin — the per-molecule inventory and its apparent-E summary |
 | `tether.project.export.export_deeplasi_txt` | `<name>.txt` + `<name>.txt.provenance.json` | You want the per-frame intensity traces themselves, in the Deep-LASI `…-donc-accc-w.txt` matrix a downstream Deep-LASI-compatible tool reads |
 | `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, background-subtracted traces, idealization models — without shipping the movie |
-| `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
+| `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json`, and with `data_csv=True` the numbers as `<stem>.csv` (+ `<stem>.<name>.csv`) | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped, optionally with the [numbers behind it](#the-numbers-behind-a-figure) |
 
 > **The first three also have a command.** `tether export table`, `tether export traces`
 > and `tether export subset` call `export_molecule_table_csv`, `export_deeplasi_txt` and
@@ -471,14 +471,15 @@ print(result.paths)              # {'pdf': ..., 'svg': ..., 'png': ...}
 | Raster resolution | `DEFAULT_EXPORT_DPI = 200`, PNG only — at the default figure size that is a 1280 × 960 px PNG. The vector formats are resolution-independent and ignore it |
 | Background | Matplotlib's opaque white; `transparent=` is never passed |
 | Determinism | `savefig` runs inside `rc_context({"svg.hashsalt": _SVG_HASHSALT})`, so SVG element ids are stable across processes and re-exporting a **freshly re-rendered** figure at the same pinned `created_utc` is byte-identical in all three formats. Re-exporting the *same* `Figure` object is **not**, because `stamp=True` draws another footer onto it — see the mutation callout below |
-| Return value | `PlotExportResult(stem, paths, provenance_path, formats)` |
+| Return value | `PlotExportResult(stem, paths, provenance_path, formats, data_paths)`; `data_paths` is empty unless `data_csv=True` |
 
 A plot export is stamped **three** ways:
 
 1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). A figure drawn from several series also adds `series`, and a
+   basenames, not paths). With `data_csv=True` it also adds `data_tables`
+   ([below](#the-numbers-behind-a-figure)). A figure drawn from several series also adds `series`, and a
    figure that records how it was drawn adds `display` (both below). The provenance file is
    written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
@@ -633,6 +634,106 @@ A parameter that is NaN or infinite, such as the `alpha` of an empty alpha shape
 To add your own keys to a series, such as the selection
 and its version, pass `parameters["series"]` as a list of one dict per series. A key that
 contradicts what was drawn raises `ValueError`. ADR-0132 records these choices.
+
+### The numbers behind a figure
+
+Pass `data_csv=True` to `export_figure` to write the numbers the figure shows beside it. Use
+them to replot in your own style, to compare in another program, or as a journal's source data.
+The figure files are the same bytes with or without the option.
+
+```python
+result = export_figure(
+    figure,
+    "figures/a1-histogram",
+    tether_export="plot:a1",
+    source="experiment.tether",
+    parameters={"bins": 151, "selection": "accepted v2"},
+    data_csv=True,
+)
+print(result.data_paths)         # {'data': PosixPath('figures/a1-histogram.csv')}
+```
+
+Each `render_*` helper records on the figure the result it drew. The tables come from that
+result, so they are the values plotted and not a second computation. The record is a copy made
+when the figure is drawn. A result you change later does not change the tables. A figure you drew yourself carries no
+such record, and `data_csv=True` raises `ValueError` before it writes any file.
+`tether.analysis.plot_data` builds and writes the tables.
+
+**Files.** The marks of the figure (its bars, cells, points or segments) are the main table,
+`<stem>.csv`. Other parts of a figure have a grid of their own: a curve drawn over the marks, the
+parameters of a fit, a density surface and its contour levels. Each of them is a table of its
+own, `<stem>.<name>.csv`.
+`result.data_paths` maps each table's name to its file, and the provenance file lists them under
+`parameters.data_tables` (`{name: basename}`).
+
+**Layout.** Every table is in long form: one row per bin, cell, point or segment. A 2-D result
+gives one row per cell, `x_low, x_high, y_low, y_high, value`, with `x` varying slowest.
+
+A figure of several series gives one table, in figure order. Its first column, `series`, holds
+each row's series label. A figure of a bare result has no `series` column. Sometimes one series
+has a column that another lacks, such as the bootstrap interval of one histogram among plain
+ones. That column is blank in the rows of the series without it.
+
+**Header.** Every file starts with `#` comment lines, so that a file found alone can be traced:
+
+```text
+# tether_version: <the Tether version>
+# plot: plot:a1
+# provenance: a1-histogram.provenance.json
+# created_utc: 2026-11-19T17:23:42.050896+00:00
+# source: experiment.tether
+# selection: "accepted v2"
+# table: data
+# units: bin_left = dimensionless (apparent FRET efficiency E); bin_right = …; value = density
+bin_left,bin_right,value
+```
+
+`selection` is the `selection` key of your `parameters`, as JSON (`null` when you gave none). A
+figure of several series adds one `# series N:` line per series. The line is a JSON object with
+the series `label` and the `selection` you gave in `parameters["series"]`.
+
+`units` names the unit of each
+column. A time axis is in seconds when the result has a frame time other than `1.0` and in frames
+otherwise, as on the figure. Read a table with `pandas.read_csv(path, comment="#")`. Add
+`float_precision="round_trip"` to get back the exact values written.
+
+**Cells.** A float is written by Python `repr`, the shortest text that reads back to the same
+number. So a table read back equals the result exactly. NaN and infinity are blank cells, as in
+the molecule-table CSV. Every text cell is quoted, so a `#` in a series label is never read as
+the start of a comment.
+
+The values are the stored values. The figure clips the survival markers at 10⁻⁶ for its log
+axis, and it may thin the cloud points to `max_points`. The tables hold them in full.
+
+The tables of each plot:
+
+| Renderer | Table | Columns and units |
+|---|---|---|
+| `render_histogram1d` | `data` | `bin_left`, `bin_right`: the bin edges, *E* (dimensionless). `value`: counts, or density when the histogram is normalized. `ci_low`, `ci_high`: the bootstrap interval, in the unit of `value`, for a `HistogramBootstrapCI` |
+| | `model` | With a model overlay. `curve`: `total`, or `state 1`, `state 2`, … for each state's Gaussian. A figure of several series draws, and writes, the total only. `x`: *E* (dimensionless). `value`: in the unit of the histogram's `value` |
+| `render_histogram2d` | `data` | `x_low`, `x_high`: time, in s or frames. `y_low`, `y_high`: *E* (dimensionless). `value`: counts or density |
+| `render_transition_density` | `data` | Counts: `x_low`, `x_high` (initial *E*), `y_low`, `y_high` (final *E*), `value` (counts or density). The smoothed view: `x` (initial *E*), `y` (final *E*), `value` (normalized density with peak 1, or smoothed counts or density), one row per point of its grid, which is 800 × 800 by default |
+| `render_dwell_survival` | `data` | `time`: the dwell time, in s or frames. `survival`: the fraction of dwells longer than `time` |
+| | `model` | With a successful fit. `curve`: `model_survival` or `residual`. `x`: the dwell time, in s or frames. `value`: a fraction of dwells |
+| | `fit` | With a successful fit, one row per parameter. `model`: the fit model. `parameter`: `rate_1`, `rate_2`, …, `amplitude_1`, …, `beta` (the stretched model) and `r_squared`. `unit`: the parameter's unit, `1/s` or `1/frame` for a rate and `dimensionless` otherwise. `value`, `stderr` (1 σ) and `ci_halfwidth`: in that unit. `ci_level`: the confidence level of `ci_halfwidth`, a fraction |
+| `render_transition_prob` | `data` | `bin_left`, `bin_right`: the transition probability per molecule (dimensionless). `value`: counts or density |
+| | `model` | With a KDE. `curve`: `kde`. `x`: the probability (dimensionless). `value`: density |
+| `render_state_number` | `data` | `n_states`: the number of occupied states. `molecules`: how many molecules have that many |
+| `render_raw_fret_cloud` | `data` | `time`: in s or frames. `e`: *E* (dimensionless). One row per point of the cloud |
+| | `density` | With a density surface. `x_low`, `x_high`: time, in s or frames. `y_low`, `y_high`: *E*. `value`: the KDE density |
+| | `levels` | With HDR contours. `coverage`: the fraction of the density inside the contour. `level`: the KDE density of the contour |
+| `render_cross_correlation` | `data` | `lag`: in frames. `value`: the correlation, under the normalization the units line names |
+| `render_per_condition_histograms` | `data` | `condition`: the condition id. `bin_left`, `bin_right`: *E* (dimensionless). `value`: counts or density |
+| `render_transition_sync_histogram2d` | `data` | `x_low`, `x_high`: time from the transition, in s or frames. `y_low`, `y_high`: *E*. `value`: counts or density |
+| `render_alpha_shape` | `data` | One row per boundary segment. `edge`: its number, from 1. `time_start`, `time_end`: in s or frames. `e_start`, `e_end`: *E* (dimensionless). An empty shape has no rows |
+| | `points` | With `cloud=`: the cloud's points, as the `data` table of `render_raw_fret_cloud` |
+| `render_state_number_elbow` | `data` | `k`: the number of clusters. `rmse`: the within-cluster RMSE of *E*. `elbow`: `1` for the suggested *k*, otherwise `0` |
+| `render_population_anticorrelation` | `data` | One row per event. `row`: the molecule's row on the figure, from 0. `molecule_key`. `start`, `stop`: the event's first frame and the frame after its last, in the analysis window. `peak_frame`: in frames. `peak_magnitude`: the peak \|lag-0\| Pearson correlation (dimensionless). A molecule with no event has no rows |
+
+Three later additions are not in these files yet: the result snapshot of
+[#943](https://github.com/bioedca/tether/issues/943), the figure footer of
+[#946](https://github.com/bioedca/tether/issues/946) and the interval method of
+[#947](https://github.com/bioedca/tether/issues/947). Each of those issues adds its part when it lands.
 
 <a id="provenance-sidecar"></a>
 

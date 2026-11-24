@@ -74,10 +74,11 @@ size and its SHA-256, and the check refuses a file with a different SHA-256. The
 public, so they can be in the repository. Put each archive at its manifest path below the data
 folder, and give it the neutral id that its check uses:
 
-| Neutral id | Manifest path below the data folder | Check (#716) |
+| Neutral id | Manifest path below the data folder | Check |
 | --- | --- | --- |
 | `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-color Deep-LASI set: import and molecule count |
 | `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-color Deep-LASI set: import, FRET states and dwell times |
+| `dlasi-760` | `zenodo-7561162/Trace_Classifiers_Validation_Data.zip` | held-out classifier score and CPU/CUDA comparison |
 
 ```json
 {
@@ -159,6 +160,44 @@ cron starts a command with a short `PATH`, so give the full path of `micromamba`
 
 cron runs only while the WSL distribution runs and its cron service is on (`systemd=true` in
 `/etc/wsl.conf`, or `sudo service cron start`). The Windows task is the more reliable method.
+
+### Checking the deep interpreter
+
+Pass `--deep-python <path to Python>` to use an existing isolated deep environment.
+The runner records `deep/cuda` as failed when PyTorch sees no CUDA device.
+It reports an error if it cannot run the probe. A dry run only checks CUDA.
+The committed `deep/conda-lock.yml` selects CPU-only PyTorch.
+
+Set the `dlasi-760` mapping to the archive path in the table for the scheduled check.
+Each approved calibration run adds `--deep-training-seed` and the full main `--commit`.
+The first ten paired runs use training seeds 0 through 9 in order. Both devices use the same
+seed for a pair. Check the sealed result and wait for the run to exit before starting the next
+pair. If a pair fails, keep its result and use the same seed on a later approved retry.
+
+The runner records the training seed and both ROC AUC scores on the held-out rows.
+Both devices must meet the same score floor once it is set.
+It also records the fraction of matching decisions and the largest difference between paired scores.
+
+A complete `deep/performance` result carries times and memory peaks for training and prediction
+on each device. The CPU figures are process high-water marks from separate stages. The CUDA
+figures are peak allocated tensor bytes with synchronization at both ends of the timed stage.
+The speed history keeps the four cases under its existing benchmark report rule.
+
+The [Deep-LASI reference archive][deep-lasi-archive] holds 20,080 two-color traces.
+Tether uses the [donor and acceptor channels under donor excitation][deep-lasi-channels].
+The [publisher's frame labels][deep-lasi-labels] determine one label per molecule.
+
+Tether accepts static and dynamic traces. It rejects aggregate, randomized, noisy, and
+bleach-only traces. Tether reads every frame and uses the non-bleach labels to classify
+the other traces.
+
+The reference has 8,678 accepted and 11,402 rejected molecules, including 343 bleach-only
+molecules. The split reserves 30 percent for testing. It stratifies whole traces with seed 0.
+The primary score is ROC AUC. Check duplicate inputs and shared provenance before measurement.
+
+[deep-lasi-archive]: https://zenodo.org/records/7561162
+[deep-lasi-channels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/generate_training_data_from_MATLAB.py#L79-84
+[deep-lasi-labels]: https://gitlab.com/simon71/deeplasi/-/blob/d2d348cb44804f91555aec9c79413c26bf6de045/functions/deeplearning/training_data_2color.py#L188-201
 
 ## Read a result
 

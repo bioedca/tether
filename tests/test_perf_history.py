@@ -27,6 +27,7 @@ def _load(name: str):
 
 ph = _load("perf_history")
 runner = _load("run_private_checks")
+ps = _load("perf_stage")
 STAGES = ("extract", "correct", "idealize", "analysis", "save", "export")
 HARDWARE = {"os": "Windows-11", "machine": "AMD64", "cpu": "cpu", "cpu_count": 16,
             "memory_gb": 31.7, "disk": "ssd", "gpu": "gpu"}  # fmt: skip
@@ -146,6 +147,65 @@ def test_a_value_above_1_2_times_the_median_of_the_last_10_is_reported(tmp_path)
     assert all(f["ratio"] > ph.LIMIT for f in found)
     bench = ph.slowdowns(ph.read_history(path), _record(12, bench_scale=1.5))
     assert [f["series"] for f in bench] == ["benchmarks:extraction/small:time_s"]
+
+
+def _deep_check() -> dict:
+    numbers = {}
+    for device in ("cpu", "cuda"):
+        for stage in ("train", "predict"):
+            numbers[f"{device}_{stage}_s"] = 2.0
+            numbers[f"{device}_{stage}_peak_bytes"] = 2 << 20
+    return {"check": ph.DEEP_PERFORMANCE_CHECK, "outcome": "passed", "duration_s": 8.0,
+            "datasets": {"deep-01": numbers}}  # fmt: skip
+
+
+def test_deep_measurements_round_trip_and_use_the_existing_report_rule(tmp_path, monkeypatch):
+    _same_computer(monkeypatch)
+    path = tmp_path / "perf-history.jsonl"
+    for i in range(ph.MIN_BASELINE):
+        ph.append(path, _record(i, checks=[*_checks(), _deep_check()]))
+    deep = _deep_check()
+    deep["datasets"]["deep-01"].update(cuda_train_s=3.0, cpu_predict_peak_bytes=3 << 20)
+    checks = runner.history_checks(
+        path, commit="a" * 40, on_main=True, finished=0.0, checks=[*_checks(), deep],
+        bench=_bench(), data=tmp_path, tokens=frozenset(),
+    )  # fmt: skip
+    records = ph.read_history(path)
+    assert records[-1]["benchmarks"]["deep_train/cuda"] == {"time_s": 3.0, "peak_bytes": 2 << 20}
+    assert {item["series"] for item in ph.slowdowns(records[:-1], records[-1])} == {
+        "benchmarks:deep_train/cuda:time_s",
+        "benchmarks:deep_predict/cpu:peak_bytes",
+    }
+    assert {c["check"]: c["outcome"] for c in checks}[ph.CHECK_BENCHMARKS] == "failed"
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), -1, 0])
+def test_incomplete_deep_measurement_stays_out_of_the_baseline(value):
+    deep = _deep_check()
+    deep["datasets"]["deep-01"]["cuda_predict_peak_bytes"] = value
+    record = _record(checks=[*_checks(), deep])
+    assert record["benchmark_errors"] == ["deep_predict/cuda"]
+    assert all(not case.startswith("deep_") for case in record["benchmarks"])
+
+
+def test_cuda_measurement_synchronizes_both_boundaries():
+    events = []
+
+    class Cuda:
+        def synchronize(self):
+            events.append("synchronize")
+
+        def reset_peak_memory_stats(self):
+            events.append("reset")
+
+        def max_memory_allocated(self):
+            events.append("peak")
+            return 32
+
+    result, measured = ps.measure_stage(lambda: events.append("run") or "result", cuda=Cuda())
+    assert result == "result"
+    assert measured["peak_bytes"] == 32 and measured["time_s"] >= 0
+    assert events == ["synchronize", "reset", "run", "synchronize", "peak"]
 
 
 def test_only_the_last_10_runs_of_main_on_the_same_hardware_are_the_baseline(tmp_path) -> None:
