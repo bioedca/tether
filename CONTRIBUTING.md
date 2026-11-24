@@ -538,15 +538,15 @@ governs.
 3. Ask Codex for a review with an `@codex review` comment.
 4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
 5. Find the kind of the PR with `python .agents/bin/greptile_usage.py --kind <PR>` (ADR-0142).
-   A docs-only or test-only PR stops the review here: the clean Codex review of the final head is
-   its gate. Go to step 8.
+   A docs-only or test-only PR stops the review here. Its gate is the clean Codex review of the
+   final head. Go to step 8.
 6. A code PR is marked ready for review. It asks one standard Greptile review with an
    `@greptileai review` comment, while
    `python .agents/bin/greptile_usage.py --fail-over-share` exits 0. A clean Greptile review is the
-   gate. A Greptile review with findings needs more: treat the findings as step 7 says, then ask
+   gate. A Greptile review with findings needs more. Treat the findings as step 7 says. Then ask
    Codex for a closing review of the final head. With no Greptile credit, the PR asks CodeRabbit
-   once with an `@coderabbitai full review` comment instead, in its turn in the queue. The
-   incremental command reviews nothing here. A refusal is not that one review.
+   instead. It asks once, in its turn in the queue, with an `@coderabbitai full review` comment.
+   The incremental command reviews nothing here. A refusal is not that one review.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
