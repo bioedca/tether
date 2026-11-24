@@ -16,7 +16,8 @@ reads is refused with [`UnsupportedContainerError`][], whose message lists the
 containers that Tether reads and names the Bio-Formats route.
 
 This module is Qt-free and imports no reader package at import time; the
-built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]) and then cellSens VSI
+built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]), CZI
+([`tether.io.czi.CZI_ADAPTER`][], ADR-0144) and then cellSens VSI
 ([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
 ADR-0147), are registered the first time the registry is read. ADR-0113 records the
 interface and the rule by which a reader package can enter the base lock.
@@ -242,14 +243,15 @@ def _ensure_builtins() -> None:
         if _BUILTINS_LOADED:
             return
         from tether.io.bioformats import BIOFORMATS_ADAPTER
+        from tether.io.czi import CZI_ADAPTER
         from tether.io.movie import TIFF_ADAPTER
 
-        # All or none: a failure part way leaves the registry as it was, so the retry on
-        # the next read does not find half of the built-ins already registered.
+        # All or none: a failure part-way leaves the registry as it was, so the retry
+        # does not meet the adapters that the failed attempt had already added.
         before = list(_REGISTRY)
         try:
-            _register(TIFF_ADAPTER)
-            _register(BIOFORMATS_ADAPTER)
+            for adapter in (TIFF_ADAPTER, CZI_ADAPTER, BIOFORMATS_ADAPTER):
+                _register(adapter)
         except BaseException:
             _REGISTRY[:] = before
             raise

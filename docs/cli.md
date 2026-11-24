@@ -417,8 +417,11 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  a Tether movie reader opens, in any case. Today these are `.tif` and `.tiff`. With
-  `--recursive` it also gives the movies in its sub-folders.
+  a Tether movie reader opens, in any case. Today these are `.tif`, `.tiff` and `.czi`. With
+  `--recursive` it also gives the movies in its sub-folders. Extraction does not read a `.czi`
+  movie yet (#1390), so each one fails its extraction stage with a message that says so
+  ([Movie containers](reference/movie-containers.md)). To leave them out, name the TIFF files or
+  a `*.tif` pattern.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
@@ -432,7 +435,7 @@ gives no movie stops the run before anything is written, and the message names i
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .vsi); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .czi, .vsi); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each

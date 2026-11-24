@@ -614,8 +614,9 @@ Install it only if you open `.vsi` files.
     $env:TETHER_BIOFORMATS_PYTHON = "$HOME\tether-bioformats\python.exe"
     ```
 
-Open a `.vsi` file as any other movie. Keep the `_<name>_` folder that cellSens writes beside
-the `.vsi` file. The frames are in the `.ets` files inside it.
+Tether then opens a `.vsi` file through its reader. Keep the `_<name>_` folder that cellSens
+writes beside the `.vsi` file. The frames are in the `.ets` files inside it. The extraction
+commands read TIFF only for now ([Movie containers](reference/movie-containers.md)).
 
 Without the stack, Tether refuses
 a `.vsi` with a message that gives these steps. Tether also refuses frames stored with JPEG or

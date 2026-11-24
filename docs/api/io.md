@@ -17,6 +17,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.bioformats
 
+::: tether.io.czi
+
 ::: tether.io.deeplasi
 
 ::: tether.io.filename

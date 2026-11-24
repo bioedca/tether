@@ -192,6 +192,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
 | [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
 | [0143](0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md) | Deep-LASI detection mode 5 is ported, and mode 4 stays refused because Deep-LASI cannot run it | accepted | §7.1 FR-EXTRACT, §11.2 (the particle-detection rows), Appendix E stage 3 |
+| [0144](0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md) | CZI movies are read with czifile, and only as one whole movie | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0147](0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md) | cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §4.1 (technology stack), §9.1 (isolated dependency locks) |
 
 <!-- gen:adr-index end -->
