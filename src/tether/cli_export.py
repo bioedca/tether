@@ -129,6 +129,15 @@ def add_export_parser(subparsers: argparse._SubParsersAction) -> None:
         help="also embed the raw and background traces (include_raw=True)",
     )
     _add_molecule_key(subset)
+    subset.add_argument(
+        "--curator-alias",
+        default=None,
+        metavar="PREFIX",
+        help=(
+            "replace each stored user name with PREFIX-1, PREFIX-2, ... "
+            "(curator_alias; default: names are kept)"
+        ),
+    )
 
 
 def _add_common(parser: argparse.ArgumentParser, *, output_help: str) -> None:
@@ -325,6 +334,7 @@ def _export_one(form: str, source: Path, out: Path, args: argparse.Namespace):
         include_rejected=args.include_rejected,
         include_raw=args.include_raw,
         overwrite=args.overwrite,
+        curator_alias=args.curator_alias,
     )
 
 
