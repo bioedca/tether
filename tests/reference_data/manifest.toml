@@ -2652,3 +2652,16 @@ tier = "git"
 extract_of = ["weninger-hairpin-traces"]
 extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
 citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
+
+[[dataset]]
+id = "deeplasi-findpart-public-image"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "tests/fixtures/deep_lasi_findpart_images/public.csv"
+size = 98472
+sha256 = "2b88841dd45d06a175de8cb7cd8f8c74d6e19402be3e93aaf1e376f798136ca4"
+tier = "git"
+extract_of = ["deeplasi-zenodo-fig2"]
+extract_script = "scripts/make_deeplasi_findpart_images.py"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9. Data: Zenodo record 7561162, Figure_2.zip"

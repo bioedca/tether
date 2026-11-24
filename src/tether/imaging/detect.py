@@ -21,6 +21,15 @@ method (and threshold) it was actually detected with:
   take the regional maxima (``imregionalmax``), and their connected-component
   centroids.
 
+* **mode 5 — ZMW intensity** ([`detect_spots_zmw`][]): the intensity mode with a
+  3x3 disc average (``fspecial('disk', 1)``) in place of the band-pass
+  (`findPart.m:50-58`, ADR-0143). Deep-LASI's window offers only modes 1-3; a
+  script sets mode 5.
+
+Deep-LASI's mode 4 (local-variance) is **not** ported: at the pinned commit
+``d2d348cb`` it reads a variable ``r`` that nothing has set, so Deep-LASI itself
+stops with an error and no reference output exists to port against (ADR-0143).
+
 [`detect_spots_by_mode`][] dispatches on [`ParticleDetectionMode`][]. All
 modes share the Stage-4 post-detection tail (snap -> border -> NMS ->
 ``[x, y]``), mirroring ``findPart.m``'s shared post-switch block (lines 63-103).
@@ -64,7 +73,7 @@ of ``[x, y]`` = ``[column, row]`` (Deep-LASI stores ``fliplr`` -> ``[x, y]``),
 ``find_part_bpass_sort.m``, localizes with the connected-component **centroid**
 (``regionprops 'Centroid'``), so Tether ports it with the centroid too; the
 ``radialcenter`` refinement named only in the ``findPart.m:30`` *comment* (and
-used by modes 4/5) is intentionally **not** ported here. Mode 1 is the faithful
+used by mode 4) is intentionally **not** ported here. Mode 1 is the faithful
 class default.
 """
 
@@ -84,6 +93,7 @@ __all__ = [
     "detect_spots",
     "detect_spots_intensity",
     "detect_spots_bandpass",
+    "detect_spots_zmw",
     "detect_spots_by_mode",
     "ParticleDetectionMode",
 ]
@@ -103,6 +113,7 @@ class ParticleDetectionMode(StrEnum):
     WAVELET = "wavelet"  # mode 1 — à trous multiscale product (class default)
     INTENSITY = "intensity"  # mode 2 — intensity-threshold + Crocker-Grier bandpass
     BANDPASS = "bandpass"  # mode 3 — Crocker-Grier bandpass + sort + imregionalmax
+    ZMW = "zmw"  # mode 5 — intensity threshold + disk filter (ZMW intensity, ADR-0143)
 
 
 def b3_spline_kernel(step: int) -> np.ndarray:
@@ -623,6 +634,115 @@ def detect_spots_bandpass(
     )
 
 
+# fspecial('disk', 1): the 3x3 averaging disc of radius 1 that ZMW mode filters with
+# (findPart.m:52). The values are the ones MATLAB documents for fspecial('disk', 1) to four
+# decimals (0.0251 / 0.1453 / 0.3183), here to full double precision as Octave image 2.14
+# computes them with the same algorithm; the centre is 1/pi and the taps sum to 1.
+_DISK_CORNER = 0.02507858102383299
+_DISK_EDGE = 0.14534394743021936
+_DISK_CENTRE = 0.31830988618379069
+_DISK_RADIUS_1 = np.array(
+    [
+        [_DISK_CORNER, _DISK_EDGE, _DISK_CORNER],
+        [_DISK_EDGE, _DISK_CENTRE, _DISK_EDGE],
+        [_DISK_CORNER, _DISK_EDGE, _DISK_CORNER],
+    ],
+    dtype=np.float64,
+)
+
+
+def detect_spots_zmw(
+    detection_img: np.ndarray,
+    *,
+    threshold: float = 0.5,
+    fine_threshold: float = 0.03,
+    min_separation: float = 3.0,
+    border_margin: int = 1,
+    refine: bool = True,
+) -> np.ndarray:
+    """ZMW intensity spot detection (Deep-LASI ``findPart.m`` mode 5).
+
+    Faithful port of `deeplasi/functions/mapping/findPart.m:50-58` at the pinned
+    commit ``d2d348cb`` (ADR-0143). It is the intensity mode (mode 2) with a small
+    disc average in place of the Crocker-Grier band-pass:
+
+    1. zero pixels below ``threshold * max`` of the detection image (``:51``);
+    2. filter with ``fspecial('disk', 1)`` through ``imfilter`` (``:52``): a
+       correlation with the 3x3 disc, zero padding outside the image, output the
+       size of the input;
+    3. binarize **strictly above** ``fine_threshold`` of the filtered max (``:53-54``,
+       3 %);
+    4. ``bwmorph(..., 'erode')`` with a 3x3 element (``:55``). Outside the image the
+       erosion pads with ``1``, as MATLAB's binary erosion does, so a spot that
+       touches the edge is not eroded away from that side;
+    5. 8-connected component centroids (``regionprops 'Centroid'``, ``:56-58``).
+
+    The shared Stage-4 tail (`_finalize_candidates`) then snaps, applies the border
+    and min-separation guardrails, and orders by brightness, as for every mode.
+
+    Unlike mode 2, the disc filter leaves no zero border, so step 4's padding decides
+    whether a spot at the edge of the image survives; the border guardrail of the tail
+    then removes centroids closer than ``border_margin`` to an edge.
+
+    Parameters
+    ----------
+    detection_img:
+        ``(H, W)`` detection image (e.g. from [`detection_image`][]).
+    threshold:
+        Deep-LASI ``DetectionThreshold`` (PRD §11.2): the fraction of the image max
+        below which pixels are zeroed before the filter (default 0.5, the intensity
+        mode's default, because Deep-LASI gives mode 5 no default of its own).
+    fine_threshold:
+        Binarization level, as a fraction of the filtered max (``findPart.m:53``
+        uses 3 %).
+    min_separation, border_margin, refine:
+        Shared Stage-4 guardrails (see [`detect_spots`][]). Default 3 px, as for the
+        intensity mode (ADR-0022: ``findPart`` applies no effective separation).
+
+    Returns
+    -------
+    np.ndarray
+        ``(N, 2)`` ``float64`` ``[x, y]`` = ``[col, row]`` coordinates, 0-based,
+        sorted by descending brightness (empty ``(0, 2)`` if none).
+    """
+    detection_img = np.asarray(detection_img, dtype=np.float64)
+    if detection_img.ndim != 2:
+        raise ValueError(f"detection_img must be 2-D, got shape {detection_img.shape}")
+    if not 0.0 <= threshold < 1.0:
+        raise ValueError(f"threshold must be in [0, 1), got {threshold}")
+    if not 0.0 < fine_threshold < 1.0:
+        raise ValueError(f"fine_threshold must be in (0, 1), got {fine_threshold}")
+
+    peak = float(detection_img.max())
+    if peak <= 0:
+        return np.empty((0, 2), dtype=np.float64)
+    thresholded = np.where(detection_img < threshold * peak, 0.0, detection_img)
+
+    # imfilter default: correlation, zero padding, 'same' size (the disc is symmetric,
+    # so correlation and convolution agree).
+    filtered = ndimage.correlate(thresholded, _DISK_RADIUS_1, mode="constant", cval=0.0)
+    filtered_peak = float(filtered.max())
+    if filtered_peak <= 0:
+        return np.empty((0, 2), dtype=np.float64)
+
+    structure = np.ones((3, 3), dtype=bool)
+    binary = filtered > fine_threshold * filtered_peak
+    eroded = ndimage.binary_erosion(binary, structure=structure, border_value=1)
+    labels, n_labels = ndimage.label(eroded, structure=structure)
+    if n_labels == 0:
+        return np.empty((0, 2), dtype=np.float64)
+
+    centroids = ndimage.center_of_mass(eroded.astype(np.float64), labels, range(1, n_labels + 1))
+    coords = np.atleast_2d(np.asarray(centroids, dtype=np.float64))  # (M, 2) (row, col)
+    return _finalize_candidates(
+        coords,
+        detection_img,
+        min_separation=min_separation,
+        border_margin=border_margin,
+        refine=refine,
+    )
+
+
 def detect_spots_by_mode(
     detection_img: np.ndarray,
     *,
@@ -635,14 +755,14 @@ def detect_spots_by_mode(
     """Dispatch spot detection on [`ParticleDetectionMode`][].
 
     ``mode`` accepts a [`ParticleDetectionMode`][] or its string value
-    (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``); an unknown value raises
-    ``ValueError`` at the enum coercion. ``threshold`` is the shared Deep-LASI
-    GUI ``DetectionThreshold`` knob — consumed by the intensity and band-pass
+    (``"wavelet"`` / ``"intensity"`` / ``"bandpass"`` / ``"zmw"``); an unknown value
+    raises ``ValueError`` at the enum coercion. ``threshold`` is the shared Deep-LASI
+    GUI ``DetectionThreshold`` knob — consumed by the intensity, band-pass and ZMW
     modes (ignored by wavelet); ``None`` (the default) lets each mode use its own
-    faithful default (intensity 0.5, band-pass 0.98), matching the differing
+    faithful default (intensity 0.5, band-pass 0.98, ZMW 0.5), matching the differing
     standalone defaults of the ported ``.m`` functions. ``min_separation`` likewise
     defaults to ``None`` → each mode's own faithful minimum-separation NMS (wavelet 8,
-    intensity/band-pass 3 px; ADR-0022 — ``findPart`` applies no effective separation,
+    intensity/band-pass/ZMW 3 px; ADR-0022 — ``findPart`` applies no effective separation,
     so the intensity/band-pass modes must not inherit the wavelet's 8 px). The
     returned contract is identical across modes — ``(N, 2)`` ``[x, y]`` sorted by
     descending brightness.
@@ -652,6 +772,14 @@ def detect_spots_by_mode(
     sep_kw = {} if min_separation is None else {"min_separation": min_separation}
     if mode is ParticleDetectionMode.INTENSITY:
         return detect_spots_intensity(
+            detection_img,
+            **threshold_kw,
+            **sep_kw,
+            border_margin=border_margin,
+            refine=refine,
+        )
+    if mode is ParticleDetectionMode.ZMW:
+        return detect_spots_zmw(
             detection_img,
             **threshold_kw,
             **sep_kw,

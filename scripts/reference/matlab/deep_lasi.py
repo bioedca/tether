@@ -13,13 +13,23 @@ extraction of the window's own code with no step that waits for a person
   threshold, channels, masks, extraction mode, frame range). For video 010 this is the state
   of the old export, so the rerun repeats the run that made it (#715, step 3).
 
-The outputs are the two files that the window saves, the ``.tdat`` state and the TRACY-style
-``.mat`` export, plus ``deeplasi_settings.json`` with the settings that were used. The pinned
-commit has no writer for a ``-donc-accc-w.txt`` file. Deep-LASI has no licence file, so its
-clone stays on the workstation, and so do these outputs: they are made from private movies.
+The outputs of ``extract`` are the two files that the window saves, the ``.tdat`` state and the
+TRACY-style ``.mat`` export, plus ``deeplasi_settings.json`` with the settings that were used.
+The pinned commit has no writer for a ``-donc-accc-w.txt`` file. Deep-LASI has no licence file,
+so its clone stays on the workstation, and so do these outputs: they are made from private
+movies.
+
+The ``findpart`` task calls Deep-LASI's ``findPart`` directly, with no window, on detection
+images (one CSV each, in the ``images`` folder), for the detection mode and thresholds in its
+parameters, and writes each result as ``<image>_t<k>.csv``
+(``m/deep_lasi/tether_deeplasi_findpart.m``). Its inputs are public or synthetic and committed
+(``tests/fixtures/deep_lasi_findpart_images/``), so its outputs are committed too
+(``tests/fixtures/reference/deep-lasi/findpart-zmw/``; #924, ADR-0143).
 
     python scripts/reference/matlab/deep_lasi.py run --clone PATH --task extract \\
         --input movie=PATH --input tmap=PATH --input tdat=PATH --out <dir>
+    python scripts/reference/matlab/deep_lasi.py run --clone PATH --task findpart \\
+        --input images=tests/fixtures/deep_lasi_findpart_images --out <dir>
 """
 
 from __future__ import annotations
@@ -39,6 +49,14 @@ TASKS = {
         "entry": "tether_deeplasi_extract",
         "inputs": ["movie", "tmap", "tdat"],
         "params": {"frames": [], "name": "rerun"},
+    },
+    # The detection of findPart.m on detection images, with no window (#924, ADR-0143). The
+    # input is a folder of CSV images; thresholds are indexed 1.. in the output names.
+    "findpart": {
+        "dir": "deep_lasi",
+        "entry": "tether_deeplasi_findpart",
+        "inputs": ["images"],
+        "params": {"mode": 5, "thresholds": [0.1, 0.3, 0.5], "refine": False},
     },
 }
 

@@ -101,6 +101,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# A 128 x 128 crop of a detection image that Deep-LASI saved in Figure_2.zip of Zenodo record
+# 7561162 (Wanninger et al., Nat Commun 14:6564, 2023; CC-BY-4.0), the input of Deep-LASI's own
+# findPart run in tests/fixtures/reference/deep-lasi/findpart-zmw (#924, ADR-0143). Made by
+# scripts/make_deeplasi_findpart_images.py; no value is changed. See NOTICE and
+# tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/deep_lasi_findpart_images/public.csv"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Simon Wanninger, Pooyeh Asadiatouei, Johann Bohlen, Bässem Salem, Philip Tinnefeld, Evelyn Ploetz and Don C. Lamb"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105): values
 # computed from the GPL-3.0-only traces above, so GPL-3.0-only. The script itself is not here.
 [[annotations]]
