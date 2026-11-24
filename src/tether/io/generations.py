@@ -450,24 +450,34 @@ def archive_movie_id(name: str) -> str:
 def archived_generation(f: Any, movie_id: str, generation: int) -> Any | None:
     """Return the archive group of one generation of ``movie_id``, or ``None``.
 
-    The group is looked up at [`archive_name`][] of the movie ID. An archive written
-    before #1308 under an ID that holds ``/`` sits at the unescaped, nested path, and is
-    read from there when no escaped one exists. Only a group that holds ``molecules`` is
-    a generation, so the nested group of another movie is never taken for one.
+    The group is looked up at [`archive_name`][] of the movie ID, then where the writer
+    before #1308 put it: at the unescaped ID, which HDF5 resolved as a path (``run-a/1``
+    nested in ``run-a``, ``.`` as the archive itself). A group is taken only when it holds
+    ``molecules`` and its archived ``movie`` row names this movie ID, so the archive of
+    another movie at either place is never taken for one of this movie's.
     """
     import h5py  # noqa: PLC0415
 
     archive = f.get(f"{_GROUP}/{ARCHIVE}")
     if archive is None:
         return None
-    names = [archive_name(movie_id)]
-    if all(part not in ("", ".", "..") for part in movie_id.split("/")):
-        names.append(movie_id)  # the path written before #1308
-    for name in dict.fromkeys(names):
-        group = archive.get(f"{name}/{int(generation)}")
-        if isinstance(group, h5py.Group) and "molecules" in group:
+    for movie_group in (archive.get(archive_name(movie_id)), archive.get(movie_id)):
+        if not isinstance(movie_group, h5py.Group):
+            continue
+        group = movie_group.get(str(int(generation)))
+        if isinstance(group, h5py.Group) and _archives_movie(group, movie_id):
             return group
     return None
+
+
+def _archives_movie(group: Any, movie_id: str) -> bool:
+    """Whether ``group`` is an archived generation whose ``movie`` row is ``movie_id``."""
+    if "molecules" not in group or "movie" not in group:
+        return False
+    movie = group["movie"][()]
+    if movie.dtype.names is None or "movie_id" not in movie.dtype.names:
+        return False
+    return [_text(v) for v in np.atleast_1d(movie["movie_id"])] == [movie_id]
 
 
 def archived_generations(f: Any, movie_id: str) -> list[tuple[int, Any]]:
@@ -495,8 +505,8 @@ def archive_active(f: Any, record: Generation) -> None:
     ``molecules``, ``acceptor_detected``, ``traces/<layer>`` (cut to the movie's frame
     count), ``patches/<layer>`` and, when the movie has one, its ``layout`` record.
     Refuses a generation that is already archived: an archive is written once. Also
-    refuses when that path holds the nested archive of another movie ID, which only an
-    archive written before #1308 can make; nothing is then moved or overwritten.
+    refuses when that path holds an archive of another movie ID, which only the writer
+    before #1308 can have put there; nothing is then moved or overwritten.
     """
     if archived_generation(f, record.movie_id, record.generation) is not None:
         raise ValueError(
