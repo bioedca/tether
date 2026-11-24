@@ -523,6 +523,14 @@ def idealize_molecules(
     """
     from tether.project.core import Project as _Project
 
+    if model_type in PER_TRACE_MODEL_TYPES:
+        # Refused before the store is opened or a fit is spent (issue #545, ADR-0110).
+        raise ValueError(
+            f"model_type={model_type!r} is per-trace vbFRET: each trace has its own states, "
+            "and /idealization stores one shared set of state means, so the project cannot "
+            "store it yet. Fit it with tether.idealize.run_vbfret instead."
+        )
+
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
     # This public function is also called directly (not only through
@@ -669,6 +677,12 @@ def _refuse_existing(path: Path, model_name: str, overwrite: bool) -> None:
         )
 
 
+#: Sidecar model keys whose result has no shared states: each trace keeps its own
+#: (``trace_level``), and the ensemble means are NaN. ``/idealization`` stores one set of
+#: state means per model, so `idealize_molecules` refuses these keys (ADR-0110).
+PER_TRACE_MODEL_TYPES = frozenset({"vbfret"})
+
+
 def _idealized_and_paths(result: IdealizationResult) -> tuple[np.ndarray, np.ndarray]:
     """The ``(n_sel, n_frames)`` float idealized levels + int64 state paths.
 
@@ -677,6 +691,9 @@ def _idealized_and_paths(result: IdealizationResult) -> tuple[np.ndarray, np.nda
     ``idealized`` array (a degenerate/failed fit) is refused rather than persisted:
     writing it would leave a ``(0, 0)`` idealized/state_path beside length-``n_sel``
     key/id/hash datasets — a misaligned, useless model. Failing loud is safer.
+    A model with no **finite** state mean (a per-trace model, whose states live in
+    each trace's own ``trace_level`` entry) is refused for the same reason: mapping
+    its rows to NaN means would put every frame in state 0 (ADR-0110).
     """
     idealized = result.model.idealized
     means = result.model.means
@@ -684,6 +701,11 @@ def _idealized_and_paths(result: IdealizationResult) -> tuple[np.ndarray, np.nda
         raise ValueError(
             "idealization produced no state path (degenerate/failed fit): the model "
             "has no 'idealized' array; refusing to persist an empty model"
+        )
+    if not np.isfinite(np.asarray(means, dtype="float64")).any():
+        raise ValueError(
+            "the model has no finite state mean (a per-trace model keeps its states per "
+            "trace); refusing to persist state paths that would all read state 0"
         )
     idealized = np.asarray(idealized, dtype="float64")
     paths = states_from_idealized(idealized, means)

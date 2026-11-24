@@ -89,6 +89,10 @@ commented-out `run_vbhmm_modelselection` of that build writes it: type
 two per-trace models with `compare_trace_models`: the same four quantities, per trace, on the
 states each idealized path **occupies** (variational Bayes can keep a fitted state that no frame
 uses; it is not a state of the idealization).
+`run_vbfret` builds each trace's state path from that trace's own means. The project store does
+not take the model: `/idealization` keeps one set of state means per model, so
+`idealize_molecules` refuses `model_type="vbfret"` and neither it nor the hand-off import
+persists a model with no finite state mean.
 
 **Measured on the pinned build, it does not reproduce across seeds.** `scripts/measure_parity.py
 --n-runs 20 --model-type vbfret` (2026-11-15; tMAVEN `10f4230b`, CPython 3.12.13; 19 comparisons
