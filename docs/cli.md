@@ -398,7 +398,7 @@ profile.
 | `done` | the stage ran and succeeded | no |
 | `skipped` | a checkpoint found the stage already complete | no |
 | `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
-| `blocked` | an upstream stage failed | no |
+| `blocked` | an upstream stage did not complete, or (with `--into`) the movie left the project | no |
 | `deferred` | the sidecar was unavailable at startup | no |
 | `not-requested` | `--no-idealize` | no |
 
@@ -413,7 +413,7 @@ In a finished run, only `failed` makes the run exit `1`. A `deferred` stage in a
 The command also exits `1`, with no summary, when it cannot create the output directory or
 write the batch log (`tether.services.batch`).
 
-A stage is blocked only when its upstream stage was not `done`/`skipped`. So a `blocked`
+A stage is usually blocked because its upstream stage was not `done`/`skipped`. So a `blocked`
 usually travels with a `failed` in the same movie, and the run exits `1` anyway. There is one
 exception. With `--into`, a movie that another writer removed from the project after its
 extract stage gets `correct=blocked`, with the detail `no longer in <project>`. Its extract

@@ -169,8 +169,8 @@ Paired with `correction_confidence`, `1.0` or `0.0`: a provenance flag, not a st
 A NaN in a molecule's α or γ cell, which means that no factor was applied to that molecule. One
 cause is that the estimator withheld the factor because too few traces qualified.
 
-An analysis-only import also seeds every row at NaN. Read `correction_method` and the `withheld`
-flag in `/settings/leakage`, not the cell, to tell the cases apart. Neither case is damage to the file.
+An analysis-only import also seeds every row at NaN, and it carries `/settings/analysis_only`. A
+withhold sets the `withheld` flag in `/settings/leakage`. Neither case is damage to the file.
 A missing factor never becomes a NaN in E: Tether gives that molecule apparent E (ADR-0003). A NaN E
 on a frame whose denominator is zero is not this sentinel, and neither is the `-1`
 [undetected sentinel](#photobleach-frames-first-bleach-frame) or [`NO_STATE`](#no_state). See
