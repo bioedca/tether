@@ -44,12 +44,12 @@ refuses.
 
 Tether reads a CZI file **only when it can read all of it as one movie**:
 
-- one scene, one channel, one Z plane, and one tile for each frame;
-- every frame at full resolution (no image pyramid), of one size and at one position;
-- one frame for each time point from the first to the last, with none missing or repeated;
-- one pixel type with one real sample: Gray8, Gray16, Gray32, Gray32Float or Gray64;
-- the codec none, Zstd, or Zstd with the byte shuffle;
-- one file, not one part of a multi-file acquisition.
+- One scene, one channel, one Z plane, and one tile for each frame.
+- Every frame at full resolution (no image pyramid), of one size and at one position.
+- One frame for each time point from the first to the last, with none missing or repeated.
+- One pixel type with one real sample: Gray8, Gray16, Gray32, Gray32Float or Gray64.
+- The codec none, Zstd, or Zstd with the byte shuffle.
+- One file, not one part of a multi-file acquisition.
 
 Any other file is refused, and the message names the reason, for example "this file holds 2
 channels". JPEG and JPEG XR can be lossy and the file does not say when they are not, so Tether
@@ -62,7 +62,7 @@ refuses them by name. A CZI pixel is little-endian, so a Gray16 movie has the pi
 | Channels | the `Name` of the one channel in `Information/Image/Dimensions/Channels` | no name, or not exactly one channel |
 
 To make a CZI movie that Tether reads, export one channel and one position for each file from ZEN
-with no compression or with Zstd. For two channels in one camera frame, export the whole frame;
+with no compression or with Zstd. For two channels in one camera frame, export the whole frame.
 Tether splits it (see [Acquisition geometry](../compatibility.md#acquisition-geometry)).
 
 The CZI reader is checked on a ZEN movie of ZEISS, Zenodo
