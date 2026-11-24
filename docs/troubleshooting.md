@@ -111,9 +111,12 @@ apparent E becomes `1 − E`.
     > **Warning.** Write the new extraction to a new output file, or copy the old project file first.
     > `--overwrite` replaces the old project file, with its curation.
 
-5. Extract the movie again with the other `--donor-side` value. With `tether batch`, put
-   `donor_side` in an extraction profile and pass `--profile`. `tether batch` has no
-   `--donor-side` flag.
+5. **A native split.** Extract the movie again with the other `--donor-side` value. With
+   `tether batch`, put `donor_side` in an extraction profile and pass `--profile`.
+   `tether batch` has no `--donor-side` flag.
+6. **A run with `--tmap`.** Check the channel order of the imported map. `--donor-side` cannot
+   change it, so extract again with a map whose donor and acceptor crops are in the correct
+   order.
 
 **Why.** The crops, the registration map, the molecule keys and the tags all come from the
 chosen split, so there is nothing to flip afterward. The molecule count is not a control,
@@ -465,11 +468,12 @@ message names the step to run first.
 
 **What to do.**
 
-1. Run `compute_photobleach`.
-2. Run `compute_leakage_alpha`.
-3. Run `compute_gamma`.
-4. **`project has no /traces/<layer>`.** Extract the movie first.
-5. **`intensity_quantity`.** Use `corrected` or `raw`. Only those two layers exist.
+1. **`project has no /traces/<layer>`.** Extract the movie first. Each step of the correction
+   needs the traces.
+2. **`intensity_quantity`.** Use `corrected` or `raw`. Only those two layers exist.
+3. **A message that names a step to run first.** Run `compute_photobleach`.
+4. Run `compute_leakage_alpha`.
+5. Run `compute_gamma`.
 
 **Why.** `(-1, -1)` means that Tether has not computed photobleaching yet. `alpha` NaN means that
 it has not computed leakage yet. `tether batch` runs the steps in order for you, so you see these
