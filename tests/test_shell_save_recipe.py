@@ -24,14 +24,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_extract_cli import _make_movie  # noqa: E402, PLC2701 - the synthetic movie
 
 
-@pytest.fixture
-def shell(qapp, qtbot, tmp_path):
+@pytest.fixture(params=["movie panel", "no movie panel"])
+def shell(request, qapp, qtbot, tmp_path, monkeypatch):
+    """The window, with a movie panel and without one (#1342).
+
+    Without OpenGL (macOS offscreen) the shell has no movie panel, and opening a project posts
+    a warning that stays in the status bar until it is dismissed. The second case forces that
+    branch, so every platform runs it.
+    """
+    import tether.gui.shell as shell_module
     from tether.gui.shell import TetherShell
 
+    if request.param == "no movie panel":
+        monkeypatch.setattr(
+            shell_module, "_movie_panel_unavailable", lambda: "no OpenGL context in this test"
+        )
     shell = TetherShell(preferences_file=tmp_path / "user" / "preferences.json")
     qtbot.addWidget(shell.window)
     yield shell
     shell.close()
+
+
+def _latest(shell) -> str:
+    """The latest message of the window.
+
+    The status bar is not read: a sticky warning from the open hides the later line (#1342).
+    """
+    return shell.messages.latest.text
 
 
 def _action(shell, text: str):
@@ -62,7 +81,7 @@ def test_save_as_recipe_writes_a_recipe_that_tether_run_runs_on_a_new_copy(shell
     assert action.isEnabled()
     saved = shell.save_recipe(first / "saved.json")
     assert saved == first / "saved.json"
-    assert "Saved the recipe saved.json (1 step(s))" in shell.window.statusBar().currentMessage()
+    assert _latest(shell) == "Saved the recipe saved.json (1 step(s))"
     step = json.loads(saved.read_text(encoding="utf-8"))["steps"][0]
     assert step["command"] == "extract"
     assert (step["fields"]["movie"], step["fields"]["output"]) == ("m.tif", "m.tether")
@@ -85,7 +104,7 @@ def test_save_as_recipe_says_so_when_the_project_has_no_completed_job(shell, tmp
     assert main(["extract", str(tmp_path / "m.tif"), "-o", str(tmp_path / "m.tether")]) == 0
     assert shell.load_project(tmp_path / "m.tether") is not None
     assert shell.save_recipe(tmp_path / "saved.json") is None
-    assert "no completed job" in shell.window.statusBar().currentMessage()
+    assert "no completed job" in _latest(shell)
     assert not (tmp_path / "saved.json").exists()
 
 
