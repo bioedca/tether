@@ -2062,14 +2062,14 @@ def test_a_closed_gap_is_read_as_the_renderer_reads_it(
     assert _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body}) == expected
 
 
-@pytest.mark.parametrize(("body", "expected", "rendered"), _GAP_ROWS)
-def test_the_gap_rows_render_as_python_markdown_does(
-    body: str, expected: list[str], rendered: str
-) -> None:
+def test_the_gap_rows_render_as_python_markdown_does() -> None:
+    """One test for all the rows, so the 3-OS matrix, which has no Markdown, skips it once."""
     markdown = _python_markdown("markdown")
     assert markdown.__version__ == _MARKDOWN_VERSION
-    html = markdown.markdown("# A\n\n" + body, extensions=["toc", "tables", "fenced_code"])
-    assert rendered in html, html
+    for row in _GAP_ROWS:
+        body, _, rendered = row.values
+        html = markdown.markdown("# A\n\n" + body, extensions=["toc", "tables", "fenced_code"])
+        assert rendered in html, (row.id, html)
 
 
 # --- heading-id de-duplication is not seeded (#515) -------------------------------------
