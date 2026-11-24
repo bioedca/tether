@@ -216,6 +216,13 @@ semicolons = 19
 long_paragraphs = 0
 retired = 6
 
+[pages."docs/reference/movie-containers.md"]
+kind = "descriptive"
+long_share = 12.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
 long_share = 12.4
