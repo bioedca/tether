@@ -324,3 +324,45 @@ def test_a_lock_that_changed_hands_during_the_pass_refuses_its_write(
     assert shell.messages.latest.level is Level.ERROR
     assert shell.curation_project is None
     assert shell.read_only_reason is not None
+
+
+@pytest.mark.parametrize("toggle", [False, True])
+def test_manual_factors_refuse_the_pass_so_their_provenance_stays(
+    shell, qtbot, tmp_path, toggle
+) -> None:
+    # A pass with no override would stamp the supplied factors "corrected" and write NaN
+    # overrides (Codex P2 on PR #1383). The how-to's manual route, then the menu, refuses.
+    import h5py
+
+    from tether.project.correct import METHOD_MANUAL, compute_corrected_fret
+
+    project = _store(tmp_path)
+    compute_corrected_fret(
+        project.path, alpha_override=0.1, gamma_override=1.2, apparent_e_only=toggle
+    )
+    with h5py.File(project.path, "r") as f:
+        stamp_before = dict(f["settings"]["correction"].attrs)
+    methods_before = [_text(m) for m in _molecules(project.path)["correction_method"]]
+    assert (METHOD_MANUAL in methods_before) is not toggle
+    assert shell.load_project(project.path) is not None
+
+    shell.sync_correction_controls()
+
+    assert not shell.correction_pass_action.isEnabled()
+    assert "manual α or γ" in shell.correction_pass_action.toolTip()
+    assert shell.run_correction_pass() is False
+    assert [_text(m) for m in _molecules(project.path)["correction_method"]] == methods_before
+    with h5py.File(project.path, "r") as f:
+        assert dict(f["settings"]["correction"].attrs)["created_utc"] == stamp_before["created_utc"]
+
+
+def test_the_service_refuses_manual_factors_before_it_writes(tmp_path) -> None:
+    from tether.project.correct import compute_corrected_fret
+    from tether.services.base import RequestRefused
+    from tether.services.corrections import run_correction_pass
+
+    project = _store(tmp_path)
+    compute_corrected_fret(project.path, gamma_override=1.2)
+
+    with pytest.raises(RequestRefused, match="manual"):
+        run_correction_pass(project.path)

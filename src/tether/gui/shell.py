@@ -3681,11 +3681,11 @@ class TetherShell:
     def _correction_pass_unavailable(self) -> str | None:
         """Why the correction pass cannot start now, or ``None`` when it can.
 
-        It needs an idle, writable session and a correction state of
-        [`PASS_STATES`][tether.services.corrections.PASS_STATES]; the state is read now,
-        with no lock.
+        It needs an idle, writable session, a correction state of
+        [`PASS_STATES`][tether.services.corrections.PASS_STATES] and no manual factor
+        ([`pass_refusal`][tether.services.corrections.pass_refusal], read now, with no lock).
         """
-        from tether.services.corrections import correction_pass_refusal, correction_state_name
+        from tether.services.corrections import pass_refusal
 
         if self._idealize_future is not None:
             return "a background task is running; wait for it to finish"
@@ -3695,10 +3695,9 @@ class TetherShell:
             prefix = "project is read-only: " if self._curation_read_only_reason else ""
             return f"{prefix}{reason}"
         try:
-            state = correction_state_name(project.path)
+            return pass_refusal(project.path)
         except Exception as exc:  # noqa: BLE001 - a state that cannot be read refuses the pass
             return f"the correction state could not be read: {exc}"
-        return correction_pass_refusal(state)
 
     def sync_correction_controls(self) -> None:
         """Enable **Run correction pass…** from the correction state, with the reason if not.

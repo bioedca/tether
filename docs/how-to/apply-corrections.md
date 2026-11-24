@@ -183,6 +183,9 @@ The menu item is available only in some correction states. Before Tether stores 
 approval. Those states are CALIBRATION_APPROVED, CORRECTED_REVIEW and ANALYSIS_READY. There,
 a new pass would change the corrected traces behind the approval or the review.
 
+The item is off, too, when the project holds a factor that you supplied in step 3. A
+pass from the menu would mark those molecules as estimated. Run step 3 again instead.
+
 Hold the pointer over the item to see the reason.
 
 ## Where the corrected efficiency appears

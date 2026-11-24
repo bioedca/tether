@@ -27,6 +27,14 @@ record, so the provenance the pass rewrites leaves the state as it was. The pass
 the state before it writes, so a state that changed since the window read it refuses the
 pass too.
 
+**Manual factors.** A pass with no override stamps a valid molecule ``corrected``, never
+``manual``, and writes ``NaN`` for the two overrides of ``/settings/correction``. On a project
+whose factors a person supplied, that would relabel the supplied factors as estimated and
+drop the manual proposal of GAMMA_REVIEW. A project re-corrected per movie (a Deep-LASI
+acquisition appended with factors of its own, ADR-0117) cannot take one project-wide
+override back either. So the pass is refused while any molecule is stamped ``manual`` or
+``/settings/correction`` holds a finite override ([`manual_factor_refusal`][]).
+
 Like [`tether.services.sources`][], this is not a registered service command: it has no
 command-line subcommand (``tether batch`` runs the same pass as its correct stage). It
 imports the core only when it runs (ADR-0100).
@@ -50,6 +58,8 @@ __all__ = [
     "CorrectionPassResult",
     "correction_pass_refusal",
     "correction_state_name",
+    "manual_factor_refusal",
+    "pass_refusal",
     "run_correction_pass",
 ]
 
@@ -110,6 +120,57 @@ def correction_pass_refusal(state: str) -> str | None:
     return f"the correction state is {state}, and {why}"
 
 
+def manual_factor_refusal(path: str | PathLike[str]) -> str | None:
+    """Return why the pass would lose manual-factor provenance, else ``None`` (a read).
+
+    The pass is refused while a molecule is stamped
+    [`METHOD_MANUAL`][tether.project.correct.METHOD_MANUAL] or ``/settings/correction``
+    records a finite ``alpha_override`` or ``gamma_override``.
+    """
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.correct import METHOD_MANUAL  # noqa: PLC0415
+
+    with h5py.File(path, "r") as f:
+        methods = f["molecules"][TABLE]["correction_method"]
+        n_manual = sum(
+            1
+            for m in methods
+            if (m.decode("utf-8") if isinstance(m, bytes) else str(m)) == METHOD_MANUAL
+        )
+        stamp = f["settings"].get("correction")
+        overrides = (
+            []
+            if stamp is None
+            else [
+                name
+                for name in ("alpha_override", "gamma_override")
+                if name in stamp.attrs and np.isfinite(float(stamp.attrs[name]))
+            ]
+        )
+    if not n_manual and not overrides:
+        return None
+    if n_manual:
+        held = f"{n_manual} molecule{'s' if n_manual != 1 else ''} carry a manual α or γ"
+    else:
+        held = "the last correction pass recorded a manual α or γ"
+    return (
+        f"{held}, and this pass would relabel the supplied factors as estimated; run the "
+        "pass with the same overrides instead (how-to Apply corrections, step 3)"
+    )
+
+
+def pass_refusal(path: str | PathLike[str]) -> str | None:
+    """Return why the pass may not run on the project at ``path`` now, else ``None``.
+
+    It is [`correction_pass_refusal`][] of the present state, then
+    [`manual_factor_refusal`][]; both are reads with no lock.
+    """
+    return correction_pass_refusal(correction_state_name(path)) or manual_factor_refusal(path)
+
+
 def run_correction_pass(
     path: str | PathLike[str],
     *,
@@ -123,11 +184,11 @@ def run_correction_pass(
     ``write_guard`` is the caller's check of its writer lock; with it, the pass writes a
     sibling copy and publishes it in one guarded atomic replace. The caller holds the
     single-writer lock. Raises [`RequestRefused`][tether.services.base.RequestRefused],
-    and writes nothing, when the state read now refuses the pass.
+    and writes nothing, when [`pass_refusal`][] read now refuses the pass.
     """
     from tether.project.correct import compute_corrected_fret  # noqa: PLC0415
 
-    refusal = correction_pass_refusal(correction_state_name(path))
+    refusal = pass_refusal(path)
     if refusal is not None:
         raise RequestRefused(f"the correction pass is not available: {refusal}")
     summary = compute_corrected_fret(path, apparent_e_only=apparent_e_only, write_guard=write_guard)
