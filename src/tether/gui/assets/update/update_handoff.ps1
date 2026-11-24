@@ -53,7 +53,12 @@ function Write-Log([string]$Line) {
 function Start-Tether {
     $gui = Join-Path $Prefix 'envs\tether\Scripts\tether-gui.exe'
     if (Test-Path -LiteralPath $gui -PathType Leaf) {
-        Start-Process -FilePath $gui -WorkingDirectory (Join-Path $Prefix 'envs\tether') | Out-Null
+        try {
+            Start-Process -FilePath $gui -WorkingDirectory (Join-Path $Prefix 'envs\tether') -ErrorAction Stop | Out-Null
+        } catch {
+            # The result line is already written; the user can start Tether by hand.
+            Write-Log "Tether could not be started again: $_"
+        }
     }
 }
 

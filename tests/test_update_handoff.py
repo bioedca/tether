@@ -694,7 +694,9 @@ _FAKE_WINDOWS_INSTALLER = r"""@echo off
 rem A stand-in for the NSIS installer. The last argument is /D=<prefix>.
 setlocal EnableDelayedExpansion
 set "ARGS=%*"
+rem Everything up to /D goes; "=" cannot be part of the text replaced, so it goes next.
 set "PREFIX=!ARGS:*/D=!"
+set "PREFIX=!PREFIX:~1!"
 if exist "!PREFIX!" exit /b 2
 mkdir "!PREFIX!\envs\half-written"
 if "{mode}"=="fail" exit /b 3
