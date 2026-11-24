@@ -1230,10 +1230,8 @@ so each test finds the windows in the trace matrix when it runs.
    unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
    Fig. 5b has no trace data in the archive. The authors' per-run trace files, which are not
-   published, hold 138 of the column's 163 molecules: molecules 1 to 138 are the three 5 uM WT
-   tRNA runs joined in order (66, 8 and 64 molecules), first 400 frames each, to 1e-6. The other
-   25 agree with no molecule of those files at any start frame (to 1e-4), and no file has 163
-   molecules (#1128).
+   published, hold all of the column's 163 molecules: they are the four 5 uM WT tRNA runs joined
+   in order (66, 8, 64 and 25 molecules), first 400 frames each, to 1e-6 (#1128, #1344).
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
@@ -1261,7 +1259,7 @@ The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
 `test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
 `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
 `test_a_198_bin_histogram_fails_the_fig5c_comparison`. Workstation (ADR-0071), on the per-run files:
-`tests/test_campos_chavez_5um_runs.py`, which records the number of molecules that match nothing.
+`tests/test_campos_chavez_5um_runs.py`, which requires all 163 molecules to be the four joined files.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
