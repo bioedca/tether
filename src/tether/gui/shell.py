@@ -35,7 +35,10 @@ The user moves between the sections in two ways (#897). **Direct navigation**: t
 section bar under the menu bar, **View → Section**, and ``Ctrl+1``, ``Ctrl+2``, ...
 (``Cmd`` on macOS) open any visible section at any time. The **guided mode**: the same bar
 shows the next step that ``tether status`` gives for the open project, and **Go to** opens
-its section. A project made from imported traces opens in Curate and correct.
+its section. A project made from imported traces opens in Curate and correct. A control
+that needs an earlier stage declares it with
+[`TetherShell.require`][tether.gui.shell.TetherShell.require] (#898): it is disabled, it
+names the missing step, and it offers **Go to this step** ([`tether.gui.requirements`][]).
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
@@ -83,6 +86,7 @@ from tether.gui.curation import (
     Keymap,
     KeymapError,
 )
+from tether.gui.requirements import RequirementGate
 from tether.gui.sections import (
     DockArea,
     DockSpec,
@@ -787,6 +791,8 @@ class TetherShell:
         self._project_path: Path | None = None
         # The readiness of each stage of the open project (#896), read on each open.
         self._readiness: Any | None = None
+        # The controls that declare a stage as their requirement (#898), in the order made.
+        self._requirement_gates: list[RequirementGate] = []
         # The intensity_quantity that open used, so a lock recovery reopens the same
         # trace layer rather than load_project's default (#1097).
         self._intensity_quantity = "corrected"
@@ -1271,8 +1277,43 @@ class TetherShell:
         self.set_section(step.section)
         return step.section
 
+    def require(self, control: Any, stage: str) -> RequirementGate:
+        """Disable ``control`` until the stage ``stage`` of the readiness record is done (#898).
+
+        ``control`` is a ``QWidget`` or a ``QAction`` of a section; ``stage`` is a key of
+        [`REQUIREMENTS`][tether.gui.requirements.REQUIREMENTS]. The returned
+        [`RequirementGate`][tether.gui.requirements.RequirementGate] owns the enabled state,
+        the tooltip and the accessible description of the control, and its **Go to this
+        step** opens the section of the stage. It follows each read of the readiness.
+        """
+        gate = RequirementGate(
+            control,
+            stage,
+            go_to=self.set_section,
+            section_title=self._shown_section_title,
+        )
+        self._requirement_gates.append(gate)
+        gate.update(self._readiness)
+        return gate
+
+    @property
+    def requirement_gates(self) -> tuple[RequirementGate, ...]:
+        """The gates that [`require`][] made, in the order made (#898)."""
+        return tuple(self._requirement_gates)
+
+    def _shown_section_title(self, section_id: str) -> str | None:
+        """The title of a section the shell shows, or ``None`` for a hidden or unknown one."""
+        if section_id not in self._sections or not self._sections.get(section_id).visible:
+            return None
+        return self._sections.get(section_id).title
+
     def _sync_guided(self) -> None:
-        """Show the next step of the readiness record on the section bar (#897)."""
+        """Show the next step of the readiness record on the section bar (#897).
+
+        The gated controls (#898) follow the same record.
+        """
+        for gate in self._requirement_gates:
+            gate.update(self._readiness)
         step = guided_step(self._readiness, self._sections)
         if step is None:
             self._next_step_label.setText("Next step: open or import a project")
