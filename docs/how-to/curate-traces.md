@@ -341,13 +341,13 @@ computer:
 - The curator name, if you set one.
 - Whether the application opens your last project when it starts.
 
-When you start the application without a project, it opens the project at the top of
-**File → Open recent** again. It shows the section of the next step that `tether status` gives
-for that project, not the section that showed when you closed it. If the file is gone, or the
-project or its next step cannot be read, the start page shows and the status bar says why. To
-start on the start page instead, clear **File → Reopen last project at start**. A project that
-you name when you start the application, or that you open from your file manager, opens in
-place of the last one.
+When you start the application without a project, it opens the top project of
+**File → Open recent** again. Then it shows the section of the next step that `tether status`
+gives. It does not show the section that was open when you closed the project.
+
+If the project or its next step cannot be read, the start page shows. The status bar then says
+why. To start on the start page, clear **File → Reopen last project at start**. A project that
+you name at start, or open from your file manager, opens in place of the last project.
 
 **View → Reset layout** puts the window and its panels back in their first positions. It also
 forgets the saved positions.
