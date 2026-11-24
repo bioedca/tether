@@ -171,6 +171,20 @@ def test_a_confirmation_does_not_become_the_curator_of_the_next_generation(tmp_p
     assert (carried[stayed].labeler, carried[stayed].labelled_utc) == ("original", T0)
 
 
+def test_an_earlier_confirmation_is_passed_over_too(tmp_path) -> None:
+    # "original" labels in generation 1; in 2 "reviewer" confirms and "third" accepts again.
+    project, movie, stayed, _moved = first_generation(tmp_path)
+    reextract(project, movie, LOW)
+    gr.confirm_carried(project, [stayed], labeler="reviewer", timestamp=T1)
+    labels.accept(project, stayed, labeler="third", timestamp="2026-03-01T00:00:00+00:00")
+    reextract(project, movie, LOW)
+
+    carried = {
+        m.molecule_key: m for m in gr.reconcile_generation(project, movie_id(project)).carried
+    }
+    assert (carried[stayed].labeler, carried[stayed].labelled_utc) == ("original", T0)
+
+
 def test_a_confirmed_reject_keeps_its_reason(tmp_path) -> None:
     project, movie, _stayed, _moved = first_generation(tmp_path)
     reextract(project, movie, LOW)

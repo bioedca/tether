@@ -152,6 +152,23 @@ def test_the_curation_menu_opens_the_page_and_the_shell_writes_the_confirmation(
     assert shell.generation_page is None
 
 
+def test_a_reject_in_the_trace_view_updates_the_open_page(shell, qtbot, reextracted) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    project, stayed, _moved = reextracted
+    assert shell.load_project(project) is not None
+    page = shell.show_generation_reconcile()
+    assert page.waiting_keys() == [stayed]
+    page.select_keys([stayed])
+    assert page.open_selected()
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)  # reject
+    shell.refresh_readiness()  # what the write's debounce timer runs
+
+    assert page.waiting_keys() == []
+    assert _row_texts(page, stayed)[1] == "rejected"
+
+
 def test_a_read_only_shell_refuses_the_confirmation(shell, reextracted, monkeypatch) -> None:
     project, stayed, _moved = reextracted
     assert shell.load_project(project) is not None

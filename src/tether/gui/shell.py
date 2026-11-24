@@ -3141,7 +3141,24 @@ class TetherShell:
             except Exception:  # noqa: BLE001 - an open never fails on this read
                 self._readiness = None
         self._sync_guided()
+        self._reload_generation_page()
         return self._readiness
+
+    def _reload_generation_page(self) -> None:
+        """Read the lists of the open reconciliation page again after a write (#923).
+
+        An accept or reject in the trace view also confirms a carried molecule, so the page
+        must not keep showing it as waiting.
+        """
+        page = self._generation_page
+        if page is None or self._project_path is None:
+            return
+        from tether.services.reconcile import read_reconciliations
+
+        try:
+            page.set_reconciliations(read_reconciliations(self._project_path))
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Reconcile trace generations: the lists could not be read: {exc}")
 
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.

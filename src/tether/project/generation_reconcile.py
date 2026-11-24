@@ -259,7 +259,9 @@ def _reconcile_in(f: Any, movie_id: str) -> GenerationReconciliation | None:
     labels = f["labels"][TABLE][()]
     human = _human_rows(labels)
     reviews = generations.label_reviews_in(f)
-    review_events = frozenset(e for e in reviews.values() if 0 <= e < len(labels))
+    # Every review event, not only the last one of each molecule: an earlier review of a
+    # molecule that kept the label is a confirmation too.
+    review_events = frozenset(e for e in generations.label_review_events_in(f) if e < len(labels))
     carried_keys = set(active.carried_keys)
 
     carried: list[ReconciledMolecule] = []
