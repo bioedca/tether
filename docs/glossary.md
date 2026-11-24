@@ -650,13 +650,33 @@ One HDF5 file per experiment, that is, one day or one session of acquisition. A 
 hold several movies and several conditions, and one condition can span several projects
 (ADR-0068). `tether extract` writes a project of one movie, and
 [Add another movie to a project](how-to/extract-traces.md#add-another-movie-to-a-project)
-adds the others. The file has the root attribute `format = "tether-project"` and a
-monotonic `schema_version` (currently `1`). The **entire group skeleton was forward-declared
-when the schema was frozen**, so later versions add *data*, never *structure*
-(ADR-0005); a `schema-guard` CI gate enforces it.
+adds the others.
+
+The file has the root attribute `format = "tether-project"` and a
+monotonic `schema_version` (currently `2`). The **entire group skeleton was forward-declared
+when the schema was frozen** (ADR-0005). The structure changes only in a versioned step with an
+ADR and a migration test. Version 2 added the `/generations` record of
+[trace generations](#trace-generation)
+([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A
+`schema-guard` CI gate refuses a change that removes, renames or retypes a frozen field.
 
 A file stamped with a **higher** `schema_version` than the running app is refused outright
 rather than partially read.
+
+### trace generation
+
+One extraction of one movie. The first extraction of a movie is generation 1. Each new
+extraction of the same movie, for example with a new map, is the next generation. The shared
+trace arrays hold only the **active** (newest) generation, so every trace reader reads it.
+Before its rows are replaced, the previous generation is copied unchanged to
+`/generations/archive/<movie_id>/<generation>`. `/generations/table` records one row per
+generation (`tether.io.generations`).
+
+A molecule within 0.5 px (`GENERATION_MATCH_PX`) of its closest partner in the previous
+generation keeps its `molecule_key`. Its label, category and analysis window move to the new
+generation. Every fit and correction of the movie becomes stale
+([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md),
+[`/generations`](reference/tether-format.md#generations-the-trace-generations-of-each-movie)).
 
 ### provenance file
 
@@ -741,7 +761,7 @@ part of the schema.
 
 ### schema_version
 
-The monotonic on-disk stamp on a `.tether` file's root, currently `1`
+The monotonic on-disk stamp on a `.tether` file's root, currently `2`
 (`tether.io.schema`). A file whose stamp is **higher** than the running app's is refused —
 the app upgrades, the file is never downgraded.
 

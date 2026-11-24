@@ -35,7 +35,9 @@ _EPOCH = 1_800_000_000  # the fake GitHub stamps request commits from here, in s
 
 def _git(cwd: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> str:
     command = ["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args]
-    merged = {**os.environ, **_WHO, **(env or {})}
+    # A test run from a Git hook inherits `GIT_DIR` and friends; keep every call in `cwd`.
+    ambient = {k: v for k, v in os.environ.items() if k not in mq.REPOSITORY_LOCATION_VARS}
+    merged = {**ambient, **_WHO, **(env or {})}
     done = subprocess.run(
         command, cwd=cwd, env=merged, capture_output=True, encoding="utf-8", check=check
     )
@@ -54,6 +56,7 @@ class World:
         _git(root, "clone", "--quiet", str(self.origin), str(self.runner))
         self.pulls: dict[int, dict] = {}
         self.locked: set[str] = set()  # refs whose delete GitHub rejects
+        self.rejected: set[str] = set()  # refs whose creation GitHub rejects with 422
         self.calls: list[tuple[str, str]] = []
         self.clock = 0
         self.github = mq.GitHub(REPO, self.transport)
@@ -122,6 +125,8 @@ class World:
             made = ["commit-tree", payload["tree"], "-p", parent, "-m", payload["message"]]
             return 201, json.dumps({"sha": _git(self.origin, *made, env=when)}).encode()
         if (method, path) == ("POST", "/git/refs"):
+            if payload["ref"] in self.rejected:
+                return 422, b'{"message": "Validation Failed", "errors": [{"code": "invalid"}]}'
             if self.origin_ref(payload["ref"]):
                 return 422, b'{"message": "Reference already exists"}'
             _git(self.origin, "update-ref", payload["ref"], payload["sha"])
@@ -203,6 +208,28 @@ def test_join_refuses_a_short_head_and_an_unknown_number(world: World, tmp_path:
     (tmp_path / "message.txt").write_text("message\n", encoding="utf-8")
     asked = ("join", "--pr", "8", "--sha", head, "--message-file", str(tmp_path / "message.txt"))
     assert main_exit(world, *asked) == 3
+
+
+def test_a_rejected_request_write_is_an_error_and_not_a_duplicate(
+    world: World, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    head = world.pull(7, {"a.txt": "a\n"})
+    world.rejected.add("refs/merge-queue/pr-7")
+    with pytest.raises(mq.QueueError, match="did not create refs/merge-queue/pr-7"):
+        mq.join(world.github, 7, head, "message")
+    assert world.origin_ref("refs/merge-queue/pr-7") is None
+
+    (tmp_path / "message.txt").write_text("message\n", encoding="utf-8")
+    asked = ("join", "--pr", "7", "--sha", head, "--message-file", str(tmp_path / "message.txt"))
+    capsys.readouterr()
+    assert main_exit(world, *asked) == 2
+    error = capsys.readouterr().err
+    assert "refs/merge-queue/pr-7" in error and "already has a request" not in error
+
+    world.rejected.clear()
+    assert main_exit(world, *asked) == 0
+    assert main_exit(world, *asked) == 3  # the ref exists now, so the 422 is a duplicate
+    assert "#7 already has a request" in capsys.readouterr().err
 
 
 def test_leave_deletes_the_request_and_the_candidate_and_may_run_twice(world: World) -> None:
@@ -318,6 +345,32 @@ def test_a_closed_pull_request_and_a_moved_head_are_removed(world: World) -> Non
     assert world.plan()[3].reason == "closed"
 
 
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (lambda pull: pull["base"].update(ref="release"), "retargeted"),
+        (lambda pull: pull.update(draft=True), "draft"),
+    ],
+    ids=["retargeted", "draft"],
+)
+def test_a_retargeted_or_draft_pull_request_is_removed_and_left_out(
+    world: World, change, reason: str
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    world.join(2, {"b.txt": "b\n"})
+    change(world.pulls[1])
+
+    steps = world.plan()
+
+    assert (steps[1].state, steps[1].reason) == (mq.REMOVE, reason)
+    assert steps[1].tree is None and steps[1].commit is None
+    assert (steps[2].state, steps[2].tree) == (mq.CANDIDATE, world.squash(2)[0])
+    assert mq.build(world.git, world.github, world.steps, window=5)["pushed"] == [2]
+    files = _git(world.origin, "ls-tree", "-r", "--name-only", "mq/pr-2").splitlines()
+    assert "b.txt" in files and "a.txt" not in files
+    assert world.origin_ref("refs/heads/mq/pr-1") is None
+
+
 def test_build_pushes_the_window_keeps_a_same_tree_and_deletes_the_rest(world: World) -> None:
     world.join(1, {"a.txt": "a\n"})
     world.join(2, {"b.txt": "b\n"})
@@ -386,3 +439,86 @@ def test_the_commands_print_json_and_write_the_step_summary(
 
     assert main_exit(world, "leave", "--pr", "2") == 0
     assert json.loads(capsys.readouterr().out) == {"left": 2, "request": True, "candidate": False}
+
+
+def test_the_json_and_the_step_summary_show_the_retargeted_and_draft_reasons(
+    world: World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = world.origin.parent / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    for number in (1, 2, 3):
+        world.join(number, {f"{number}.txt": f"{number}\n"})
+    world.pulls[1]["base"]["ref"] = "release"
+    world.pulls[2]["draft"] = True
+
+    assert main_exit(world, "plan") == 0
+
+    planned = json.loads(capsys.readouterr().out)["steps"]
+    assert [(s["pr"], s["state"], s["reason"]) for s in planned] == [
+        (1, "remove", "retargeted"),
+        (2, "remove", "draft"),
+        (3, "candidate", None),
+    ]
+    text = summary.read_text(encoding="utf-8")
+    assert "| #1 | remove | retargeted |" in text and "| #2 | remove | draft |" in text
+
+
+def _decoy(root: Path) -> tuple[Path, dict[str, str]]:
+    """A separate repository, and ambient variables that point Git at it."""
+    decoy = root / "decoy"
+    _git(root, "init", "--quiet", "--initial-branch=main", str(decoy))
+    (decoy / "decoy.txt").write_text("decoy\n", encoding="utf-8")
+    _git(decoy, "add", "decoy.txt")
+    _git(decoy, "commit", "--quiet", "-m", "decoy")
+    dot = decoy / ".git"
+    ambient = {"GIT_DIR": str(dot), "GIT_WORK_TREE": str(decoy), "GIT_COMMON_DIR": str(dot)}
+    ambient |= {"GIT_INDEX_FILE": str(dot / "index"), "GIT_OBJECT_DIRECTORY": str(dot / "objects")}
+    return decoy, ambient
+
+
+def _state(decoy: Path) -> tuple[str, bytes]:
+    """The refs and the index of ``decoy``, read with an explicit location."""
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    refs = subprocess.run(  # noqa: S603
+        ["git", f"--git-dir={decoy / '.git'}", "for-each-ref", "--format=%(refname) %(objectname)"],
+        env=clean,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    ).stdout
+    return refs, (decoy / ".git" / "index").read_bytes()
+
+
+def test_queue_git_uses_its_checkout_whatever_the_environment_names(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    decoy, ambient = _decoy(world.origin.parent)
+    before = _state(decoy)
+    world.join(1, {"a.txt": "a\n"})
+    runner_head = _git(world.runner, "rev-parse", "HEAD")
+    for name, value in ambient.items():
+        monkeypatch.setenv(name, value)
+
+    assert world.git.rev("HEAD") == runner_head
+    steps = world.plan()
+    assert mq.build(world.git, world.github, world.steps, window=5)["pushed"] == [1]
+
+    assert world.origin_ref("refs/heads/mq/pr-1") == steps[1].commit
+    assert _state(decoy) == before
+
+
+def test_the_fixture_git_stays_in_its_temporary_repositories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    decoy, ambient = _decoy(tmp_path)
+    before = _state(decoy)
+    for name, value in ambient.items():
+        monkeypatch.setenv(name, value)
+
+    (tmp_path / "world").mkdir()
+    world = World(tmp_path / "world")
+    head = world.join(1, {"a.txt": "a\n"})
+
+    assert world.origin_ref("refs/heads/pr-1") == head
+    assert world.origin_ref("refs/merge-queue/pr-1")
+    assert _state(decoy) == before
