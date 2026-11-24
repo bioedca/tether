@@ -86,7 +86,11 @@ that failed the gates receive instead; it follows the same `withheld` rule. The 
 `n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
 `min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`,
 `n_step_evaluated`, `n_step_clean`, `min_clean_step_fraction`, `few_clean_steps`,
-`app_version` and `created_utc`.
+`n_excluded`, `app_version` and `created_utc`.
+
+`n_excluded` counts the molecules that a
+person or a recipe excluded from the median in the γ evidence table
+([#927](https://github.com/bioedca/tether/issues/927)). It is `0` until one is excluded.
 
 `level_window` names the frames each γ level was averaged over. It reads `half-window` when
 `half_window` frames each side were used, 20 by default
@@ -329,6 +333,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   min_clean_step_fraction = 0.65
   min_qualifying_traces = 10
   min_window_frames = 20
+  n_excluded = 0
   n_fallback = 1
   n_molecules = 16
   n_qualifying = 15

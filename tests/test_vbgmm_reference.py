@@ -64,7 +64,7 @@ def test_the_tolerance_admits_the_converged_fit_and_not_the_stopped_one():
     # The recorded measurements are the basis of the tolerance (ADR-0138). Recompute their
     # deviations so a hand edit of either number, or of the limits, cannot leave them apart.
     measured = REFERENCE["measured"]
-    for name in ("vbgmm_key", "tmaven_updates_converged"):
+    for name in ("vbgmm_key", "tmaven_updates_converged", "vbgmm_key_corrected_loop"):
         run = measured[name]
         assert ref.deviations(run["means"], run["fractions"], REFERENCE) == pytest.approx(
             run["deviation"]
@@ -77,6 +77,12 @@ def test_the_tolerance_admits_the_converged_fit_and_not_the_stopped_one():
     message = ref.disagreement(stopped["means"], stopped["fractions"], REFERENCE)
     assert message is not None
     assert "means_max_abs" in message and "fractions_max_abs" in message
+    # The key's fit since #1337 (ADR-0139): Tether's corrected loop, inside the tolerance.
+    corrected = measured["vbgmm_key_corrected_loop"]
+    assert corrected["iteration"] > 2
+    assert ref.disagreement(corrected["means"], corrected["fractions"], REFERENCE) is None
+    bound = corrected["lower_bound_first_three"] + corrected["lower_bound_last_three"]
+    assert np.all(np.diff(bound) > 0)
 
 
 def test_deviations_sort_the_states_by_mean():
