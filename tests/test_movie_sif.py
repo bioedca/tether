@@ -313,6 +313,16 @@ def test_a_file_that_shrinks_after_it_opened_is_refused_not_read_in_part(tmp_pat
             movie.read_frames(0, 4)
 
 
+def test_a_frame_read_after_the_file_shrank_does_not_come_from_a_buffer(tmp_path: Path) -> None:
+    """#1424: one small read must not leave the next frames in a buffer."""
+    path = write_sif(tmp_path / "m.sif", _frames(), after=b"")
+    with SifMovie(path) as movie:
+        movie.read_frames(0, 1)
+        path.write_bytes(path.read_bytes()[:-200])
+        with pytest.raises(UnsupportedContainerError, match="ended inside frame 3"):
+            movie.read_frames(1, 4)
+
+
 def test_a_failed_open_closes_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     opened = []
     real_open = Path.open

@@ -50,10 +50,10 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
 _EXPECTED_OPTION_COUNTS = {
-    "extract": 18,
+    "extract": 20,
     "reextract": 5,
     "batch": 18,
-    "map create": 6,
+    "map create": 8,
     "approve": 3,
     "run": 2,
     "info": 2,

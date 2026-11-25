@@ -195,12 +195,12 @@ Data lives on OneDrive or a network share; there is no shared server.
 
 ### 3.2 North-star adoption test
 
-A scientist can: **open a real dataset → browse/curate with logged accept/reject → one-click vbFRET (verified
-tMAVEN parity) → export a per-condition FRET histogram with bootstrap CI ready for a figure.** The **M2–M3**
-milestone set built these steps as library capabilities, reachable from the Python API (§9 M2, M3). The shipped
-application does not yet do all of them: the project-wide one-click idealization
-([#625](https://github.com/bioedca/tether/issues/625)) and the histogram export
-([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) are carried by the
+A scientist can: **open a real dataset → browse/curate with logged accept/reject → fit the whole project with
+"Idealize project…" (verified tMAVEN parity, §7.4) → export a per-condition FRET histogram with bootstrap CI ready
+for a figure.** The **M2–M3** milestone set built these steps as library capabilities, reachable from the Python API
+(§9 M2, M3). The shipped application does not yet do all of them. It fits the whole project
+([#625](https://github.com/bioedca/tether/issues/625)); the histogram export
+([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) is carried by the
 milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#949](https://github.com/bioedca/tether/issues/949)).
 The test is a non-binding adoption aspiration, deliberately not operationalized as a calendar gate (§9 is
 capability-sequenced, with no schedule commitment anywhere).
@@ -677,7 +677,7 @@ Tether **shall** present a multi-movie round-trip browser:
   analysis-window **start** (`pre_list`) and `[`/`]` nudge the **end** (`post_list`) — distinct bounds, not one
   action; `R` reset, `P` photobleach, `G` grid) for muscle-memory continuity, and adds the Tether-only actions
   **`Space` = accept, `Backspace`/`Delete` = reject, `Enter` = jump to the movie spot (round-trip focus), `I` =
-  one-click idealize, `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
+  open "Idealize project…", the whole-project fit (§7.4), `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
   v1** so no Tether-only binding shadows them. The integer↔category lookup pins **tMAVEN class 0 ↔ Tether
   "uncategorized"** and named categories ↔ tMAVEN classes ≥ 1, so a tMAVEN round-trip never silently turns an
   uncategorized trace into a named category (§7.4, Appendix D).
@@ -692,10 +692,16 @@ Tether **shall** present a multi-movie round-trip browser:
 
 ### 7.4 FR-IDEALIZE — Idealization (tMAVEN integration)
 
-In-app one-click idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
-sidecar: export selected molecules to SMD → run vbFRET (per-trace), consensus VB-HMM, or ebFRET headless through
-`tmaven.maven.maven_class` → import states/dwells. Auto state-count selection **shall** use max ELBO with a manual
-per-trace override. **In-app idealization is a hard requirement; a hand-off-only MVP is not acceptable** (see §10).
+In-app idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
+sidecar, as a fit of the whole project: **Idealize → Idealize project…** (the `I` key) exports the chosen molecules
+(the accepted ones, or the accepted ones of one condition) to SMD → runs consensus VB-HMM or ebFRET headless through
+`tmaven.maven.maven_class` → imports states/dwells into a model named for its method. It runs in the background with
+progress and a cancel that leaves the project unchanged, and "Refit stale only" refits a model whose molecules are
+stale with the settings it stored ([#625](https://github.com/bioedca/tether/issues/625)); it is the same fit as
+`tether idealize`. Auto state-count selection **shall** use max ELBO, with a fixed state count as the manual override.
+Per-trace vbFRET is not a method the application offers; it stays a headless fit through `tether.idealize.run_vbfret`,
+and #545 keeps its parity evidence (§9.6). **In-app idealization is a hard requirement; a hand-off-only MVP is not
+acceptable** (see §10).
 
 *Parity definition.* Because the pinned tMAVEN self-reseeds its RNG (`initialize_gmm` calls `np.random.seed()` then
 random-resamples a KDE; `clip_traces` reseeds from wall-clock), a default fit is not bit-identically reproducible,
@@ -1046,7 +1052,16 @@ The check half exists: the opt-in release query and notice of
 the verifier of [#333](https://github.com/bioedca/tether/issues/333) (`tether.gui.update_verify`), which makes the
 channel decision below, and the hand-off of [#331](https://github.com/bioedca/tether/issues/331)
 (`tether.gui.update_handoff`, [ADR-0141](adr/0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md)),
-which accepts only the verifier's result. Nothing calls them yet, because the download is still to come.
+which accepts only the verifier's result. The download and the **Install update** action of
+[#1379](https://github.com/bioedca/tether/issues/1379) (`tether.gui.update_download`, `tether.gui.update_notice`)
+join the four: the download, the verification and the hand-off run in that order and only in that order, the first two
+off the GUI thread, and only after the user pressed Install on the notice of a copy that can hand off.
+
+The download **shall** request only `https://github.com/bioedca/tether/releases/download/v<MAJOR.MINOR.PATCH>/<installer>`,
+built from the parsed version and the platform's installer name, never from a URL in an API answer, and **shall** follow
+a redirect only to `github.com` or GitHub's release-asset host `release-assets.githubusercontent.com` (where GitHub
+answers that URL, measured 2026-11-25), over HTTPS on the default port. It writes into a private folder and removes the
+file whatever the outcome.
 
 The hand-off **shall** start the OS installer only after the user chose to install, and only with the file that was
 verified, re-hashed from a private copy immediately before it runs. It **shall** move the existing install aside before
@@ -1091,12 +1106,13 @@ unsure is the safe error.
 FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bounds (FR-DEPOSIT-7). Without the user's consent the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
-bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
-and the **Sigstore TUF** trusted-root service (which `gh attestation trusted-root` reaches at
+bounded: the requests go to **four** endpoints and no others — the GitHub **releases** and **attestations** APIs,
+the **release download** (`github.com`, redirected to `release-assets.githubusercontent.com`), and the **Sigstore TUF**
+trusted-root service (which `gh attestation trusted-root` reaches at
 `tuf-repo-cdn.sigstore.dev` and at GitHub's `tuf-repo.github.com`) — all unauthenticated and all public. Each destination necessarily
-observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all three
+observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all four
 rather than claiming "no identifier"; what Tether adds beyond that is nothing — no account, no installation id, no
-usage data, **no telemetry**. All three endpoints **shall** be named in the privacy disclosure and in the
+usage data, **no telemetry**. All four endpoints **shall** be named in the privacy disclosure and in the
 administrator documentation: a site that allow-lists only the GitHub endpoints silently disables verification, which
 is correct behaviour but an operational trap if undocumented. They are made **only
 after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
@@ -1680,6 +1696,7 @@ this section.
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Update verification (`TRUSTED_ROOT_TIMEOUT_S`, `VERIFY_TIMEOUT_S`) | `gh attestation trusted-root` may take **30 s**, then the check is abandoned in silence (*could not run*); each offline `gh` call, `--version` and `attestation verify` (which hashes the installer), may take **120 s**, then the update is refused; the attestations `GET` uses the update check's timeout | Tether (§7.12; ADR-0060); `tether.gui.update_verify`, #333 |
+| Update download (`DOWNLOAD_TIMEOUT_S`, `MAX_INSTALLER_BYTES`, `STALE_AFTER_S`, `SHUTDOWN_WAIT_S`) | only after the user pressed **Install update**; one `GET` of the release's installer, on a background thread; each read may wait **60 s** for data, then the download is abandoned and the notice says so in one line; an installer larger than **4 GiB**, or shorter or longer than announced, is refused; on quit the notice removes the download and waits at most **5 s** for the job to stop; a download folder left behind is removed by the next download once it is **24 h** old | Tether (§7.12; ADR-0060); `tether.gui.update_download`, #1379 |
 | Installer hand-off (`HELPER_START_TIMEOUT_S`, `EXIT_WAIT_TIMEOUT_S`, `INSTALL_TIMEOUT_S`, `CHECK_TIMEOUT_S`) | Tether waits **15 s** for the update helper to report that it runs, else stays open with nothing changed; the helper waits **120 s** for Tether to exit, else stops with nothing changed; the installer may run **3600 s**, then it is stopped and the previous copy is put back; each command of the launch-surface check may take **120 s** | Tether (§7.12; ADR-0060, ADR-0141); `tether.gui.update_handoff`, #331 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
@@ -2502,12 +2519,12 @@ Each result type is in the catalogue because N3 makes it a plot to draw. The fiv
 | Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | `render_alpha_shape` |
 | Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | `render_state_number_elbow` |
 | Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | `render_population_anticorrelation` |
-| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | none yet ([#1085](https://github.com/bioedca/tether/issues/1085)) |
+| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | `render_successive_frame_cloud` ([#1085](https://github.com/bioedca/tether/issues/1085)) |
 
 A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
 and so belongs to the first part; it is the fifth result type that #370 gave a renderer,
-`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, has no renderer yet: #1085
-carries it. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
+`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, got its renderer and its entry in
+the Analyze section's plot list in #1085. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
 condition query (`query`) selects molecules, and the kinSoftChallenge kinetics check (`kinetics`) is a validation
 oracle (§9.5).
 

@@ -40,6 +40,7 @@ The metadata, each value with origin ``"file"`` or ``"unknown"``:
 
 from __future__ import annotations
 
+import io
 import math
 import re
 import threading
@@ -298,6 +299,17 @@ def _find_layout(path: Path, fh: BinaryIO, size: int) -> _Layout:
     return _Layout(n_frames, height, width, start, data_type, kinetic, version)
 
 
+def _read_into(fh: BinaryIO, view: memoryview) -> int:
+    """Fill ``view`` from ``fh``; return the bytes read, fewer only at the end of the file."""
+    got = 0
+    while got < len(view):
+        n = fh.readinto(view[got:])
+        if not n:
+            break
+        got += n
+    return got
+
+
 class SifMovie:
     """An open SIF movie: the frames of its signal block, top row first.
 
@@ -310,14 +322,19 @@ class SifMovie:
         self._path = Path(path)
         self._lock = threading.Lock()
         self._closed = False
-        self._fh = self._path.open("rb")
+        # The frames are read without a buffer, so no read returns bytes that an earlier read
+        # buffered and the file no longer holds (#1424). The header, read line by line, goes
+        # through a buffer that is detached before the first frame read.
+        self._fh: BinaryIO = self._path.open("rb", buffering=0)
+        header = io.BufferedReader(self._fh)
         try:
-            size = self._fh.seek(0, 2)
-            self._fh.seek(0)
-            self._layout = _find_layout(self._path, self._fh, size)
+            size = header.seek(0, 2)
+            header.seek(0)
+            self._layout = _find_layout(self._path, header, size)
         except BaseException:
-            self._fh.close()
+            header.close()
             raise
+        header.detach()
         layout = self._layout
         frame_time: MetadataValue[float] = MetadataValue.unknown()
         if layout.n_frames > 1 and layout.kinetic_cycle is not None:
@@ -367,7 +384,7 @@ class SifMovie:
         want = stored.nbytes
         with self._lock:
             self._fh.seek(self._layout.offset + start * h * w * _DTYPE.itemsize)
-            got = self._fh.readinto(memoryview(stored).cast("B")) if want else 0
+            got = _read_into(self._fh, memoryview(stored).cast("B")) if want else 0
         if got != want:
             raise _refuse(self._path, f"ended inside frame {start + got // (h * w * 4)}")
         # SIF stores the bottom row first; return the top row first, as Solis shows it.

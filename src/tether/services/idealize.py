@@ -26,20 +26,34 @@ import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from tether.idealize_choices import IDEALIZE_METHODS
 from tether.services.base import CommandFailed, Request, RequestRefused, ServiceError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Callable
+
     from tether.idealize.supervisor import ProbeResult, SidecarSupervision
+    from tether.project.core import Project
     from tether.project.idealize import StoredIdealization
 
 __all__ = [
+    "METHODS",
+    "FitFacts",
     "IdealizeRequest",
     "IdealizeResult",
+    "ModelFacts",
     "ModelRefit",
     "SidecarUnavailable",
+    "accepted_keys",
     "parse_nstates_grid",
+    "read_fit_facts",
     "run",
+    "run_held",
+    "sidecar_problem",
 ]
+
+#: The whole-project methods, in the order a front end offers them (the default first).
+METHODS: tuple[str, ...] = IDEALIZE_METHODS
 
 
 class SidecarUnavailable(ServiceError):
@@ -244,22 +258,19 @@ def _check_models(project: Any, names: list[str]) -> list[tuple[str, int, int, b
     return checked
 
 
-def run(request: IdealizeRequest) -> IdealizeResult:
-    """Run *request*.
+@dataclasses.dataclass(frozen=True)
+class _Plan:
+    """The checked options of one request: what [`run`][] and [`run_held`][] share."""
 
-    Raises [`RequestRefused`][tether.services.base.RequestRefused] before the sidecar is
-    started and before any write when the request is not valid: an unknown method or
-    condition, a bad state count or grid, a model that exists without ``overwrite``, a
-    project that cannot be opened, or fit options combined with ``stale_only``. Raises
-    [`SidecarUnavailable`][] when the sidecar cannot start, and
-    [`CommandFailed`][tether.services.base.CommandFailed] when the lock cannot be taken or
-    a fit fails.
-    """
-    from tether.idealize.driver import SidecarError
-    from tether.idealize.supervisor import supervise_idealize
+    method: str
+    grid: tuple[int, ...]
+    model_name: str
+    supervision: SidecarSupervision
+
+
+def _plan(request: IdealizeRequest) -> _Plan:
+    """Check the options of *request* that need no project; raise `RequestRefused`."""
     from tether.project import idealize as core
-    from tether.project.core import Project
-    from tether.project.lock import LockError
 
     if request.stale_only:
         _refuse_stale_only_options(request)
@@ -282,71 +293,113 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         raise RequestRefused(str(exc)) from exc
     if request.model_name is not None:
         _refuse_bad_model_name(request.model_name, core)
-    supervision = _supervision(request)
-
-    try:
-        project = Project.open(request.project)
-        existing = project.list_idealizations()
-    except (OSError, ValueError) as exc:
-        raise RequestRefused(f"cannot open {request.project}: {exc}") from exc
     # The default model name is the method (idealize_molecules), so the stored name
     # matches the method that ran unless the caller names it.
-    model_name = request.model_name or method
-    if request.stale_only:
-        if request.model_name is not None and request.model_name not in existing:
-            raise RequestRefused(f"{request.project} has no model {request.model_name!r}")
-        names = [request.model_name] if request.model_name is not None else existing
-        # Read-only: count each model's stale rows before the sidecar or the lock is
-        # touched, so a project with nothing to refit needs neither. The count is taken
-        # again under the lock below, since another writer may change the project first.
-        checked = _check_models(project, names)
-        if request.model_name is not None and checked[0][3]:
-            raise RequestRefused(
-                f"the model {request.model_name!r} was imported from standalone tMAVEN, "
-                "so stale_only cannot refit it; hand its molecules to tMAVEN again and "
-                "import the new fit"
-            )
-        if not any(n_stale and not imported for _, _, n_stale, imported in checked):
-            return IdealizeResult(project=project.path, refits=_unchanged(checked))
-        keys = None
-    else:
-        if model_name in existing and not request.overwrite:
-            raise RequestRefused(
-                f"{request.project} already has the model {model_name!r}; pass overwrite "
-                "to replace it or name another model"
-            )
-        keys = _selected_keys(project, request.conditions)
-        checked = []  # an ordinary fit checks no model
+    return _Plan(method, grid, request.model_name or method, _supervision(request))
 
-    # Nothing is written before this point, and nothing at all when the sidecar is absent.
-    probe = _probe(supervision)
-    if not probe.available:
-        raise SidecarUnavailable(f"the sidecar is not available: {probe.detail}")
 
-    runner = {} if _runner is None else {"_runner": _runner}
-    try:
-        project.acquire_lock()
-    except LockError as exc:
-        raise CommandFailed(f"cannot take the lock of {request.project}: {exc}") from exc
+def _precheck(
+    request: IdealizeRequest, plan: _Plan, project: Any, *, keys_given: bool
+) -> tuple[list[str], IdealizeResult | None]:
+    """Refuse what the project refuses, before the sidecar or the lock is touched.
+
+    Returns the models a ``stale_only`` run checks, and an [`IdealizeResult`][] when a
+    ``stale_only`` run has nothing to refit (the run then ends there).
+    """
+    existing = project.list_idealizations()
+    if not request.stale_only:
+        if plan.model_name in existing and not request.overwrite:
+            raise RequestRefused(
+                f"{request.project} already has the model {plan.model_name!r}; pass "
+                "overwrite to replace it or name another model"
+            )
+        if not keys_given:
+            _selected_keys(project, request.conditions)  # refuse an unknown condition
+        return [], None
+    if request.model_name is not None and request.model_name not in existing:
+        raise RequestRefused(f"{request.project} has no model {request.model_name!r}")
+    names = [request.model_name] if request.model_name is not None else existing
+    # Read-only: count each model's stale rows before the sidecar or the lock is
+    # touched, so a project with nothing to refit needs neither. The count is taken
+    # again under the lock, since another writer may change the project first.
+    checked = _check_models(project, names)
+    if request.model_name is not None and checked[0][3]:
+        raise RequestRefused(
+            f"the model {request.model_name!r} was imported from standalone tMAVEN, "
+            "so stale_only cannot refit it; hand its molecules to tMAVEN again and "
+            "import the new fit"
+        )
+    if not any(n_stale and not imported for _, _, n_stale, imported in checked):
+        return names, IdealizeResult(project=project.path, refits=_unchanged(checked))
+    return names, None
+
+
+def _fits_of(stored: StoredIdealization) -> int:
+    """How many sidecar fits a refit of *stored* runs (as `reidealize` chooses them)."""
+    from tether.project import idealize as core
+
+    if stored.nstates_selected_by == "fixed":
+        return 1
+    return len(stored.elbo_by_nstates or core.NSTATES_GRID_DEFAULT)
+
+
+def _fit(
+    request: IdealizeRequest,
+    plan: _Plan,
+    project: Any,
+    names: list[str],
+    *,
+    molecule_keys: list[str] | None,
+    write_guard: Callable[[], None] | None,
+    on_fit: Callable[[int, int], None] | None,
+    runner_fn: Any = None,
+) -> IdealizeResult:
+    """Fit, or refit the stale models, with the project's lock held by *project*."""
+    from tether.idealize.driver import SidecarError
+    from tether.idealize.supervisor import supervise_idealize
+    from tether.project import idealize as core
+    from tether.project.lock import LockError
+
+    supervision = plan.supervision
+    seam = runner_fn if runner_fn is not None else _runner
+    runner: dict[str, Any] = {} if seam is None else {"_runner": seam}
+    started = [0]
+    total = [1]
+    if on_fit is not None:
+        inner = seam if seam is not None else core.run_vbfret
+
+        def counted(*args: Any, **kwargs: Any) -> Any:
+            # Called before each sidecar fit: one fit for each state count of the grid.
+            on_fit(started[0], total[0])
+            started[0] += 1
+            return inner(*args, **kwargs)
+
+        runner = {"_runner": counted}
     try:
         if not request.stale_only:
             # Under the lock, so the fit takes the molecules in the conditions now; the
-            # selection above only refused an unknown condition before the probe.
-            keys = _selected_keys(project, request.conditions)
+            # selection before the probe only refused an unknown condition.
+            keys = (
+                molecule_keys
+                if molecule_keys is not None
+                else _selected_keys(project, request.conditions)
+            )
+            total[0] = 1 if request.nstates is not None else len(plan.grid)
             fitted = supervise_idealize(
                 core.idealize_molecules,
                 project,
                 keys,
                 supervision=supervision,
-                model_type=method,
+                model_type=plan.method,
                 nstates=request.nstates,
-                nstates_grid=grid,
-                model_name=model_name,
+                nstates_grid=plan.grid,
+                model_name=plan.model_name,
                 sidecar_python=supervision.sidecar_python,
                 timeout=supervision.timeout,
                 overwrite=request.overwrite,
                 include_rejected=request.include_rejected,
                 require_held_lock=True,
+                write_guard=write_guard,
                 seed=request.seed,
                 **runner,
             )
@@ -355,6 +408,11 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         if request.model_name is None:
             names = project.list_idealizations()
         checked = _check_models(project, names)
+        total[0] = sum(
+            _fits_of(core.read_idealization(project, name))
+            for name, _, n_stale, imported in checked
+            if n_stale and not imported
+        )
         refits: list[ModelRefit] = []
         for name, n_rows, n_stale, imported in checked:
             refit = None
@@ -369,6 +427,7 @@ def run(request: IdealizeRequest) -> IdealizeResult:
                     sidecar_python=supervision.sidecar_python,
                     timeout=supervision.timeout,
                     require_held_lock=True,
+                    write_guard=write_guard,
                     **runner,
                 )
             refits.append(ModelRefit(name, n_rows, n_stale, refit, imported, moved))
@@ -380,5 +439,173 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         # after the rejected ones are dropped). The message is the library's own.
         message = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
         raise CommandFailed(str(message)) from exc
+
+
+def _require_sidecar(plan: _Plan) -> None:
+    """Nothing is written before this point, and nothing at all when the sidecar is absent."""
+    probe = _probe(plan.supervision)
+    if not probe.available:
+        raise SidecarUnavailable(f"the sidecar is not available: {probe.detail}")
+
+
+def run(request: IdealizeRequest) -> IdealizeResult:
+    """Run *request*.
+
+    Raises [`RequestRefused`][tether.services.base.RequestRefused] before the sidecar is
+    started and before any write when the request is not valid: an unknown method or
+    condition, a bad state count or grid, a model that exists without ``overwrite``, a
+    project that cannot be opened, or fit options combined with ``stale_only``. Raises
+    [`SidecarUnavailable`][] when the sidecar cannot start, and
+    [`CommandFailed`][tether.services.base.CommandFailed] when the lock cannot be taken or
+    a fit fails.
+    """
+    from tether.project.core import Project
+    from tether.project.lock import LockError
+
+    plan = _plan(request)
+    try:
+        project = Project.open(request.project)
+        project.list_idealizations()
+    except (OSError, ValueError) as exc:
+        raise RequestRefused(f"cannot open {request.project}: {exc}") from exc
+    names, unchanged = _precheck(request, plan, project, keys_given=False)
+    if unchanged is not None:
+        return unchanged
+    _require_sidecar(plan)
+    try:
+        project.acquire_lock()
+    except LockError as exc:
+        raise CommandFailed(f"cannot take the lock of {request.project}: {exc}") from exc
+    try:
+        return _fit(
+            request, plan, project, names, molecule_keys=None, write_guard=None, on_fit=None
+        )
     finally:
         project.release_lock()
+
+
+def run_held(
+    request: IdealizeRequest,
+    project: Project,
+    *,
+    molecule_keys: list[str] | None = None,
+    write_guard: Callable[[], None] | None = None,
+    on_fit: Callable[[int, int], None] | None = None,
+    _runner: Any = None,
+) -> IdealizeResult:
+    """Run *request* on a *project* handle that already holds the project's lock.
+
+    The application's "Idealize project…" (#625) runs the command this way: its window
+    keeps the session lock of the open project, so the command neither takes nor
+    releases a lock, and every write checks the exact lock the handle held when the fit
+    began (``require_held_lock``). The checks, the probe and the fits are those of
+    [`run`][], with the same errors, so the same request stores the same model.
+
+    ``molecule_keys`` replaces the selection by ``conditions`` (the window passes the
+    accepted molecules). ``write_guard`` runs immediately before each model is written,
+    after its sidecar fits: when it raises, that model is not written. ``on_fit`` is
+    called as ``on_fit(done, total)`` before each sidecar fit, ``done`` being the fits
+    already started and ``total`` the fits planned (a restart of the sidecar fits again,
+    so ``done`` can reach ``total``); an error it raises stops the run before that fit.
+    ``_runner`` replaces the module's private sidecar test seam for this run.
+    """
+    plan = _plan(request)
+    names, unchanged = _precheck(request, plan, project, keys_given=molecule_keys is not None)
+    if unchanged is not None:
+        return unchanged
+    _require_sidecar(plan)
+    return _fit(
+        request,
+        plan,
+        project,
+        names,
+        molecule_keys=molecule_keys,
+        write_guard=write_guard,
+        on_fit=on_fit,
+        runner_fn=_runner,
+    )
+
+
+# --- what a front end reads before a fit (read-only) --------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ModelFacts:
+    """One stored model: its rows, its stale rows, and whether it was imported."""
+
+    n_rows: int
+    n_stale: int
+    imported: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class FitFacts:
+    """What the application's "Idealize project…" shows before a fit (#625).
+
+    ``accepted`` maps ``None`` (every condition) and each condition ID to its number of
+    accepted molecule keys. ``conditions`` is empty unless the project holds several.
+    ``sidecar_problem`` is [`sidecar_problem`][]'s answer.
+    """
+
+    conditions: tuple[str, ...]
+    accepted: dict[str | None, int]
+    models: dict[str, ModelFacts]
+    sidecar_problem: str | None
+
+
+def sidecar_problem(sidecar_python: str | None = None) -> str | None:
+    """Why the sidecar interpreter cannot be found, or ``None`` when it can.
+
+    The quick check of the interpreter path
+    ([`resolve_sidecar_python`][tether.idealize.driver.resolve_sidecar_python]); no process
+    starts. A fit still runs the full startup probe before it writes anything.
+    """
+    from tether.idealize.driver import SidecarError, resolve_sidecar_python
+
+    try:
+        resolve_sidecar_python(sidecar_python)
+    except SidecarError as exc:
+        return str(exc)
+    return None
+
+
+def accepted_keys(project: Project, condition: str | None = None) -> list[str]:
+    """Return the ``molecule_key`` of each accepted row (``curation_label`` > 0), in order.
+
+    Each key appears once. With ``condition``, only the keys of that condition
+    ([`Project.molecules_by_condition`][tether.project.core.Project.molecules_by_condition]).
+    """
+    from tether.imaging.extract import read_molecules
+
+    molecules = read_molecules(project.path)
+    keys: list[str] = []
+    for key, label in zip(molecules["molecule_key"], molecules["curation_label"], strict=True):
+        if int(label) > 0:
+            keys.append(key.decode() if isinstance(key, bytes) else str(key))
+    keys = list(dict.fromkeys(keys))
+    if condition is None:
+        return keys
+    members = set(project.molecules_by_condition().get(condition, ()))
+    return [k for k in keys if k in members]
+
+
+def read_fit_facts(project: Project) -> FitFacts:
+    """Read the conditions, the accepted counts, the models and the sidecar of *project*."""
+    from tether.project import idealize as core
+
+    by_condition = project.molecules_by_condition()
+    conditions = tuple(by_condition) if len(by_condition) > 1 else ()
+    every = accepted_keys(project)
+    accepted: dict[str | None, int] = {None: len(every)}
+    for condition in conditions:
+        members = set(by_condition[condition])
+        accepted[condition] = sum(1 for k in every if k in members)
+    models: dict[str, ModelFacts] = {}
+    for name in project.list_idealizations():
+        stored = core.read_idealization(project, name)
+        models[name] = ModelFacts(
+            n_rows=stored.n_molecules,
+            n_stale=len(core.stale_row_ids(project, stored)),
+            imported=stored.nstates_selected_by == _IMPORTED,
+        )
+    return FitFacts(conditions, accepted, models, sidecar_problem())

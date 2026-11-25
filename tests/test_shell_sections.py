@@ -35,6 +35,22 @@ def shell(section_shell):
     return section_shell(project=False)
 
 
+def _project_fit(**choices):
+    """A whole-project fit choice (#625), the default unless *choices* say otherwise."""
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit(**choices)
+
+
+def _no_model():
+    """What a fake whole-project fit returns: a result that wrote no model."""
+    from pathlib import Path as _Path
+
+    from tether.services.idealize import IdealizeResult
+
+    return IdealizeResult(project=_Path("fake.tether"))
+
+
 def _store(tmp_path, *, n=3, t=12, name="sections.tether"):
     from _analysis_store import build_store_with_channels
 
@@ -266,14 +282,14 @@ def test_every_write_seam_stays_disabled_while_idealizing_across_a_switch(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert shell.is_idealizing
         for section_id in (*_SECTIONS, "curate"):
