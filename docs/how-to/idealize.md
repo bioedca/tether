@@ -20,26 +20,23 @@ transition-density and dwell-time analyses read that fit.
   set `TETHER_SIDECAR_PYTHON` to the interpreter it prints. If a fit says that it cannot find
   the sidecar, see [Idealization cannot find the sidecar
   interpreter](../troubleshooting.md#idealization-cannot-find-the-sidecar-interpreter).
-- For a whole-project fit, a terminal where the `tether` command runs
-  ([Command line](../cli.md#launching-tether-after-an-installer-install)).
+- For a fit from the command line instead of the application, a terminal where the `tether`
+  command runs ([Command line](../cli.md#launching-tether-after-an-installer-install)).
 - For a Python script instead, the Python that came with Tether. At the default install
   locations, it is `~/tether/envs/tether/bin/python` on Linux and
   `~/Tether/envs/tether/bin/python` on macOS. On Windows, it is
   `$env:USERPROFILE\Tether\envs\tether\python.exe`. Close the project in the desktop
   application before you run a script on it.
-- Your curation done. Rejected molecules are left out of a fit, so
-  [curate the traces](curate-traces.md) first.
+- Your curation done. The application fits the molecules you accepted. The command line fits
+  every molecule you did not reject. So [curate the traces](curate-traces.md) first.
 - Your corrections done. Changing α or γ after a fit makes it stale, so
   [correct the dataset](apply-corrections.md) first.
 
 ## Choose a method
 
-- **To look at one trace:** press **I** in the desktop application. The status bar calls
-  this the one-click vbFRET fit. But it runs the same consensus VB-HMM as a whole-project fit,
-  on the selected molecule alone. It stores the result under the model name `vbfret`. It is
-  for a look at one trace, not for analysis. So do not report it as a vbFRET fit.
 - **For a population analysis:** fit the whole project with the **consensus VB-HMM**. That is
   one shared model across all molecules. This is Tether's default and what `tether batch` runs.
+  The application offers it first.
   Use it unless you have a reason not to.
 - **For per-molecule state selection under a shared prior:** fit the whole project with
   **ebFRET** instead. It learns a shared prior across the molecules while it chooses states
@@ -48,22 +45,43 @@ transition-density and dwell-time analyses read that fit.
   Fit and edit there. Then bring the result back with **Hand-off → Import return leg…**.
   [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) covers it.
 
-## Look at one trace
+## Fit the whole project in the application
 
 1. Open the project with `tether-gui movie.tether`.
-2. Select a molecule that is not rejected.
-3. Press **I**. The status bar reads `Idealizing` followed by the molecule's ID.
-4. Wait. The first fit after Tether starts is much slower than later ones. The application
-   window stays usable meanwhile.
+2. In the **Curate and correct** section, press **I**, or choose **Idealize → Idealize
+   project…**. The **Idealize project** dialog opens.
+3. Choose the **Method**: **consensus VB-HMM (vbconhmm)** or **ebFRET (ebhmm)**.
+4. Choose the **State count**: **Automatic** tries one to four states and keeps the count with
+   the largest ELBO. **Fixed** uses the count you type.
+5. Choose the **Molecules**: **Accepted molecules** by default. When the project holds several
+   conditions, you can choose the accepted molecules of one condition.
+6. Click **Idealize**. The status bar reads `Idealizing project` and the method.
 
-When the status bar reads `Idealized` and the ID, a stepped line is drawn over the blue
-efficiency trace. The line is black in the light theme and white in the dark theme
+The fit runs in the background. You can still browse the molecules while it runs, but every
+change to the project waits for it. The right end of the status bar shows its progress, one
+step for each state count it fits. **Cancel** there stops the fit before its model is written,
+so the project is unchanged.
+
+When the fit is done, the status bar gives the method, the state count and the molecule count.
+For example:
+
+```text
+Idealized the project with consensus VB-HMM: 2 states, 2 molecules fitted (model vbconhmm)
+```
+
+The model is stored under the name of its method, `vbconhmm` or `ebhmm`. A fit replaces a
+model of the same name, and the dialog says so before you start. A stepped line is drawn over
+the blue efficiency trace of the selected molecule, if the fit included it. The line is black in
+the light theme and white in the dark theme
 ([Application window themes and trace colors](../reference/gui-theme.md#trace-colors)).
 
-Each press stores its fit as the project's `vbfret` model. It replaces whatever that model held
-before. So it never builds up a population fit.
+If the dialog says that the sidecar is not available, **Idealize** stays off. See
+[Idealization cannot find the sidecar interpreter](../troubleshooting.md#idealization-cannot-find-the-sidecar-interpreter).
 
-## Fit the whole project
+The fit is the same as `tether idealize` with the same choices. A fit from the dialog stores
+the same model as `idealize_molecules` with the same arguments.
+
+## Fit the whole project from the command line
 
 1. Close the project in the desktop application.
 2. Run this command:
@@ -119,8 +137,9 @@ stopped for running too long. Then see
 
 ## Check that it worked
 
-1. The command, or the script, prints the model name and its state count. It also prints how
-   many molecules the model covers. The molecule count should match the molecules you did not reject.
+1. The status bar, the command or the script gives the model name and its state count. It also gives how
+   many molecules the model covers. The molecule count should match the molecules you accepted
+   (in the application) or did not reject (from the command line).
 2. The state levels are the FRET efficiencies of the states. They should sit where the plateaus
    in your traces sit.
 3. With `tether batch`, read the end-of-run summary. An `idealize` stage reported `deferred`
@@ -131,7 +150,11 @@ stopped for running too long. Then see
 
 You may have changed α or γ since the fit, for example when you ran the corrections again.
 Then the affected molecules are now *stale*. The transition and dwell-time analyses leave them
-out. Fit the same molecules again:
+out. Fit the same molecules again.
+
+In the application, open **Idealize project…** and choose the method of the model. Select
+**Refit stale only** and click **Idealize**. The dialog says when no molecule of that model is
+stale. From the command line:
 
 ```console
 tether idealize movie.tether --stale-only
@@ -155,7 +178,7 @@ way. For such a model, hand the molecules to tMAVEN again and import the new fit
 
 You may have rejected or un-rejected molecules since the fit. Then `--stale-only` and
 `reidealize` are not enough, because they keep the molecules the model was first fitted on.
-Run the fit you made in [Fit the whole project](#fit-the-whole-project) again. Use the same
+Run the fit you made in [Fit the whole project in the application](#fit-the-whole-project-in-the-application) or [from the command line](#fit-the-whole-project-from-the-command-line) again. Use the same
 settings, and add `--overwrite` (or `overwrite=True`).
 
 A call without the same settings falls

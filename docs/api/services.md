@@ -50,3 +50,5 @@ It needs no write access to `bioedca/tether`.
 ::: tether.services.sources
 
 ::: tether.services.status
+
+::: tether.services.updater

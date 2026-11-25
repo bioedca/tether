@@ -227,6 +227,18 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Oksana Chukova (Zenodo 10.5281/zenodo.18293266)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# MASH-FRET SIRA movies (#905, ADR-0152): the first 16 frames of a test movie of
+# github.com/RNA-FRETools/MASH-FRET at commit 2877992 (frame bytes and header line unchanged,
+# the header's frame count set to 16; scripts/make_sira_reference.py), and its reference TIFF as
+# MASH-FRET's readSira.m reads it. The repository gives the GPL version 3 text with no "or later"
+# statement, so GPL-3.0-only. mash_offsets.sira (MASH-FRET's writer, Tether's frames) and
+# reference.json are Tether's own and keep the blanket licence. See NOTICE and PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/sira/1chan1exc_16.sira", "tests/fixtures/sira/1chan1exc_16_reference.tif"]
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Mélodie C. A. S. Hadzic, RNA-FRETools (github.com/RNA-FRETools/MASH-FRET)"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

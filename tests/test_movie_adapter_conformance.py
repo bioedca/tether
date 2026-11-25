@@ -98,6 +98,14 @@ def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
     return write_sif(tmp / "movie.sif", frames), frames
 
 
+def _sira_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIRA movie of ``tests/_sira_synth.py`` (#905): MASH-FRET stores 32-bit floats."""
+    from _sira_synth import write_sira
+
+    frames = _frames("<f4")
+    return write_sira(tmp / "movie.sira", frames), frames
+
+
 _FAKE_RUNNER = Path(__file__).resolve().with_name("_fake_bioformats_runner.py")
 
 
@@ -142,6 +150,7 @@ CASES = [
         Case("cellSens VSI", _vsi_fake_runner, setup=_use_fake_runner, by_content=False),
         id="vsi-fake-runner",
     ),
+    pytest.param(Case("SIRA", _sira_synthetic), id="sira-synthetic"),
 ]
 
 

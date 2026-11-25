@@ -18,12 +18,17 @@ name: bioformats
 
 on:
   pull_request:
-    # Only the paths that can change a live Bio-Formats result (or this job).
+    # Only the paths that can change a live Bio-Formats result (or this job); the extraction
+    # path is one since the live tests extract through the runner (#1398).
     paths:
       - "bioformats/**"
       - "src/tether/io/adapters.py"
       - "src/tether/io/bioformats.py"
       - "src/tether/io/_bioformats_runner.py"
+      - "src/tether/io/frames.py"
+      - "src/tether/cli.py"
+      - "src/tether/imaging/extract.py"
+      - "src/tether/project/extract.py"
       - "tests/test_*_bioformats.py"
       - "tests/_bioformats_gate.py"
       - "conda-lock.yml"

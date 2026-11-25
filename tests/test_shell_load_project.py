@@ -60,6 +60,22 @@ class _StubWizardDialog:
         return self._produced
 
 
+def _project_fit(**choices):
+    """A whole-project fit choice (#625), the default unless *choices* say otherwise."""
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit(**choices)
+
+
+def _no_model():
+    """What a fake whole-project fit returns: a result that wrote no model."""
+    from pathlib import Path as _Path
+
+    from tether.services.idealize import IdealizeResult
+
+    return IdealizeResult(project=_Path("fake.tether"))
+
+
 def _round_trip_store(tmp_path, *, n=3, t=12, name="rt.tether", seed=1):
     """A real round-trip ``.tether`` (coords + patches) → ``(Project, keys, donor, acceptor)``."""
     from _analysis_store import build_store_with_channels
@@ -642,7 +658,17 @@ def test_deeplasi_import_cannot_replace_the_project_this_shell_holds(shell, tmp_
     assert shell.curation_project is not None
 
 
-def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
+def _sidecar_found(monkeypatch) -> None:
+    """Let the fit's startup probe pass with no sidecar installed (a fake runner fits)."""
+    from tether.idealize.supervisor import ProbeResult
+    from tether.services import idealize as service
+
+    monkeypatch.setattr(service, "_probe", lambda _supervision: ProbeResult(True, "fake"))
+
+
+def test_idealization_rejects_lost_epoch_without_session_reacquire(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
     import threading
 
     from tether.gui.shell import make_store_idealizer
@@ -651,16 +677,16 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
     from tether.project.lock import LockIdentity
 
     project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    project.accept(keys[1])  # the project fit takes the accepted molecules (#625)
     session_project = shell.load_project(project.path)
     assert session_project is not None
+    _sidecar_found(monkeypatch)
     started = threading.Event()
     gate = threading.Event()
     seen_nonces = []
 
     shell._idealizer = make_store_idealizer(
         session_project,
-        nstates=2,
-        require_held_lock=True,
         _runner=_blocking_idealization_runner(
             session_project,
             started,
@@ -668,7 +694,7 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
             seen_nonces,
         ),
     )
-    shell._idealize_current()
+    assert shell.idealize_project(_project_fit(nstates=2))
     try:
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert len(seen_nonces) == 1
@@ -695,30 +721,31 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
 
     assert list_idealizations(project) == []
-    assert "Idealize failed" in shell.status_message
+    assert "Idealize project failed" in shell.status_message
     assert project.lock_owner() is None
     assert shell.curation_project is None
     assert project.curation_label(keys[0]) == 0
 
 
 def test_idealization_survives_legitimate_same_epoch_session_refresh(
-    shell, qtbot, tmp_path
+    shell, qtbot, tmp_path, monkeypatch
 ) -> None:
     import threading
 
     from tether.gui.shell import make_store_idealizer
     from tether.project.idealize import list_idealizations
 
-    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    for key in keys:
+        project.accept(key)
     session_project = shell.load_project(project.path)
     assert session_project is not None
+    _sidecar_found(monkeypatch)
     started = threading.Event()
     gate = threading.Event()
     seen_nonces = []
     shell._idealizer = make_store_idealizer(
         session_project,
-        nstates=2,
-        require_held_lock=True,
         _runner=_blocking_idealization_runner(
             session_project,
             started,
@@ -727,7 +754,7 @@ def test_idealization_survives_legitimate_same_epoch_session_refresh(
         ),
     )
 
-    shell._idealize_current()
+    assert shell.idealize_project(_project_fit(nstates=2))
     try:
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert len(seen_nonces) == 1
@@ -739,8 +766,8 @@ def test_idealization_survives_legitimate_same_epoch_session_refresh(
         gate.set()
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
 
-    assert list_idealizations(project) == ["vbfret"]
-    assert "Idealized" in shell.status_message
+    assert list_idealizations(project) == ["vbconhmm"]
+    assert "Idealized the project" in shell.status_message
     assert session_project.lock_owner() == refreshed
 
 
@@ -1229,25 +1256,6 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     assert "Un-rejected" not in shell.status_message
 
 
-def test_one_click_idealize_skips_rejected_selection(shell, qtbot, tmp_path) -> None:
-    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
-    assert shell.load_project(project.path) is not None
-    shell.molecule_list.setCurrentRow(1)
-    shell.curation_project.reject(keys[1])
-    calls: list[str] = []
-
-    def idealize(molecule_key):
-        calls.append(molecule_key)
-        return np.full(12, 0.5)
-
-    shell._idealizer = idealize
-    shell._idealize_current()
-    qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
-
-    assert calls == []
-    assert "rejected" in shell.status_message
-
-
 def test_curation_without_selection_adds_no_row_and_reports_action(shell, qtbot, tmp_path) -> None:
     from pyqtgraph.Qt import QtCore
 
@@ -1349,14 +1357,14 @@ def test_curation_waits_for_background_idealization(shell, qtbot, tmp_path) -> N
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
 
@@ -1406,14 +1414,14 @@ def test_every_source_writer_waits_for_background_idealization(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
 
         assert shell.import_return_leg(tmp_path / "return.hdf5") is None
@@ -1453,20 +1461,18 @@ def test_close_retains_session_lock_until_background_idealization_finishes(
 ) -> None:
     import threading
 
-    from pyqtgraph.Qt import QtCore
-
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
-    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    assert shell.idealize_project(_project_fit())
     qtbot.waitUntil(started.is_set, timeout=2000)
 
     shell.close()
@@ -1484,8 +1490,6 @@ def test_close_retries_release_after_background_idealization(
 ) -> None:
     import threading
 
-    from pyqtgraph.Qt import QtCore
-
     from tether.project.core import Project
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
@@ -1493,13 +1497,13 @@ def test_close_retries_release_after_background_idealization(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
-    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    assert shell.idealize_project(_project_fit())
     qtbot.waitUntil(started.is_set, timeout=2000)
     running = shell._idealize_future
     original_release = Project.release_lock
@@ -1744,6 +1748,7 @@ def test_file_menu_exposes_open_close_and_quit(shell) -> None:
         "&Close project",
         "Save as &recipe…",
         "Curator &name…",
+        "Reopen &last project at start",
         "&Quit",
     ]
 

@@ -399,6 +399,49 @@ def test_guarded_writer_stages_outside_canonical_project(tmp_path) -> None:
     assert not list(tmp_path.glob(".guarded.tether.*.idealization.tmp"))
 
 
+def test_a_held_lock_lost_during_the_staged_write_keeps_the_successors_save(tmp_path) -> None:
+    """With a caller's guard and ``require_held_lock``, both checks hold at every staged boundary.
+
+    The caller's guard alone (a cancel check, #625) passes, so it is the composed
+    held-lock check that must refuse the replace once a successor owns and saves.
+    """
+    from tether.project.lock import LockedError
+
+    proj, _ = _build_store(
+        tmp_path / "held.tether",
+        _step_trace(2, 20),
+        _step_trace(2, 20),
+    )
+    stolen = False
+
+    def cancel_check_only() -> None:
+        nonlocal stolen
+        if not stolen and list(tmp_path.glob(".held.tether.*.idealization.tmp")):
+            # A successor takes the project over and saves while the model is staged.
+            proj.lock_path.unlink()
+            with h5py.File(proj.path, "r+") as store:
+                store["settings"].attrs["successor_sentinel"] = "preserve"
+            stolen = True
+
+    proj.acquire_lock()
+    try:
+        with pytest.raises(LockedError):
+            idealize_molecules(
+                proj,
+                nstates=2,
+                require_held_lock=True,
+                write_guard=cancel_check_only,
+                _runner=_make_runner({2: -1.0}, []),
+            )
+    finally:
+        proj.release_lock()
+    assert stolen
+    assert list_idealizations(proj) == []
+    with h5py.File(proj.path, "r") as store:
+        assert store["settings"].attrs["successor_sentinel"] == "preserve"
+    assert not list(tmp_path.glob(".held.tether.*.idealization.tmp"))
+
+
 def test_input_hash_matches_windowed_corrected_trace(tmp_path) -> None:
     n, t = 2, 24
     donor = _step_trace(n, t)
@@ -836,10 +879,20 @@ def test_idealization_rechecks_lock_after_runner_before_store_write(tmp_path) ->
             assert lock.release(proj.path, foreign_lock)
 
 
-def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path) -> None:
+def _gui_sidecar_found(monkeypatch) -> None:
+    """Let the project fit's startup probe pass; the fake runner does the fitting."""
+    from tether.idealize.supervisor import ProbeResult
+    from tether.services import idealize as service
+
+    monkeypatch.setattr(service, "_probe", lambda _supervision: ProbeResult(True, "fake"))
+
+
+def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path, monkeypatch) -> None:
+    from tether.gui.idealize_project import ProjectFit
     from tether.gui.shell import make_store_idealizer
     from tether.project import lock
-    from tether.project.lock import LockedError, LockIdentity
+    from tether.project.lock import LockIdentity
+    from tether.services.base import CommandFailed
 
     n, t = 2, 20
     proj, keys = _build_store(
@@ -847,7 +900,9 @@ def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path) -> No
         _step_trace(n, t),
         _step_trace(n, t) * 0.5,
     )
+    proj.accept(keys[0])
     proj.acquire_lock()
+    _gui_sidecar_found(monkeypatch)
     foreign = LockIdentity(host="OTHER-HOST", user="other", pid=999)
     base_runner = _make_runner({2: -3.0}, [])
 
@@ -857,19 +912,18 @@ def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path) -> No
         assert lock.release(proj.path, stolen)
         return result
 
-    idealizer = make_store_idealizer(
-        proj,
-        nstates=2,
-        require_held_lock=True,
-        _runner=steal_and_release_runner,
-    )
-    with pytest.raises(LockedError):
-        idealizer(keys[0])
+    idealizer = make_store_idealizer(proj, _runner=steal_and_release_runner)
+    with pytest.raises(CommandFailed, match="locked"):
+        idealizer(ProjectFit(nstates=2))
     assert list_idealizations(proj) == []
 
 
-def test_store_idealizer_project_handle_does_not_imply_retained_session(tmp_path) -> None:
+def test_the_gui_project_fit_refuses_a_handle_that_holds_no_lock(tmp_path, monkeypatch) -> None:
+    # The window's project fit always runs on its retained session (#625): a handle that
+    # holds no lock is refused before anything is written.
+    from tether.gui.idealize_project import ProjectFit
     from tether.gui.shell import make_store_idealizer
+    from tether.services.base import CommandFailed
 
     n, t = 2, 20
     proj, keys = _build_store(
@@ -877,16 +931,12 @@ def test_store_idealizer_project_handle_does_not_imply_retained_session(tmp_path
         _step_trace(n, t),
         _step_trace(n, t) * 0.5,
     )
-
-    idealized = make_store_idealizer(
-        Project.open(proj.path),
-        nstates=2,
-        _runner=_make_runner({2: -3.0}, []),
-    )(keys[0])
-
-    assert idealized is not None
-    assert idealized.shape == (t,)
-    assert list_idealizations(proj) == ["vbfret"]
+    proj.accept(keys[0])
+    _gui_sidecar_found(monkeypatch)
+    idealizer = make_store_idealizer(Project.open(proj.path), _runner=_make_runner({2: -3.0}, []))
+    with pytest.raises(CommandFailed):
+        idealizer(ProjectFit(nstates=2))
+    assert list_idealizations(proj) == []
 
 
 def test_idealize_excludes_rejected_rows_unless_explicitly_included(tmp_path) -> None:

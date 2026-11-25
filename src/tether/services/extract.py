@@ -53,7 +53,7 @@ class ExtractRequest(ExtractionFields, Request):
     Attributes
     ----------
     movie
-        Path to the dual-channel movie (TIFF or ND2).
+        Path to the dual-channel movie (TIFF, CZI or ND2).
     output
         Path to the ``.tether`` project to create.
     overwrite
@@ -65,6 +65,11 @@ class ExtractRequest(ExtractionFields, Request):
         Path to a Deep-LASI ``.tdat`` whose particle-detection mode is applied, or ``None``.
     map_path
         Path to a saved Tether ``.npz`` map file to apply instead of a native fit, or ``None``.
+    map_optics
+        With ``map_path``: the optics text of this movie (``--optics``), compared with the
+        map's own by the reuse check (#916), or ``None``.
+    confirm_optics
+        With ``map_path``: use the map although its optics text differs (``--confirm-optics``).
     count_only
         Count the molecules of each colocalization rule and write nothing.
     """
@@ -80,6 +85,8 @@ class ExtractRequest(ExtractionFields, Request):
     tmap: str | None = None
     tdat: str | None = None
     map_path: str | None = None
+    map_optics: str | None = None
+    confirm_optics: bool = False
     count_only: bool = False
 
 
@@ -140,6 +147,8 @@ def run(request: ExtractRequest) -> ExtractResult:
                 tdat=request.tdat,
                 map_path=request.map_path,
                 overwrite=request.overwrite,
+                map_optics=request.map_optics,
+                confirm_optics=request.confirm_optics,
                 publish_guard=guard,
             )
     except (ExtractionError, LockError, OSError) as exc:

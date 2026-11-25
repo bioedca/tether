@@ -15,7 +15,10 @@ the page to the code:
   the attestations endpoint and the two Sigstore trust-root services. The page names them
   only once something in the application calls the verifier. While nothing does, the page
   says the bundled ``gh`` never runs; the moment a module calls it, the last test here fails
-  until the page names every host the verifier contacts (#331 is expected to be first).
+  until the page names every host the verifier contacts (#1379 was first);
+* the download of **Install update** (#1379, [`tether.gui.update_download`][]): the page names
+  its URL prefix, the release-asset host it may be redirected to, and each header of the
+  request it builds.
 
 Stdlib only; no Qt and no network.
 """
@@ -27,7 +30,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from tether.gui import update_check, update_verify
+from tether.gui import update_check, update_download, update_verify
 
 _REPO = Path(__file__).resolve().parents[1]
 PRIVACY = _REPO / "docs" / "privacy.md"
@@ -74,7 +77,7 @@ def test_the_page_names_the_url_of_the_update_check() -> None:
     assert request.get_method() == "GET"
     assert request.full_url == update_check.LATEST_RELEASE_API
     assert f"`GET {request.full_url}`" in section
-    assert "only host the application contacts" in section
+    assert "This is the only request the check makes." in section
 
 
 def test_the_page_names_every_header_the_update_check_sends() -> None:
@@ -94,7 +97,7 @@ def test_the_page_says_the_check_is_off_until_the_user_turns_it_on() -> None:
     section = _app_section()
     assert "it is off until you turn it on" in section
     assert "Until you answer yes, Tether makes no network request at all." in section
-    assert "downloads nothing and installs nothing" in section
+    assert "downloads nothing and installs nothing** until you select **Install update**" in section
 
 
 def _calls_the_verifier(source: str) -> bool:
@@ -142,3 +145,26 @@ def test_the_page_names_the_verifier_hosts_once_anything_calls_the_verifier() ->
         f"{', '.join(missing)} and drop the sentence {VERIFIER_NEVER_RUNS!r}"
     )
     assert VERIFIER_NEVER_RUNS not in section
+
+
+def test_the_page_names_the_download_and_every_header_it_sends(tmp_path: Path) -> None:
+    from tether.gui.update_check import parse_version
+
+    recorder = _Recorder()
+    version = parse_version("1.0.1")
+    result = update_download.download_installer(
+        version, tag="Windows-x86_64.exe", workroot=tmp_path, opener=recorder
+    )  # type: ignore[arg-type]
+    assert result.outcome is update_download.DownloadOutcome.FAILED
+    request = recorder.request
+    assert request is not None and request.get_method() == "GET"
+    section = _app_section()
+    assert request.full_url.startswith(update_download.DOWNLOAD_BASE)
+    assert f"`GET {update_download.DOWNLOAD_BASE}v<version>/<installer file>`" in section
+    assert f"`{update_download.ASSET_HOST}`" in section
+    spelled = {"accept": "Accept", "user-agent": "User-Agent"}
+    sent = [f"{spelled[name.lower()]}: {value}" for name, value in request.header_items()]
+    assert sorted(sent) == ["Accept: application/octet-stream", "User-Agent: Tether"]
+    for header in (*sent, *STDLIB_HEADERS):
+        assert f"`{header}`" in section, header
+    assert "`Tether-1.0.1-Windows-x86_64.exe`" in section

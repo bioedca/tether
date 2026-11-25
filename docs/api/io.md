@@ -35,6 +35,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.movie
 
+::: tether.io.movie_identity
+
 ::: tether.io.nd2
 
 ::: tether.io.pair
@@ -44,5 +46,7 @@ It needs no write access to `bioedca/tether`.
 ::: tether.io.schema
 
 ::: tether.io.sif
+
+::: tether.io.sira
 
 ::: tether.io.tdat

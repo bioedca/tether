@@ -6,7 +6,7 @@
 things:
 
 * the **plot** — one entry of the plot registry ([`tether.services.plots.PLOTS`][]), one for
-  each of the fifteen population plot functions, with the idealization model and the states a
+  each of the sixteen population plot functions, with the idealization model and the states a
   model-derived plot reads;
 * the **layer list** — an ordered list of named series, each a selection of molecules
   ([ADR-0124](../adr/0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md)).
