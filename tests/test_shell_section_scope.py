@@ -240,7 +240,11 @@ def test_a_release_after_a_switch_is_consumed_with_its_press(shell) -> None:
 def test_the_text_entry_exemption_is_unchanged_in_curate(shell) -> None:
     from pyqtgraph.Qt import QtCore
 
-    field = shell.category_field
+    from tether.gui.category_editor import CategoryEditor
+
+    field = CategoryEditor(
+        "c", [], usage=len, add=None, rename=None, remove=None, move=None, parent=shell.window
+    ).name_field
     assert shell.section == "curate"
     consumed = shell.event_filter.filter_event(
         field, _key_event(QtCore.Qt.Key.Key_Space), focus_widget=field
