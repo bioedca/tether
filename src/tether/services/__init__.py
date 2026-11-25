@@ -40,6 +40,7 @@ from tether.services.profile import (
     read_profile,
     write_profile,
 )
+from tether.services.reextract import ReextractRequest, ReextractResult
 from tether.services.registry import (
     COMMANDS,
     ServiceCommand,
@@ -63,6 +64,8 @@ __all__ = [
     "ExtractionProfile",
     "MapCreateRequest",
     "MapCreateResult",
+    "ReextractRequest",
+    "ReextractResult",
     "Request",
     "RequestError",
     "RequestRefused",
