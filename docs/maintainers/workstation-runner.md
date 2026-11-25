@@ -331,11 +331,14 @@ other golden files. The script prints neutral ids and numbers only.
 The weekly run also compares Tether with the Deep-LASI results of more acquisitions than video
 010 (`tests/test_deeplasi_agreement.py`, ADR-0115). It has three checks:
 
-- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`. Tether extracts the
-  movie with the map file and the detection settings of the saved Deep-LASI state. The
-  oracle (a) scorer compares the result with the Deep-LASI export. Each id passes or fails
-  alone, at the oracle (a) limits. The numbers are `matched_fraction`, `position_rms_px`,
-  `donor_pearson_median`, `acceptor_pearson_median`, `precision` and the counts.
+- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`. First the check
+  compares the SHA-256 of the movie with the `movie` input of the id's `window` record. A
+  different movie, or a record with no `movie` input, fails with the id and the role `movie`
+  (#1115). Then Tether extracts the movie with the map file and the detection settings of the
+  saved Deep-LASI state. The oracle (a) scorer compares the result with the Deep-LASI export.
+  Each id passes or fails alone, at the oracle (a) limits. The numbers are `matched_fraction`,
+  `position_rms_px`, `donor_pearson_median`, `acceptor_pearson_median`, `precision`, the counts,
+  and `movie_check_s` (the seconds of the movie comparison).
 - **Corrected FRET**, for the ids above and `lab-01`, `lab-13`, `dlexp-01` and `dlexp-02`.
   Tether's correction chain runs on the traces of each export. Its corrected FRET is compared
   with Deep-LASI's, on the export's own factors. The numbers are recorded, and there is no agreement limit.
@@ -395,7 +398,8 @@ python scripts/reference/matlab/deep_lasi.py freeze <export.mat> --out <data fol
 ```
 
 The record says that no scripted run made the file, and gives the date of the export file.
-Give only the inputs that exist for the id.
+Give only the inputs that exist for the id. A spots-and-traces id needs `--input movie=`: its
+check compares the movie with that input.
 
 Make the `rerun` folder with the scripted run, from a clean clone of Deep-LASI at the pinned
 commit:

@@ -158,8 +158,43 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
 @pytest.mark.gui
 @_needs_napari
 @_needs_gl
+def test_panel_displays_an_nd2_movie_frame_by_frame(qtbot, tmp_path: Path) -> None:
+    """An ND2 source shows through a lazy view: a frame step reads that frame only (#1388)."""
+    from _nd2_synth import write_nd2  # noqa: PLC0415
+    from tether.io.adapters import open_movie_source  # noqa: PLC0415
+    from tether.io.frames import FrameView  # noqa: PLC0415
+
+    frames = np.random.default_rng(1388).integers(0, 4000, size=(6, 8, 10)).astype("<u2")
+    path = write_nd2(tmp_path / "movie.nd2", frames)
+    with open_movie_source(path) as source, NapariMoviePanel() as panel:
+        reads: list[tuple[int, int]] = []
+        real = source.read_frames
+
+        def _spy(start: int, stop: int) -> np.ndarray:
+            reads.append((start, stop))
+            return real(start, stop)
+
+        source.read_frames = _spy  # type: ignore[method-assign]
+        layer = panel.set_movie(source)
+        assert isinstance(layer.data, FrameView)
+        assert tuple(layer.data.shape) == frames.shape
+        assert _is_native(layer.data.dtype)
+        assert list(layer.contrast_limits) == [int(frames[0].min()), int(frames[0].max())]
+
+        reads.clear()
+        panel._viewer.dims.set_current_step(0, 4)
+        qtbot.wait(10)
+        assert reads, "the frame step read nothing"
+        assert all(stop - start == 1 for start, stop in reads), reads
+        assert (4, 5) in reads
+        np.testing.assert_array_equal(np.asarray(layer._slice.image.raw), frames[4])
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
 def test_panel_rejects_non_movie_reader(qtbot) -> None:  # qtbot: ensure a QApplication
-    with NapariMoviePanel() as panel, pytest.raises(TypeError, match="MovieReader"):
+    with NapariMoviePanel() as panel, pytest.raises(TypeError, match="movie source"):
         panel.set_movie(np.zeros((3, 4, 4), dtype=np.uint16))  # type: ignore[arg-type]
 
 
