@@ -502,8 +502,6 @@ def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsse
             raise MapFileError(f"{path.name} is a version-{version} map file that lacks {missing}")
         try:
             layout_raw = json.loads(str(data["channel_layout_json"]))
-            if layout_raw is not None and not isinstance(layout_raw, dict):
-                raise TypeError("channel_layout_json must hold one JSON object or null")
             quality = json.loads(str(data["quality_json"]))
             if quality is not None and not isinstance(quality, dict):
                 raise TypeError("quality_json must hold one JSON object or null")
@@ -546,12 +544,9 @@ def map_asset_from_tmap(
     from tether.imaging.register import read_tmap  # noqa: PLC0415
 
     tmap_path = Path(tmap_path)
-    content = tmap_path.read_bytes()  # one read: the digest names the bytes decoded
-    digest = hashlib.sha256(content).hexdigest()
+    digest = hashlib.sha256(tmap_path.read_bytes()).hexdigest()
     reg_map = registration_map_from_tmap(
-        read_tmap(tmap_path, content=content),
-        app_version=tether.__version__,
-        source_file=tmap_path.name,
+        read_tmap(tmap_path), app_version=tether.__version__, source_file=tmap_path.name
     )
     asset = MapAsset.from_registration_map(reg_map, optics=optics, pixel_size_um=pixel_size_um)
     return replace(asset, source_ids=(f"sha256:{digest}",), quality=None)

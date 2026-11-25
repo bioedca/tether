@@ -721,14 +721,6 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
         missing = [key for key in _MAP_REQUIRED_KEYS if key not in data.files]
         if missing:
             raise MapFileError(f"{path.name} is not a Tether map file: it lacks {missing}")
-        if version >= 2:  # a version-2 file carries the asset record too (ADR-0146)
-            from tether.imaging.map_asset import _ASSET_KEYS  # noqa: PLC0415
-
-            lacking = [key for key in _ASSET_KEYS if key not in data.files]
-            if lacking:
-                raise MapFileError(
-                    f"{path.name} is a version-{version} map file that lacks {lacking}"
-                )
         try:
             provenance = _provenance_from_json(str(data["provenance_json"]))
             if not isinstance(provenance, dict):

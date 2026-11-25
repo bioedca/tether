@@ -188,24 +188,6 @@ def test_a_version_2_file_without_a_record_array_is_refused(tmp_path, fitted) ->
         load_map_asset(tmp_path / "no-optics.npz")
 
 
-def test_load_map_also_refuses_a_version_2_file_without_its_record(tmp_path, fitted) -> None:
-    _, _, reg_map = fitted
-    np.savez(tmp_path / "bare-v2.npz", **calibrate._map_arrays(reg_map))  # version 2, no record
-    with pytest.raises(MapFileError, match=r"bare-v2.npz is a version-2 map file that lacks"):
-        calibrate.load_map(tmp_path / "bare-v2.npz")
-
-
-def test_a_layout_record_that_is_not_an_object_is_refused(tmp_path, fitted) -> None:
-    _, _, reg_map = fitted
-    path = save_map_asset(_asset(reg_map), tmp_path / "m.npz")
-    with np.load(path, allow_pickle=False) as data:
-        arrays = {k: data[k] for k in data.files}
-    arrays["channel_layout_json"] = np.array("[]")
-    np.savez(tmp_path / "list-layout.npz", **arrays)
-    with pytest.raises(MapFileError, match="does not decode"):
-        load_map_asset(tmp_path / "list-layout.npz")
-
-
 @pytest.mark.parametrize("version", [None, 1])
 def test_an_older_map_file_reads_with_a_derived_record(tmp_path, fitted, version) -> None:
     _, _, reg_map = fitted
@@ -428,16 +410,8 @@ def test_a_tmap_becomes_an_asset_of_origin_tmap_with_no_quality(monkeypatch, tmp
 
     tmap = tmp_path / "run.tmap"
     tmap.write_bytes(b"a stand-in for the .tmap bytes")
-    decoded = []
-
-    def fake_read_tmap(path, *, content=None):
-        decoded.append(content)
-        return _tmap_channels()
-
-    monkeypatch.setattr(register_module, "read_tmap", fake_read_tmap)
+    monkeypatch.setattr(register_module, "read_tmap", lambda path: _tmap_channels())
     asset = map_asset_from_tmap(tmap, optics="60x")
-    # The transform is decoded from the same bytes the source id names.
-    assert decoded == [tmap.read_bytes()]
     assert asset.origin == MAP_ORIGIN_TMAP
     assert asset.quality is None
     assert asset.source_ids == (f"sha256:{_bytes_sha(tmap)}",)

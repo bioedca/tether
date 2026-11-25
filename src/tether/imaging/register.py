@@ -792,7 +792,7 @@ def _read_poly(arr: np.ndarray, cell_index: int) -> PolyTransform2D:
     )
 
 
-def read_tmap(path: str | Path, *, content: bytes | None = None) -> dict[int, TmapChannel]:
+def read_tmap(path: str | Path) -> dict[int, TmapChannel]:
     """Decode a Deep-LASI ``.tmap`` into ``{channel_id: TmapChannel}``.
 
     Resolves the MCOS ``PolynomialTransformation2D`` coefficients without MATLAB.
@@ -801,12 +801,8 @@ def read_tmap(path: str | Path, *, content: bytes | None = None) -> dict[int, Tm
     which rank-zip onto the four polynomial property cells (MCOS stores objects of
     one class consecutively in creation/id order). Decoded transforms are in the
     file's native MATLAB 1-based pixel frame.
-
-    ``content`` is the file's bytes when the caller has already read them, for example
-    to hash them: the ``.tmap`` is then decoded from those bytes and ``path`` only names
-    the file in messages, so the digest and the transform come from one snapshot.
     """
-    data = sio.loadmat(str(path) if content is None else BytesIO(content))
+    data = sio.loadmat(str(path))
     if "m" not in data:
         raise ValueError(f"{path}: not a Deep-LASI .tmap (no 'm' cell)")
     cells = data["m"]
