@@ -346,11 +346,21 @@ def test_the_repr_names_the_file_and_its_shape() -> None:
         )
 
 
-def test_the_extraction_path_still_reads_only_tiff() -> None:
-    """``open_movie`` keeps its TIFF-only refusal until its callers read through read_frames."""
-    from tether.io.movie import open_movie
+def test_extraction_refuses_czi_by_name_until_it_is_checked() -> None:
+    """Extraction reads only the readers in ``EXTRACTED_CONTAINERS`` (#1388); CZI is #1390.
 
-    with pytest.raises(UnsupportedContainerError, match="extraction reads only TIFF"):
+    The TIFF-only ``open_movie`` also keeps its refusal for the steps that read only TIFF.
+    """
+    from tether.io.frames import open_extraction_movie
+    from tether.io.movie import EXTRACTED_CONTAINERS, open_movie
+
+    assert "CZI" not in EXTRACTED_CONTAINERS
+    with (
+        pytest.raises(UnsupportedContainerError, match="extraction does not read CZI yet"),
+        open_extraction_movie(CZI / "movie_raw_16x16x4.czi"),
+    ):
+        pass
+    with pytest.raises(UnsupportedContainerError, match="this step reads only TIFF"):
         open_movie(CZI / "movie_raw_16x16x4.czi")
 
 
