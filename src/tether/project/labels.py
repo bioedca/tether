@@ -102,6 +102,7 @@ __all__ = [
     "reject",
     "reject_record_of",
     "rejected_molecule_keys",
+    "restore_curation",
     "set_curation_label",
     "unreject",
 ]
@@ -207,6 +208,7 @@ def set_curation_label(
     weight: float | None = None,
     source_file: str | None = None,
     timestamp: str | None = None,
+    pending: bool | None = None,
 ) -> np.ndarray:
     """Append a ``/labels`` event row and (for a human label) set ``curation_label``.
 
@@ -250,6 +252,12 @@ def set_curation_label(
         An **offset-aware** ISO-8601 stamp; defaults to the current UTC time.
         Validated before any write (rejected if unparseable or naive). Injectable
         for tests.
+    pending:
+        What a human label does to a carried label's review (ADR-0136). ``None``
+        (default): a clear marks it pending again and an accept or reject confirms it.
+        ``True`` marks it pending and ``False`` confirms it, whatever ``label`` is, so
+        [`restore_curation`][] can write back a state that an undo restores (#632).
+        No effect on a molecule that carries no label.
 
     Returns
     -------
@@ -340,21 +348,22 @@ def set_curation_label(
 
             carried = label_reviews_in(f)
             rows = {i: mol_table[i] for i in idx}
-            clearing = label == CurationLabel.UNCURATED
-            event = PENDING_LABEL_REVIEW if clearing else n0
+            mark_pending = label == CurationLabel.UNCURATED if pending is None else pending
+            event = PENDING_LABEL_REVIEW if mark_pending else n0
             reviews = {
                 mid: event
                 for row in rows.values()
                 if (mid := _to_str(row["molecule_id"])) in carried
             }
-            # A clear must exclude the carried row before it can fall back to an
-            # old seed. Accept and reject confirm only after writing curation.
-            if clearing:
+            # A clear (or a restored pending mark) must exclude the carried row before it
+            # can fall back to an old seed. Accept and reject confirm only after writing
+            # curation.
+            if mark_pending:
                 append_label_reviews(f, reviews)
             for i, row in rows.items():
                 row["curation_label"] = int(label)
                 mol_table[i] = row
-            if not clearing:
+            if not mark_pending:
                 append_label_reviews(f, reviews)
 
     return label_row[0].copy()
@@ -496,6 +505,57 @@ def unreject(
     return row
 
 
+def restore_curation(
+    path: str | Path,
+    molecule_key: str,
+    label: CurationLabel | int,
+    *,
+    pending: bool | None = None,
+    reason: str = REJECT_REASON_UNSPECIFIED,
+    note: str = "",
+    value: float | None = None,
+    restore_note: str = "",
+    **provenance: object,
+) -> list[np.ndarray]:
+    """Write ``label`` back as the molecule's human curation state, by new events only (#632).
+
+    The writer behind an undo or redo of an accept, reject or un-reject. It never deletes or
+    rewrites a ``/labels`` row: the log gains the rows that bring the molecule to ``label``.
+
+    * ``REJECT`` — one [`reject`][] with ``reason``, ``note`` and ``value``, so the reason
+      row of the restored reject is the one the molecule had.
+    * ``UNCURATED`` or ``ACCEPT`` on a rejected molecule — an [`unreject`][] first, which
+      logs its ``"restore"`` row with ``restore_note``; then, for ``ACCEPT``, one accept.
+    * ``UNCURATED`` or ``ACCEPT`` on any other molecule — one [`set_curation_label`][].
+
+    ``pending`` is the carried-label review state to restore (``None``: the writer's
+    default; see [`set_curation_label`][]). ``provenance`` passes through to each write.
+    Returns the appended ``/labels`` rows, oldest first.
+    """
+    target = CurationLabel(label)
+    if target == CurationLabel.REJECT:
+        row = reject(
+            path,
+            molecule_key,
+            reason=reason,
+            note=note,
+            value=value,
+            pending=pending,
+            **provenance,
+        )
+        return [row]
+    rows: list[np.ndarray] = []
+    if curation_label_of(path, molecule_key) == CurationLabel.REJECT:
+        cleared = pending if target == CurationLabel.UNCURATED else None
+        row = unreject(path, molecule_key, note=restore_note, pending=cleared, **provenance)
+        if row is not None:
+            rows.append(row)
+        if target == CurationLabel.UNCURATED:
+            return rows
+    rows.append(set_curation_label(path, molecule_key, target, pending=pending, **provenance))  # type: ignore[arg-type]
+    return rows
+
+
 # --- readers / queries -------------------------------------------------------
 
 
@@ -531,9 +591,10 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     ``labeler`` and ``timestamp``. ``None`` when the molecule is not currently rejected,
     or when its current reject has no reason row (a store written before #932, a reject
     written straight through [`set_curation_label`][], or a crash between the two
-    writes, or two human rejects of the molecule that share the same ``labeler`` and
-    ``timestamp``, so the join cannot tell them apart) — an earlier reject's reason is
-    never returned for a later decision. Raises `KeyError` if ``molecule_key`` is absent.
+    writes, or two human rejects or two ``"reject"`` reason rows of the molecule that share
+    the same ``labeler`` and ``timestamp``, so the join cannot tell them apart) — an
+    earlier reject's reason is never returned for a later decision. Raises `KeyError` if
+    ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
@@ -560,16 +621,17 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     if same_join > 1:
         return None  # the join key names more than one reject: no reason can be attributed
     log = read_reject_log(path)
-    for i in range(log.shape[0] - 1, -1, -1):
-        row = log[i]
-        if (
-            _to_str(row["molecule_key"]) == molecule_key
-            and _to_str(row["event"]) == REJECT_EVENT
-            and _to_str(row["labeler"]) == who
-            and _to_str(row["timestamp"]) == when
-        ):
-            return row.copy()
-    return None
+    reasons = [
+        row
+        for row in log
+        if _to_str(row["molecule_key"]) == molecule_key
+        and _to_str(row["event"]) == REJECT_EVENT
+        and _to_str(row["labeler"]) == who
+        and _to_str(row["timestamp"]) == when
+    ]
+    # Two reason rows of one join (a merge-back of a join a later pull made ambiguous, #1291)
+    # cannot say which reject each belongs to, so neither is attributed.
+    return reasons[0].copy() if len(reasons) == 1 else None
 
 
 def curation_labels(path: str | Path) -> dict[str, int]:

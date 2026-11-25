@@ -4,10 +4,10 @@ description: "What Tether and this documentation site collect and do not collect
 
 # Privacy policy
 
-**Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
-needed to read it or to rely on it.
+**Who this page is for.** Anyone who runs Tether or visits this site. You need no repository
+access to read this policy or to rely on it.
 
-**Effective date: 19 November 2026**
+**Effective date: 25 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -16,59 +16,106 @@ This policy describes how the **Tether** project handles data. It covers both th
 
 In short: **Tether does not transmit or sell your personal data.** The application
 processes your research data locally on your own computer; you choose its persistent
-storage, and temporary idealization files are described below. The only network request
-the application can make is an optional check for a newer release, which is **off until
-you allow it** (below).
+storage, and temporary idealization files are described below. The only network requests
+the application can make are an optional check for a newer release and, when you select
+**Install update**, the download and check of that release. They are **off until you allow
+them** (below).
 
 ## The desktop application
 
 - **Local-only processing.** Tether analyzes your microscopy movies and single-molecule
-  FRET data entirely on your own machine. Your data — image movies, `.tether` project
-  files, exported results — stays on your computer (or wherever you choose to save it).
-  During idealization, selected traces are copied to your operating system's temporary
-  directory for local processing; Tether normally removes this scratch directory when the
-  run finishes.
-- **No telemetry or analytics.** The application contains no usage tracking, no analytics,
-  no crash/telemetry reporting, no advertising, and no account or login. It makes **no
-  network connection** as part of normal analysis; it neither sends your data to us or to
-  any third party, nor "phones home". The one exception is the optional check for a newer
-  release described next, and it is off until you allow it.
-- **Optional check for a newer release (off by default).** At its first start, the
-  application asks in a bar at the top of the window whether it may check for a newer
-  release. **Until you answer yes, it makes no network request at all.** If you never
-  answer, it never makes one. If you answer yes, it sends **one** request to GitHub each
-  time it starts:
-  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. The request is
-  unauthenticated HTTPS. GitHub necessarily sees your computer's **IP address**, the time
-  and the user-agent `Tether`. The GitHub General Privacy Statement linked below applies to
-  it, and the Tether project does not receive its data. Tether adds **nothing** to the
-  request: no account, no installation id, no version number, no usage data and no
-  telemetry. It sends nothing about your computer, your projects or your data. From the
-  answer it reads only the version number of the newest release. If that is newer than your
-  copy, a notice links to the Releases page. It **downloads nothing and installs nothing**.
-  You download a new release yourself. If the request fails, for example with no network or
-  a timeout, nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
+  FRET data entirely on your own machine. Your data stays on your computer, or wherever
+  you choose to save it. That data is your image movies, your `.tether` project files and your
+  exported results. During idealization, Tether copies selected traces to the temporary
+  directory of your operating system for local processing. Tether normally removes this
+  scratch directory when the run finishes.
+- **No telemetry or analytics.** Tether has no usage tracking, no analytics, no crash
+  reporting, no advertising and no account or login. Tether makes no network connection during
+  analysis. It sends your data to nobody: not to the project and not to a third party.
+- **The check for a newer release is the one exception, and it is off until you turn it on.**
+  At its first start, the application asks in a bar at the top of the window whether it may
+  check for a newer release. **Until you answer yes, Tether makes no network request at
+  all.** If you never answer, it never makes one. When the check is on, Tether sends **one**
+  request to GitHub each time the application runs: when the application starts, or when you
+  turn the check on, whichever comes first:
+
+  `GET https://api.github.com/repos/bioedca/tether/releases/latest`
+
+  This is the only request the check makes. Tether contacts other hosts only after you select
+  **Install update**, as the next items say. The request is unauthenticated HTTPS, and
+  Tether verifies GitHub's certificate. If GitHub answers with a redirect to another host,
+  Tether does not follow it. The request uses your proxy settings: the `HTTPS_PROXY`,
+  `HTTP_PROXY` and `NO_PROXY` variables, and on Windows and macOS the system proxy settings.
+  If the request fails, for example with no network, a refusing proxy or a timeout, Tether
+  shows nothing.
+- **What the request carries.** The request carries these five headers and nothing more:
+  `Host: api.github.com`, `Accept: application/vnd.github+json`, `User-Agent: Tether`,
+  `Accept-Encoding: identity` and `Connection: close`. It carries no version number, no
+  operating-system name, no installation id, no account, no cookie and no usage data. It
+  sends nothing from your projects, your movies or your settings. GitHub receives your
+  computer's **IP address**, the time and the user-agent `Tether`, as it does for any
+  request to its site. The GitHub General Privacy Statement linked below applies to that
+  data, and the Tether project does not receive it.
+- **What Tether does with the answer.** From the answer, Tether reads only the version
+  number of the newest release. If that is newer than your copy, a notice links to the
+  [Releases page](https://github.com/bioedca/tether/releases). The link always goes to that
+  fixed page. If you select the link, your web browser opens the page, and GitHub's
+  privacy statement applies to that visit. Tether **downloads nothing and installs
+  nothing** until you select **Install update**. You can also download and install a new
+  release yourself.
+- **Install update: the download.** If this copy of Tether can update itself, the notice also
+  has an **Install update** button. Tether sends the requests in this item and the next one
+  only after you select it, and only while the check is on. First, Tether downloads the
+  installer of the new release with one request:
+
+  `GET https://github.com/bioedca/tether/releases/download/v<version>/<installer file>`
+
+  GitHub answers with a redirect to `release-assets.githubusercontent.com`. Tether follows a
+  redirect to that host and to `github.com` only. The request carries
+  `Accept: application/octet-stream`, `User-Agent: Tether`, `Accept-Encoding: identity`,
+  `Connection: close` and the `Host` header. The file name tells GitHub your operating system
+  and processor, for example `Tether-1.0.1-Windows-x86_64.exe`, because each system has its
+  own installer. Tether keeps the file in a private folder and deletes it after the update,
+  or when you cancel.
+- **Install update: the check of the download.** Before anything runs the file, Tether checks
+  it against the release's build-provenance attestation. Tether asks GitHub for the
+  attestation with one request, which has the file's SHA-256 checksum in its path:
+
+  `GET https://api.github.com/repos/bioedca/tether/attestations/sha256:<checksum>`
+
+  It carries the same headers as the check for a newer release. Then the bundled `gh` tool
+  gets the Sigstore trust root from `tuf-repo-cdn.sigstore.dev` and `tuf-repo.github.com`.
+  Its requests carry the user-agent `GitHub CLI <version>`. `gh` runs with no token, no
+  account and its telemetry off, and it then checks the file with no network.
+
+  The download and the attestation request use your proxy settings, as the check does. `gh`
+  uses the `HTTPS_PROXY` and `NO_PROXY` variables. Each of these hosts receives your computer's
+  **IP address** and the time, as for any request. The Tether project receives none of this.
+  Tether runs the installer only after you confirm, and only when the check passed.
 - **Turning the check off.** Untick **Help → Check for new releases at startup**, or answer
   **Don't check** to the first question. Your answer is kept in a small settings file
   outside the install folder, so a newer release you install keeps it. An administrator can
   turn the check off for every user of a computer.
   [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder) says where
   that file and the settings file are.
+- **The update verifier in the installer.** The installer includes a copy of the GitHub
+  command-line tool `gh` in a folder of its own. Tether runs it only for **Install update**,
+  as the item above says.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
   annotations). If you set a curator name in the application, new annotations record that
   name instead. A separate lock file (`.lock`) records your computer's hostname, username
-  and process id while a project is open, so that a second copy of the application can tell
-  who currently holds the write-lock. This information is stored only in files at the
-  location you choose and is **never transmitted by Tether** to the project or to any third
-  party. If you share a `.tether` file with a collaborator it carries your OS username and
-  the source movie paths you selected (the lock file is a separate file and is not
-  embedded in the project) — so treat shared project files as you would any working
-  document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
+  and process id while a project is open. With it, a second copy of the application can tell
+  who holds the write-lock now. This information is stored only in files at the location you
+  choose. It is **never transmitted by Tether** to the project or to any third party. If you
+  share a `.tether` file with a collaborator, it carries your OS username and the source movie
+  paths that you selected. The lock file is a separate file and is not embedded in the project.
+  So treat shared project files as you would any working document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public. Export a subset with
-  `curator_alias` to replace user names in structured fields with aliases such as `curator-1`.
+  `curator_alias`, or `tether export subset --curator-alias curator` on the command line, to
+  replace user names in structured fields with aliases such as `curator-1`.
   The subset excludes the movie table and its paths. A model reference keeps its file name.
   The copy still has the file name of each source movie. Host names, job requests and errors,
   and other free text can contain names or full paths. Check those fields before sharing.
@@ -78,8 +125,8 @@ you allow it** (below).
   desktop application keeps a small file, `preferences.json`, in your own settings folder.
   It holds the paths of the last ten projects you opened. For up to 50 projects it also
   holds the path and the molecule you last selected there. A path can therefore stay in the
-  file after it has left **Open recent**. It also holds the window layout, and the curator
-  name if you set one. This file
+  file after it has left **Open recent**. It also holds the window layout, the curator
+  name if you set one, and whether to open the last project at start. This file
   is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
   and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
@@ -89,8 +136,10 @@ you allow it** (below).
   or copy them into a bug report. Each line holds the time, the level and the text of one
   message. The log holds no trace data and no file contents. A message that shows a file
   path, such as the project you opened, keeps that path. The log keeps at most about 4 MB in
-  four files. It is **never transmitted by Tether**. Delete the folder and it is gone.
-  [Troubleshooting](troubleshooting.md#i-missed-a-message-in-the-status-bar) lists the folder
+  four files. When the file is larger than about 1 MB, Tether renames it `tether.log.1` and keeps
+  the three newest old files. If Tether cannot write the file, it stops writing it for that
+  session. The log is **never transmitted by Tether**. Delete the folder and it is gone.
+  [Troubleshooting](troubleshooting.md#a-status-bar-message-went-away-before-you-read-it) lists the folder
   on each system, and **Help → Open log folder** opens it.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
@@ -99,13 +148,13 @@ you allow it** (below).
 ## The documentation website
 
 - This site is a static site hosted on **GitHub Pages**. It uses **no advertising or
-  tracking cookies**, **no third-party analytics**, and **no third-party asset requests**
-  (body text uses your system fonts, and headings use a font file that this site serves
-  itself, not an external font service); the documentation search runs entirely in your
-  browser.
-- As the host, **GitHub** may process standard technical request data (such as your IP
-  address and browser user-agent) to serve and protect the site, as described in the
-  [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
+  tracking cookies**, **no third-party analytics** and **no third-party asset requests**.
+  Body text uses your system fonts. Headings use a font file that this site serves itself,
+  not an external font service. The documentation search runs entirely in your browser.
+- As the host, **GitHub** may process standard technical request data, such as your IP
+  address and browser user-agent, to serve and protect the site. The
+  [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)
+  describes this processing.
   The Tether project does not receive, store, or use that data.
 - The page header shows the latest release and the star and fork counts of the repository.
   To get them, your browser asks the **GitHub API** (`api.github.com`) one time in each
@@ -125,13 +174,13 @@ you allow it** (below).
 ## Children's privacy
 
 Tether is a research tool and is not directed at children. It processes the scientific
-imaging data and local metadata described above locally; Tether itself does not transmit
-that data to the project or to third parties.
+imaging data and local metadata described above locally. Tether itself does not transmit that
+data to the project or to third parties.
 
 ## Changes to this policy
 
-We may update this policy as the project evolves. Material changes will be posted on this
-page with a new effective date.
+The project may update this policy as Tether changes. The project posts each material change
+on this page with a new effective date.
 
 ## Contact
 

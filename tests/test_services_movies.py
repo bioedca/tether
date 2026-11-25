@@ -237,6 +237,31 @@ def test_a_movie_with_no_channel_geometry_has_no_spots(tmp_path) -> None:
     assert movie.available
     assert movie.no_spots == "spot positions not recorded"
     assert movie.donor_xy.shape == movie.acceptor_xy.shape == (0, 2)
+    assert movie.molecule_keys == ()
+
+
+def test_each_spot_names_its_molecule(tmp_path) -> None:
+    # The round-trip (#357) maps a spot back to its molecule by these keys, so they must
+    # stay aligned with the spot rows, also when a molecule with a non-finite spot drops out.
+    from tether.imaging.extract import read_molecules
+
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"x")
+    path = _store(tmp_path, uri=str(movie_file))
+    keys = [
+        k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
+    ]
+    with h5py.File(path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        table["donor_xy"][1] = np.nan
+        handle["molecules"]["table"][:] = table
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.molecule_keys == (keys[0], keys[2])
+    donor, acceptor = _molecule_xy(path)
+    np.testing.assert_allclose(movie.donor_xy, donor[[0, 2]])
+    np.testing.assert_allclose(movie.acceptor_xy, acceptor[[0, 2]] + [64.0, 0.0])
 
 
 def test_one_full_frame_channel_keeps_its_spots(tmp_path) -> None:
@@ -335,3 +360,39 @@ def test_opening_an_available_movie_gives_its_lazy_reader(tmp_path) -> None:
     (movie,) = read_project_movies(path).movies
     with open_project_movie(movie) as reader:
         assert reader.shape == (50, 64, 64)
+
+
+def _signed_fixture_store(tmp_path):
+    """A store whose movie is a copy of the 64x64 fixture, with its fast signature recorded."""
+    import shutil
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
+    movie_file = tmp_path / "m.tif"
+    shutil.copyfile(fixture, movie_file)
+    path = _store(tmp_path, uri=str(movie_file))
+    st = movie_file.stat()
+    _set_movie_row(path, file_size=st.st_size, mtime=st.st_mtime)
+    return path, movie_file
+
+
+def test_a_movie_whose_signature_still_matches_opens(tmp_path) -> None:
+    path, _movie_file = _signed_fixture_store(tmp_path)
+    (movie,) = read_project_movies(path).movies
+    assert movie.available
+    with open_project_movie(movie) as reader:
+        assert reader.shape == (50, 64, 64)
+
+
+def test_a_movie_that_changed_after_the_read_is_refused_at_open(tmp_path) -> None:
+    # A sync can replace the file after read_project_movies checked it and before the shell
+    # opens it (#1293): the open checks the recorded signature again.
+    import os
+
+    path, movie_file = _signed_fixture_store(tmp_path)
+    (movie,) = read_project_movies(path).movies
+    assert movie.available
+    st = movie_file.stat()
+    os.utime(movie_file, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+
+    with pytest.raises(ValueError, match="m.tif cannot be opened: file changed since extraction"):
+        open_project_movie(movie)

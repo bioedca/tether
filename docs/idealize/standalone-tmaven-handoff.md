@@ -17,8 +17,8 @@ separate interpreter that never shares a process with Tether's own PySide6 / cur
 
 Two ways to reach tMAVEN share that sidecar:
 
-- The **headless driver** (`tether.idealize.run_vbfret`). One-click idealize and batch runs use
-  it.
+- The **headless driver** (`tether.idealize.run_vbfret`). The application's project fit, the
+  `tether idealize` command and batch runs use it.
 - The **standalone-GUI hand-off**. Tether exports an
   [SMD](https://github.com/GonzalezBiophysicsLab/tmaven) file. The user opens it directly in
   the standalone tMAVEN GUI, edits it by hand, and imports it again.

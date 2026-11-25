@@ -27,17 +27,18 @@ with `--strict-markers`. Where a test runs follows from its marker:
 
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
-| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
+| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `pyproject.toml`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate [`_sidecar_gate.py`](https://github.com/bioedca/tether/blob/main/tests/_sidecar_gate.py) and the RF2-ArfA child [`_rf2_arfa_child.py`](https://github.com/bioedca/tether/blob/main/tests/_rf2_arfa_child.py) in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
+| Bio-Formats stack | `@pytest.mark.bioformats` | `.github/workflows/bioformats.yml` — nightly cron, manual dispatch, and pull requests that touch its inputs; the base env drives the runner in the isolated `bioformats/` env, with `TETHER_REQUIRE_BIOFORMATS` set ([ADR-0147](adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) | No — `bioformats / live` is optional and path-filtered; the required `conda-lock-verify` checks its lock |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 | Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
 
 **When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
-a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
-`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke`,
+`bioformats / live` and `large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
 the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
 not list for that job with the same reason, when more tests skip than the job's
 `max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
@@ -61,7 +62,11 @@ with the same facts and log excerpt for its own run, because a repeat failure ca
 cause. The next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
 always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
-the Actions page lists every run. The issue does not close itself: close it with the cause. A
+the Actions page lists every run. Each report records its commit. A run on an older commit than
+the latest report changes nothing, also when it finishes later: two runs on `main` can finish in
+either order. The order of the commits on the branch decides, not the time a run finishes. If a
+newer commit fails on a day that already has a failure comment, that comment is edited to show
+it. The issue does not close itself: close it with the cause. A
 pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
 branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
 `ci(drill)`, so it never touches the real issue.
@@ -76,6 +81,10 @@ only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `work
 directory that an environment variable names). A test skips, with the reason, when its tier is not
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
+
+A download that times out, loses its connection or gets an HTTP 5xx, 408 or 429 answer is tried
+again two times, after 15 s and 45 s, from an empty file (#1229). An HTTP 4xx answer and a wrong
+checksum are not tried again, because they tell that the upstream file moved or changed.
 
 **The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
 Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
@@ -237,6 +246,34 @@ donor 0.982 / acceptor 0.854 above). Also
 degree-2 fit vs the imported `.tmap`: RMS ≤ 0.5 px and ≥ 95 % of molecule positions
 agreeing within 1 px, on committed fixtures).
 
+### Detection mode 5 against Deep-LASI's own `findPart`
+
+**What is compared.** The spots of Tether's ZMW detector (`zmw`, Deep-LASI particle-detection
+mode 5, `tether.imaging.detect.detect_spots_zmw`) against the spots of Deep-LASI's own
+`findPart` with mode 5, run in MATLAB at the pinned commit by the `findpart` task of
+`scripts/reference/matlab/deep_lasi.py`
+([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
+Deep-LASI's window cannot select mode 5, so there is no saved Deep-LASI extraction with it to
+repeat. The comparison is of the detector on detection images, with Deep-LASI's shared tail at
+its smallest border width (1 px) and no refinement on both sides.
+
+**Reference data.** Two committed detection images: a 128 × 128 crop of a detection image that
+Deep-LASI saved in the public `Figure_2.zip` of Zenodo record 7561162 (CC-BY-4.0), and a
+synthetic image with three spots on or next to the edge. The run uses thresholds 0.1, 0.3 and
+0.5. Its record and outputs are frozen in `tests/fixtures/reference/deep-lasi/findpart-zmw/`
+(ADR-0074), and the same run keeps the error MATLAB gives for mode 4.
+
+**Tolerance.** Every spot must agree within 1e-9 px, and the counts must be equal. Both sides
+compute the same centroids in double precision.
+
+**Result.** The run of 2026-11-24 (MATLAB R2023b Update 10) agrees in all six cases: 45 spots,
+largest difference 1.5e-14 px. Mode 4 stopped with `Unrecognized function or variable 'r'.`
+
+**Enforcing tests.** `tests/test_deeplasi_findpart_reference.py` (required matrix, no MATLAB
+needed: the outputs are committed), with a fault injection: an erosion padded with 1, where
+MATLAB's `bwmorph` pads with 0, fails the comparison. `tests/test_matlab_reference.py` checks
+the SHA-256 of every frozen file.
+
 ## (b) Idealization parity vs tMAVEN
 
 **What is compared.** Four metrics from `src/tether/idealize/parity.py`, after canonical
@@ -356,7 +393,8 @@ pull request touching an idealization path, and reports a "not applicable" pass 
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
 `test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
-transition-matrix term (below). On the required matrix,
+transition-matrix term (below), and `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model`.
+On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -452,11 +490,19 @@ selection changes from seed to seed (ADR-0043). The live tests also check that e
 requested model type with the requested state count, which a cross-seed comparison of two
 equally wrong fits cannot see.
 
-> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small fixtures as
-> well as the consensus fit. `$.coverage.measured_methods` records only
-> `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
-> vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
-> measurement, and no committed test fits `model_type="vbfret"` against it.
+> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small
+> fixtures as well as the consensus fit. `model_type="vbfret"` now runs tMAVEN's own per-trace
+> step (`tracelevel_vbhmm_modelselection`, 1 to 4 states per trace, the highest evidence kept),
+> but it does not reproduce across seeds on the pinned build: over 20 unseeded fits per fixture
+> the worst state-count agreement was 0.0 on both `smd_2mol` and `smd_4mol`, and on
+> `smd_281mol` two fits differed by up to 0.96 FRET in a state mean. A row frozen from that
+> spread would have floors of 0.0, so none is frozen (maintainer decision of 2026-11-15, ADR-0110).
+>
+> `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that one seed gives one
+> model and writes the cross-seed agreement to the job log. `$.coverage.measured_methods`
+> records only `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` still lists
+> per-trace vbFRET, and no test asserts a per-trace fit against `$.tolerance`. The open row is
+> [#949](https://github.com/bioedca/tether/issues/949).
 
 ### Plain vbGMM against an independent fit
 
@@ -686,11 +732,19 @@ an uplift in percentage points. Two protocols make that measurement
 ([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
 
 - **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
-  videos curated before it. The first video is skipped. This is the ship gate.
+  videos of the condition curated before it. The first video is skipped. This is the ship gate.
 - **Leave-one-video-out**: each video is scored by a model trained on every other video of the
   condition, never on itself. The first video is scored too, and which videos train each
   scorer does not depend on the curation order. It is reported beside the gate, at the same
-  bar. The store entry point evaluates one condition at a time.
+  bar.
+
+Both store entry points evaluate one condition at a time, so the two protocols report on the
+same condition. Each takes a `condition_id`. Without one, a project whose labeled molecules
+span more than one condition raises `ValueError`, which names the conditions. A project with
+one condition gives the same result with or without it. Before
+[#1106](https://github.com/bioedca/tether/issues/1106) the prequential gate pooled every
+condition's labeled videos, so in a project with two conditions it scored one condition's video
+with a ranker trained on the other's, and its median mixed the two.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
@@ -703,7 +757,8 @@ gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 programmatic project files; no committed artifact records a precision@k uplift measured on a real
 labeled video set (withheld, see the gap below). What is
 proven is that both *protocols* behave: the prequential walk skips the first video rather than
-scoring it against nothing, leave-one-video-out trains each video's scorer on exactly the other
+scoring it against nothing and trains each video's scorer on the earlier videos of its own
+condition only, leave-one-video-out trains each video's scorer on exactly the other
 videos' rows and labels of one condition, a ranker equal to file order yields zero uplift and does not ship, a
 non-finite score raises instead of being ranked last, a video split over two folds raises, and
 a single-movie project raises rather than inventing a held-out video.
@@ -718,6 +773,8 @@ a single-movie project raises rather than inventing a held-out video.
 (project-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
 `test_single_movie_project_has_no_held_out_video`,
+`test_gate_refuses_a_project_whose_labels_span_conditions`,
+`test_gate_condition_id_keeps_the_other_condition_out_of_every_fit`,
 `test_lovo_gate_ships_on_separable_multivideo`,
 `test_lovo_trains_on_every_other_video_never_itself` and
 `test_lovo_refuses_a_project_whose_labels_span_conditions`).
@@ -985,6 +1042,10 @@ and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026
 output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
 200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
 with a `provenance.json` that holds the citation, the script hash and the input hashes.
+MATLAB's `run` executes a P-file of the same name in place of the `.m` file, so the harness and
+the task refuse to run when `FRET_cloud_contours_centroids.p` sits beside the pinned script
+([#1252](https://github.com/bioedca/tether/issues/1252)). The script hash is then the hash of the
+code that ran.
 
 The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
 copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
@@ -1226,10 +1287,8 @@ so each test finds the windows in the trace matrix when it runs.
    unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
    Fig. 5b has no trace data in the archive. The authors' per-run trace files, which are not
-   published, hold 138 of the column's 163 molecules: molecules 1 to 138 are the three 5 uM WT
-   tRNA runs joined in order (66, 8 and 64 molecules), first 400 frames each, to 1e-6. The other
-   25 agree with no molecule of those files at any start frame (to 1e-4), and no file has 163
-   molecules (#1128).
+   published, hold all of the column's 163 molecules: they are the four 5 uM WT tRNA runs joined
+   in order (66, 8, 64 and 25 molecules), first 400 frames each, to 1e-6 (#1128, #1344).
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
@@ -1257,7 +1316,7 @@ The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
 `test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
 `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
 `test_a_198_bin_histogram_fails_the_fig5c_comparison`. Workstation (ADR-0071), on the per-run files:
-`tests/test_campos_chavez_5um_runs.py`, which records the number of molecules that match nothing.
+`tests/test_campos_chavez_5um_runs.py`, which requires all 163 molecules to be the four joined files.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
@@ -1705,8 +1764,10 @@ evidence about the size of the difference and not a tolerance.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
-  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
+- (b) has no per-trace vbFRET *parity* row: tMAVEN's per-trace step does not reproduce
+  across seeds on the pinned build, so no row is frozen, and the seeded test checks only that
+  one seed gives one model (ADR-0110). Its comparison with the original vbFRET_nov12 on
+  measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
   the workstation only. Each is stated in its own section above with the ADR that
@@ -1749,10 +1810,13 @@ evidence about the size of the difference and not a tolerance.
 
 **Input formats refused rather than approximated.**
 
-- Deep-LASI particle-detection modes **4 (local-variance)** and **5 (ZMW intensity)** are
-  not ported. `src/tether/io/tdat.py` raises `ValueError` on them rather than silently
-  mis-detecting; only modes 1 (wavelet), 2 (intensity) and 3 (bandpass) are supported
-  ([ADR-0021](adr/0021-particle-detection-modes.md)). A `.tdat` with a non-integer or
+- Deep-LASI particle-detection mode **4 (local-variance)** is not ported, because Deep-LASI's
+  own mode 4 stops with an error at the pinned commit and so gives no result to match.
+  `src/tether/io/tdat.py` raises `ValueError` on it rather than silently mis-detecting. Modes
+  1 (wavelet), 2 (intensity), 3 (bandpass) and 5 (ZMW intensity) are supported
+  ([ADR-0021](adr/0021-particle-detection-modes.md),
+  [ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)). A
+  `.tdat` with a non-integer or
   out-of-range mode code also raises. Covered by
   `tests/test_tdat.py::test_unsupported_detection_mode_raises` and, at the CLI, by
   `tests/test_extract_cli.py::test_extract_tdat_unsupported_mode_errors`, which asserts a

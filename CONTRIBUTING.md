@@ -188,7 +188,7 @@ Run the **small-fixture** test suite locally. The GUI tests run headless with
 python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
 # exactly what the required `test` matrix runs (see Test tiers below)
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 ```
 
 The large and gated fixtures run only in the scheduled `large-fixtures.yml` tier. The required
@@ -216,14 +216,14 @@ Four of those tiers have their own workflow. The fifth runs in no CI job at all.
 ```bash
 # The required matrix, verbatim — ci.yml runs this on all three OSes
 # (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 
 # Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
 # selects deep/sidecar/large/reference_download, and the deep tests import torch, which
 # the base lock does not carry.
-pytest -m "not gui and not large and not sidecar and not deep and not workstation and not reference_download"
+pytest -m "not gui and not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 ```
 
 The keyboard-shortcut tests of the shell in `tests/test_shell_basics.py` need a window that the
@@ -245,9 +245,10 @@ a napari `Viewer`, it also joins `VIEWER_SECTIONS`, because macOS offscreen cann
 `--strict-markers` rejects an *unregistered* marker only where a test applies it. It does
 **not** check the names in a `-m` expression, so a typo there is not an error. `-m deepp`
 deselects every test, and pytest exits 5 with no message about the unknown name.
+
 `-m "not largge"` is a valid filter that excludes nothing. So that typo silently pulls the
-optional tiers back into the run, and the run does not fail. Read the collected count, not only
-the exit code.
+optional tiers back into the run. Again, pytest does not report the unknown name, so nothing tells
+you that the filter is wrong. Read the collected count, not only the exit code.
 
 `tests/test_marker_contract.py` enforces two naming rules:
 
@@ -324,7 +325,7 @@ see the numbers locally, run these commands:
 
 ```bash
 python -m pip install "coverage==7.17.2"
-QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
+QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"
 coverage json -o coverage.json && python scripts/check_coverage_floors.py coverage.json
 ```
 
@@ -453,15 +454,18 @@ Before you ask for a review or merge, confirm each item:
       tests, the logs or the fixtures. `secret-scan` is green.
 - [ ] Code scanning is clean: CodeQL reports no new alerts. The PR title is a Conventional Commit.
 - [ ] **The risk is recorded, and the review lane is complete.**
-  - Record the risk: `low`, `standard` or `high`. The risk routes nothing except the load-bearing
-    Greptile route of ADR-0099.
+  - Record the risk: `low`, `standard` or `high`. The risk routes nothing. The changed files
+    decide the gate (ADR-0142).
   - Record the round.
   - Record a result from every provider that the lane reached. The result is **either** a
     substantive review **or** the quoted "nothing to review" of that provider for the head it
     read. A Codex 👍 counts as such a result.
-  - **CodeRabbit with no actionable comments is required.** On a load-bearing PR, Greptile takes
-    its place. Its one-review cap can be spent with every finding disposed of. Then the Codex
-    review of the final head that closed the gate in its place is required instead.
+  - **A code PR needs one metered review with no actionable comments.** That review is Greptile,
+    or CodeRabbit when Greptile has no credit (ADR-0142). Its one-review cap can be spent with
+    every finding disposed of. Then the Codex review of the final head that closed the gate in its
+    place is required instead.
+  - **A docs-only or test-only PR needs no metered review.** A clean posted Codex review of the
+    final head is its gate.
   - That is a verdict that a completed review reached, not the absence of a review. Record the
     review itself: its permalink, and the commit it read. **That commit must be the final head
     for the review that closes the gate.**
@@ -487,13 +491,11 @@ Before you ask for a review or merge, confirm each item:
   - Silence is not the gate, and a green `CodeRabbit` status check is not the gate. A request
     that reviewed **nothing** also leaves both of them behind. See the full-review command in
     [What review to expect](#what-review-to-expect).
-  - Greptile is optional. Record its absence for want of credits. Do not excuse that absence as a
-    review.
-  - A Greptile review can stand in for a CodeRabbit that refused for more than 30 minutes. Then
-    record the refusal, and record that review as this item asks for CodeRabbit's review.
-  - On a load-bearing PR (ADR-0099), record the one Greptile review the same way. The
+  - Record the Greptile review of a code PR as this item asks for CodeRabbit's review. The
     `Last reviewed commit` of its summary comment is the head that it read. After its findings,
-    record the one CodeRabbit review and the Codex close.
+    record the Codex close.
+  - With no Greptile credit, record the budget reading. Then record the CodeRabbit review. Nothing
+    stands in for a CodeRabbit that refused: a refusal is a wait.
   - Fix the blocking findings. Defer the non-blocking findings to a follow-up issue, as
     `AGENTS.md` says.
 - [ ] A resolved design decision that changed is updated in the PRD, an ADR or both, in the
@@ -536,12 +538,16 @@ governs.
 2. Wait until every required check is green. Do not merge over a red or pending check.
 3. Ask Codex for a review with an `@codex review` comment.
 4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
-5. Mark the PR ready for review.
-6. Ask CodeRabbit once with an `@coderabbitai full review` comment. The incremental command
-   reviews nothing here. A refusal is not that one review. A load-bearing PR asks one Greptile
-   review instead (ADR-0099). A clean Greptile review completes the metered review. A Greptile
-   review with findings needs more. Treat the findings as step 7 says. Then ask CodeRabbit once on
-   the fixed head. Last, ask Codex for a closing review of the final head.
+5. Find the kind of the PR with `python .agents/bin/greptile_usage.py --kind <PR>` (ADR-0142).
+   A docs-only or test-only PR stops the review here. Its gate is the clean Codex review of the
+   final head. Go to step 8.
+6. A code PR is marked ready for review. It asks one standard Greptile review with an
+   `@greptileai review` comment, while
+   `python .agents/bin/greptile_usage.py --fail-over-share` exits 0. A clean Greptile review is the
+   gate. A Greptile review with findings needs more. Treat the findings as step 7 says. Then ask
+   Codex for a closing review of the final head. With no Greptile credit, the PR asks CodeRabbit
+   instead. It asks once, in its turn in the queue, with an `@coderabbitai full review` comment.
+   The incremental command reviews nothing here. A refusal is not that one review.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
@@ -576,6 +582,8 @@ Source: `docs/PRD.md` §12.2 and §12.6.
 - [`docs/PRD.md`](docs/PRD.md): the product and the science. Section 12 governs the contribution process.
 - [Writing style for documentation](docs/maintainers/writing-style.md): the rules for each page.
 - [Docstring standard](docs/maintainers/docstring-style.md): the rules for each docstring.
+- [The architecture overview](docs/maintainers/architecture.md): how the program is built, and
+  the checks that protect its structure.
 - [The ADR index](docs/adr/README.md): why each decision was made.
 - [`SECURITY.md`](SECURITY.md): how to report a vulnerability.
 - The sections below: how the project is run, and the rules that protect it.
@@ -637,8 +645,10 @@ differently. Examples are a schema-affecting change, a dependency or isolation b
 algorithm choice with a scientific trade-off, or anything that supersedes an earlier ADR. Routine
 bug fixes and refactors do not need one.
 
-1. Copy [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`.
-   `NNNN` is the next unused number. Numbers are contiguous, so do not skip one.
+1. Reserve the number first, as [Reserving a number](docs/agents/adr.md#reserving-a-number)
+   tells you. Do not pick the next number by reading `docs/adr/`. Then copy
+   [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to `NNNN-kebab-title.md`, where `NNNN`
+   is the reserved number. Gaps in the numbers are allowed. Never reuse a number.
 2. Fill all five frontmatter fields: **Status**, **Date**, **Deciders**, **PRD anchor** and
    **Milestone**. Keep the MADR headings from the template.
 3. Set `Status` to `proposed`, `accepted`, `deprecated` or `superseded by ADR-NNNN`. When a record

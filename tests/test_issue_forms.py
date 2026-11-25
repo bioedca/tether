@@ -58,12 +58,12 @@ SIZE_OPTIONS = {
     "L — up to 900 added lines, the largest budget there is",
     "unsure — leave it to grooming",
 }
-#: Risk no longer picks the reviewer — every PR walks the same cheapest-first lane (ADR-0062).
-#: What risk still decides is whether a metered Greptile credit is worth spending on it.
+#: Risk no longer picks the reviewer — every PR walks the same cheapest-first lane (ADR-0062), and
+#: the changed files decide its metered gate (ADR-0142), so risk routes nothing.
 RISK_OPTIONS = {
-    "low — the lane: Codex on the draft, then CodeRabbit",
-    "standard — the lane: Codex on the draft, then CodeRabbit",
-    "high — the lane, and a Greptile credit is worth spending if the seat has budget",
+    "low — the lane: Codex, then one Greptile review if it is code",
+    "standard — the lane: Codex, then one Greptile review if it is code",
+    "high — the same lane, and the PR records why the risk is high",
     "unsure — leave it to grooming",
 }
 ADR_NEEDED_OPTIONS = {

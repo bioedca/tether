@@ -10,7 +10,7 @@
       },
       "schema_version": {
         "dtype": "int",
-        "value": 2
+        "value": 3
       }
     }
   },
@@ -457,6 +457,84 @@
       "shape": [
         0
       ]
+    },
+    "/sources/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "source_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "relative_path",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "original_name",
+            "shape": []
+          },
+          {
+            "dtype": "i8",
+            "name": "file_size",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "sha256",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "adapter",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "adapter_version",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "role",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "acquisition",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "movie_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "derived_from",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "recipe",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "created_utc",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
     }
   },
   "format": "tether-project",
@@ -473,7 +551,8 @@
     "/movies",
     "/patches",
     "/settings",
+    "/sources",
     "/traces"
   ],
-  "schema_version": 2
+  "schema_version": 3
 }

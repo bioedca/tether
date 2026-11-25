@@ -61,6 +61,7 @@ it before they call in.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -74,6 +75,8 @@ __all__ = [
     "clear_category",
     "read_molecule_audit",
     "reset_analysis_window",
+    "restore_analysis_windows",
+    "restore_categories",
     "set_analysis_window",
     "set_category",
 ]
@@ -190,14 +193,20 @@ def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
 def _write_category(
     path: str | Path,
     molecule_key: str,
-    category: str,
+    category: str | Mapping[str, str],
     *,
-    event: str,
+    event: str | None,
     labeler: str | None,
     reason: str,
     timestamp: str | None,
 ) -> np.ndarray:
-    """Shared body of [`set_category`][] / [`clear_category`][]."""
+    """Shared body of [`set_category`][] / [`clear_category`][] / [`restore_categories`][].
+
+    ``category`` is one name for every matching row, or a mapping that gives each row
+    named by its ``molecule_id`` its own name; a row the mapping does not name is left
+    alone. With ``event=None`` each row's event is ``set_category`` or
+    ``clear_category`` by its new name.
+    """
     import h5py  # noqa: PLC0415
 
     from tether.project.conditions import (  # noqa: PLC0415
@@ -206,7 +215,9 @@ def _write_category(
     )
 
     labeler, timestamp = _resolve_provenance(labeler, timestamp, reason)
-    _refuse_nul_audit_text(category=category)
+    names = [category] if isinstance(category, str) else list(category.values())
+    for name in names:
+        _refuse_nul_audit_text(category=name)
     path = Path(path)
     with h5py.File(path, "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
@@ -221,23 +232,30 @@ def _write_category(
                 f"{sorted(condition_ids)}; cannot pick one category vocabulary"
             )
         condition_id = condition_ids.pop()
-        if category:
+        if any(names):
             vocabulary = _read_category_names(f, condition_id) if condition_id else ()
-            if category not in vocabulary:
-                raise ValueError(
-                    f"category {category!r} is not in condition {condition_id!r}'s "
-                    f"category list {list(vocabulary)}; add it with add_category first"
-                )
+            for name in names:
+                if name and name not in vocabulary:
+                    raise ValueError(
+                        f"category {name!r} is not in condition {condition_id!r}'s "
+                        f"category list {list(vocabulary)}; add it with add_category first"
+                    )
 
-        changed = [i for i in idx if _to_str(table["category"][i]) != category]
+        wanted: dict[int, str] = {}
+        for i in idx:
+            if isinstance(category, str):
+                wanted[i] = category
+            elif _to_str(table["molecule_id"][i]) in category:
+                wanted[i] = category[_to_str(table["molecule_id"][i])]
+        changed = [i for i in wanted if _to_str(table["category"][i]) != wanted[i]]
         audit = [
             {
-                "event": event,
+                "event": event or (_SET_CATEGORY if wanted[i] else _CLEAR_CATEGORY),
                 "molecule_id": _to_str(table["molecule_id"][i]),
                 "molecule_key": molecule_key,
                 "condition_id": condition_id,
                 "old_category": _to_str(table["category"][i]),
-                "new_category": category,
+                "new_category": wanted[i],
                 "old_window": _NO_WINDOW,
                 "new_window": _NO_WINDOW,
                 "labeler": labeler,
@@ -250,7 +268,7 @@ def _write_category(
         written = _append_audit(f, audit)
         for i in changed:
             row = mol_table[i]
-            row["category"] = category
+            row["category"] = wanted[i]
             mol_table[i] = row
     return written
 
@@ -344,6 +362,39 @@ def clear_category(
     )
 
 
+def restore_categories(
+    path: str | Path,
+    molecule_key: str,
+    categories: Mapping[str, str],
+    *,
+    labeler: str | None = None,
+    reason: str = "",
+    timestamp: str | None = None,
+) -> np.ndarray:
+    """Give each row of a molecule its own category back, by ``molecule_id`` (#632).
+
+    ``categories`` maps a row's ``molecule_id`` to its name, ``""`` for none; a row it
+    does not name keeps its category. Two rows can share a key with different
+    categories, and [`set_category`][] gives them one name, so an undo writes each row's
+    own name here. Each row logs ``set_category`` or ``clear_category`` by its new name.
+    Same matching, provenance, vocabulary and no-op rule as [`set_category`][].
+    """
+    names: dict[str, str] = {}
+    for molecule_id, name in categories.items():
+        if not isinstance(name, str):
+            raise TypeError(f"category must be a string, got {type(name).__name__}")
+        names[str(molecule_id)] = name.strip()
+    return _write_category(
+        path,
+        molecule_key,
+        names,
+        event=None,
+        labeler=labeler,
+        reason=reason,
+        timestamp=timestamp,
+    )
+
+
 def _n_frames(f: object) -> int | None:
     """Return the stored trace length (``/traces`` axis 1), or ``None`` without a layer."""
     traces = f[_TRACES]  # type: ignore[index]
@@ -383,7 +434,7 @@ def _clamped_window(frame_range: object, start: int, stop: int, n_frames: int | 
 def _write_window(
     path: str | Path,
     molecule_key: str,
-    window: tuple[int, int] | None,
+    window: tuple[int, int] | Mapping[str, tuple[int, int]] | None,
     *,
     event: str,
     labeler: str | None,
@@ -392,7 +443,9 @@ def _write_window(
 ) -> np.ndarray:
     """Shared body of [`set_analysis_window`][] / [`reset_analysis_window`][].
 
-    ``window=None`` is the reset: each row's target is its own ``frame_range``.
+    ``window=None`` is the reset: each row's target is its own ``frame_range``. A
+    mapping gives each row named by its ``molecule_id`` its own request, and leaves a
+    row it does not name as it is ([`restore_analysis_windows`][]).
     """
     import h5py  # noqa: PLC0415
 
@@ -413,12 +466,18 @@ def _write_window(
             frame_range = table["frame_range"][i]
             if window is None:
                 targets[i] = (int(frame_range[0]), int(frame_range[1]))
+            elif isinstance(window, Mapping):
+                wanted = window.get(_to_str(table["molecule_id"][i]))
+                if wanted is not None:
+                    targets[i] = _clamped_window(frame_range, wanted[0], wanted[1], n_frames)
             else:
                 targets[i] = _clamped_window(frame_range, window[0], window[1], n_frames)
 
         audit = []
         changed = []
         for i in idx:
+            if i not in targets:
+                continue
             old = (int(table["analysis_window"][i][0]), int(table["analysis_window"][i][1]))
             if old == targets[i]:
                 continue
@@ -539,6 +598,46 @@ def reset_analysis_window(
         molecule_key,
         None,
         event=_RESET_WINDOW,
+        labeler=labeler,
+        reason=reason,
+        timestamp=timestamp,
+    )
+
+
+def restore_analysis_windows(
+    path: str | Path,
+    molecule_key: str,
+    windows: Mapping[str, tuple[int, int]],
+    *,
+    labeler: str | None = None,
+    reason: str = "",
+    timestamp: str | None = None,
+) -> np.ndarray:
+    """Give each row of a molecule its own ``[start, stop)`` window back (#632).
+
+    ``windows`` maps a row's ``molecule_id`` to its window; a row it does not name keeps
+    its window. Two rows can share a key with different frame ranges and windows, and
+    [`set_analysis_window`][] gives them one request, so an undo writes each row's own
+    window here. Each window is clamped to its row's frames as [`set_analysis_window`][]
+    does. Same matching, provenance (event ``set_analysis_window``), no-op and
+    feature-cache rule.
+
+    Raises
+    ------
+    ValueError
+        If a window does not have ``start < stop``. Nothing is written.
+    """
+    checked: dict[str, tuple[int, int]] = {}
+    for molecule_id, (start, stop) in windows.items():
+        start, stop = int(start), int(stop)
+        if start >= stop:
+            raise ValueError(f"analysis window must have start < stop, got [{start}, {stop})")
+        checked[str(molecule_id)] = (start, stop)
+    return _write_window(
+        path,
+        molecule_key,
+        checked,
+        event=_SET_WINDOW,
         labeler=labeler,
         reason=reason,
         timestamp=timestamp,

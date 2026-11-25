@@ -33,8 +33,9 @@ either sub-image sat in the frame, so the movie is shown without spots rather th
 spots on the wrong half ([`ProjectMovie.no_spots`][tether.services.movies.ProjectMovie]).
 
 **Which folder.** PRD §5.1 records the ``uri`` relative to the project, so a relative
-``uri`` is looked up in the project's folder first. The extraction writer records the path
-it was given, which can be relative to the folder the command ran in instead; when the
+``uri`` is looked up in the project's folder first. Every writer records it that way since
+#1282 ([`tether.project.sources.project_movie_uri`][]). A project written before then can
+hold the path the extraction was given, relative to the folder the command ran in; when the
 project-relative file does not exist, the same relative path is tried from the current
 folder, and taken only when it matches the recorded fast signature (size and
 modification time). Every movie file's size and modification time are checked against that
@@ -45,7 +46,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -53,11 +54,13 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-    from tether.io.movie import MovieReader
+    from tether.io.adapters import MovieSource
 
 __all__ = [
     "ProjectMovie",
     "ProjectMovies",
+    "movie_file_suffixes",
+    "movie_frames",
     "open_project_movie",
     "read_project_movies",
     "subimage_to_frame",
@@ -101,6 +104,14 @@ class ProjectMovie:
     no_spots:
         ``None`` when the spots can be placed on the frame; otherwise why not, in plain
         words: ``"spot positions not recorded"`` when neither channel's geometry is.
+    molecule_keys:
+        The ``/molecules`` ``molecule_key`` of each spot pair, aligned with the rows of
+        [`donor_xy`][] and [`acceptor_xy`][], so a front end can tell which molecule a
+        spot belongs to (the trace↔movie round-trip, #357). Empty when
+        [`no_spots`][tether.services.movies.ProjectMovie] gives a reason.
+    file_size, mtime:
+        The row's recorded fast signature (PRD §5.4), zero where the row records none.
+        [`open_project_movie`][] compares the file with it again just before it opens.
     """
 
     movie_id: str
@@ -110,6 +121,9 @@ class ProjectMovie:
     donor_xy: np.ndarray
     acceptor_xy: np.ndarray
     no_spots: str | None = None
+    molecule_keys: tuple[str, ...] = ()
+    file_size: int = 0
+    mtime: float = 0.0
 
     @property
     def available(self) -> bool:
@@ -340,10 +354,11 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
 
     if molecules is not None and len(molecules):
         mol_movie = np.array([_to_str(m) for m in molecules["movie_id"]])
+        mol_key = np.array([_to_str(k) for k in molecules["molecule_key"]])
         donor_all = np.asarray(molecules["donor_xy"], dtype=np.float64).reshape(-1, 2)
         acceptor_all = np.asarray(molecules["acceptor_xy"], dtype=np.float64).reshape(-1, 2)
     else:
-        mol_movie = np.empty(0, dtype=str)
+        mol_movie = mol_key = np.empty(0, dtype=str)
         donor_all = acceptor_all = np.empty((0, 2), dtype=np.float64)
 
     out: list[ProjectMovie] = []
@@ -360,8 +375,10 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
         if no_spots is None:
             donor_xy = _to_frame(donor[finite], row, "donor")
             acceptor_xy = _to_frame(acceptor[finite], row, "acceptor")
+            keys = tuple(str(k) for k in mol_key[mine][finite])
         else:
             donor_xy = acceptor_xy = np.empty((0, 2), dtype=np.float64)
+            keys = ()
         out.append(
             ProjectMovie(
                 movie_id=movie_id,
@@ -371,21 +388,64 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 donor_xy=donor_xy,
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,
+                molecule_keys=keys,
+                file_size=file_size,
+                mtime=mtime,
             )
         )
     return ProjectMovies(movies=tuple(out), aperture_radius=radius)
 
 
-def open_project_movie(movie: ProjectMovie) -> MovieReader:
-    """Open ``movie``'s file as a lazy [`MovieReader`][tether.io.movie.MovieReader].
+def movie_frames(source: MovieSource) -> Any:
+    """Return the ``(n_frames, height, width)`` frames of an open movie, for display.
 
-    The caller owns the reader and closes it. A movie that is not
+    A TIFF gives its memory map ([`tether.io.movie.MovieReader.data`][]); any other
+    reader a lazy [`tether.io.frames.FrameView`][] that reads only the frames an index
+    touches (#1388). Nothing is read here. A value that is not a
+    [`MovieSource`][tether.io.adapters.MovieSource] raises `TypeError`.
+    """
+    from tether.io.adapters import MovieSource
+    from tether.io.frames import FrameView
+    from tether.io.movie import MovieReader
+
+    if isinstance(source, MovieReader):
+        return source.data
+    if not isinstance(source, MovieSource):
+        raise TypeError(f"expected an open movie source, got {type(source).__name__}")
+    return FrameView(source)
+
+
+def movie_file_suffixes() -> tuple[str, ...]:
+    """Return the file suffixes of the movies that extraction reads, for a file dialog.
+
+    They are [`tether.project.batch_inputs.movie_suffixes`][]: the extensions of every
+    registered reader in [`tether.io.movie.EXTRACTED_CONTAINERS`][] (#1388).
+    """
+    from tether.project.batch_inputs import movie_suffixes
+
+    return movie_suffixes()
+
+
+def open_project_movie(movie: ProjectMovie) -> MovieSource:
+    """Open ``movie``'s file as a lazy [`MovieSource`][tether.io.adapters.MovieSource].
+
+    Any registered reader opens it (#1388): a TIFF as a
+    [`MovieReader`][tether.io.movie.MovieReader], an ND2 through its own reader. The caller
+    owns the source and closes it. A movie that is not
     [`available`][tether.services.movies.ProjectMovie.available] raises ``ValueError``
     naming the reason, so a missing or cloud-only file is never touched; a file the reader
-    refuses raises what [`tether.io.movie.open_movie`][] raises.
+    refuses raises what [`tether.io.adapters.open_movie_source`][] raises.
+
+    The file is checked again just before the reader opens it, against the recorded fast
+    signature (PRD §5.4, metadata only): a sync can replace it after
+    [`read_project_movies`][] read it (#1293). A file that has changed, gone or left this
+    disk since then raises the same ``ValueError``.
     """
-    from tether.io.movie import open_movie
+    from tether.io.adapters import open_movie_source
 
     if movie.path is None or not movie.available:
         raise ValueError(f"movie {movie.name} cannot be opened: {movie.unavailable}")
-    return open_movie(movie.path)
+    reason = _unavailable(movie.path, movie.file_size, movie.mtime)
+    if reason is not None:
+        raise ValueError(f"movie {movie.name} cannot be opened: {reason}")
+    return open_movie_source(movie.path)

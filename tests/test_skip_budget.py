@@ -12,8 +12,8 @@ Three groups of tests:
 * the script, on JUnit reports that a real pytest writes for a small suite in a temporary
   folder — one more skip fails and names the test and its reason, a deselected file fails the
   minimum count, more skips than the maximum fail;
-* the committed budget, which must name the six jobs and give a reason for each skip;
-* the workflows, where each of the six jobs must write the report and run the check on it,
+* the committed budget, which must name the seven jobs and give a reason for each skip;
+* the workflows, where each of the seven jobs must write the report and run the check on it,
   and ``tests/test_plot_export.py``, which must fail, not skip, without matplotlib.
 """
 
@@ -407,12 +407,14 @@ def test_an_absent_report_or_an_unknown_job_cannot_give_a_verdict(
 
 # --- The committed budget and the workflows ----------------------------------------------------
 
-#: The six jobs of #726 (each check name, keyed by workflow file and job id).
+#: The six jobs of #726 and `bioformats / live` of #907 (each check name, keyed by workflow file
+#: and job id).
 GUARDED = {
     ("ci.yml", "test"): ("test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"),
     ("sidecar.yml", "parity"): ("sidecar / parity",),
     ("deep.yml", "smoke"): ("deep / smoke",),
     ("large-fixtures.yml", "large"): ("large-fixtures",),
+    ("bioformats.yml", "live"): ("bioformats / live",),
 }
 REPORT = '"$RUNNER_TEMP/pytest-junit.xml"'
 CHECK_COMMAND = f'python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report {REPORT}'
@@ -428,7 +430,7 @@ def _pytest_lines(script: str) -> list[str]:
     return lines
 
 
-def test_the_committed_budget_names_the_six_jobs_and_gives_each_skip_a_reason() -> None:
+def test_the_committed_budget_names_the_seven_jobs_and_gives_each_skip_a_reason() -> None:
     import tomllib
 
     data = tomllib.loads(BUDGET.read_text(encoding="utf-8"))

@@ -25,15 +25,22 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 19
+# Each of the three legs is three higher since #1013 added three Python-Markdown parity tests.
+# 28 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+max_skipped = 28
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 48
+# 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
+# 62: main's 61 plus the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py).
+# 67 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+# 76 since #366 added nine frame-link tests behind needs_gl (two panel, seven shell).
+max_skipped = 76
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 39
+# main's 53, plus two source-registry tests that replace an open file (#1356).
+max_skipped = 55
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -44,11 +51,26 @@ max_skipped = 0
 min_collected = 33
 max_skipped = 2
 
+[jobs."bioformats / live"]
+# The live Bio-Formats runner (#907, ADR-0147): tests/test_runner_bioformats.py; 11 since
+# #1398 added tests/test_extraction_bioformats.py (extraction parity and the read cost).
+min_collected = 11
+max_skipped = 0
+
 [jobs."large-fixtures"]
 min_collected = 12
 max_skipped = 11
 
 # --- Expected skips on the three required legs ---------------------------------------------
+
+[[skip]]
+test = "tests/test_source_registry.py::test_a_file_replaced_during_*_is_not_stored"
+reason = "Windows does not replace a file that is open"
+jobs = ["test (windows-latest)"]
+why = """The two tests replace the file from the progress callback, while the checksum still \
+has it open (#1356). Windows refuses to replace a file that a process has open, so that race \
+cannot happen there. test_a_file_replaced_after_the_read_is_not_stored covers the same check \
+on every leg by replacing the file after the read closes it."""
 
 [[skip]]
 test = "tests/test_coverage_floors.py::test_floors_never_go_down"
@@ -73,6 +95,14 @@ jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)", 
 why = """torch is only in the isolated deep stack (ADR-0047); the base environment of these \
 jobs has none. The module skips at import, before `-m` can deselect its `deep` tests, so it is \
 one skip and not a missing test. deep / smoke runs the module in the deep environment."""
+
+[[skip]]
+test = "tests/test_recipe.py::test_a_printed_windows_command_passes_each_value_unchanged_through_cmd_exe*"
+reason = "cmd.exe is the console of the Windows install guide"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The two tests run a printed recovery command through cmd.exe, directly and through a copy \
+of the installer's tether.bat line (#1354). macOS and Linux have no cmd.exe; the Windows leg runs \
+both. They cost each of the other two legs two skips, so max_skipped there is two higher."""
 
 [[skip]]
 test = "tests/test_claim.py::test_the_default_really_is_strict_on_the_interpreters_that_have_it"
@@ -125,7 +155,66 @@ jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
 docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
 
+[[skip]]
+test = "tests/test_docs_links.py::test_the_model_matches_python_markdown"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
+
+[[skip]]
+test = "tests/test_docs_links.py::test_the_gap_rows_render_as_python_markdown_does"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
+
+[[skip]]
+test = "tests/test_docs_examples.py::test_the_attrs_fence_rows_render_as_python_markdown_does"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
+
 # --- Platform skips: each test runs on the other legs ---------------------------------------
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_the_windows_helper_*"
+reason = "update_handoff.ps1 is the Windows helper"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The five tests run the Windows update helper under Windows PowerShell against a fake \
+NSIS installer (#331, ADR-0141); test (windows-latest) runs them. The macOS and Linux helper runs \
+on those two legs in the same module."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_*"
+reason = "update_handoff.sh is the macOS and Linux helper"
+jobs = ["test (windows-latest)"]
+why = """Eight tests run the macOS and Linux update helper with /bin/sh against a fake .sh \
+installer (#331, ADR-0141); test (ubuntu-latest) and test (macos-latest) run them, and Windows \
+runs its own helper's tests in the same module."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_check_launch_surface_on_a_linux_layout"
+reason = "the shims of macOS and Linux are sh scripts"
+jobs = ["test (windows-latest)"]
+why = """The test runs the sh launchers of a fake Linux install (#331); test (ubuntu-latest) and \
+test (macos-latest) run it. The Windows checks run in the Windows helper's success test."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_another_name_for_the_same_folder_is_the_same_install"
+reason = "symbolic links need a privilege on Windows"
+jobs = ["test (windows-latest)"]
+why = """The test gives an install a second name with a symbolic link, which a Windows runner \
+does not let a test create (#331); the two other legs run it. The second name it stands for, \
+~/tether beside ~/Tether, exists only on macOS."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_a_symbolic_link_put_in_place_of_the_file_is_refused"
+reason = "symbolic links need a privilege on Windows"
+jobs = ["test (windows-latest)"]
+why = """Creating a symbolic link on Windows needs a privilege the runner does not give a test \
+(#331); the two other legs run it. O_NOFOLLOW, which it checks, is a POSIX flag."""
 
 [[skip]]
 test = "tests/test_gui_identity.py::test_windows_app_id_is_set_on_the_process"
@@ -327,15 +416,16 @@ test (ubuntu-latest) under xvfb and test (windows-latest) run the test."""
 test = "tests/test_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The seven movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
-under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
-test (windows-latest) run them."""
+why = """The movie-panel tests (with the two frame-link tests of #366) open a napari Viewer, \
+which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
 [[skip]]
 test = "tests/test_shell_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The nine tests that dock the shell's napari movie panel (#356) open a napari Viewer, \
+why = """The tests that dock the shell's napari movie panel (#356, the eight round-trip tests \
+of #357 and the seven frame-link tests of #366) open a napari Viewer, \
 which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
 test (ubuntu-latest) under xvfb and test (windows-latest) run them. The module's tests of an \
 unwired panel run on macOS too."""

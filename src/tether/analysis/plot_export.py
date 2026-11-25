@@ -83,6 +83,7 @@ from tether.analysis.histogram import (
 )
 from tether.analysis.plot_data import PlottedData, data_tables, write_data_tables
 from tether.analysis.state_number import StateNumberCounts
+from tether.analysis.successive import SuccessiveFrameCloud
 from tether.analysis.tdp import SmoothedTransitionDensity, TransitionDensityPlot
 from tether.analysis.transition_prob import TransitionProbHistogram
 from tether.project.export import write_provenance_sidecar
@@ -109,6 +110,7 @@ __all__ = [
     "render_raw_fret_cloud",
     "render_state_number",
     "render_state_number_elbow",
+    "render_successive_frame_cloud",
     "render_transition_density",
     "render_transition_prob",
     "render_transition_sync_histogram2d",
@@ -130,6 +132,14 @@ DEFAULT_PLOT_FORMATS: tuple[str, ...] = ("pdf", "svg", "png")
 #: Fixed SVG id hash-salt so re-exports are byte-reproducible (matplotlib otherwise
 #: salts element ids per process).
 _SVG_HASHSALT = "tether.analysis.plot_export"
+
+#: The ``tether_export`` kinds of the three project (store) exports. The published
+#: provenance schema reads a sidecar under one of these as a store export, with closed
+#: parameters, so `export_figure` refuses them: a figure sidecar under such a kind would
+#: fail the schema (#1248).
+_STORE_EXPORT_KINDS: frozenset[str] = frozenset(
+    {"deeplasi-txt", "molecule-table-csv", "subset-tether"}
+)
 
 #: The colour scales `render_transition_density` can draw the B1 TDP with.
 TDP_COLOR_SCALES: tuple[str, ...] = ("log", "linear")
@@ -514,7 +524,9 @@ def export_figure(
         ``<stem>.provenance.json``.
     tether_export : str
         The export kind, for example ``"plot:tdp"``. The stamp and the file metadata
-        record it.
+        record it. It may not be one of the three project export kinds
+        (``"deeplasi-txt"``, ``"molecule-table-csv"``, ``"subset-tether"``), which the
+        provenance schema reads as a store export.
     source : str
         The name of the source project or data set, recorded in the provenance file.
     parameters : dict of str to object
@@ -570,6 +582,7 @@ def export_figure(
         must be ``None`` or a list or tuple with one dict per drawn series.
         Each dict must agree with that series as drawn.
         ``data_csv=True`` needs a figure drawn by a ``render_*`` function.
+        ``tether_export`` may not name a project export kind.
 
     Examples
     --------
@@ -591,6 +604,11 @@ def export_figure(
     ...     print(result.formats, result.provenance_path.name)
     ('pdf', 'svg', 'png') a1.provenance.json
     """
+    if tether_export in _STORE_EXPORT_KINDS:
+        raise ValueError(
+            f"tether_export {tether_export!r} names a project export, not a figure; "
+            'use a figure kind such as "plot:tdp"'
+        )
     unknown = set(formats) - set(DEFAULT_PLOT_FORMATS)
     if unknown:
         raise ValueError(
@@ -3427,3 +3445,168 @@ def _anticorrelation_rows(
         va="bottom",
         fontsize=8,
     )
+
+
+@_records_plotted
+def render_successive_frame_cloud(
+    cloud: SuccessiveFrameCloud | Sequence[tuple[str, SuccessiveFrameCloud]],
+    *,
+    title: str = "Successive-frame FRET cloud",
+    max_points: int = 20000,
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1.
+
+    The figure draws the density surface, the highest-density-region contours at the
+    cloud's coverages, the ``(E(i), E(i+1))`` pairs as points, the k-means centroids as
+    crosses and the diagonal ``E(i+1) = E(i)`` as a dashed line (#1085, PRD §7.7). A
+    molecule that stays in one state puts its pairs on the diagonal; a transition puts one
+    pair off it. This is not the raw FRET cloud of
+    [`render_raw_fret_cloud`][], which draws E against time.
+
+    **Several series** are drawn as small multiples, one panel per series in series
+    order, each titled with its label: two clouds and two density surfaces drawn over
+    each other hide each other. The panels share their axes and one color scale for
+    the density surfaces. The record of each series in the provenance file also holds
+    the analysis provenance of its cloud under ``"analysis"``: the analysis name, the
+    Tether version and every parameter that made it, the ``molecule_key`` list included.
+
+    Parameters
+    ----------
+    cloud : SuccessiveFrameCloud or sequence of (str, SuccessiveFrameCloud)
+        The cloud to draw, from
+        [`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud] or
+        [`population_successive_frame_cloud`][tether.analysis.successive.population_successive_frame_cloud],
+        or an ordered sequence of ``(label, cloud)`` series. A one-series sequence draws
+        the same figure as the bare cloud. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title, or for several series the figure title above the panels. The
+        default is ``"Successive-frame FRET cloud"``.
+    max_points : int, optional
+        The most pairs the scatter draws, so that a vector file stays a manageable size.
+        Above it the scatter shows every n-th pair. For several series the cap applies to
+        the scatter of each panel. The cap changes neither the density surface nor the
+        centroids, which were computed from every pair. The default is 20000.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches) for one cloud, and a size that fits
+        the panels for several series.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it to
+        [`export_figure`][] to stamp it and write it. The figure has the cloud axes (one
+        per series), and a color bar when a cloud carries a density surface.
+
+    Raises
+    ------
+    ValueError
+        If ``cloud`` is an empty sequence, or a series label is empty or used twice, or if
+        two series differ in their density grid.
+    TypeError
+        If ``cloud`` is neither a cloud nor an ordered sequence of ``(label, cloud)`` pairs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.successive import successive_frame_cloud
+    >>> from tether.analysis.plot_export import render_successive_frame_cloud
+    >>> traces = [np.array([0.2, 0.25, 0.8, 0.75]), np.array([0.8, 0.2, 0.25, 0.2])]
+    >>> fig = render_successive_frame_cloud(successive_frame_cloud(traces, grid_points=20))
+    >>> [ax.get_label() for ax in fig.axes]
+    ['', '<colorbar>']
+    """
+    series = _as_series(cloud, (SuccessiveFrameCloud,), "SuccessiveFrameCloud")
+    if series is None or len(series) == 1:
+        one = cloud if series is None else series[0][1]
+        fig = _new_figure(figsize)
+        ax = fig.add_subplot()
+        mesh = _successive_panel(ax, one, max_points=max_points, norm=None)  # type: ignore[arg-type]
+        if mesh is not None:
+            fig.colorbar(mesh, ax=ax, label="KDE density")
+        ax.set_title(title)
+        if series is not None:
+            _record_series(fig, series, companions=_successive_records(series))
+        return fig
+    _require_shared_grid(series, (("density grid", lambda c: np.asarray(c.grid)),))
+    surfaces = [np.asarray(c.density, dtype="float64") for _, c in series if c.density is not None]
+    norm = _shared_norm(surfaces)
+    fig = _new_figure(_panels_figsize(figsize, len(series)))
+    axes = _panels(fig, len(series))
+    mesh = None
+    for ax, (label, c) in zip(axes, series, strict=True):
+        mesh = _successive_panel(ax, c, max_points=max_points, norm=norm) or mesh
+        ax.set_title(_drawn(label))
+    if mesh is not None:
+        fig.colorbar(mesh, ax=axes, label="KDE density")
+    fig.suptitle(title)
+    _record_series(
+        fig,
+        series,
+        display=_small_multiples_display(fig, len(series), color_scale=mesh is not None),
+        companions=_successive_records(series),
+    )
+    return fig
+
+
+def _successive_records(
+    series: Sequence[tuple[str, SuccessiveFrameCloud]],
+) -> list[dict[str, object]]:
+    """Each series' analysis provenance, as its provenance record (``"analysis"``)."""
+    return [{"analysis": _finite(copy.deepcopy(c.provenance))} for _, c in series]
+
+
+def _successive_panel(
+    ax: Any, cloud: SuccessiveFrameCloud, *, max_points: int, norm: Normalize | None
+) -> Any:
+    """Draw one successive-frame cloud on ``ax``; return its density mesh, or ``None``."""
+    grid = np.asarray(cloud.grid, dtype="float64")
+    lo, hi = float(grid[0]), float(grid[-1])
+    mesh = None
+    if cloud.density is not None:
+        density = np.asarray(cloud.density, dtype="float64")  # [E(i), E(i+1)]
+        # Rasterized, so a 200 x 200 surface stays one image in a vector file.
+        mesh = ax.pcolormesh(
+            grid, grid, density.T, cmap="Blues", norm=norm, shading="nearest", rasterized=True
+        )
+        if cloud.hdr_levels is not None:
+            levels = np.asarray(cloud.hdr_levels, dtype="float64")
+            levels = np.unique(levels[np.isfinite(levels) & (levels > 0)])
+            if levels.size:
+                ax.contour(
+                    grid, grid, density.T, levels=levels, colors="k", linewidths=0.7, alpha=0.7
+                )
+    pairs = np.asarray(cloud.pairs.pairs, dtype="float64").reshape(-1, 2)
+    n = pairs.shape[0]
+    if n:
+        shown = pairs[:: int(np.ceil(n / max_points))] if n > max_points else pairs
+        ax.scatter(shown[:, 0], shown[:, 1], s=2, color="#c44e52", alpha=0.25, linewidths=0)
+    ax.plot([lo, hi], [lo, hi], ls="--", color="0.4", lw=0.8)
+    if cloud.centroids is not None:
+        centroids = np.asarray(cloud.centroids, dtype="float64")
+        ax.plot(
+            centroids[:, 0],
+            centroids[:, 1],
+            "X",
+            ms=8,
+            color="#e69f00",
+            mec="k",
+            mew=0.8,
+            ls="none",
+        )
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect("equal")
+    ax.set_xlabel("Apparent FRET efficiency $E$ at frame $i$")
+    ax.set_ylabel("$E$ at frame $i + 1$")
+    ax.annotate(
+        f"{_count(cloud.n_pairs, 'pair')} · N = {cloud.n_molecules}"
+        f" · {_count(cloud.n_centroids, 'centroid')}",
+        xy=(0.03, 0.97),
+        xycoords="axes fraction",
+        ha="left",
+        va="top",
+        fontsize=8,
+    )
+    return mesh

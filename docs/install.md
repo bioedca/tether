@@ -460,6 +460,20 @@ The override applies to the Tether application, not to a user who changes the fi
 own install folder. Each user owns their own install, so the override is a site setting, not a
 lock. To remove it, delete the file.
 
+**The hosts the update reaches.** A site that limits outgoing connections needs these hosts for
+the update check and for **Install update**. All use HTTPS on port 443.
+
+| Host | Used for |
+|---|---|
+| `api.github.com` | The newest-release check, and the attestation of a downloaded installer |
+| `github.com` and `release-assets.githubusercontent.com` | The download of the installer |
+| `tuf-repo-cdn.sigstore.dev` and `tuf-repo.github.com` | The trust root that the verifier checks the attestation against |
+
+If the download hosts cannot be reached, the status bar says that the update could not be
+downloaded. If another host cannot be reached, Tether shows no error. Either way the notice keeps
+its link to the Releases page, and Tether installs nothing. The [privacy policy](privacy.md) says what each
+request sends.
+
 ## If it did not work
 
 **`tether: command not found`, or *"is not recognized as the name of a cmdlet"*.** The
@@ -497,6 +511,130 @@ Reinstalling will not fix it. Two causes produce it:
   `sudo dnf install xcb-util-cursor`.
 
 Everything else, keyed by the message you saw, is in [Troubleshooting](troubleshooting.md).
+
+## Update Tether
+
+To move to a newer release, remove the old install first. Then install the new release into the
+same folder.
+
+Your work and your settings stay:
+
+- Projects, movies and exports that you saved outside the install folder are not touched.
+- The [settings file](#settings-tether-keeps-outside-the-install-folder) is outside the install
+  folder. The new release keeps your answer to the update question and your trace colors.
+
+> **Check the folder first.** Removing the old install deletes everything in the install folder.
+> If you saved a project, a movie or an export there, move it to another folder first.
+
+Do these steps on any system:
+
+1. Close every Tether window.
+2. Download and check the new installer, as [step 1](#1-download-the-installer-for-your-computer)
+   and [step 2](#2-check-the-download) tell you. Those steps name the files, the tag and the
+   commit of the release that this page documents. Use the values of your new release instead.
+   Use its file names, its tag in `--source-ref` and its commit in `--source-digest`. To get the
+   commit, run this [Git](https://git-scm.com/) command with the tag of your new release:
+
+   ```bash
+   git ls-remote https://github.com/bioedca/tether "refs/tags/v1.0.0-rc3^{}"
+   ```
+
+   The first value it prints is the commit. For `v1.0.0-rc3`, that is
+   `6de7824fa73bebd70f8fbf6dda037b6857fd1b2f`.
+3. Remove the old install, as [Uninstall](#uninstall) tells you for your system. You can keep
+   the PATH line from step 4, but see the note below.
+4. Make sure that the install folder is gone. If it is still there, delete it.
+5. Install the new release, as [step 3](#3-run-the-installer) tells you. Use the same folder as
+   before.
+6. Check the version, as [step 5](#5-check-that-tether-runs) tells you. It prints the version of
+   the new release.
+
+**The PATH line.** Installers up to and including 1.0.0-rc3 put the launchers in `bin`. Later
+installers put them in `launchers`. If you move from such an installer to a later one, change
+`bin` to `launchers` in your PATH line.
+
+**What these steps rest on.** Tether's installer build workflow tests these steps on Windows,
+macOS and Linux. It records an answer to the update question, removes the install and installs again. The
+settings file stays the same, byte for byte, and the new install reads the same answer. In
+that test, the same release is installed twice.
+
+The same test also runs the installer over an existing install, without a removal first:
+
+- On Windows and macOS, the installer stopped with an error.
+- On Linux, the installer stopped with *"File or directory already exists"*. It then names an
+  `-u` option that updates an existing install. Tether's tests ran `-u` only with the same
+  release twice, so this guide does not use it.
+
+Two releases installed side by side have not been tested. This guide does not cover that.
+
+### Find out when a newer release is out
+
+Tether can tell you when a newer release is published. The check is off until you turn it on.
+To turn it on or off, use **Help → Check for new releases at startup**. The first time the
+application starts, a bar also asks you. Its answers are **Check for new releases** and
+**Don't check**.
+
+When a newer release exists, a bar at the top of the window says:
+
+> *Tether &lt;new version&gt; is available (you have &lt;your version&gt;). Open the Releases
+> page to download it.*
+
+The link opens the [Releases page](https://github.com/bioedca/tether/releases). To install the
+new release by hand, do the steps above.
+
+### Install an update from inside Tether
+
+If this copy of Tether can replace itself, the bar also has an **Install update** button. The
+bar then says *Install it now, or open the Releases page*. Tether offers the button only when all of these are
+true:
+
+- You allowed the update check.
+- This copy was installed by a Tether installer, and its install folder has the bundled
+  verifier.
+- On Windows, Tether was installed for *Just Me*. On macOS, Tether is in the `Tether` folder of
+  your home folder. On every system, you can write to the folder that holds the install folder.
+- No earlier update left a `<install folder>.tether-update-backup` or
+  `<install folder>.tether-update-failed` folder beside the install.
+
+When you select **Install update**:
+
+1. Tether downloads the installer of the new release. A progress bar shows how much has
+   arrived. **Cancel** stops the download and deletes the file. If you close Tether before
+   the update starts, Tether also deletes the file.
+2. Tether checks the download against the release's build-provenance attestation, as
+   [How the in-app updater checks a download](packaging.md#how-the-in-app-updater-checks-a-download)
+   tells you. If the check refuses the file, the bar gives the reason and Tether installs
+   nothing. If the check cannot run, for example with no network, the bar shows the notice
+   again with the link only.
+3. The bar says *Tether will close, install &lt;new version&gt; and start again. Save your work
+   first.* Save your work, then select **Install and restart**. **Cancel** stops here and
+   deletes the file.
+4. Tether closes. A small helper moves the install folder aside and runs the installer into
+   the same folder. It checks that every launcher starts the new version. Then it starts Tether
+   again. If the installer or the check fails, the helper puts the previous copy back.
+
+At the next start, the bar says once what happened. Tether was updated, the previous copy was
+put back, or nothing was changed.
+
+### If an update stopped halfway
+
+A power cut or a stopped helper during step 4 can leave no install folder. The previous copy is
+then in `<install folder>.tether-update-backup` beside it. The bar can also say that Tether could not
+put the previous copy back, and name that folder. To get the previous copy back:
+
+1. Close every Tether window.
+2. If the install folder is there, it holds the incomplete update. Delete it. Delete a
+   `<install folder>.tether-update-failed` folder too, if there is one.
+3. Rename `<install folder>.tether-update-backup` to the name of the install folder. For the
+   default folder on Linux, that is `mv ~/tether.tether-update-backup ~/tether`.
+4. Start Tether. It is the version you had before the update.
+
+If no backup folder is there, install Tether again, as [step 3](#3-run-the-installer) tells you.
+Your projects and settings are outside the install folder, so they stay.
+
+The [privacy policy](privacy.md) says what the check sends. The
+[settings section](#settings-tether-keeps-outside-the-install-folder) says where Tether keeps
+your answer, and how an administrator turns the check off for every user.
 
 ## Uninstall
 
@@ -577,3 +715,51 @@ set that variable to an absolute path. Otherwise, delete `~/.config/tether`.
 The deep trace classifier is an optional extra for users with an NVIDIA GPU. It lets them train
 or run a deep model on their own labels. It is **not** part of the installer, and Tether does
 not need it. [Deep trace classifier](ml/deep-classifier.md) tells you how to set it up.
+
+## The optional Bio-Formats stack (cellSens `.vsi` movies)
+
+Tether reads Olympus/Evident cellSens `.vsi` movies through
+[Bio-Formats](https://www.openmicroscopy.org/bio-formats/). Bio-Formats runs on Java. Java is
+**not** part of the installer. Tether needs it for no other file. The Bio-Formats stack is a
+separate environment, kept apart from the application like the tMAVEN copy
+([ADR-0147](adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)).
+Install it only if you open `.vsi` files.
+
+1. Get `bioformats/conda-lock.yml` from the Tether repository, at the version of your Tether.
+   The [source on GitHub](https://github.com/bioedca/tether/tree/main/bioformats) has it. The
+   lock names each package by version and checksum, for Linux, macOS and Windows.
+2. Make the environment in a folder of your choice with
+   [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html):
+
+    ```sh
+    micromamba create -p ~/tether-bioformats -f bioformats/conda-lock.yml
+    ```
+
+    The command `conda-lock install -p <folder> bioformats/conda-lock.yml` does the same. The
+    stack takes about 750 MB of disk on Linux. It holds Python 3.12, an OpenJDK 21 Java runtime,
+    JPype and Bio-Formats 8.0. Bio-Formats comes from the bioconda channel as `bftools`.
+
+3. Tell Tether where the environment's Python is. Set the `TETHER_BIOFORMATS_PYTHON`
+   environment variable in the terminal (or the user environment) that starts Tether:
+
+    ```sh
+    # Linux and macOS
+    export TETHER_BIOFORMATS_PYTHON=~/tether-bioformats/bin/python
+    ```
+
+    ```powershell
+    # Windows (PowerShell)
+    $env:TETHER_BIOFORMATS_PYTHON = "$HOME\tether-bioformats\python.exe"
+    ```
+
+Tether then opens a `.vsi` file through its reader. Keep the `_<name>_` folder that cellSens
+writes beside the `.vsi` file. The frames are in the `.ets` files inside it. Extraction reads a
+`.vsi` movie too. It gives the same traces as a TIFF of the same frames
+([Movie containers](reference/movie-containers.md)).
+
+Without the stack, Tether refuses
+a `.vsi` with a message that gives these steps. Tether also refuses frames stored with JPEG or
+JPEG 2000, which can be lossy. Export such an acquisition again without compression.
+[Troubleshooting](troubleshooting.md) lists the messages.
+
+To remove the stack, delete its folder and unset the variable.

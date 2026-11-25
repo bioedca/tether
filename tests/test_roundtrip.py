@@ -28,7 +28,13 @@ import pytest
 
 from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import MovieOverlay, NapariMoviePanel
-from tether.gui.roundtrip import MoleculeSite, RoundTripIndex, RoundTripNavigator
+from tether.gui.roundtrip import (
+    FrameLink,
+    MoleculeSite,
+    RoundTripIndex,
+    RoundTripNavigator,
+    sites_for_molecules,
+)
 from tether.io.movie import open_movie
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
@@ -269,6 +275,282 @@ def test_navigator_rejects_duplicate_movie_ids() -> None:
     panel = _FakePanel(active=0)
     with pytest.raises(ValueError, match="unique"):
         RoundTripNavigator(index, panel, movie_ids=["m0", "m0"])
+
+
+# --- sites_for_molecules: the shell's molecule list → sites (Qt-free, #357) ----------
+
+
+class _Spots:
+    """A stand-in for :class:`~tether.services.movies.ProjectMovie`'s spot fields."""
+
+    def __init__(self, movie_id: str, keys: list[str], donor: list, acceptor: list) -> None:
+        self.movie_id = movie_id
+        self.molecule_keys = tuple(keys)
+        self.donor_xy = np.asarray(donor, dtype=np.float64).reshape(-1, 2)
+        self.acceptor_xy = np.asarray(acceptor, dtype=np.float64).reshape(-1, 2)
+
+
+def test_sites_for_molecules_maps_each_site_to_its_list_row() -> None:
+    movies = [
+        _Spots("m0", ["a", "b"], [[1.0, 2.0], [3.0, 4.0]], [[11.0, 2.0], [13.0, 4.0]]),
+        _Spots("m1", ["c"], [[5.0, 6.0]], [[15.0, 6.0]]),
+    ]
+    # "x" has no spot in a shown movie and None has no store row: neither gets a site.
+    sites, rows = sites_for_molecules(["c", "x", "a", None, "b"], movies)
+
+    assert rows == [0, 2, 4]
+    assert [site.movie_id for site in sites] == ["m1", "m0", "m0"]
+    np.testing.assert_array_equal(sites[0].donor_xy, [5.0, 6.0])
+    np.testing.assert_array_equal(sites[2].acceptor_xy, [13.0, 4.0])
+
+
+def test_sites_for_molecules_rejects_keys_out_of_step_with_spots() -> None:
+    spots = _Spots("m0", ["a"], [[1.0, 2.0], [3.0, 4.0]], [[1.0, 2.0], [3.0, 4.0]])
+    with pytest.raises(ValueError, match="1 molecule key"):
+        sites_for_molecules(["a"], [spots])
+
+
+def _two_movie_project(tmp_path: Path) -> Path:
+    """A ``.tether`` with two ``/movies`` rows (the #347 append), three molecules each."""
+    import dataclasses
+
+    from _analysis_store import PARSED, _mols_traces_movie, build_store_with_channels, reg_map
+    from tether.imaging.extract import write_extraction
+    from tether.imaging.split import ChannelGeometry
+
+    rng = np.random.default_rng(357)
+    channels = [rng.uniform(200.0, 800.0, size=(3, 12)) for _ in range(4)]
+    project, _keys = build_store_with_channels(tmp_path, channels[0], channels[1])
+    mols, traces, movie = _mols_traces_movie(channels[2], channels[3])
+    movie = dataclasses.replace(
+        movie,
+        movie_id="mov-2",
+        sha256="b" * 64,
+        height=40,
+        width=48,
+        donor_geometry=ChannelGeometry(crop=(1, 1, 40, 24)),
+        acceptor_geometry=ChannelGeometry(crop=(1, 25, 40, 48)),
+    )
+    write_extraction(
+        project.path,
+        movie=movie,
+        molecules=mols,
+        traces=traces,
+        parsed=PARSED,
+        registration_map=reg_map(),
+    )
+    return Path(project.path)
+
+
+def test_a_two_movie_project_round_trips_both_ways_without_qt(tmp_path) -> None:
+    """The literal §9 M2 criterion on a real store, with no display: ≥ 2 movies, both legs."""
+    pytest.importorskip("h5py")
+    from tether.imaging.extract import read_molecules
+    from tether.services.movies import read_project_movies
+
+    path = _two_movie_project(tmp_path)
+    mols = read_molecules(path)
+    keys = [k.decode() if isinstance(k, bytes) else str(k) for k in mols["molecule_key"]]
+    movies = read_project_movies(path).movies
+    assert [m.movie_id for m in movies] == ["mov-1", "mov-2"]
+    sites, rows = sites_for_molecules(keys, movies)
+    assert rows == list(range(6))
+
+    panel = _FakePanel(active=0)
+    selected: list[int] = []
+    nav = RoundTripNavigator(
+        RoundTripIndex(sites),
+        panel,
+        [m.movie_id for m in movies],
+        on_select=selected.append,
+        max_click_distance=2.5,
+    )
+    nav.connect()
+    # Both movies put their donor spots at the same frame pixels; the acceptor crops differ.
+    shift = {"mov-1": 64.0, "mov-2": 24.0}
+    for row in range(6):
+        movie = "mov-1" if row < 3 else "mov-2"
+        donor = np.asarray(mols["donor_xy"][row], dtype=np.float64)
+        acceptor = np.asarray(mols["acceptor_xy"][row], dtype=np.float64) + [shift[movie], 0.0]
+        # trace → movie: the molecule's own movie, centred on its donor spot.
+        nav.focus_molecule(row)
+        assert panel.active_index == (0 if movie == "mov-1" else 1)
+        assert panel.centered_on[-1] == (donor[1], donor[0])
+        # movie → trace: a click on either spot, in the movie shown, selects it back.
+        panel.click_callback((donor[1], donor[0]))
+        panel.click_callback((acceptor[1], acceptor[0]))
+        assert selected[-2:] == [row, row]
+
+
+# --- synchronized scrubbing (#366): FrameLink through MoviePanelLike, Qt-free ---------
+
+
+class _FramePanel(_FakePanel):
+    """A :class:`MoviePanelLike` fake with the frame half: one frame slider per movie.
+
+    It tells its frame callbacks every change, as the real panel does, including the
+    changes ``set_frame`` makes, so a link that answered its own write would loop here.
+    """
+
+    def __init__(self, n_frames: list[int], *, active: int = 0) -> None:
+        super().__init__(active=active)
+        self._n_frames = list(n_frames)
+        self._frame = 0
+        self.frame_callbacks: list = []
+        self.set_frames: list[int] = []
+
+    @property
+    def n_frames(self) -> int:
+        return self._n_frames[self._active]
+
+    @property
+    def current_frame(self) -> int:
+        return self._frame
+
+    def set_frame(self, frame: int) -> None:
+        assert 0 <= frame < self.n_frames
+        self.set_frames.append(frame)
+        self.user_moves_to(frame)
+
+    def connect_frame_changed(self, callback) -> None:
+        self.frame_callbacks.append(callback)
+
+    def user_moves_to(self, frame: int) -> None:
+        """The user moves the time slider (or set_frame does): tell every callback."""
+        self._frame = frame
+        for callback in list(self.frame_callbacks):
+            callback(frame)
+
+
+class _FakeCursor:
+    """A :class:`TraceCursorLike` fake: a drag tells the callbacks, a call does not."""
+
+    def __init__(self, frame: int | None = 0) -> None:
+        self.frame_cursor = frame
+        self.callbacks: list = []
+        self.set_calls: list[int] = []
+
+    def set_frame_cursor(self, frame: int) -> None:
+        self.set_calls.append(frame)
+        self.frame_cursor = frame
+
+    def connect_frame_cursor(self, callback) -> None:
+        self.callbacks.append(callback)
+
+    def drag_to(self, frame: int) -> None:
+        self.frame_cursor = frame
+        for callback in list(self.callbacks):
+            callback(frame)
+
+
+def _link(n_frames=(50, 50), *, active=0, cursor=0, enabled=True):
+    panel = _FramePanel(list(n_frames), active=active)
+    dock = _FakeCursor(cursor)
+    link = FrameLink(panel, dock, enabled=enabled)
+    link.connect()
+    return panel, dock, link
+
+
+def test_frame_link_moves_the_movie_with_the_cursor_and_back() -> None:
+    panel, dock, link = _link()
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert link.linked
+
+    dock.drag_to(12)
+    assert panel.current_frame == 12
+    panel.user_moves_to(30)
+    assert dock.frame_cursor == 30
+    # No echo: each side was moved once, and nothing wrote back to the side that moved.
+    assert panel.set_frames == [12]
+    assert dock.set_calls == [30]
+
+
+def test_frame_link_maps_trace_frames_through_the_frame_offset_and_clamps() -> None:
+    # The trace starts at movie frame 10 and has 20 frames; the movie has 25.
+    panel, dock, link = _link(n_frames=(25,))
+    link.set_target(0, frame_offset=10, n_frames=20)
+    assert panel.set_frames == [10]  # the trace leads: cursor frame 0 is movie frame 10
+
+    dock.drag_to(4)
+    assert panel.current_frame == 14
+    dock.drag_to(19)  # movie frame 29 is past the movie's end: its last frame
+    assert panel.current_frame == 24
+
+    panel.user_moves_to(3)  # before the trace: its first frame
+    assert dock.frame_cursor == 0
+    panel.user_moves_to(17)
+    assert dock.frame_cursor == 7
+
+
+def test_frame_link_acts_only_on_the_active_molecules_own_movie() -> None:
+    panel, dock, link = _link()
+    link.set_target(1, frame_offset=0, n_frames=50)  # the molecule is in movie 1
+    assert not link.linked  # movie 0 is shown
+
+    dock.drag_to(8)
+    panel.user_moves_to(20)
+    assert panel.set_frames == [] and dock.set_calls == []
+
+    panel.set_active_movie(1)
+    assert link.linked
+    dock.drag_to(9)
+    assert panel.current_frame == 9
+
+    link.clear_target()
+    dock.drag_to(11)
+    assert panel.current_frame == 9
+
+
+def test_frame_link_lead_names_the_side_that_is_followed() -> None:
+    panel, dock, link = _link(cursor=5)
+    panel.user_moves_to(33)
+
+    link.set_target(0, frame_offset=0, n_frames=50, lead="movie")
+    assert dock.frame_cursor == 33 and panel.current_frame == 33
+
+    dock.set_frame_cursor(2)
+    link.set_target(0, frame_offset=0, n_frames=50, lead="trace")
+    assert panel.current_frame == 2
+
+    with pytest.raises(ValueError, match="lead"):
+        link.sync(lead="both")  # type: ignore[arg-type]
+
+
+def test_frame_link_is_opt_out() -> None:
+    panel, dock, link = _link(enabled=False)
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert link.enabled is False and not link.linked
+    dock.drag_to(6)
+    panel.user_moves_to(40)
+    assert panel.set_frames == [] and dock.set_calls == []
+
+    # Turning it on shows the cursor frame in the movie.
+    link.set_enabled(True)
+    assert panel.current_frame == 6
+    link.set_enabled(False)
+    dock.drag_to(7)
+    assert panel.current_frame == 6
+
+
+def test_frame_link_connect_is_idempotent_and_targets_are_checked() -> None:
+    panel, dock, link = _link()
+    link.connect()
+    assert len(panel.frame_callbacks) == 1 and len(dock.callbacks) == 1
+    with pytest.raises(ValueError, match="frame_offset"):
+        link.set_target(0, frame_offset=-1, n_frames=5)
+    with pytest.raises(ValueError, match="n_frames"):
+        link.set_target(0, frame_offset=0, n_frames=0)
+    assert link.target is None
+
+
+def test_frame_link_ignores_a_trace_with_no_cursor_and_a_panel_with_no_movie() -> None:
+    panel, dock, link = _link(cursor=None)
+    link.set_target(0, frame_offset=0, n_frames=50)
+    assert panel.set_frames == []
+    panel._n_frames = [0, 0]
+    link.on_trace_frame(3)
+    link.on_movie_frame(-1)
+    assert panel.set_frames == [] and dock.set_calls == []
 
 
 # --- GUI smoke: real napari panel, ≥2 movies ---------------------------------

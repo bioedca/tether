@@ -32,7 +32,7 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
     from contextlib import AbstractContextManager
 
     import numpy as np
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         RekeyPreview,
         RekeyResult,
     )
+    from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
     from tether.project.lock import LockIdentity, LockInfo, RecoveryAction
@@ -409,6 +410,35 @@ class Project:
         self._assert_writable()
         return labels.unreject(self.path, molecule_key, **provenance)
 
+    def restore_curation(
+        self, molecule_key: str, label: int, **options: object
+    ) -> list[np.ndarray]:
+        """Write ``label`` back as the molecule's curation state, by new events only.
+
+        The writer behind an undo or redo of an accept, reject or un-reject (#632): the
+        ``/labels`` log gains rows and none is deleted. ``pending``, ``reason``, ``note``,
+        ``value``, ``restore_note`` and the provenance keywords pass through to
+        [`labels.restore_curation`][tether.project.labels.restore_curation]. Refuses the
+        canonical write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import labels
+
+        self._assert_writable()
+        return labels.restore_curation(self.path, molecule_key, label, **options)  # type: ignore[arg-type]
+
+    def confirm_carried(self, molecule_keys: Iterable[str], **provenance: object) -> ConfirmResult:
+        """Confirm carried molecules of a new trace generation (#923).
+
+        Removes the mark *carried* and records who confirmed and when
+        ([`confirm_carried`][tether.project.generation_reconcile.confirm_carried]; the
+        keyword arguments ``labeler``, ``timestamp`` and ``source_file`` pass through).
+        Refuses the canonical write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import generation_reconcile
+
+        self._assert_writable()
+        return generation_reconcile.confirm_carried(self.path, molecule_keys, **provenance)  # type: ignore[arg-type]
+
     def curation_label(self, molecule_key: str) -> int:
         """The molecule's current ``curation_label`` (`labels.curation_label_of`)."""
         from tether.project import labels
@@ -688,6 +718,50 @@ class Project:
         self._assert_writable()
         return molecule_edits.reset_analysis_window(
             self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def restore_analysis_windows(
+        self,
+        molecule_key: str,
+        windows: Mapping[str, tuple[int, int]],
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Give each row of a molecule its own window back, by ``molecule_id``
+        ([`molecule_edits.restore_analysis_windows`][tether.project.molecule_edits.restore_analysis_windows]).
+
+        The writer behind an undo or redo of a window edit (#632). Refuses the write if
+        the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.restore_analysis_windows(
+            self.path, molecule_key, windows, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def restore_categories(
+        self,
+        molecule_key: str,
+        categories: Mapping[str, str],
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Give each row of a molecule its own category back, by ``molecule_id``
+        ([`molecule_edits.restore_categories`][tether.project.molecule_edits.restore_categories]).
+
+        The writer behind an undo or redo of a category edit (#632). Refuses the write if
+        the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.restore_categories(
+            self.path, molecule_key, categories, labeler=labeler, reason=reason, timestamp=timestamp
         )
 
     def read_molecule_audit(self) -> np.ndarray:

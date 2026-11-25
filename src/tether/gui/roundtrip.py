@@ -36,20 +36,34 @@ the boundary (`_xy_to_rowcol`), so a click ``position`` and a camera
 camera jump anchors on the **donor** spot (Tether's detection anchor since M1);
 the click KDTree indexes **both** spots (each mapped back to its molecule), so a
 click in either channel half resolves to the right molecule.
+
+**Synchronized scrubbing (#366).** [`FrameLink`][] is the third link between the
+two surfaces: the trace dock's frame cursor and the movie panel's displayed frame
+move together, for the active molecule's own movie. It is Qt-free like the
+navigator, and drives the panel through the frame half of [`MoviePanelLike`][].
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
-__all__ = ["MoleculeSite", "MoviePanelLike", "RoundTripIndex", "RoundTripNavigator"]
+__all__ = [
+    "FrameLink",
+    "MoleculeSite",
+    "MoviePanelLike",
+    "MovieSpots",
+    "RoundTripIndex",
+    "RoundTripNavigator",
+    "TraceCursorLike",
+    "sites_for_molecules",
+]
 
 
 def _validate_spot(xy: object, name: str) -> np.ndarray:
@@ -102,6 +116,71 @@ class MoleculeSite:
             raise ValueError(f"movie_id must be a non-empty str, got {self.movie_id!r}")
         object.__setattr__(self, "donor_xy", _validate_spot(self.donor_xy, "donor_xy"))
         object.__setattr__(self, "acceptor_xy", _validate_spot(self.acceptor_xy, "acceptor_xy"))
+
+
+class MovieSpots(Protocol):
+    """One shown movie's spots, keyed by molecule — what [`sites_for_molecules`][] reads.
+
+    [`ProjectMovie`][tether.services.movies.ProjectMovie] satisfies it: ``donor_xy`` and
+    ``acceptor_xy`` are ``(N, 2)`` ``[x, y]`` spots in the displayed frame, and
+    ``molecule_keys`` names the molecule of each row.
+    """
+
+    @property
+    def movie_id(self) -> str:
+        """The movie's ``movie_id``, as the panel's movie list names it."""
+        ...
+
+    @property
+    def molecule_keys(self) -> Sequence[str]:
+        """The ``molecule_key`` of each spot row of ``donor_xy`` / ``acceptor_xy``."""
+        ...
+
+    @property
+    def donor_xy(self) -> np.ndarray:
+        """``(N, 2)`` ``[x, y]`` donor spots in the displayed frame."""
+        ...
+
+    @property
+    def acceptor_xy(self) -> np.ndarray:
+        """``(N, 2)`` ``[x, y]`` acceptor spots in the displayed frame."""
+        ...
+
+
+def sites_for_molecules(
+    molecule_keys: Sequence[str | None], movies: Iterable[MovieSpots]
+) -> tuple[list[MoleculeSite], list[int]]:
+    """The [`MoleculeSite`][] of each listed molecule that has a spot in ``movies`` (#357).
+
+    ``molecule_keys`` is the molecule list in its display order (``None`` for a molecule
+    with no store row). ``movies`` are the movies the panel shows. Returns the sites, and
+    for each site the position in ``molecule_keys`` it belongs to, so a resolved site maps
+    back to its list row. A molecule with no spot in a shown movie (its movie file is not
+    shown, or its movie records no spot positions) gets no site and so cannot be jumped
+    to or clicked. A key that appears in more than one movie keeps its first spot.
+    """
+    spots: dict[str, tuple[str, np.ndarray, np.ndarray]] = {}
+    for movie in movies:
+        donor = np.asarray(movie.donor_xy, dtype=np.float64).reshape(-1, 2)
+        acceptor = np.asarray(movie.acceptor_xy, dtype=np.float64).reshape(-1, 2)
+        keys = list(movie.molecule_keys)
+        if not len(keys) == len(donor) == len(acceptor):
+            raise ValueError(
+                f"movie {movie.movie_id!r} has {len(keys)} molecule key(s) for "
+                f"{len(donor)} donor and {len(acceptor)} acceptor spot(s)"
+            )
+        for key, d, a in zip(keys, donor, acceptor, strict=True):
+            spots.setdefault(key, (movie.movie_id, d, a))
+    sites: list[MoleculeSite] = []
+    rows: list[int] = []
+    for row, key in enumerate(molecule_keys):
+        hit = spots.get(key) if key is not None else None
+        if hit is None:
+            continue
+        movie_id, donor_xy, acceptor_xy = hit
+        sites.append(MoleculeSite(movie_id=movie_id, donor_xy=donor_xy, acceptor_xy=acceptor_xy))
+        rows.append(row)
+    return sites, rows
 
 
 class RoundTripIndex:
@@ -224,6 +303,45 @@ class MoviePanelLike(Protocol):
     def center_on(self, row: float, col: float, *, zoom: float | None = ...) -> None: ...
 
     def connect_spot_click(self, callback: Callable[[tuple[float, float]], None]) -> None: ...
+
+    # The frame half, which [`FrameLink`][] drives (#366).
+
+    @property
+    def n_frames(self) -> int:
+        """Number of frames of the movie shown (``0`` when none)."""
+        ...
+
+    @property
+    def current_frame(self) -> int:
+        """The movie frame shown (``-1`` when none)."""
+        ...
+
+    def set_frame(self, frame: int) -> None: ...
+
+    def connect_frame_changed(self, callback: Callable[[int], object]) -> None:
+        """Call ``callback(frame)`` on each change of the frame shown.
+
+        A switch to another movie is a change even when it keeps the frame number, so the
+        link gets back in step when the target movie shows again.
+        """
+        ...
+
+
+class TraceCursorLike(Protocol):
+    """The slice of [`TraceDock`][tether.gui.trace_dock.TraceDock] that [`FrameLink`][] drives.
+
+    The frame cursor of the trace shown, in frames **into the trace**. The callbacks of
+    ``connect_frame_cursor`` hear a drag only, never a ``set_frame_cursor`` call.
+    """
+
+    @property
+    def frame_cursor(self) -> int | None:
+        """The cursor frame (``None`` while no trace is shown)."""
+        ...
+
+    def set_frame_cursor(self, frame: int) -> None: ...
+
+    def connect_frame_cursor(self, callback: Callable[[int], object]) -> None: ...
 
 
 class RoundTripNavigator:
@@ -350,3 +468,157 @@ class RoundTripNavigator:
         if mol_index is not None and self._on_select is not None:
             self._on_select(mol_index)
         return mol_index
+
+
+class FrameLink:
+    """Synchronized scrubbing between the trace dock and the movie panel (#366, Qt-free).
+
+    Moving the trace dock's frame cursor shows that frame in the movie panel, and moving
+    the panel's time slider moves the cursor, for **the active molecule's own movie**.
+    Both sides are duck-typed ([`TraceCursorLike`][], [`MoviePanelLike`][]), so the
+    coupling runs headless with fakes.
+
+    The link acts only while it is **enabled** (the user can turn it off) and while the
+    panel shows the target movie that [`set_target`][] named. When the user switches the
+    panel to another movie, neither side moves the other until the target movie shows
+    again; the panel then tells its frame, and the cursor moves to it.
+
+    **Frames.** Trace frame ``i`` is movie frame ``frame_offset + i`` (the start of the
+    molecule's ``frame_range``, §5.1). A frame outside the other side's range moves that
+    side to its nearest end: a movie frame before or after the trace puts the cursor on
+    the trace's first or last frame, and a trace frame past the movie's end shows the
+    movie's last frame.
+
+    **No loop.** A frame the link itself set is not passed back: while the link moves one
+    side, a change it hears from the other side is ignored.
+
+    Parameters
+    ----------
+    panel
+        The movie panel ([`MoviePanelLike`][]).
+    cursor
+        The trace dock's frame cursor ([`TraceCursorLike`][]).
+    enabled
+        Whether the link starts on (it is opt-out, so ``True``).
+    """
+
+    def __init__(
+        self, panel: MoviePanelLike, cursor: TraceCursorLike, *, enabled: bool = True
+    ) -> None:
+        self._panel = panel
+        self._cursor = cursor
+        self._enabled = bool(enabled)
+        # (panel movie index, frame_offset, trace n_frames), or None: nothing to link.
+        self._target: tuple[int, int, int] | None = None
+        self._moving = False
+        self._connected = False
+
+    # --- state ---------------------------------------------------------------
+
+    @property
+    def enabled(self) -> bool:
+        """Whether the link is on."""
+        return self._enabled
+
+    @property
+    def target(self) -> tuple[int, int, int] | None:
+        """``(movie index, frame_offset, n_frames)`` of the linked trace, or ``None``."""
+        return self._target
+
+    @property
+    def linked(self) -> bool:
+        """Whether the link acts now: enabled, with a target, and the target movie shown."""
+        return (
+            self._enabled
+            and self._target is not None
+            and self._panel.active_index == self._target[0]
+        )
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Turn the link on or off. Turning it on shows the cursor frame in the movie."""
+        was = self._enabled
+        self._enabled = bool(enabled)
+        if self._enabled and not was:
+            self.sync(lead="trace")
+
+    # --- wiring --------------------------------------------------------------
+
+    def connect(self) -> None:
+        """Listen to both sides (idempotent: a second call adds no second listener)."""
+        if self._connected:
+            return
+        self._panel.connect_frame_changed(self.on_movie_frame)
+        self._cursor.connect_frame_cursor(self.on_trace_frame)
+        self._connected = True
+
+    def set_target(
+        self,
+        movie_index: int,
+        *,
+        frame_offset: int,
+        n_frames: int,
+        lead: Literal["trace", "movie"] = "trace",
+    ) -> None:
+        """Link the trace shown to panel movie ``movie_index``, then bring the two in step.
+
+        ``frame_offset`` and ``n_frames`` describe the trace (its first movie frame and
+        its length). ``lead`` names the side the other one follows now: ``"trace"`` (a
+        molecule chosen in the list: the movie shows the cursor frame) or ``"movie"`` (a
+        molecule chosen by a click on its spot: the cursor moves to the frame the user
+        was looking at).
+        """
+        if isinstance(frame_offset, bool) or int(frame_offset) < 0:
+            raise ValueError(f"frame_offset must be a non-negative integer, got {frame_offset!r}")
+        if isinstance(n_frames, bool) or int(n_frames) < 1:
+            raise ValueError(f"n_frames must be a positive integer, got {n_frames!r}")
+        self._target = (int(movie_index), int(frame_offset), int(n_frames))
+        self.sync(lead=lead)
+
+    def clear_target(self) -> None:
+        """Link nothing (the trace shown has no spot in a movie the panel shows)."""
+        self._target = None
+
+    def sync(self, *, lead: Literal["trace", "movie"] = "trace") -> None:
+        """Bring the side that is not ``lead`` to ``lead``'s frame (no-op unless linked)."""
+        if lead not in ("trace", "movie"):
+            raise ValueError(f"lead must be 'trace' or 'movie', got {lead!r}")
+        if lead == "trace":
+            cursor = self._cursor.frame_cursor
+            if cursor is not None:
+                self.on_trace_frame(cursor)
+        else:
+            self.on_movie_frame(self._panel.current_frame)
+
+    # --- the two directions --------------------------------------------------
+
+    def on_trace_frame(self, frame: int) -> None:
+        """The cursor moved to trace frame ``frame``: show its movie frame."""
+        target = self._target
+        if self._moving or target is None or not self.linked:
+            return
+        n_movie = self._panel.n_frames
+        if n_movie < 1:
+            return
+        movie_frame = min(max(target[1] + int(frame), 0), n_movie - 1)
+        if movie_frame == self._panel.current_frame:
+            return
+        self._moving = True
+        try:
+            self._panel.set_frame(movie_frame)
+        finally:
+            self._moving = False
+
+    def on_movie_frame(self, frame: int) -> None:
+        """The movie shows frame ``frame``: move the cursor to its trace frame."""
+        target = self._target
+        if self._moving or target is None or not self.linked or frame < 0:
+            return
+        _, offset, n_frames = target
+        trace_frame = min(max(int(frame) - offset, 0), n_frames - 1)
+        if trace_frame == self._cursor.frame_cursor:
+            return
+        self._moving = True
+        try:
+            self._cursor.set_frame_cursor(trace_frame)
+        finally:
+            self._moving = False

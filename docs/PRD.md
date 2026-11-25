@@ -195,13 +195,13 @@ Data lives on OneDrive or a network share; there is no shared server.
 
 ### 3.2 North-star adoption test
 
-A scientist can: **open a real dataset → browse/curate with logged accept/reject → one-click vbFRET (verified
-tMAVEN parity) → export a per-condition FRET histogram with bootstrap CI ready for a figure.** The **M2–M3**
-milestone set built these steps as library capabilities, reachable from the Python API (§9 M2, M3). The shipped
-application does not yet do all of them: the project-wide one-click idealization
-([#625](https://github.com/bioedca/tether/issues/625)) and the histogram export
-([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) are carried by the
-milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#545](https://github.com/bioedca/tether/issues/545)).
+A scientist can: **open a real dataset → browse/curate with logged accept/reject → fit the whole project with
+"Idealize project…" (verified tMAVEN parity, §7.4) → export a per-condition FRET histogram with bootstrap CI ready
+for a figure.** The **M2–M3** milestone set built these steps as library capabilities, reachable from the Python API
+(§9 M2, M3). The shipped application does not yet do all of them. It fits the whole project
+([#625](https://github.com/bioedca/tether/issues/625)); the histogram export
+([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) is carried by the
+milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#949](https://github.com/bioedca/tether/issues/949)).
 The test is a non-binding adoption aspiration, deliberately not operationalized as a calendar gate (§9 is
 capability-sequenced, with no schedule commitment anywhere).
 
@@ -350,6 +350,12 @@ uses the three words only in these meanings:
   unchanged under `/generations/archive` and stays readable. An extraction never overwrites or deletes a
   generation; molecules that did not move (§11.2) keep their `molecule_key`, and their labels, category and
   analysis window are carried and marked so (ADR-0136).
+- **`/sources`** (table, `schema_version` 3) — the **source registry**: one row per source file (a movie, the bead
+  video of a map, a map image) with its path relative to the project, original name, size, SHA-256, adapter and
+  version, role and acquisition. A derived file names its original and the recipe between them. Raw movies are not
+  copied into the project; the checksum is a job (§7.13), a moved file is linked again only when its checksum
+  matches, and a copy for sharing keeps no absolute path from it. A movie with no row reads as one made from
+  `/movies`, its checksum not calculated (ADR-0140).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the
@@ -671,7 +677,7 @@ Tether **shall** present a multi-movie round-trip browser:
   analysis-window **start** (`pre_list`) and `[`/`]` nudge the **end** (`post_list`) — distinct bounds, not one
   action; `R` reset, `P` photobleach, `G` grid) for muscle-memory continuity, and adds the Tether-only actions
   **`Space` = accept, `Backspace`/`Delete` = reject, `Enter` = jump to the movie spot (round-trip focus), `I` =
-  one-click idealize**. tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
+  open "Idealize project…", the whole-project fit (§7.4), `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
   v1** so no Tether-only binding shadows them. The integer↔category lookup pins **tMAVEN class 0 ↔ Tether
   "uncategorized"** and named categories ↔ tMAVEN classes ≥ 1, so a tMAVEN round-trip never silently turns an
   uncategorized trace into a named category (§7.4, Appendix D).
@@ -686,10 +692,16 @@ Tether **shall** present a multi-movie round-trip browser:
 
 ### 7.4 FR-IDEALIZE — Idealization (tMAVEN integration)
 
-In-app one-click idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
-sidecar: export selected molecules to SMD → run vbFRET (per-trace), consensus VB-HMM, or ebFRET headless through
-`tmaven.maven.maven_class` → import states/dwells. Auto state-count selection **shall** use max ELBO with a manual
-per-trace override. **In-app idealization is a hard requirement; a hand-off-only MVP is not acceptable** (see §10).
+In-app idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
+sidecar, as a fit of the whole project: **Idealize → Idealize project…** (the `I` key) exports the chosen molecules
+(the accepted ones, or the accepted ones of one condition) to SMD → runs consensus VB-HMM or ebFRET headless through
+`tmaven.maven.maven_class` → imports states/dwells into a model named for its method. It runs in the background with
+progress and a cancel that leaves the project unchanged, and "Refit stale only" refits a model whose molecules are
+stale with the settings it stored ([#625](https://github.com/bioedca/tether/issues/625)); it is the same fit as
+`tether idealize`. Auto state-count selection **shall** use max ELBO, with a fixed state count as the manual override.
+Per-trace vbFRET is not a method the application offers; it stays a headless fit through `tether.idealize.run_vbfret`,
+and #545 keeps its parity evidence (§9.6). **In-app idealization is a hard requirement; a hand-off-only MVP is not
+acceptable** (see §10).
 
 *Parity definition.* Because the pinned tMAVEN self-reseeds its RNG (`initialize_gmm` calls `np.random.seed()` then
 random-resamples a KDE; `clip_traces` reseeds from wall-clock), a default fit is not bit-identically reproducible,
@@ -731,7 +743,7 @@ effective settings ([#937](https://github.com/bioedca/tether/issues/937); the pa
   parity with tMAVEN."* This replaces the answer D4 of 2026-11-10 on
   [#622](https://github.com/bioedca/tether/issues/622), which offered only consensus VB-HMM and ebFRET. In `v1.0.0`
   the scan offers the present families (vbFRET, consensus VB-HMM, ebFRET), and their mark follows the parity
-  record of §9.2 and §9.6 (per-trace vbFRET parity is not yet met, [#545](https://github.com/bioedca/tether/issues/545)); the
+  record of §9.2 and §9.6 (per-trace vbFRET parity is not yet met, [#949](https://github.com/bioedca/tether/issues/949)); the
   other modelers are [#936](https://github.com/bioedca/tether/issues/936), and their parity evidence is
   [#948](https://github.com/bioedca/tether/issues/948) to [#950](https://github.com/bioedca/tether/issues/950).
 - **Comparison.** Fits **shall** be compared only inside one score context: the same data and the same score
@@ -1038,8 +1050,23 @@ sequence that delivers it is carried by the GitHub milestone that owns it, not b
 The check half exists: the opt-in release query and notice of
 [#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision. So does
 the verifier of [#333](https://github.com/bioedca/tether/issues/333) (`tether.gui.update_verify`), which makes the
-channel decision below; nothing calls it yet, because the download and the hand-off
-([#331](https://github.com/bioedca/tether/issues/331)) are still to come.
+channel decision below, and the hand-off of [#331](https://github.com/bioedca/tether/issues/331)
+(`tether.gui.update_handoff`, [ADR-0141](adr/0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md)),
+which accepts only the verifier's result. The download and the **Install update** action of
+[#1379](https://github.com/bioedca/tether/issues/1379) (`tether.gui.update_download`, `tether.gui.update_notice`)
+join the four: the download, the verification and the hand-off run in that order and only in that order, the first two
+off the GUI thread, and only after the user pressed Install on the notice of a copy that can hand off.
+
+The download **shall** request only `https://github.com/bioedca/tether/releases/download/v<MAJOR.MINOR.PATCH>/<installer>`,
+built from the parsed version and the platform's installer name, never from a URL in an API answer, and **shall** follow
+a redirect only to `github.com` or GitHub's release-asset host `release-assets.githubusercontent.com` (where GitHub
+answers that URL, measured 2026-11-25), over HTTPS on the default port. It writes into a private folder and removes the
+file whatever the outcome.
+
+The hand-off **shall** start the OS installer only after the user chose to install, and only with the file that was
+verified, re-hashed from a private copy immediately before it runs. It **shall** move the existing install aside before
+the installer runs, check afterwards that every launcher and shortcut of the launch surface starts the new version,
+and put the previous copy back when the installer fails, is stopped, or the check fails.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
@@ -1079,12 +1106,13 @@ unsure is the safe error.
 FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bounds (FR-DEPOSIT-7). Without the user's consent the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
-bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
-and the **Sigstore TUF** trusted-root service (which `gh attestation trusted-root` reaches at
+bounded: the requests go to **four** endpoints and no others — the GitHub **releases** and **attestations** APIs,
+the **release download** (`github.com`, redirected to `release-assets.githubusercontent.com`), and the **Sigstore TUF**
+trusted-root service (which `gh attestation trusted-root` reaches at
 `tuf-repo-cdn.sigstore.dev` and at GitHub's `tuf-repo.github.com`) — all unauthenticated and all public. Each destination necessarily
-observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all three
+observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all four
 rather than claiming "no identifier"; what Tether adds beyond that is nothing — no account, no installation id, no
-usage data, **no telemetry**. All three endpoints **shall** be named in the privacy disclosure and in the
+usage data, **no telemetry**. All four endpoints **shall** be named in the privacy disclosure and in the
 administrator documentation: a site that allow-lists only the GitHub endpoints silently disables verification, which
 is correct behaviour but an operational trap if undocumented. They are made **only
 after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
@@ -1166,8 +1194,8 @@ application and has full command-line and batch parity (§7.11).
   the apertures and the background with a view of overlap, edges and a trace preview
   ([#922](https://github.com/bioedca/tether/issues/922)). The run integrates the selected movies by applying the
   map to the source coordinates, as a checkpointed job (FR-WORKFLOW-5), and writes a new trace generation (§7.1).
-  The detector modes of today are wavelet, intensity and bandpass; broader parity with the detector modes of
-  Deep-LASI comes after `v1.0.0` ([#924](https://github.com/bioedca/tether/issues/924)).
+  The detector modes are wavelet, intensity, bandpass and ZMW intensity (Deep-LASI modes 1, 2, 3 and 5); Deep-LASI's
+  mode 4 (local-variance) is not ported, because Deep-LASI itself cannot run it ([#924](https://github.com/bioedca/tether/issues/924), ADR-0143).
 
 **What is in `v1.0.0` (maintainer decision 2026-11-14, card A1, option B).** In `v1.0.0`: the service layer and the
 recipe, the channel layouts and the map file, the colocalization rule and the trace generations, the correction
@@ -1380,7 +1408,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Movie I/O & viewer** (Appendix A) | A big-endian 512×512×1700 TIFF opens and displays in napari; the filename parser round-trips a known condition string. | M0 |
 | **Native extraction** (FR-EXTRACT, Appendix E) | Extraction vs Deep-LASI on the UCKOPSB pair meets the §9.2 extraction tolerance **(reframed — ADR-0022)**; the `TIRFdata` decode recovers coordinates + α/β/γ (Appendix B); native registration RMS residual ≤ 0.5 px vs the `.tmap`; the CLI produces a valid `.tether` headlessly. (M0.5's ≥ 95% recall leg was homed at M1 by [ADR-0011](adr/0011-home-extraction-recall-at-m1.md) and is the recall term of the reframed gate.) | M0.5(b), M1 |
 | **Extraction from the application** (FR-EXTRACT-UI, G6) | A fresh acquisition goes movie → `.tether` with no terminal (G6, §7.1). The evidence is a recorded run in which an operator with no terminal open makes a valid `.tether` from a raw movie and then appends a second movie to it, plus committed `pytest-qt` coverage of the extraction section, green headless on the required matrix (*not yet met*, §9.6). | M15 |
-| **Idealization & sidecar** (FR-IDEALIZE) | A headless vbFRET idealization reproduces tMAVEN's states on a known SMD within the frozen §11.2 idealization-parity tolerance (state count / means / Viterbi path / ELBO), and that §11.2 row is frozen with the measured numbers before any later parity sign-off (§9.2; the default row was re-frozen on the pinned tMAVEN build with every bound unchanged, ADR-0110); one-click vbFRET matches standalone tMAVEN within that tolerance (*not yet met* per trace: the frozen row was measured on consensus `vbconhmm` and no test fits per-trace vbFRET, §9.6); consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within it (state levels + transition matrix + ELBO; the transition matrix against its own frozen ceiling, `$.transition_matrix`, ADR-0110); the exported SMD opens in tMAVEN's own loader. The **standalone-tMAVEN GUI** leg — the exported SMD opens in the standalone GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes (Windows + macOS/Linux) — was **(leg deferred — [ADR-0010](adr/0010-defer-cross-os-gui-handoff.md))** to M9 acceptance and is met: it passed on Windows 11 and Ubuntu on WSL2 on the locked sidecar environment ([cross-OS record](maintainers/standalone-tmaven-cross-os-record.md), #543). | M0.5(a), M2, M6 |
+| **Idealization & sidecar** (FR-IDEALIZE) | A headless vbFRET idealization reproduces tMAVEN's states on a known SMD within the frozen §11.2 idealization-parity tolerance (state count / means / Viterbi path / ELBO), and that §11.2 row is frozen with the measured numbers before any later parity sign-off (§9.2; the default row was re-frozen on the pinned tMAVEN build with every bound unchanged, ADR-0110); one-click vbFRET matches standalone tMAVEN within that tolerance (*not yet met* per trace: tMAVEN's per-trace step runs headless, but it does not reproduce across seeds on the pinned build, so no per-trace row is frozen and no test asserts one, §9.6); consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within it (state levels + transition matrix + ELBO; the transition matrix against its own frozen ceiling, `$.transition_matrix`, ADR-0110); the exported SMD opens in tMAVEN's own loader. The **standalone-tMAVEN GUI** leg — the exported SMD opens in the standalone GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes (Windows + macOS/Linux) — was **(leg deferred — [ADR-0010](adr/0010-defer-cross-os-gui-handoff.md))** to M9 acceptance and is met: it passed on Windows 11 and Ubuntu on WSL2 on the locked sidecar environment ([cross-OS record](maintainers/standalone-tmaven-cross-os-record.md), #543). | M0.5(a), M2, M6 |
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
 | **File lifecycle** (FR-CONCURRENCY) | The single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. | M2 |
@@ -1497,7 +1525,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#934](https://github.com/bioedca/tether/issues/934) (the plot it feeds: [#371](https://github.com/bioedca/tether/issues/371)) |
 | A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
-| Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
+| Per-trace vbFRET parity against a frozen tolerance. tMAVEN's per-trace step now runs headless, but on the pinned build it makes one random start per state count and does not reproduce across seeds (worst state-count agreement 0.0 over 20 fits per small fixture), so no row is frozen; a row needs a fit that reproduces, for example best-of-N restarts per state count (ADR-0110) | M2 | [#949](https://github.com/bioedca/tether/issues/949) |
 | The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores — withheld: no curated multi-video project with accept/reject labels exists yet (ADR-0114). Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#1100](https://github.com/bioedca/tether/issues/1100) |
 | γ agreement with the Deep-LASI median on a shared frame set, and its looser CI-overlap check — withheld: no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification, neither the vendored export (ADR-0028) nor the lab's saved states nor the public Figure 3 state (ADR-0133). It runs once a Deep-LASI state is saved after Deep-LASI's classification and automatic correction | M3 | [#1244](https://github.com/bioedca/tether/issues/1244) |
 
@@ -1627,13 +1655,15 @@ this section.
 | Parameter | Default | Source / rationale |
 |---|---|---|
 | Channel layout (split geometry) | `side-by-side`, donor on the left (`ExtractOptions.channel_layout = None`, `donor_side = left`) — selectable `{side-by-side, top-bottom, rectangles}`; both channels the same size (a half layout drops an odd trailing column/row); rectangles of different size or outside the frame are refused, overlapping rectangles warn | Tether (#908, G02 note 01); the per-channel crop is Deep-LASI's `processImage` crop (`deeplasi/functions/tools/processImage.m`) |
+| Extraction read block (`READ_BLOCK_FRAMES`) | 64 frames — the frames of a non-TIFF movie (ND2) are copied to a temporary file 64 at a time before extraction; it sets only the memory the copy holds and changes no value (the copy is the same for every block size, tested), so it is not a tunable a user sets | Tether (#1388, [ADR-0149](adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)); `tether.io.frames` |
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |
-| Particle detection mode | `wavelet` (à trous mode 1; class default) — selectable `{wavelet, intensity, bandpass}` (mode 3 = `find_part_bpass_sort.m`) | `deeplasi/functions/mapping/findPart.m:1,18-62` (`method` dispatch); Tether multi-mode detector (ADR-0021) |
+| Particle detection mode | `wavelet` (à trous mode 1; class default) — selectable `{wavelet, intensity, bandpass, zmw}` (mode 3 = `find_part_bpass_sort.m`; `zmw` = mode 5; mode 4 is refused because it cannot run in Deep-LASI) | `deeplasi/functions/mapping/findPart.m:1,18-62` (`method` dispatch); Tether multi-mode detector (ADR-0021, ADR-0143) |
 | Detection threshold (intensity mode) | t = 0.5 (fraction of detection-image max); band-pass fine-threshold 3 % of bpass max; bpass `lnoise` = 1 / `lobject` = 7 | `deeplasi/functions/mapping/findPart.m:21-28,107-115`, `external/bpass.m`; [Crocker1996] |
 | Detection threshold (bandpass mode) | t = 0.98 — **dual-use**: floor pixels below t·max **and** keep only the top 1−t fraction of band-pass values (percentile sort); bpass `lnoise` = 1 / `lobject` = 9; `imregionalmax` → centroid. (t==0 → 0.01.) In production Deep-LASI's `findPart` supplies the GUI `DetectionThreshold` instead | `deeplasi/functions/mapping/find_part_bpass_sort.m`, `external/bpass.m`; [Crocker1996] |
-| Minimum spot separation (`min_separation`) | unset → each detection mode's own: **8 px** keep-brightest NMS for `wavelet`, **3 px** (the PSF disk radius) for `intensity` and `bandpass`; a value given applies to every mode | Tether (ADR-0022); Deep-LASI applies no effective separation (`deeplasi/functions/mapping/findPart.m:66-69`) |
+| Detection threshold (zmw mode) | t = 0.5 (fraction of detection-image max; Deep-LASI gives mode 5 no default, so the intensity mode's); `imfilter` with `fspecial('disk', 1)`, zero padding; fine-threshold 3 % of the filtered max; 3 × 3 erosion padded with 0 (MATLAB's `bwmorph`) | `deeplasi/functions/mapping/findPart.m:50-58` (ADR-0143) |
+| Minimum spot separation (`min_separation`) | unset → each detection mode's own: **8 px** keep-brightest NMS for `wavelet`, **3 px** (the PSF disk radius) for `intensity`, `bandpass` and `zmw`; a value given applies to every mode | Tether (ADR-0022); Deep-LASI applies no effective separation (`deeplasi/functions/mapping/findPart.m:66-69`) |
 | Donor half (`donor_side`) | `left` — the horizontal half of the frame that carries donor emission; ignored with an imported `.tmap`, which carries its own channel geometry; the advisory donor-side check reads it back (ADR-0070) | Tether (§7.1) |
 | Aperture (PSF disk / BG ring) | 21×21 grid; disk r = 3 (29 px); ring inner 6 / outer 8 (84 px); dead-zone 3 < d ≤ 6 | `deeplasi/functions/filtering/circ.m:5-32`, `classes/TRACERdata.m:92-100` |
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
@@ -1666,6 +1696,8 @@ this section.
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Update verification (`TRUSTED_ROOT_TIMEOUT_S`, `VERIFY_TIMEOUT_S`) | `gh attestation trusted-root` may take **30 s**, then the check is abandoned in silence (*could not run*); each offline `gh` call, `--version` and `attestation verify` (which hashes the installer), may take **120 s**, then the update is refused; the attestations `GET` uses the update check's timeout | Tether (§7.12; ADR-0060); `tether.gui.update_verify`, #333 |
+| Update download (`DOWNLOAD_TIMEOUT_S`, `MAX_INSTALLER_BYTES`, `STALE_AFTER_S`, `SHUTDOWN_WAIT_S`) | only after the user pressed **Install update**; one `GET` of the release's installer, on a background thread; each read may wait **60 s** for data, then the download is abandoned and the notice says so in one line; an installer larger than **4 GiB**, or shorter or longer than announced, is refused; on quit the notice removes the download and waits at most **5 s** for the job to stop; a download folder left behind is removed by the next download once it is **24 h** old | Tether (§7.12; ADR-0060); `tether.gui.update_download`, #1379 |
+| Installer hand-off (`HELPER_START_TIMEOUT_S`, `EXIT_WAIT_TIMEOUT_S`, `INSTALL_TIMEOUT_S`, `CHECK_TIMEOUT_S`) | Tether waits **15 s** for the update helper to report that it runs, else stays open with nothing changed; the helper waits **120 s** for Tether to exit, else stops with nothing changed; the installer may run **3600 s**, then it is stopped and the previous copy is put back; each command of the launch-surface check may take **120 s** | Tether (§7.12; ADR-0060, ADR-0141); `tether.gui.update_handoff`, #331 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |
@@ -1842,19 +1874,20 @@ as a **draft PR** and cannot merge. The PR title is a Conventional-Commits strin
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
-spent **cheapest first**, and risk routes a provider only on the load-bearing route of ADR-0099 below. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
+spent **cheapest first**, and the changed files, not the risk, decide the metered gate (ADR-0142, below). **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
 diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
 or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
 has not — until it surfaces
-nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
-one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
-TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
-of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
-than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
-one standard Greptile review **may** stand in as that gate within Tether's share of 45 credits a cycle, and Codex
-**shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
-place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
+nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then the metered
+gate, by the changed files (ADR-0142): a **docs-only or test-only** pull request takes no metered provider, and a fresh
+posted Codex review of the final head that reports nothing actionable is its gate; a **code** pull request — and any
+that changes `AGENTS.md`, `CLAUDE.md` or this document — goes ready-for-review and takes **one standard Greptile review
+with no actionable comments, which is the metered gate before merge — and when that one-review cap is spent, a fresh
+posted Codex review of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read
+rather than on a maintainer (ADR-0065, as ADR-0069 and ADR-0142 amend it)**. Greptile has no queue. Tether's limit is
+its share of 45 credits a cycle plus what is left of a one-time grant of 50; when it is used, or cannot be read, a code
+pull request takes one CodeRabbit full review through the CodeRabbit queue instead, paced at one review an hour, until
+credits are added. Nothing stands in for a refused CodeRabbit, and Codex **shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 points to §Review rather than restating it (#615, recorded in ADR-0064), and the pull-request
 template carries a working copy as evidence fields that defers to §Review where they differ. Four drafts of this
@@ -1868,12 +1901,12 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
-interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 45 a cycle from the 17th (ADR-0099). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three, so a TREX review is not asked (ADR-0142). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
-credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
+credits sends a code PR to the CodeRabbit fallback, CodeRabbit unavailable on that fallback **freezes the PR** — though a fair-use refusal that names a retry time
 is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not a completed one.
 Author-side review and a green or status-only
 result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
@@ -1884,8 +1917,8 @@ open-for-review, draft-ready, or an `@codex review` comment — so a provider th
 bot posts an artifact naming the head it read, which every leg requires — §Review gives the two shapes; the CLI runs locally, posts nothing and therefore
 satisfies no leg — it is an author-side tool, useful before a provider is asked and recorded as none. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
-still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
-step recorded as spent, never discarded as unsolicited.
+still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and recorded as the PR's
+one Greptile review, never discarded as unsolicited.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
@@ -1895,8 +1928,8 @@ governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, th
 `.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most one completed review per metered provider**, Codex being unmetered and uncapped —
 needing a second usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
-**CodeRabbit's** one-review cap specifically is spent — or that of the Greptile review standing in for it (ADR-0069); not the
-optional Greptile review's, whose exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
+the metered gate's one-review cap is spent — Greptile's on a code PR, or CodeRabbit's on the fallback (ADR-0142) — a
+fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
 conditions `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
@@ -1923,11 +1956,11 @@ non-blocking findings in the same PR is a scope breach, and a deferral must neve
 exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
 never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
-left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
-PR**, because it is the last metered gate and an unavailable provider is not a spent cap — it reviewed
+left has not reviewed. Greptile out of credits sends a code PR to the CodeRabbit fallback; **CodeRabbit unavailable there
+freezes the PR**, because it is then the metered gate and an unavailable provider is not a spent cap — it reviewed
 nothing, so nothing opens the unmetered close. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
-which costs no round and no request, or, where it names more than 30 minutes, take the Greptile stand-in `AGENTS.md` §Review allows (ADR-0069) — and never accept the usage-based-billing offer that accompanies it, since that is
+which costs no round and no request — and never accept the usage-based-billing offer that accompanies it, since that is
 the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
 status reads `pending` while a review is in flight, and a re-request sent then destroys the running review, so the
 status **shall** be read before every ask. Human sign-off is required for releases,
@@ -2486,12 +2519,12 @@ Each result type is in the catalogue because N3 makes it a plot to draw. The fiv
 | Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | `render_alpha_shape` |
 | Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | `render_state_number_elbow` |
 | Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | `render_population_anticorrelation` |
-| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | none yet ([#1085](https://github.com/bioedca/tether/issues/1085)) |
+| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | `render_successive_frame_cloud` ([#1085](https://github.com/bioedca/tether/issues/1085)) |
 
 A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
 and so belongs to the first part; it is the fifth result type that #370 gave a renderer,
-`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, has no renderer yet: #1085
-carries it. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
+`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, got its renderer and its entry in
+the Analyze section's plot list in #1085. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
 condition query (`query`) selects molecules, and the kinSoftChallenge kinetics check (`kinetics`) is a validation
 oracle (§9.5).
 

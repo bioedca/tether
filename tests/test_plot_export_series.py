@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Several named series on one figure, for all thirteen plot renderers (#371, ADR-0132).
+"""Several named series on one figure, for all fourteen plot renderers (#371, ADR-0132, #1085).
 
 Each acceptance criterion of #371 has its tests here:
 
@@ -60,6 +60,7 @@ from tether.analysis.histogram import (  # noqa: E402
     transition_sync_histogram2d,
 )
 from tether.analysis.state_number import population_state_number  # noqa: E402
+from tether.analysis.successive import population_successive_frame_cloud  # noqa: E402
 from tether.analysis.tdp import (  # noqa: E402
     population_transition_density,
     smooth_transition_density,
@@ -74,7 +75,7 @@ PINNED = "2026-01-01T00:00:00+00:00"
 OTHER_STATES = STATES[:, ::-1].copy()
 
 OVERLAID = ("h1", "dwell", "tprob", "statenum", "xcorr", "alpha", "elbow")
-SMALL_MULTIPLES = ("h2", "tdp", "cloud", "percond", "sync", "anticorr")
+SMALL_MULTIPLES = ("h2", "tdp", "cloud", "percond", "sync", "anticorr", "succ")
 KINDS = OVERLAID + SMALL_MULTIPLES
 
 RENDER = {
@@ -91,6 +92,7 @@ RENDER = {
     "alpha": pe.render_alpha_shape,
     "elbow": pe.render_state_number_elbow,
     "anticorr": pe.render_population_anticorrelation,
+    "succ": pe.render_successive_frame_cloud,
 }
 
 
@@ -122,6 +124,7 @@ def _results(proj, shift: float) -> dict[str, object]:
             np.repeat([0.2, 0.5, 0.8], 50) + rng.normal(0.0, 0.01 + 0.02 * shift, 150)
         ),
         "anticorr": population,
+        "succ": population_successive_frame_cloud(proj),
     }
 
 
@@ -369,11 +372,14 @@ def _off_grid(results):
     out["percond"] = (replace(mut, value_range=(0.0, 2.0)), "value range")
     wt, mut = results["sync"]
     out["sync"] = (replace(mut, density=not mut.density), "density")
+    wt, mut = results["succ"]
+    out["succ"] = (replace(mut, grid=np.asarray(mut.grid) * 0.5), "density grid")
     return out
 
 
 @pytest.mark.parametrize(
-    "kind", ["h1", "h2", "tdp", "dwell", "tprob", "statenum", "cloud", "xcorr", "percond", "sync"]
+    "kind",
+    ["h1", "h2", "tdp", "dwell", "tprob", "statenum", "cloud", "xcorr", "percond", "sync", "succ"],
 )
 def test_series_on_different_grids_are_refused_with_the_reason(results, kind):
     wt, _ = results[kind]

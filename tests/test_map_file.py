@@ -257,10 +257,12 @@ def test_calibration_and_settings_record_the_map_file(tmp_path, fitted) -> None:
 
     assert summary.registration_source == "map-file"
     provenance = _calibration_provenance(out, summary.calibration_id)
-    assert provenance["map_file"] == {
-        "name": map_file.name,
-        "sha256": hashlib.sha256(map_file.read_bytes()).hexdigest(),
-    }
+    record = provenance["map_file"]
+    assert record["name"] == map_file.name
+    assert record["sha256"] == hashlib.sha256(map_file.read_bytes()).hexdigest()
+    # The map asset's own id and origin are kept with it (#916).
+    assert record["map_id"].startswith("map:")
+    assert record["origin"] == "native-fit"
     # The transform's own origin is kept: this map was fitted natively.
     assert read_calibration(out, summary.calibration_id).source == reg_map.source == "native"
     profile = _profile(out)
@@ -273,7 +275,7 @@ def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_pat
     """A map file replaced while extraction starts cannot pair two files (Codex P2)."""
     reg_map, map_file = fitted
     first_bytes = map_file.read_bytes()
-    real_load_map = project_extract.load_map
+    real_load_map = project_extract.load_map_asset
 
     def replace_then_load(path, **kwargs):
         # Another session's ``tether map create --overwrite`` lands here, after the read.
@@ -281,7 +283,7 @@ def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_pat
         (tmp_path / "other.npz").replace(map_file)
         return real_load_map(path, **kwargs)
 
-    monkeypatch.setattr(project_extract, "load_map", replace_then_load)
+    monkeypatch.setattr(project_extract, "load_map_asset", replace_then_load)
     out = tmp_path / "snapshot.tether"
     summary = extract_movie(
         _write_movie(tmp_path / "movie_009.tif"),
@@ -344,7 +346,7 @@ def test_a_native_fit_records_no_map_file(tmp_path) -> None:
 def test_save_map_writes_the_format_version(fitted) -> None:
     _reg_map, map_file = fitted
     with np.load(map_file, allow_pickle=False) as data:
-        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 1
+        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 2
 
 
 def _rewrite(src: Path, dst: Path, **changes) -> Path:
@@ -880,3 +882,60 @@ def test_a_channel_layout_beside_a_map_file_is_refused(tmp_path, fitted) -> None
             options=ExtractOptions(window=_WINDOW, channel_layout=layout),
             map_path=map_file,
         )
+
+
+# --- #1309: the channel-role origin follows the active extraction --------------
+
+
+def _reextract(project: Path, movie: Path, **kwargs) -> None:
+    with publish_lock(project) as guard:
+        project_extract.reextract_movie(
+            project, movie, options=ExtractOptions(window=_WINDOW), publish_guard=guard, **kwargs
+        )
+
+
+def test_a_map_file_reextraction_records_the_roles_a_fresh_map_extraction_does(
+    tmp_path, fitted
+) -> None:
+    from tether.project import movie_metadata as mm
+
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_011.tif")
+    fresh = tmp_path / "fresh.tether"
+    extract_movie(movie, fresh, options=ExtractOptions(window=_WINDOW), map_path=map_file)
+    (fresh_record,) = mm.read_movie_metadata(fresh).values()
+
+    project = tmp_path / "two-movies.tether"
+    other = _write_movie(tmp_path / "other_012.tif", acceptor_amp=250.0)
+    extract_movie(other, project, options=ExtractOptions(window=_WINDOW))
+    with publish_lock(project) as guard:
+        add_movie_to_project(
+            project, movie, options=ExtractOptions(window=_WINDOW), publish_guard=guard
+        )
+    ids = _movie_ids_by_name(project)
+    for movie_id, seconds in ((ids["other_012.tif"], 0.2), (ids["movie_011.tif"], 0.05)):
+        mm.update_movie_metadata(project, movie_id, frame_time=seconds, pixel_size_um=0.16)
+        mm.confirm_frame_time(project, movie_id)
+    before = mm.read_movie_metadata(project)
+    assert before[ids["movie_011.tif"]].channel_roles_origin == mm.ORIGIN_USER
+
+    _reextract(project, movie, map_path=map_file)
+    after = mm.read_movie_metadata(project)
+    record = after[ids["movie_011.tif"]]
+    assert record.channel_roles_origin == fresh_record.channel_roles_origin == mm.ORIGIN_FILE
+    # Only the roles' origin changed: the user's values stay, and so does the other movie.
+    assert record == replace(before[ids["movie_011.tif"]], channel_roles_origin=mm.ORIGIN_FILE)
+    assert after[ids["other_012.tif"]] == before[ids["other_012.tif"]]
+
+    # A native re-extraction gives the roles back to the donor_side option.
+    _reextract(project, movie)
+    again = mm.read_movie_metadata(project)
+    assert again[ids["movie_011.tif"]] == before[ids["movie_011.tif"]]
+    assert again[ids["other_012.tif"]] == before[ids["other_012.tif"]]
+
+
+def _movie_ids_by_name(project: Path) -> dict[str, str]:
+    with h5py.File(project, "r") as f:
+        rows = f["movies/table"][:]
+    text = [(r["uri"], r["movie_id"]) for r in rows]
+    return {Path(u.decode()).name: m.decode() for u, m in text}

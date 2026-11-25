@@ -3,15 +3,16 @@
 """End-to-end native extraction pipeline (PRD §7.11, Appendix E; FR-EXTRACT, FR-BATCH).
 
 Orchestrates the M1 imaging primitives into a single headless call that turns a
-dual-channel TIFF movie into a populated ``.tether`` project::
+dual-channel movie (a TIFF, or a movie of any reader in
+[`tether.io.movie.EXTRACTED_CONTAINERS`][]) into a populated ``.tether`` project::
 
-    open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
+    open_extraction_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
     -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
 The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
-``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
-PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
+``intensity``, ``bandpass``, ``zmw``} with an optional ``options.detection_threshold``;
+PRD §11.2, ADR-0021, ADR-0143) so a movie can be extracted with the Deep-LASI ``findPart``
 method it was actually detected with. The default ``wavelet`` reproduces the
 historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies both
 the mode (``temp/ParticleDetectionMode``) and the mapping-reference channel's
@@ -72,6 +73,16 @@ the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`
 #646, ADR-0070). Its verdict is returned in [`ExtractionSummary`][] and stored in
 ``/settings/extraction``; it never changes the data and never fails the extraction.
 
+**A movie pair** (#909): with ``acceptor_movie=<path>`` the movie is the donor movie of
+a two-camera acquisition and the other file its acceptor movie ([`tether.io.pair`][]).
+Each file is one whole channel, so no channel layout is applied; the pair is checked
+(frame count, frame time, pixel type, frame size) before any detection, and then the
+same stages run on the two channel stacks. A map file for a pair is one made from a bead
+file pair, whose two channels are whole frames; a map of one camera frame is refused for
+a pair, and a pair map for one movie. The ``/movies`` row names the pair by
+[`tether.io.pair.pair_sha256`][], and both files go into the source registry with their
+roles.
+
 [`add_movie_to_project`][] runs the same stages on another movie and appends it to an
 existing project under its writer lock, as one atomic replace of a staged copy (#347,
 ADR-0117). [`reextract_movie`][] runs them again on a movie the project already holds
@@ -92,6 +103,7 @@ import math
 import os
 import warnings
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -112,7 +124,6 @@ from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
     fit_registration_map,
-    load_map,
     registration_map_from_tmap,
     write_calibration,
 )
@@ -131,6 +142,13 @@ from tether.imaging.layout import (
     ChannelLayout,
     ChannelLayoutError,
 )
+from tether.imaging.map_asset import (
+    MapFacts,
+    MapReuseError,
+    OpticsConfirmationNeeded,
+    load_map_asset,
+    require_map_reuse,
+)
 from tether.imaging.recipe import ChannelRecipeError, check_frame_fits
 from tether.imaging.register import (
     estimate_similarity_prealign,
@@ -141,8 +159,9 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
+from tether.io.frames import ExtractionMovie, open_extraction_movie
 from tether.io.generations import Generation
-from tether.io.movie import open_movie
+from tether.io.pair import PAIR_ROLES, MoviePairError, check_pair, pair_sha256
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
     guarded_project_write,
@@ -153,6 +172,7 @@ from tether.project.core import Project
 from tether.project.correction_states import mark_traces_replaced_in
 from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
+from tether.project.sources import project_movie_uri
 
 if TYPE_CHECKING:
     import numpy as np
@@ -234,8 +254,8 @@ class ExtractOptions:
                 f"detection_mode must be one of {DETECTION_MODES}, got {self.detection_mode!r}"
             )
         # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
-        # by the intensity/bandpass detectors; ``None`` lets each mode use its own
-        # faithful default (intensity 0.5, bandpass 0.98 — PRD §11.2). When supplied
+        # by the intensity/bandpass/zmw detectors; ``None`` lets each mode use its own
+        # faithful default (intensity 0.5, bandpass 0.98, zmw 0.5 — PRD §11.2). When supplied
         # it must lie in the detectors' own [0, 1) domain (a fraction of the
         # detection-image max). It is recorded but inert under the wavelet mode.
         if self.detection_threshold is not None and not 0.0 <= self.detection_threshold < 1.0:
@@ -244,7 +264,7 @@ class ExtractOptions:
                 f"max), got {self.detection_threshold}"
             )
         # ``min_separation`` is optional: ``None`` (default) lets each detection mode
-        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass
+        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass/zmw
         # 3 px; ADR-0022). When supplied it overrides that for every mode and must be
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
@@ -349,14 +369,68 @@ def _hash_movie(path: Path) -> tuple[str, int, float]:
 
     The full SHA-256 feeds [`tether.imaging.extract.molecule_key`][] (the
     cross-file molecule identity, §5.1/§7.10); ``file_size``/``mtime`` populate
-    the relocation-robust fast-signature fields of [`MovieMetadata`][].
+    the relocation-robust fast-signature fields of [`MovieMetadata`][]. For a
+    cellSens ``.vsi`` movie the checksum also covers the ``.ets`` files that hold
+    its frames ([`tether.io.movie_identity.content_sha256`][], #1398, ADR-0153);
+    the size and modification time are the movie file's own.
     """
+    from tether.io.movie_identity import content_sha256  # noqa: PLC0415
+
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
             digest.update(chunk)
     stat = path.stat()
-    return digest.hexdigest(), int(stat.st_size), float(stat.st_mtime)
+    return content_sha256(path, digest.hexdigest()), int(stat.st_size), float(stat.st_mtime)
+
+
+@dataclass(frozen=True)
+class _FileRead:
+    """One input file as the extraction read it: its path, checksum, size and mtime."""
+
+    path: Path
+    sha256: str
+    size: int
+    mtime: float
+
+
+def _hash_inputs(movie_path: Path, acceptor_path: Path | None) -> tuple[_FileRead, ...]:
+    """Hash the movie, or both files of a movie pair (donor first, #909)."""
+    paths = (movie_path,) if acceptor_path is None else (movie_path, acceptor_path)
+    return tuple(_FileRead(path, *_hash_movie(path)) for path in paths)
+
+
+def _row_sha256(files: tuple[_FileRead, ...]) -> str:
+    """Return the ``/movies.sha256`` of the inputs: the movie's, or the pair's (#909)."""
+    if len(files) == 1:
+        return files[0].sha256
+    return pair_sha256(files[0].sha256, files[1].sha256)
+
+
+def _whole_frame(height: int, width: int) -> ChannelGeometry:
+    """Return the geometry of a whole camera frame as a channel (one file of a pair, #909)."""
+    return ChannelGeometry(crop=(1, 1, int(height), int(width)))
+
+
+def _is_pair_geometry(donor: ChannelGeometry, acceptor: ChannelGeometry) -> bool:
+    """Whether a map's two channels share one geometry: a map made for a movie pair.
+
+    The two channels of one camera frame are two different regions of it, so their
+    geometries differ; the two channels of a pair are each a whole frame (#909).
+    """
+    return donor == acceptor
+
+
+def _split_stacks(
+    reader: ExtractionMovie,
+    acceptor_reader: ExtractionMovie | None,
+    donor_geom: ChannelGeometry,
+    acceptor_geom: ChannelGeometry,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cut the two channel stacks: both from one movie, or one from each file of a pair."""
+    if acceptor_reader is None:
+        return split_channels(reader.data, donor_geom, acceptor_geom)
+    return donor_geom.apply(reader.data), acceptor_geom.apply(acceptor_reader.data)
 
 
 def _settings(
@@ -493,8 +567,10 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     Wraps [`load_map`][] and translates a bad file into a clean, map-centric
     [`ExtractionError`][]. The map is used as saved: its coefficients, geometry,
     residual and over-gate verdict are not changed. Its provenance gains a
-    ``map_file`` record (the file name and the sha256 of its bytes), so the
-    ``/calibration`` group says which file produced the map. [`_resolve_sources`][]
+    ``map_file`` record (the file name, the sha256 of its bytes, and the map asset's
+    record: map id, origin, source ids, layout, optics text and pixel size; #916), so
+    the ``/calibration`` group says which file produced the map and a project names
+    the id and the checksum of each map it used. [`_resolve_sources`][]
     then records the map's own ``gate_px`` as the run's ``rms_gate``. The file is read once
     and the map decoded from those bytes, so a file replaced during the call cannot
     pair one file's digest with another's coefficients. A map without channel
@@ -504,22 +580,76 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     try:
         content = path.read_bytes()  # one read: the digest names the bytes decoded
         digest = hashlib.sha256(content).hexdigest()
-        reg_map = load_map(path, content=content)
+        asset = load_map_asset(path, content=content)
     except Exception as exc:  # unreadable, not a map file, newer version, pickled data
         raise ExtractionError(f"could not use --map {path.name}: {exc}") from exc
+    reg_map = asset.registration_map
     if reg_map.reference_geometry is None or reg_map.moving_geometry is None:
         raise ExtractionError(
             f"could not use --map {path.name}: the map has no channel geometry for both "
             "halves, so the movie cannot be split with it"
         )
     provenance = dict(reg_map.provenance)
-    provenance["map_file"] = {"name": path.name, "sha256": digest}
+    provenance["map_file"] = {"name": path.name, "sha256": digest, **asset.record()}
+    if asset.quality is not None:  # the file's record, so a saved copy keeps it
+        provenance["map_quality"] = asset.quality
+    return replace(reg_map, provenance=provenance)
+
+
+def _check_map_reuse(
+    reg_map: RegistrationMap,
+    movie_path: Path,
+    pixel_size_um: float | None,
+    *,
+    map_optics: str | None,
+    confirm_optics: bool,
+) -> RegistrationMap:
+    """Run the reuse check of a map file against this movie and record it (#916).
+
+    The movie's pixel size comes from its file, its optics text from ``map_optics``. A
+    different pixel size is refused; a different optics text is refused unless
+    ``confirm_optics``. The check's result is added to the ``map_file`` record. A map
+    that came from no map file is returned unchanged.
+    """
+    record = reg_map.provenance.get("map_file")
+    if not isinstance(record, dict):
+        return reg_map
+    layout = record.get("channel_layout")
+    map_facts = MapFacts(
+        channel_layout=None if layout is None else ChannelLayout.from_dict(layout),
+        geometry=(reg_map.reference_geometry, reg_map.moving_geometry),  # type: ignore[arg-type]
+        pixel_size_um=record.get("pixel_size_um"),
+        optics=str(record.get("optics") or ""),
+    )
+    movie = MapFacts(pixel_size_um=pixel_size_um, optics=map_optics or "")
+    try:
+        check = require_map_reuse(map_facts, movie, confirm_optics=confirm_optics)
+    except OpticsConfirmationNeeded as exc:
+        raise ExtractionError(
+            f"{movie_path.name}: could not use --map {record.get('name')}: {exc} "
+            "(--confirm-optics, or confirm_optics=True)"
+        ) from exc
+    except MapReuseError as exc:
+        raise ExtractionError(
+            f"{movie_path.name}: could not use --map {record.get('name')}: {exc}"
+        ) from exc
+    provenance = dict(reg_map.provenance)
+    provenance["map_file"] = {
+        **record,
+        "movie_optics": map_optics or "",
+        "reuse": check.to_dict(optics_confirmed=bool(check.warnings) and confirm_optics),
+    }
     return replace(reg_map, provenance=provenance)
 
 
 def _registration_source(reg_map: RegistrationMap, map_path: object) -> str:
     """Return the run's registration source: the map's own, or ``"map-file"`` for an ``.npz``."""
     return "map-file" if map_path is not None else reg_map.source
+
+
+def _roles_from_file(tmap: object, map_path: object) -> bool:
+    """Whether a map's geometry, not the ``donor_side`` option, names the channel halves."""
+    return tmap is not None or map_path is not None
 
 
 def _write_metadata_origins(
@@ -555,6 +685,25 @@ def _write_metadata_origins(
         mm.write_metadata_record(f, record)
 
 
+def _write_roles_origin(path: Path, movie_id: str, *, roles_from_file: bool) -> None:
+    """Record the channel-role origin of a re-extracted movie's new layout (#1309).
+
+    The new generation's layout comes from this run's sources, so its roles take
+    the origin a fresh extraction with those sources records
+    (`_write_metadata_origins`). The frame time, its verification and the pixel
+    size are the movie's, not the run's, and stay as the store holds them; other
+    movies' records are not touched.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.project import movie_metadata as mm  # noqa: PLC0415
+
+    origin = mm.ORIGIN_FILE if roles_from_file else mm.ORIGIN_USER
+    record = replace(mm.read_movie_metadata(path)[movie_id], channel_roles_origin=origin)
+    with h5py.File(path, "r+") as f:
+        mm.write_metadata_record(f, record)
+
+
 @dataclass(frozen=True)
 class _Extracted:
     """Everything stages 1-15 produce for one movie, before anything is persisted.
@@ -583,6 +732,13 @@ class _Extracted:
     side_check: DonorSideCheck
     # The layout the native split used (#908); None on the imported .tmap path.
     channel_layout: ChannelLayout | None
+    # The files read: the movie, or the donor and acceptor movies of a pair (#909).
+    files: tuple[_FileRead, ...] = ()
+
+    @property
+    def is_pair(self) -> bool:
+        """Whether the acquisition is a movie pair (two files, #909)."""
+        return len(self.files) == 2
 
 
 def _check_inputs(
@@ -590,8 +746,27 @@ def _check_inputs(
     tmap: str | os.PathLike[str] | None,
     tdat: str | os.PathLike[str] | None,
     map_path: str | os.PathLike[str] | None = None,
+    acceptor_path: Path | None = None,
 ) -> None:
-    """Refuse a missing movie, ``.tmap``, map file or ``.tdat``, or two maps, before any work."""
+    """Refuse a missing movie, ``.tmap``, map file or ``.tdat``, or two maps, before any work.
+
+    With ``acceptor_path`` (a movie pair, #909) the acceptor movie must exist and be
+    another file than the donor movie, and no ``.tmap`` is taken: a Deep-LASI map splits
+    one camera frame.
+    """
+    if acceptor_path is not None:
+        if tmap is not None:
+            raise ExtractionError(
+                "a .tmap cannot be applied to a movie pair: its channel crops are regions of "
+                "one camera frame; use a native fit or a map file made from a bead file pair"
+            )
+        if not acceptor_path.exists():
+            raise ExtractionError(f"acceptor movie not found: {acceptor_path}")
+        if movie_path.exists() and os.path.samefile(movie_path, acceptor_path):
+            raise ExtractionError(
+                f"the donor and acceptor movies are one file ({movie_path.name}); a movie "
+                "pair is two files"
+            )
     if tmap is not None and map_path is not None:
         raise ExtractionError(
             "--tmap and --map cannot be combined (each one supplies the registration map); "
@@ -612,6 +787,8 @@ def _resolve_sources(
     tmap: str | os.PathLike[str] | None,
     tdat: str | os.PathLike[str] | None,
     map_path: str | os.PathLike[str] | None = None,
+    *,
+    pair: bool = False,
 ) -> tuple[ExtractOptions, RegistrationMap | None]:
     """Apply a ``.tdat``'s detection settings and load a ``.tmap`` or map file, before movie IO.
 
@@ -620,8 +797,15 @@ def _resolve_sources(
     all are resolved up front so a bad file fails fast with a clean error and nothing
     is touched. The map is ``None`` for the native fit. [`_check_inputs`][] has already
     refused a ``.tmap`` together with a map file. A ``channel_layout`` beside a
-    ``.tmap`` (#908) or a map file (#353) is refused here, before either file is read.
+    ``.tmap`` (#908) or a map file (#353) is refused here, before either file is read. A
+    movie pair (``pair``, #909) takes neither a channel layout nor a ``donor_side``: each
+    file is one whole channel, and the roles name the donor.
     """
+    if pair and (options.channel_layout is not None or options.donor_side != "left"):
+        raise ExtractionError(
+            "channel_layout and donor_side apply to one movie with both channels in each "
+            "frame; in a movie pair each file is one whole channel, named by its role"
+        )
     if tmap is not None and options.channel_layout is not None:
         # The imported path splits at the .tmap's own crops; a layout beside it would
         # name a second, competing split.
@@ -652,13 +836,19 @@ def _run_pipeline(
     options: ExtractOptions,
     imported_map: RegistrationMap | None,
     *,
-    identity: tuple[str, int, float] | None = None,
+    identity: tuple[_FileRead, ...] | None = None,
+    acceptor_path: Path | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> _Extracted:
-    """Run stages 1-15 on one movie and return the unpersisted result.
+    """Run stages 1-15 on one movie, or on a movie pair, and return the unpersisted result.
 
-    ``identity`` is the movie's ``(sha256, file_size, mtime)`` when the caller already
-    hashed it ([`add_movie_to_project`][] does, to refuse a duplicate before the
-    work); otherwise the movie is hashed here. Either way the file is re-stated after
+    ``identity`` is the files' [`_FileRead`][] records when the caller already hashed
+    them ([`add_movie_to_project`][] does, to refuse a duplicate before the work);
+    otherwise they are hashed here. With ``acceptor_path`` the movie is the donor of a
+    movie pair (#909): the pair is checked ([`tether.io.pair.check_pair`][]) and each
+    file is one whole channel; a map file must then be one made for a pair, and a map
+    made for a pair is refused for one movie. Either way the file is re-stated after
     extraction, so a mid-run change is refused and the persisted
     [`MovieMetadata`][] describes exactly the bytes extracted.
     """
@@ -670,14 +860,28 @@ def _run_pipeline(
         # Hash up front (inside the try, so an IO error becomes a clean
         # ExtractionError) and re-stat after extraction to catch a mid-run change,
         # so the persisted MovieMetadata describes exactly the bytes extracted.
-        sha256, file_size, mtime = identity if identity is not None else _hash_movie(movie_path)
-        with open_movie(movie_path) as reader:
+        files = identity if identity is not None else _hash_inputs(movie_path, acceptor_path)
+        with ExitStack() as opened:
+            reader = opened.enter_context(open_extraction_movie(movie_path))
+            acceptor_reader = None
+            if acceptor_path is not None:
+                acceptor_reader = opened.enter_context(open_extraction_movie(acceptor_path))
+                try:
+                    check_pair(
+                        reader,
+                        acceptor_reader,
+                        donor_name=movie_path.name,
+                        acceptor_name=acceptor_path.name,
+                    )
+                except MoviePairError as exc:
+                    raise ExtractionError(str(exc)) from exc
             n_frames, height, width = reader.shape
             pixel_dtype = str(reader.dtype)
             byteorder = reader.byteorder
-            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The
-            # ImageJ finterval tag is the only source: the .tdat/.mat decode reads no
-            # FrameTime, so a legacy import cannot supply one later either.
+            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The movie
+            # file is the only source (a TIFF's ImageJ finterval tag, an ND2's frame
+            # times): the .tdat/.mat decode reads no FrameTime, so a legacy import
+            # cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
             pixel_size_um = reader.pixel_size_um
 
@@ -696,21 +900,48 @@ def _run_pipeline(
                     raise ExtractionError(
                         "imported map lacks per-channel crop geometry; cannot split the movie"
                     )
+                if _is_pair_geometry(donor_geom, acceptor_geom) != (acceptor_reader is not None):
+                    # A pair map's channels are whole frames of two files; a one-movie
+                    # map's are two regions of one frame. Either used for the other
+                    # would read both channels from the wrong pixels (#909).
+                    raise ExtractionError(
+                        "the map was made for a movie pair (donor and acceptor in two files) "
+                        "and this is one movie"
+                        if acceptor_reader is None
+                        else "the map splits one camera frame into two channels and this is "
+                        "a movie pair; make the map from a bead file pair"
+                    )
                 # A movie turned against its map, or smaller than it, is refused here
                 # with both geometries named, not split at the wrong pixels (#887, #910).
                 try:
                     check_frame_fits(height, width, donor_geom, acceptor_geom)
                 except ChannelRecipeError as exc:
                     raise ExtractionError(f"{movie_path.name}: {exc}") from exc
-                donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
+                # A map file is checked against what is known of this movie: its pixel
+                # size and the optics text the user gives; never its date (#916).
+                reg_map = _check_map_reuse(
+                    reg_map,
+                    movie_path,
+                    pixel_size_um,
+                    map_optics=map_optics,
+                    confirm_optics=confirm_optics,
+                )
+                donor_stack, acceptor_stack = _split_stacks(
+                    reader, acceptor_reader, donor_geom, acceptor_geom
+                )
                 _, _, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
                 )
             else:
                 # Native path: pair control points from the movie's own detections.
-                layout = resolve_channel_layout(options)
-                donor_geom, acceptor_geom = _layout_geometry(layout, width, height)
-                donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
+                if acceptor_reader is None:
+                    layout = resolve_channel_layout(options)
+                    donor_geom, acceptor_geom = _layout_geometry(layout, width, height)
+                else:  # a movie pair: each file is one whole channel (#909)
+                    donor_geom = acceptor_geom = _whole_frame(height, width)
+                donor_stack, acceptor_stack = _split_stacks(
+                    reader, acceptor_reader, donor_geom, acceptor_geom
+                )
                 donor_det, acceptor_det, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
                 )
@@ -777,9 +1008,10 @@ def _run_pipeline(
                 ring_outer=options.ring_outer,
                 bg_window=options.bg_window,
             )
-        stat = movie_path.stat()
-        if int(stat.st_size) != file_size or float(stat.st_mtime) != mtime:
-            raise ExtractionError(f"movie changed during extraction: {movie_path}")
+        for read in files:
+            stat = read.path.stat()
+            if int(stat.st_size) != read.size or float(stat.st_mtime) != read.mtime:
+                raise ExtractionError(f"movie changed during extraction: {read.path}")
     except ExtractionError:
         raise
     except Exception as exc:  # primitive/IO failure -> clean operator message
@@ -787,9 +1019,9 @@ def _run_pipeline(
 
     return _Extracted(
         options=options,
-        sha256=sha256,
-        file_size=file_size,
-        mtime=mtime,
+        sha256=_row_sha256(files),
+        file_size=files[0].size,
+        mtime=files[0].mtime,
         n_frames=int(n_frames),
         height=int(height),
         width=int(width),
@@ -805,6 +1037,7 @@ def _run_pipeline(
         # The advisory donor-side check reads the finished traces (#646, ADR-0070).
         side_check=_run_donor_side_check(traces),
         channel_layout=layout,
+        files=files,
     )
 
 
@@ -851,7 +1084,14 @@ def _persist(
     movie_id = f"mov-{uuid4()}"
     calibration_id = f"cal-{uuid4()}"
     movie, settings = _movie_and_settings(
-        extracted, movie_path, movie_id, calibration_id, tmap=tmap, tdat=tdat, map_path=map_path
+        project_path,
+        extracted,
+        movie_path,
+        movie_id,
+        calibration_id,
+        tmap=tmap,
+        tdat=tdat,
+        map_path=map_path,
     )
     write_calibration(project_path, extracted.reg_map, calibration_id=calibration_id)
     molecule_ids = write_extraction(
@@ -868,12 +1108,25 @@ def _persist(
         movie_id,
         extracted.frame_time,
         extracted.pixel_size_um,
-        roles_from_file=tmap is not None or map_path is not None,
+        roles_from_file=_roles_from_file(tmap, map_path),
     )
+    if extracted.is_pair:
+        # Both files of the acquisition, with their roles and checksums (#909, #912).
+        from tether.project.sources import record_movie_pair  # noqa: PLC0415
+
+        record_movie_pair(
+            project_path,
+            movie_id,
+            {
+                role: (read.path, read.size, read.sha256)
+                for role, read in zip(PAIR_ROLES, extracted.files, strict=True)
+            },
+        )
     return movie_id, calibration_id, molecule_ids
 
 
 def _movie_and_settings(
+    project_path: Path,
     extracted: _Extracted,
     movie_path: Path,
     movie_id: str,
@@ -883,7 +1136,12 @@ def _movie_and_settings(
     tdat: str | os.PathLike[str] | None,
     map_path: str | os.PathLike[str] | None,
 ) -> tuple[MovieMetadata, dict]:
-    """Build the ``/movies`` row provenance and the settings profile of one extracted movie."""
+    """Build the ``/movies`` row provenance and the settings profile of one extracted movie.
+
+    ``project_path`` is the project the row goes into, or a staged copy of it beside it in
+    the same folder: the ``uri`` is relative to that folder
+    ([`tether.project.sources.project_movie_uri`][]).
+    """
     reg_map = extracted.reg_map
     movie = MovieMetadata(
         movie_id=movie_id,
@@ -891,7 +1149,7 @@ def _movie_and_settings(
         n_frames=extracted.n_frames,
         height=extracted.height,
         width=extracted.width,
-        uri=str(movie_path),
+        uri=project_movie_uri(project_path, movie_path),
         pixel_dtype=extracted.pixel_dtype,
         byteorder=extracted.byteorder,
         frame_time=extracted.frame_time,
@@ -912,6 +1170,10 @@ def _movie_and_settings(
         tdat_source=Path(tdat).name if tdat is not None else None,
         donor_side_check=extracted.side_check,
     )
+    if extracted.is_pair:
+        settings["movie_pair"] = {
+            role: read.path.name for role, read in zip(PAIR_ROLES, extracted.files, strict=True)
+        }
     return movie, settings
 
 
@@ -956,6 +1218,9 @@ def extract_movie(
     overwrite: bool = False,
     publish_guard: Callable[[], None] | None = None,
     refuse_over_gate: bool = False,
+    acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -995,7 +1260,10 @@ def extract_movie(
         refused; the map keeps the residual and the
         over-gate verdict it was saved with. The file name is recorded as
         ``map_source`` in ``/settings/extraction`` and the ``/calibration``
-        provenance gains ``map_file`` (name + sha256).
+        provenance gains ``map_file`` (name, sha256, the map id and the map's record,
+        and the result of the reuse check; #916). The reuse check refuses a map whose
+        pixel size differs from the movie's
+        ([`tether.imaging.map_asset.check_map_reuse`][]); it never reads the map's date.
 
         **Precedence:** one registration source per run. The native fit runs when
         neither ``tmap`` nor ``map_path`` is given; either file replaces it; passing
@@ -1015,6 +1283,23 @@ def extract_movie(
         (a low-confidence registration), and raise instead. ``tether batch --policy
         fail --into`` uses it so that a rejected movie never enters the project
         (#1151). By default such a movie is written and flagged.
+    acceptor_movie:
+        The acceptor movie of a **movie pair** (#909): ``movie_path`` is then the donor
+        movie, and the two files are one acquisition with each file one whole channel
+        ([`tether.io.pair`][]). The pair is refused when the frame count, frame time,
+        pixel type or frame size differ. A pair takes no ``.tmap``, no
+        ``options.channel_layout`` and no ``options.donor_side``; a map file must be one
+        made from a bead file pair
+        ([`bead_map_pair_from_files`][tether.imaging.beadmap.bead_map_pair_from_files]).
+        The ``/movies`` row names the pair ([`tether.io.pair.pair_sha256`][]), and the
+        source registry stores both files with their roles. ``None`` (default) reads one
+        movie with both channels in each frame.
+    map_optics:
+        With ``map_path``: the optics text of this movie (objective, filters, camera),
+        compared with the map's own. ``None`` compares no optics.
+    confirm_optics:
+        With ``map_path``: use the map although its optics text differs from
+        ``map_optics``. The confirmation is recorded with the map.
 
     Returns
     -------
@@ -1036,14 +1321,16 @@ def extract_movie(
         frame, or a frame too small to cut in two), a channel layout given together
         with a ``.tmap``, too few
         matched control points to register (native path), a registration over the
-        gate under ``refuse_over_gate``, or a write failure. Never a raw primitive
-        traceback.
+        gate under ``refuse_over_gate``, a map file the reuse check refuses (a
+        different pixel size, or a different optics text without ``confirm_optics``),
+        or a write failure. Never a raw primitive traceback.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
     output_path = Path(output_path)
+    acceptor_path = Path(acceptor_movie) if acceptor_movie is not None else None
 
-    _check_inputs(movie_path, tmap, tdat, map_path)
+    _check_inputs(movie_path, tmap, tdat, map_path, acceptor_path)
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
     try:
@@ -1051,8 +1338,17 @@ def extract_movie(
     except PublishGuardRequiredError as exc:
         raise ExtractionError(str(exc)) from exc
 
-    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
-    extracted = _run_pipeline(movie_path, options, imported_map)
+    options, imported_map = _resolve_sources(
+        options, tmap, tdat, map_path, pair=acceptor_path is not None
+    )
+    extracted = _run_pipeline(
+        movie_path,
+        options,
+        imported_map,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
+    )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     # --- Persist atomically (movie memmap is now closed) -----------------------
@@ -1113,7 +1409,7 @@ def count_molecules_by_rule(
     _check_inputs(movie_path, tmap, tdat, map_path)
     options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
     try:
-        with open_movie(movie_path) as reader:
+        with open_extraction_movie(movie_path) as reader:
             stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
             for stage in stages:
                 if stage.outcome == OUTCOME_FAILED:
@@ -1189,6 +1485,9 @@ def add_movie_to_project(
     map_path: str | os.PathLike[str] | None = None,
     publish_guard: Callable[[], None] | None,
     refuse_over_gate: bool = False,
+    acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> ExtractionSummary:
     """Extract ``movie_path`` and append it to the existing project ``project_path``.
 
@@ -1215,7 +1514,11 @@ def add_movie_to_project(
         ([`create_project`][tether.io.schema.create_project] or [`extract_movie`][]).
     movie_path:
         The movie to append; see [`extract_movie`][].
-    options, tmap, tdat, map_path:
+    acceptor_movie:
+        The acceptor movie when ``movie_path`` is the donor of a movie pair (#909); see
+        [`extract_movie`][]. A pair already in the project (the same two files in the
+        same roles) is refused as a duplicate.
+    options, tmap, tdat, map_path, map_optics, confirm_optics:
         As for [`extract_movie`][], with the same precedence. The aperture parameters
         (``window``, the radii and ``bg_window``) must equal the ones the project's first
         extraction recorded.
@@ -1246,8 +1549,9 @@ def add_movie_to_project(
     options = options or ExtractOptions()
     project_path = Path(project_path)
     movie_path = Path(movie_path)
+    acceptor_path = Path(acceptor_movie) if acceptor_movie is not None else None
 
-    _check_inputs(movie_path, tmap, tdat, map_path)
+    _check_inputs(movie_path, tmap, tdat, map_path, acceptor_path)
     if not project_path.is_file():
         raise ExtractionError(
             f"project not found: {project_path} (extract_movie creates a new project)"
@@ -1262,14 +1566,24 @@ def add_movie_to_project(
             "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
         )
 
-    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
+    options, imported_map = _resolve_sources(
+        options, tmap, tdat, map_path, pair=acceptor_path is not None
+    )
     try:
-        identity = _hash_movie(movie_path)
+        identity = _hash_inputs(movie_path, acceptor_path)
     except Exception as exc:
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
-    _refuse_duplicate_movie(project_path, identity[0], movie_path)
+    _refuse_duplicate_movie(project_path, _row_sha256(identity), movie_path)
 
-    extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    extracted = _run_pipeline(
+        movie_path,
+        options,
+        imported_map,
+        identity=identity,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
+    )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     try:
@@ -1328,6 +1642,9 @@ def reextract_movie(
     publish_guard: Callable[[], None] | None,
     refuse_over_gate: bool = False,
     match_px: float | None = None,
+    acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> GenerationSummary:
     """Extract a movie the project already holds again, as a new trace generation.
 
@@ -1345,8 +1662,10 @@ def reextract_movie(
     then moves an ANALYSIS_READY or CORRECTED_REVIEW correction state to
     CALIBRATION_STALE, and in CALIBRATION_APPROVED, where the state does not change, marks
     the approved factor version stale; either way corrected analysis waits for a new
-    approval. The movie's frame time
-    and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
+    approval. The movie's frame time, its verification and its pixel size are kept; the
+    channel roles' origin becomes the one this run's sources give, as on a fresh
+    extraction ([`tether.project.movie_metadata`][]). No generation is overwritten or
+    deleted (ADR-0136).
 
     The update is written to a sibling copy of the project and published by one atomic
     replace under the project's writer lock, exactly as [`add_movie_to_project`][] is.
@@ -1357,7 +1676,7 @@ def reextract_movie(
         An existing, compatible ``.tether`` project that holds the movie.
     movie_path:
         The movie file; its bytes must be the ones the project recorded.
-    options, tmap, tdat, map_path, refuse_over_gate:
+    options, tmap, tdat, map_path, map_optics, confirm_optics, refuse_over_gate:
         As for [`add_movie_to_project`][]; the aperture parameters must equal the
         project's.
     publish_guard:
@@ -1365,6 +1684,9 @@ def reextract_movie(
         [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``.
     match_px:
         The "did not move" distance in pixels; ``None`` is ``GENERATION_MATCH_PX``.
+    acceptor_movie:
+        The acceptor movie when the project holds ``movie_path`` as the donor of a movie
+        pair (#909); the pair is found by its checksum, as one movie is.
 
     Returns
     -------
@@ -1380,8 +1702,9 @@ def reextract_movie(
     options = options or ExtractOptions()
     project_path = Path(project_path)
     movie_path = Path(movie_path)
+    acceptor_path = Path(acceptor_movie) if acceptor_movie is not None else None
 
-    _check_inputs(movie_path, tmap, tdat, map_path)
+    _check_inputs(movie_path, tmap, tdat, map_path, acceptor_path)
     if not project_path.is_file():
         raise ExtractionError(f"project not found: {project_path}")
     try:
@@ -1394,14 +1717,24 @@ def reextract_movie(
             "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
         )
 
-    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
+    options, imported_map = _resolve_sources(
+        options, tmap, tdat, map_path, pair=acceptor_path is not None
+    )
     try:
-        identity = _hash_movie(movie_path)
+        identity = _hash_inputs(movie_path, acceptor_path)
     except Exception as exc:
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
-    movie_id = _held_movie_id(project_path, identity[0], movie_path)
+    movie_id = _held_movie_id(project_path, _row_sha256(identity), movie_path)
 
-    extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    extracted = _run_pipeline(
+        movie_path,
+        options,
+        imported_map,
+        identity=identity,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
+    )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     calibration_id = f"cal-{uuid4()}"
@@ -1413,6 +1746,7 @@ def reextract_movie(
             if _held_movie_id(stage, extracted.sha256, movie_path) != movie_id:
                 raise ExtractionError(f"{movie_path.name} changed identity in {project_path.name}")
             movie, settings = _movie_and_settings(
+                project_path,
                 extracted,
                 movie_path,
                 movie_id,
@@ -1442,6 +1776,7 @@ def reextract_movie(
             # The corrections were read from the traces this generation replaces, so
             # corrected analysis waits for a new approval (#1284).
             mark_traces_replaced_in(stage, movie_id=movie_id, generation_id=record.generation_id)
+            _write_roles_origin(stage, movie_id, roles_from_file=_roles_from_file(tmap, map_path))
     except ExtractionError:
         raise
     except Exception as exc:  # aperture mismatch, lost lock, IO failure

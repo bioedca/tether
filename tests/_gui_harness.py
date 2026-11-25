@@ -70,8 +70,9 @@ needs_gl = pytest.mark.skipif(
     reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
 )
 
-#: The id of every section the shell registers, in order. ``tests/test_gui_section_contract.py``
-#: checks this against ``TetherShell().sections.ids``, so a new section cannot skip the contract.
+#: The id of every section the shell shows, in order. ``tests/test_gui_section_contract.py``
+#: checks this against ``TetherShell().sections.visible_ids``, so a new section cannot skip the
+#: contract. A hidden section (Deposit until #956, #897) has no page to check.
 SECTION_IDS: tuple[str, ...] = ("prepare", "curate", "analyze")
 
 #: The sections whose page or docks build a napari ``Viewer``: Curate and correct, whose movie
@@ -137,9 +138,10 @@ class SectionShells:
 
         ``project=True`` builds a temporary ``.tether`` and opens it writable; a path opens that
         file instead; ``False`` leaves the shell bare. With a project the lazily built docks are
-        built as well (the overlap dock on opening, the histogram dock by showing it), so every
-        dock a section can hold is attached before the shell is parked. When ``movie`` is true
-        the built project records a real movie file, so the movie dock (#356) is built too;
+        built as well (the overlap dock on opening), and the Analyze section draws its first
+        plot, so every dock a section can hold is attached before the shell is parked. When
+        ``movie`` is true the built project records a real movie file, so the movie dock (#356)
+        is built too;
         ``None`` (the default) means "when ``section`` is in ``VIEWER_SECTIONS``", whose tests
         carry ``needs_gl``. ``shell_kwargs`` go to ``TetherShell``.
         """
@@ -147,7 +149,7 @@ class SectionShells:
 
         shell = TetherShell(**shell_kwargs)
         self._qtbot.addWidget(shell.window)
-        # Showing the histogram dock shows Analyze, so remember the default to return to it.
+        # Remember the default section to return to it.
         default_section = shell.section
         opened: list[Path] = []
         self._built.append((shell, opened))
@@ -166,7 +168,12 @@ class SectionShells:
             # shell holds writable is read-only and never held that lock (#1238).
             if shell.holds_project_claim:
                 opened.append(Path(loaded.path))
-            assert shell.show_histogram() is not None, shell.status_message
+            # The Analyze section draws its A1 plot over every molecule, so its preview
+            # canvas is built before the shell is parked (#374).
+            analysis = shell.analysis_section
+            analysis.add_menu.aboutToShow.emit()
+            analysis.add_menu.actions()[0].trigger()
+            assert analysis.outcome.drawn, analysis.outcome.missing
         wanted = default_section if section is None else section
         if shell.section != wanted:
             shell.set_section(wanted)

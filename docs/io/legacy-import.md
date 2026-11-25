@@ -126,8 +126,8 @@ A `.tdat` is a MATLAB v7.3 (HDF5) file whose `TIRFdata` class instances live in 
 `ParticlesColocalized` coordinates (rows kept only where a molecule is colocalized in every
 participating channel, so donor and acceptor rows stay index-aligned), the
 `DefaultAlpha/Beta/Gamma` scalars **remapped** to Tether naming, the particle-detection mode
-(`wavelet` / `intensity` / `bandpass`; local-variance and ZMW modes are *refused* with a
-`ValueError` rather than silently mis-detected), and the embedded movie reference. Coordinate
+(`wavelet` / `intensity` / `bandpass` / `zmw`; the local-variance mode, which Deep-LASI
+itself cannot run, is *refused* with a `ValueError` rather than silently mis-detected), and the embedded movie reference. Coordinate
 and correction decoding are MCOS-independent; only the detection threshold and movie
 reference need the MCOS graph and are decoded best-effort (a `None` there is normal, not an
 error). Tether reads both MCOS metadata versions: 4 (the laboratory files) and 3 (the public

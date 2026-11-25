@@ -93,14 +93,14 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 ## Finish
 
 **Open the PR as a draft** and get the checks green there. Then follow `AGENTS.md` §Review: an
-external provider reads the final head, you fix what is serious and defer or drop the rest, and
-CodeRabbit with no actionable comments is the last metered gate before merge. If its one-review cap
-is spent and no finding is left outstanding, a fresh **posted** Codex review of the final head
-closes the gate in its place — §Review carries the conditions, and no maintainer is waited on for
-it. Posted, because the closer has to name the head it read; a local CLI run satisfies no leg.
-§Review also says when one Greptile review may stand in for a CodeRabbit that refused, and when a
-load-bearing PR takes Greptile in CodeRabbit's place, and this page states none of those
-conditions.
+external provider reads the final head, and you fix what is serious and defer or drop the rest.
+The changed files decide the metered gate: a docs-only or test-only PR closes on a clean Codex
+review alone, and a code PR takes one Greptile review, or CodeRabbit when Greptile has no credit.
+If that one-review cap is spent and no finding is left outstanding, a fresh **posted** Codex review
+of the final head closes the gate in its place — §Review carries the conditions, and no maintainer
+is waited on for it. Posted, because the closer has to name the head it read; a local CLI run
+satisfies no leg. §Review says how to read the kind of a PR and the Greptile budget, and this page
+states none of those conditions.
 
 You do not have to sit and watch it. A review takes as long as it takes, and a short-lived worker
 that polls is spending tokens to wait — so **write the state into the PR body before you go**:

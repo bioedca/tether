@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The repository copy of the CodeRabbit queue script, tested on what it does.
 
-`.agents/bin/cr_next_free.py` is the queue the Codex lane runs during a handoff
-(`docs/agents/handoff.md`). What is asserted is behaviour: where its state lives, that a join never
-replaces another entry, how the pace follows CodeRabbit's own words, and that it says ASK only when
-nothing is running and the window is free. GitHub is replaced by a stub; nothing here reaches it.
+`.agents/bin/cr_next_free.py` is the repository copy of the CodeRabbit queue (ADR-0137). What is
+asserted is behaviour: where its state lives, that a join never replaces another entry, how the
+pace follows CodeRabbit's own words, and that it says ASK only when nothing is running and the
+window is free. GitHub is replaced by a stub; nothing here reaches it.
 
 Stdlib only, so it runs on the base 3-OS `test` matrix.
 """
@@ -106,10 +106,11 @@ def _bot(body: str, when: datetime) -> dict:
     }
 
 
-def test_the_pace_follows_the_newest_allowance_and_slows_after_a_refusal() -> None:
+def test_the_pace_is_one_review_an_hour_whatever_the_allowance() -> None:
+    """The maintainer, 2026-11-23: "one coderabbit review per hour" (ADR-0142)."""
     now = datetime(2026, 11, 19, 20, 0, tzinfo=UTC)
     reading = _bot("set your current allowance at 10 reviews per hour.", now - timedelta(hours=1))
-    assert queue.pace([reading], now)[0] == timedelta(minutes=12)
+    assert queue.pace([reading], now)[0] == timedelta(minutes=60)
     refusal = _bot("Review rate limited. available in 20 minutes", now - timedelta(minutes=5))
     assert queue.pace([reading, refusal], now)[0] == queue.SLOW
     assert queue.pace([], now)[0] == queue.SLOW

@@ -53,11 +53,11 @@ def shell(qapp, qtbot):
 
 
 def test_shell_hosts_surfaces_and_installs_filter(shell) -> None:
-    # The shell hosts the three non-text surfaces + the exempt category field,
+    # The shell hosts the non-text surfaces + the category editor's entry point (#633),
     # and the curation event filter is installed on the application.
     assert shell.molecule_list is not None
     assert shell.movie_switcher is not None
-    assert bool(shell.category_field.property("tetherTextEntry")) is True
+    assert shell.categories_button.text() == "Categories…"
     assert shell.event_filter.qobject is not None
 
 
@@ -75,22 +75,42 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
     assert "Accepted" not in shell.status_message
 
 
-@pytest.mark.parametrize("key_name", ["Key_Return", "Key_G"])
-def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
+def test_deferred_store_commands_report_unavailable(shell, qtbot) -> None:
     from pyqtgraph.Qt import QtCore
 
     shell.set_molecules(_traces(1))
 
-    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_G)
 
     assert "unavailable" in shell.status_message.lower()
+
+
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_Enter"])
+def test_enter_with_no_movie_shown_says_why(shell, qtbot, key_name) -> None:
+    # #357: Enter jumps to the movie spot. A shell with no movie panel (no project, or
+    # a project with no movie file here) has nowhere to jump, and says so.
+    from pyqtgraph.Qt import QtCore
+
+    shell.set_molecules(_traces(1))
+    assert shell.roundtrip is None
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert shell.status_message == "Jump to movie spot unavailable: no movie is shown"
 
 
 def test_category_field_keeps_text_semantics(shell) -> None:
     from pyqtgraph.Qt import QtCore
 
+    from tether.gui.category_editor import CategoryEditor
+
+    # The category name field lives in the category editor (#633); it stays a text entry.
+    field = CategoryEditor(
+        "c", [], usage=len, add=None, rename=None, remove=None, move=None, parent=shell.window
+    ).name_field
+    assert bool(field.property("tetherTextEntry")) is True
     k = QtCore.Qt.Key
-    consumed = shell.event_filter.filter_event(shell.category_field, _key_event(k.Key_Space))
+    consumed = shell.event_filter.filter_event(field, _key_event(k.Key_Space), focus_widget=field)
     assert consumed is False
     assert shell.controller.history == []
 
@@ -189,21 +209,25 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
 
 
 def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None:
-    # #345: the ready line no longer offers "Enter jump", and the shipped cheat sheet
-    # agrees: every deferred command is marked unavailable, the working ones are not.
+    # #345: every deferred command is marked unavailable on the shipped cheat sheet, the
+    # working ones are not. Jump works since #357, so the ready line names its key again
+    # and the sheet offers it plainly; the grid is still deferred.
+    from tether.gui.curation import CurationAction
     from tether.gui.shell import DEFERRED_ACTIONS
 
-    assert "jump" not in shell.status_message.lower()
+    assert CurationAction.JUMP not in DEFERRED_ACTIONS
+    assert shell.status_message.endswith(" jump")
+    assert "grid" not in shell.status_message.lower()
     shown = _cheatsheet_cells(shell.cheatsheet)
     assert shown == shell.keymap.cheatsheet(unavailable=DEFERRED_ACTIONS)
     rows = dict(shown)
     assert rows.get("Space") == "Accept trace"
-    assert rows.get("I") == "One-click idealize"
+    assert rows.get("I") == "Idealize project…"
     assert rows.get("G") == "Toggle grid (unavailable)"
     # The category keys write the project since #359, so the sheet offers them plainly.
     assert rows.get("1") == "Assign category 1"
-    assert "Jump to movie spot (unavailable)" in rows.values()
-    assert "Jump to movie spot" not in rows.values()
+    assert "Jump to movie spot" in rows.values()
+    assert "Jump to movie spot (unavailable)" not in rows.values()
 
 
 def test_every_deferred_action_reports_unavailable(shell) -> None:
@@ -306,7 +330,8 @@ def test_close_removes_the_event_filter(qapp, qtbot) -> None:
     assert len(s.controller.history) == 1  # unchanged
 
 
-# --- one-click idealize (I key), M2 S6 PR-B ----------------------------------
+# --- the I key opens "Idealize project…" (#625) ------------------------------
+# The fit itself, its dialog, progress, cancel and refit: tests/test_shell_idealize_project.py.
 
 
 def _keyed_traces(n=3):
@@ -328,290 +353,30 @@ def _keyed_traces(n=3):
     return out
 
 
-def _fake_idealizer(traces):
-    """A molecule_key -> two-level step path sized to the matching trace."""
-    keyed = {t.molecule_key: t for t in traces}
-
-    def _idealize(molecule_key):
-        trace = keyed[molecule_key]
-        path = np.full(trace.n_frames, 0.3)
-        path[trace.n_frames // 2 :] = 0.7
-        return path
-
-    return _idealize
-
-
-def test_i_key_idealizes_current_and_draws_overlay(qapp, qtbot) -> None:
+def test_i_key_without_a_project_fits_nothing_and_says_why(qapp, qtbot) -> None:
+    # No code path fits a single molecule from a key (#625): with molecules shown but no
+    # project open, I opens no dialog and starts no task, and the status line says why.
     from pyqtgraph.Qt import QtCore
 
     from tether.gui.shell import TetherShell
 
     k = QtCore.Qt.Key
-    traces = _keyed_traces(3)
-    s = TetherShell(idealizer=_fake_idealizer(traces))
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(traces)  # selects row 0
-        consumed = s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        assert consumed is True  # the Tether-only I key is handled, not passed through
-        # The fit runs on a background worker; wait for the result to land on main.
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert s.trace_dock.idealization_curve.isVisible()
-        np.testing.assert_allclose(s.trace_dock.idealized_path, [0.3] * 10 + [0.7] * 10)
-        assert "Idealized" in s.status_message and "m0" in s.status_message
-    finally:
-        s.close()
-
-
-def test_i_key_without_idealizer_reports_load_project(qapp, qtbot) -> None:
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    # A shell with molecules but no wired idealizer (the synthetic/no-project state).
-    s = TetherShell()
+    calls: list = []
+    s = TetherShell(idealizer=lambda *a, **kw: calls.append((a, kw)))
     qtbot.addWidget(s.window)
     try:
         s.set_molecules(_keyed_traces(2))
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        assert "load a project" in s.status_message
+        consumed = s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        assert consumed is True  # the Tether-only I key is handled, not passed through
+        assert s.idealize_dialog is None
+        assert not s.is_idealizing
+        assert calls == []
+        assert s.status_message == (
+            "Idealize project unavailable: load a project with extracted molecules"
+        )
         assert s.trace_dock.idealized_path is None
     finally:
         s.close()
-
-
-def test_i_key_with_no_selection_reports(qapp, qtbot) -> None:
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    traces = _keyed_traces(1)
-    s = TetherShell(idealizer=_fake_idealizer(traces))
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules([])  # nothing selected
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        assert "select a molecule" in s.status_message
-    finally:
-        s.close()
-
-
-def test_i_key_surfaces_idealizer_failure(qapp, qtbot) -> None:
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    traces = _keyed_traces(1)
-
-    def _boom(_key):
-        raise RuntimeError("sidecar exploded")
-
-    s = TetherShell(idealizer=_boom)
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(traces)
-        # A failing fit must surface as a status message, not crash the shell.
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert "Idealize failed" in s.status_message and "sidecar exploded" in s.status_message
-        assert s.trace_dock.idealized_path is None
-    finally:
-        s.close()
-
-
-def test_i_key_reports_when_no_idealization_produced(qapp, qtbot) -> None:
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    s = TetherShell(idealizer=lambda _key: None)
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(_keyed_traces(1))
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert "no idealization produced" in s.status_message
-        assert s.trace_dock.idealized_path is None
-    finally:
-        s.close()
-
-
-def test_i_key_surfaces_length_mismatch_without_crashing(qapp, qtbot) -> None:
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    # A misbehaving idealizer returns a wrong-length array (traces are 20 frames);
-    # set_idealization rejects it on the main thread and the shell must report the
-    # failure, not crash (the draw is guarded in the poll handler).
-    s = TetherShell(idealizer=lambda _key: np.zeros(5))
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(_keyed_traces(1))
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert "Idealize failed" in s.status_message
-        assert s.trace_dock.idealized_path is None
-    finally:
-        s.close()
-
-
-def test_i_key_runs_off_the_gui_thread_and_rejects_concurrent_fits(qapp, qtbot) -> None:
-    import threading
-
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    traces = _keyed_traces(1)
-    gate = threading.Event()
-
-    def _blocking_idealizer(molecule_key):
-        # Block in the worker until the test releases it — proving the fit runs OFF
-        # the GUI thread (the event loop keeps running while this waits).
-        gate.wait(timeout=5.0)
-        return np.full(traces[0].n_frames, 0.5)
-
-    s = TetherShell(idealizer=_blocking_idealizer)
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(traces)
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        # The fit is in flight on the worker while the GUI thread stays responsive.
-        assert s.is_idealizing
-        # A second I while a fit runs is rejected, not queued or crashed.
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        assert "already running" in s.status_message
-        gate.set()  # let the worker finish
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert "Idealized" in s.status_message
-        assert s.trace_dock.idealization_curve.isVisible()
-    finally:
-        gate.set()
-        s.close()
-
-
-def test_i_key_result_is_not_drawn_when_the_selection_moved_on(qapp, qtbot) -> None:
-    # The fit of molecule m0 is held in the worker while the curator steps to m1.
-    # When the result lands it belongs to m0, so it must not be drawn on m1, now on
-    # screen; the status names the molecule and says the selection moved on (#745
-    # GUI-F9). Both traces have 20 frames, so a missing guard would draw the m0 path
-    # on m1 without any length error to stop it.
-    import threading
-
-    from pyqtgraph.Qt import QtCore
-
-    from tether.gui.shell import TetherShell
-
-    k = QtCore.Qt.Key
-    traces = _keyed_traces(2)
-    assert traces[0].n_frames == traces[1].n_frames
-    gate = threading.Event()
-    asked: list[str] = []
-
-    def _blocking_idealizer(molecule_key):
-        asked.append(molecule_key)
-        gate.wait(timeout=5.0)
-        return np.full(traces[0].n_frames, 0.5)
-
-    s = TetherShell(idealizer=_blocking_idealizer)
-    qtbot.addWidget(s.window)
-    try:
-        s.set_molecules(traces)  # selects row 0 (m0)
-        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
-        assert s.is_idealizing
-        s.molecule_list.setCurrentRow(1)  # the curator moves on to m1
-        assert s.trace_dock.trace is traces[1]
-        gate.set()
-        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
-        assert asked == ["m0"]
-        assert "selection moved on" in s.status_message and "m0" in s.status_message
-        assert s.trace_dock.idealized_path is None
-        assert not s.trace_dock.idealization_curve.isVisible()
-    finally:
-        gate.set()
-        s.close()
-
-
-# --- make_store_idealizer (the store-backed production seam) ------------------
-
-
-def _stub_stored(idealized, keys):
-    from tether.project.idealize import StoredIdealization
-
-    n = len(keys)
-    width = idealized.shape[1] if idealized is not None else 0
-    return StoredIdealization(
-        model_name="vbfret",
-        model_type="vbconhmm",
-        nstates=2,
-        means=np.array([0.3, 0.7]),
-        variances=None,
-        tmatrix=None,
-        norm_tmatrix=None,
-        elbo=1.0,
-        idealized=idealized,
-        state_paths=np.zeros((n, width), dtype="int64"),
-        molecule_keys=list(keys),
-        molecule_ids=[f"id-{i}" for i in range(n)],
-        input_hashes=["h"] * n,
-        intensity_quantity="corrected",
-        nstates_selected_by="max-elbo",
-        elbo_by_nstates={2: 1.0},
-        app_version="0",
-        created_utc="2026-07-01T00:00:00+00:00",
-    )
-
-
-def test_make_store_idealizer_runs_pipeline_and_returns_row(monkeypatch) -> None:
-    from tether.gui.shell import make_store_idealizer
-
-    calls = {}
-
-    def fake_idealize(project, keys, *, model_name, overwrite, **kw):
-        calls["project"] = project
-        calls["keys"] = list(keys)
-        calls["model_name"] = model_name
-        calls["overwrite"] = overwrite
-        calls["kw"] = kw
-        idealized = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
-        return _stub_stored(idealized, ["k0", "k1"])
-
-    monkeypatch.setattr("tether.project.idealize.idealize_molecules", fake_idealize)
-    # Extra kwargs (nstates, intensity_quantity, …) must reach idealize_molecules.
-    idealizer = make_store_idealizer("proj.tether", model_name="vbfret", nstates=3)
-    row = idealizer("k1")
-    np.testing.assert_allclose(row, [0.4, 0.5, 0.6])  # the selected key's row
-    assert calls["keys"] == ["k1"]  # only the requested molecule is fitted
-    assert calls["model_name"] == "vbfret"
-    assert calls["overwrite"] is True  # re-pressing I re-idealizes into the model
-    assert calls["kw"] == {"nstates": 3}  # **kwargs passthrough
-
-
-def test_make_store_idealizer_returns_none_when_key_absent(monkeypatch) -> None:
-    from tether.gui.shell import make_store_idealizer
-
-    monkeypatch.setattr(
-        "tether.project.idealize.idealize_molecules",
-        lambda *a, **k: _stub_stored(np.array([[0.1, 0.2]]), ["other"]),
-    )
-    assert make_store_idealizer("proj.tether")("missing") is None
-
-
-def test_make_store_idealizer_returns_none_when_idealized_missing(monkeypatch) -> None:
-    from tether.gui.shell import make_store_idealizer
-
-    monkeypatch.setattr(
-        "tether.project.idealize.idealize_molecules",
-        lambda *a, **k: _stub_stored(None, ["k0"]),
-    )
-    assert make_store_idealizer("proj.tether")("k0") is None
 
 
 # --- hand-off round trip (export + return-leg import), M2 S7 PR-B -------------
@@ -1056,209 +821,44 @@ def test_applied_summary_covers_every_branch() -> None:
     assert "1 window" in combo and "deferred to M4" in combo and "re-staled" in combo
 
 
-# --- population apparent-E histogram (M2 S8 PR-B, §7.7) ----------------------
+# --- the Analyze section's plot builder (#374, §7.7) --------------------------
+# It replaced the one-action &Analysis menu and its pyqtgraph population-histogram dock;
+# the A1 histogram is now an entry of the plot registry (tests/test_histogram_dock.py).
 
 
-def _population_histogram(*, n_molecules=3, density=True):
-    """A real Histogram1D over a small pooled sample, tagged with n_molecules."""
-    from dataclasses import replace
-
-    from tether.analysis.histogram import apparent_e_histogram
-
-    pooled = np.array([0.2, 0.5, 0.5, 0.8])
-    return replace(apparent_e_histogram(pooled, density=density), n_molecules=n_molecules)
+def test_bare_shell_analysis_section_says_a_project_is_needed(shell) -> None:
+    section = shell.analysis_section
+    assert section.project is None
+    assert section.empty_text == "Open a project to draw a plot."
+    assert section.figure is None and section.canvas is None
+    assert not section.add_button.isEnabled()  # nothing to add without a project
 
 
-def test_make_store_histogram_delegates_and_passes_kwargs(monkeypatch) -> None:
-    from tether.gui.shell import make_store_histogram
-
-    calls = {}
-    sentinel = _population_histogram()
-
-    def fake_population(project, **kw):
-        calls["project"] = project
-        calls["kw"] = kw
-        calls["n"] = calls.get("n", 0) + 1
-        return sentinel
-
-    monkeypatch.setattr(
-        "tether.analysis.histogram.population_apparent_e_histogram", fake_population
-    )
-    seam = make_store_histogram("proj.tether", intensity_quantity="raw", bins=51)
-    # Each call recomputes (tracks curation) — a memoizing seam would show stale data;
-    # kwargs thread straight through.
-    assert seam() is sentinel
-    assert seam() is sentinel
-    assert calls["n"] == 2  # two seam() calls -> two underlying recomputations
-    assert calls["project"] == "proj.tether"
-    assert calls["kw"] == {"intensity_quantity": "raw", "bins": 51}
+def test_analyze_has_no_analysis_menu_and_shows_the_plot_builder(shell) -> None:
+    # The one-action &Analysis menu is replaced by the section (#374): Analyze declares no
+    # menu, and its page is the plot builder.
+    assert shell.section_menus("analyze") == []
+    menu_titles = [a.text() for a in shell.window.menuBar().actions()]
+    assert "&Analysis" not in menu_titles
+    assert not hasattr(shell, "show_histogram")
+    shell.set_section("analyze")
+    assert shell.section_page("analyze") is shell.analysis_section.widget
 
 
-def test_show_histogram_without_seam_reports(shell) -> None:
-    assert shell.show_histogram() is None
-    assert "load a project" in shell.status_message
-    assert shell.histogram_dock is None  # dock is never built without data
-
-
-def test_show_histogram_draws_and_returns_dock(qapp, qtbot) -> None:
+def test_close_closes_the_analysis_section(qapp, qtbot) -> None:
     from tether.gui.shell import TetherShell
 
-    hist = _population_histogram()
-    s = TetherShell(histogram=lambda: hist)
+    s = TetherShell()
     qtbot.addWidget(s.window)
-    try:
-        dock = s.show_histogram()
-        assert dock is not None
-        assert dock is s.histogram_dock  # built lazily, then reused
-        assert dock.histogram is hist
-        np.testing.assert_allclose(dock.curve.getData()[1], hist.counts)
-        assert "3 molecule(s)" in s.status_message
-        # A second open reuses the same dock instance.
-        assert s.show_histogram() is dock
-    finally:
-        s.close()
-
-
-def test_show_histogram_surfaces_seam_failure(qapp, qtbot) -> None:
-    from tether.gui.shell import TetherShell
-
-    def _boom():
-        raise RuntimeError("no traces")
-
-    s = TetherShell(histogram=_boom)
-    qtbot.addWidget(s.window)
-    try:
-        assert s.show_histogram() is None
-        assert "Histogram failed" in s.status_message
-        assert "no traces" in s.status_message
-    finally:
-        s.close()
-
-
-def test_show_histogram_reports_when_seam_returns_none(qapp, qtbot) -> None:
-    from tether.gui.shell import TetherShell
-
-    s = TetherShell(histogram=lambda: None)
-    qtbot.addWidget(s.window)
-    try:
-        assert s.show_histogram() is None
-        assert "nothing to pool" in s.status_message
-        assert s.histogram_dock is None
-    finally:
-        s.close()
-
-
-def test_show_histogram_draws_empty_population(qapp, qtbot) -> None:
-    from dataclasses import replace
-
-    from tether.analysis.histogram import apparent_e_histogram
-    from tether.gui.shell import TetherShell
-
-    empty = replace(apparent_e_histogram(np.empty(0)), n_molecules=0)
-    s = TetherShell(histogram=lambda: empty)
-    qtbot.addWidget(s.window)
-    try:
-        dock = s.show_histogram()  # an empty pool still draws a flat baseline
-        assert dock is not None
-        assert float(np.asarray(dock.curve.getData()[1]).sum()) == 0.0
-        assert "0 molecule(s)" in s.status_message
-    finally:
-        s.close()
-
-
-def test_show_histogram_surfaces_malformed_result_without_crashing(qapp, qtbot) -> None:
-    from tether.analysis.histogram import DEFAULT_RANGE, Histogram1D
-    from tether.gui.shell import TetherShell
-
-    # A well-typed but shape-invalid Histogram1D (bin_edges must be counts + 1): the
-    # dock's set_histogram raises — the shell must catch it, not crash the menu action
-    # (mirrors test_i_key_surfaces_length_mismatch_without_crashing for the I key).
-    bad = Histogram1D(
-        counts=np.zeros(5),
-        bin_edges=np.zeros(5),  # should be length 6
-        density=True,
-        value_range=DEFAULT_RANGE,
-        n_samples=0,
-        n_molecules=0,
-        per_molecule_equal_weight=False,
-    )
-    s = TetherShell(histogram=lambda: bad)
-    qtbot.addWidget(s.window)
-    try:
-        assert s.show_histogram() is None
-        assert "Histogram failed" in s.status_message
-        # A dock that fails its very first draw is discarded — none is adopted or
-        # attached to the window, matching the no-seam / seam-raises / None paths.
-        assert s.histogram_dock is None
-    finally:
-        s.close()
-
-
-def test_show_histogram_keeps_existing_dock_on_later_failure(qapp, qtbot) -> None:
-    from tether.analysis.histogram import DEFAULT_RANGE, Histogram1D
-    from tether.gui.shell import TetherShell
-
-    good = _population_histogram()
-    bad = Histogram1D(
-        counts=np.zeros(5),
-        bin_edges=np.zeros(5),
-        density=True,
-        value_range=DEFAULT_RANGE,
-        n_samples=0,
-        n_molecules=0,
-        per_molecule_equal_weight=False,
-    )
-    seq = iter([good, bad])
-    s = TetherShell(histogram=lambda: next(seq))
-    qtbot.addWidget(s.window)
-    try:
-        dock = s.show_histogram()  # first: good -> dock built + attached
-        assert dock is not None
-        # second: malformed -> must not crash and must KEEP the already-shown dock.
-        assert s.show_histogram() is None
-        assert "Histogram failed" in s.status_message
-        assert s.histogram_dock is dock
-    finally:
-        s.close()
-
-
-def test_analysis_menu_action_triggers_histogram(qapp, qtbot) -> None:
-    from tether.gui.shell import TetherShell
-
-    hist = _population_histogram()
-    s = TetherShell(histogram=lambda: hist)
-    qtbot.addWidget(s.window)
-    try:
-        actions = s.analysis_menu.actions()
-        assert [a.text() for a in actions] == ["Population &histogram…"]
-        actions[0].trigger()  # the menu entry runs show_histogram
-        assert s.histogram_dock is not None
-        assert s.histogram_dock.histogram is hist
-    finally:
-        s.close()
-
-
-def test_close_closes_histogram_dock(qapp, qtbot) -> None:
-    from tether.gui.shell import TetherShell
-
-    s = TetherShell(histogram=lambda: _population_histogram())
-    qtbot.addWidget(s.window)
-    s.show_histogram()
-    dock = s.histogram_dock
-    assert dock is not None
-
-    # Pin the teardown wiring: shell.close() must actually close the built dock,
-    # not merely avoid raising (isVisible is not observable — the window is never
-    # shown headless), so spy on the dock's close.
+    section = s.analysis_section
     closed = []
-    original_close = dock.close
+    original_close = section.close
 
     def _spy_close() -> None:
         closed.append(True)
         original_close()
 
-    dock.close = _spy_close
-
+    section.close = _spy_close
     s.close()
     assert closed == [True]
 

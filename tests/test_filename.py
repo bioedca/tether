@@ -77,6 +77,33 @@ def test_same_condition_shares_id_across_files() -> None:
     assert only.startswith("cond-")
 
 
+def test_an_nd2_original_parses_as_its_tiff_export() -> None:
+    # Extraction reads ND2 (#1388) and stores the condition parsed from the movie's
+    # name, so ``x.nd2`` and its export ``x.tif`` must give one condition and index.
+    nd2, tif = parse_filename(UCKOPSB_TIF[: -len(".tif")] + ".ND2"), parse_filename(UCKOPSB_TIF)
+    assert nd2.key == tif.key
+    assert nd2.condition_id == tif.condition_id
+    assert nd2.video_index == tif.video_index == "010"
+
+
+def test_a_czi_original_parses_as_its_tiff_export() -> None:
+    # Extraction reads CZI (#1390), so ``x.czi`` and its export ``x.tif`` must give one
+    # condition and index, as ND2 does.
+    czi, tif = parse_filename(UCKOPSB_TIF[: -len(".tif")] + ".CZI"), parse_filename(UCKOPSB_TIF)
+    assert czi.key == tif.key
+    assert czi.condition_id == tif.condition_id
+    assert czi.video_index == tif.video_index == "010"
+
+
+def test_a_vsi_original_parses_as_its_tiff_export() -> None:
+    # Extraction reads cellSens VSI (#1398), as it reads ND2: ``x.vsi`` and its export
+    # ``x.tif`` must give one condition and index.
+    vsi, tif = parse_filename(UCKOPSB_TIF[: -len(".tif")] + ".VSI"), parse_filename(UCKOPSB_TIF)
+    assert vsi.key == tif.key
+    assert vsi.condition_id == tif.condition_id
+    assert vsi.video_index == tif.video_index == "010"
+
+
 def test_different_condition_distinct_id() -> None:
     assert parse_filename(UCKOPSB_TIF).condition_id != parse_filename(CY3_TDAT).condition_id
 

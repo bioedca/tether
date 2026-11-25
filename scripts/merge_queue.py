@@ -281,6 +281,8 @@ def join(github: GitHub, number: int, head: str, message: str) -> None:
     """Record the pinned head and squash message, or raise ``Refused`` with the reason."""
     if not _SHA.fullmatch(head):
         raise Refused("the head must be the full 40-hex commit that the review read")
+    if not message.strip():
+        raise Refused("the squash message is empty")
     pull = github.pull(number)
     if pull is None:
         raise Refused(f"#{number} is not a pull request")

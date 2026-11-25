@@ -51,6 +51,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.gbranking
 
+::: tether.project.generation_reconcile
+
 ::: tether.project.handoff
 
 ::: tether.project.idealize
@@ -88,6 +90,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.project.readiness
 
 ::: tether.project.reconstruct
+
+::: tether.project.sources
 
 ::: tether.project.summary
 

@@ -34,6 +34,11 @@ Design notes
   generation of a movie. A file stamped 1 lacks it and is still complete
   (`_missing_skeleton` asks for a table only of the versions that declare it);
   [`upgrade_to_generations`][] adds it when a writer records the first generation.
+* **Version 3 adds ``/sources/table``** (#912, ADR-0140), the source registry: one row
+  per source file (a movie, a bead video, a map image) with its checksum, adapter and
+  role, and for a derived file its original and the recipe between them. A file stamped
+  1 or 2 lacks it and is still complete; [`upgrade_skeleton`][] adds every table a newer
+  version declares when a writer first needs one.
 * **The ``<file>.lock`` single-writer marker is a sidecar file**, part of the §5.4
   concurrency lifecycle (M2), not the in-HDF5 schema — it is not written here.
 """
@@ -54,12 +59,17 @@ if TYPE_CHECKING:
 #: Monotonic on-disk schema version. Bumped *only* by a deliberate structural
 #: change (ADR + regenerated golden, PRD §12.6); the guard refuses a decrement.
 #: Version 2 adds the ``/generations`` table of trace generations (#921, ADR-0136).
-SCHEMA_VERSION = 2
+#: Version 3 adds the ``/sources`` table, the source registry (#912, ADR-0140).
+SCHEMA_VERSION = 3
 
 #: The first ``schema_version`` whose skeleton has the ``/generations`` table. A store
 #: stamped older is still a complete project without it (it reads as generation 1 of
 #: each movie, ADR-0136), so the skeleton check asks for it only from this version on.
 GENERATIONS_SINCE = 2
+
+#: The first ``schema_version`` whose skeleton has the ``/sources`` table (ADR-0140). An
+#: older store reads as one source record for each of its movies, made from ``/movies``.
+SOURCES_SINCE = 3
 
 #: Root ``format`` identity attribute distinguishing a ``.tether`` project store.
 FORMAT_TAG = "tether-project"
@@ -197,6 +207,30 @@ GENERATIONS_DTYPE = np.dtype(
     ]
 )
 
+#: ``/sources/table`` — the source registry (#912, ADR-0140): one row per source file.
+#: ``relative_path`` is read against the project's folder (``/`` separators; a file on
+#: another drive keeps its absolute path), ``sha256`` is ``""`` until the checksum job has
+#: read the file, ``role`` is ``movie``, ``bead_video`` or ``map_image``, ``acquisition``
+#: is JSON, ``movie_id`` links a movie to its ``/movies`` row, and a derived file names
+#: its original in ``derived_from`` and the recipe between them in ``recipe``.
+SOURCES_DTYPE = np.dtype(
+    [
+        ("source_id", _str()),
+        ("relative_path", _str()),
+        ("original_name", _str()),
+        ("file_size", "<i8"),
+        ("sha256", _str()),
+        ("adapter", _str()),
+        ("adapter_version", _str()),
+        ("role", _str()),
+        ("acquisition", _str()),
+        ("movie_id", _str()),
+        ("derived_from", _str()),
+        ("recipe", _str()),
+        ("created_utc", _str()),
+    ]
+)
+
 #: Rich entities: a group containing a 0-row compound ``table`` dataset.
 _RICH_TABLES: dict[str, np.dtype] = {
     "movies": MOVIES_DTYPE,
@@ -204,11 +238,15 @@ _RICH_TABLES: dict[str, np.dtype] = {
     "conditions": CONDITIONS_DTYPE,
     "labels": LABELS_DTYPE,
     "generations": GENERATIONS_DTYPE,
+    "sources": SOURCES_DTYPE,
 }
 
 #: The rich tables a store stamped before a given version does not have: name -> the
 #: first ``schema_version`` that declares it.
-_RICH_TABLES_SINCE: dict[str, int] = {"generations": GENERATIONS_SINCE}
+_RICH_TABLES_SINCE: dict[str, int] = {
+    "generations": GENERATIONS_SINCE,
+    "sources": SOURCES_SINCE,
+}
 
 #: Empty container groups; their payloads are additive data (M1+).
 _CONTAINER_GROUPS: tuple[str, ...] = (
@@ -277,21 +315,32 @@ def read_schema_version(path: str | Path) -> int:
         return int(f.attrs["schema_version"])
 
 
-def upgrade_to_generations(f: h5py.File) -> None:
-    """Give an open, writable store stamped before version 2 its ``/generations`` table.
+def upgrade_skeleton(f: h5py.File) -> None:
+    """Give an open, writable store every table of [`SCHEMA_VERSION`][] that it lacks.
 
-    Called by a writer that is about to record a trace generation (ADR-0136). It
-    creates the empty table and stamps the file with [`SCHEMA_VERSION`][], so an app
-    that predates generations refuses it rather than ignoring the record. No existing
-    data is rewritten. A store that already has the table is left as it is.
+    Called by a writer that is about to record into a table a newer version added (the
+    generations of ADR-0136, the source registry of ADR-0140). It creates each missing
+    empty table and stamps the file with [`SCHEMA_VERSION`][], so an app that predates
+    them refuses it rather than ignoring the records, and a file stamped 3 always has
+    every table up to 3. No existing data is rewritten.
     """
-    if not isinstance(f.get("generations"), h5py.Group):
-        f.create_group("generations", track_order=True)
-    group = f["generations"]
-    if TABLE not in group:
-        group.create_dataset(TABLE, shape=(0,), maxshape=(None,), dtype=GENERATIONS_DTYPE)
+    for name, dtype in _RICH_TABLES.items():
+        if not isinstance(f.get(name), h5py.Group):
+            f.create_group(name, track_order=True)
+        group = f[name]
+        if TABLE not in group:
+            group.create_dataset(TABLE, shape=(0,), maxshape=(None,), dtype=dtype)
     if int(f.attrs["schema_version"]) < SCHEMA_VERSION:
         f.attrs["schema_version"] = SCHEMA_VERSION
+
+
+def upgrade_to_generations(f: h5py.File) -> None:
+    """Give an open, writable store its ``/generations`` table (ADR-0136).
+
+    The same step as [`upgrade_skeleton`][]: the file is stamped [`SCHEMA_VERSION`][], so
+    every newer table is added with it. A store that already has them is left as it is.
+    """
+    upgrade_skeleton(f)
 
 
 def assert_compatible(file_version: int) -> None:

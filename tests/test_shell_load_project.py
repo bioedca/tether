@@ -60,6 +60,22 @@ class _StubWizardDialog:
         return self._produced
 
 
+def _project_fit(**choices):
+    """A whole-project fit choice (#625), the default unless *choices* say otherwise."""
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit(**choices)
+
+
+def _no_model():
+    """What a fake whole-project fit returns: a result that wrote no model."""
+    from pathlib import Path as _Path
+
+    from tether.services.idealize import IdealizeResult
+
+    return IdealizeResult(project=_Path("fake.tether"))
+
+
 def _round_trip_store(tmp_path, *, n=3, t=12, name="rt.tether", seed=1):
     """A real round-trip ``.tether`` (coords + patches) → ``(Project, keys, donor, acceptor)``."""
     from _analysis_store import build_store_with_channels
@@ -192,6 +208,8 @@ def test_traces_from_store_slices_each_molecule_to_its_frame_range(qapp, tmp_pat
         assert views[i].donor.shape == (12,)
         np.testing.assert_allclose(views[i].donor, donor[i].astype(np.float32))
         np.testing.assert_allclose(views[i].acceptor, acceptor[i].astype(np.float32))
+    # Each view starts at its range's first movie frame, the trace->movie frame map (#366).
+    assert [v.frame_offset for v in views] == [2, 0, 0]
 
 
 def test_traces_from_store_empty_store_returns_empty(qapp, tmp_path) -> None:
@@ -247,40 +265,52 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert opened.lock_owner() is not None
     assert shell.molecule_list.count() == 3
     assert "3 molecule(s)" in shell.status_message
-    # histogram seam wired → &Analysis draws over the real store
-    assert shell.show_histogram() is not None
+    # the Analyze section reads the opened store: its A1 plot draws over it (#374)
+    assert _draw_all_molecules(shell).drawn
     # overlap seam wired (coords + patches present) → selecting row 0 built the dock
     assert shell.overlap_dock is not None
+
+
+def _draw_all_molecules(shell):
+    """Add the *All molecules* series to the Analyze section through its menu; return the draw."""
+    section = shell.analysis_section
+    section.add_menu.aboutToShow.emit()  # the menu fills itself from the project as it opens
+    everything = section.add_menu.actions()[0]
+    assert everything.text() == "All molecules"
+    everything.trigger()
+    return section.outcome
 
 
 def test_load_project_histogram_draws_the_population_histogram_of_the_store(
     shell, tmp_path
 ) -> None:
-    # The joined path: load_project wires make_store_histogram over the real store,
-    # and &Analysis must draw exactly what population_apparent_e_histogram returns
-    # for that project with its defaults (#745 GUI-F8). The layers are tested alone
-    # elsewhere (a faked seam; a hand-made Histogram1D); this compares the join.
+    # The joined path: load_project points the Analyze section at the real store, and its
+    # A1 entry must draw exactly what population_apparent_e_histogram returns for that
+    # project with its defaults (#745 GUI-F8, migrated to the plot builder by #374). The
+    # layers are tested alone elsewhere; this compares the join.
     from tether.analysis.histogram import population_apparent_e_histogram
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     opened = shell.load_project(project.path)
     assert opened is not None
 
-    dock = shell.show_histogram()
-    assert dock is not None
+    outcome = _draw_all_molecules(shell)
+    assert outcome.drawn, outcome.missing
     expected = population_apparent_e_histogram(opened)
-    drawn = dock.histogram
-    assert drawn is not None
+    ((label, drawn),) = outcome.results
+    assert label == "All molecules"
     np.testing.assert_allclose(drawn.bin_edges, expected.bin_edges)
     np.testing.assert_allclose(drawn.counts, expected.counts)
     assert drawn.density is expected.density
     assert drawn.value_range == expected.value_range
     assert drawn.n_molecules == expected.n_molecules == 3
     assert drawn.n_samples == expected.n_samples
-    # ...and the curve on screen carries those edges and counts.
-    x, y = dock.curve.getData()
-    np.testing.assert_allclose(x, expected.bin_edges)
-    np.testing.assert_allclose(y, expected.counts)
+    # ...and the figure on the preview canvas carries those edges and counts.
+    assert shell.analysis_section.canvas.figure is outcome.figure
+    (step,) = outcome.figure.axes[0].patches
+    values, edges, _baseline = step.get_data()
+    np.testing.assert_allclose(edges, expected.bin_edges)
+    np.testing.assert_allclose(values, expected.counts)
 
 
 def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_path) -> None:
@@ -630,7 +660,17 @@ def test_deeplasi_import_cannot_replace_the_project_this_shell_holds(shell, tmp_
     assert shell.curation_project is not None
 
 
-def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
+def _sidecar_found(monkeypatch) -> None:
+    """Let the fit's startup probe pass with no sidecar installed (a fake runner fits)."""
+    from tether.idealize.supervisor import ProbeResult
+    from tether.services import idealize as service
+
+    monkeypatch.setattr(service, "_probe", lambda _supervision: ProbeResult(True, "fake"))
+
+
+def test_idealization_rejects_lost_epoch_without_session_reacquire(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
     import threading
 
     from tether.gui.shell import make_store_idealizer
@@ -639,16 +679,16 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
     from tether.project.lock import LockIdentity
 
     project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    project.accept(keys[1])  # the project fit takes the accepted molecules (#625)
     session_project = shell.load_project(project.path)
     assert session_project is not None
+    _sidecar_found(monkeypatch)
     started = threading.Event()
     gate = threading.Event()
     seen_nonces = []
 
     shell._idealizer = make_store_idealizer(
         session_project,
-        nstates=2,
-        require_held_lock=True,
         _runner=_blocking_idealization_runner(
             session_project,
             started,
@@ -656,7 +696,7 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
             seen_nonces,
         ),
     )
-    shell._idealize_current()
+    assert shell.idealize_project(_project_fit(nstates=2))
     try:
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert len(seen_nonces) == 1
@@ -683,30 +723,31 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
 
     assert list_idealizations(project) == []
-    assert "Idealize failed" in shell.status_message
+    assert "Idealize project failed" in shell.status_message
     assert project.lock_owner() is None
     assert shell.curation_project is None
     assert project.curation_label(keys[0]) == 0
 
 
 def test_idealization_survives_legitimate_same_epoch_session_refresh(
-    shell, qtbot, tmp_path
+    shell, qtbot, tmp_path, monkeypatch
 ) -> None:
     import threading
 
     from tether.gui.shell import make_store_idealizer
     from tether.project.idealize import list_idealizations
 
-    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    for key in keys:
+        project.accept(key)
     session_project = shell.load_project(project.path)
     assert session_project is not None
+    _sidecar_found(monkeypatch)
     started = threading.Event()
     gate = threading.Event()
     seen_nonces = []
     shell._idealizer = make_store_idealizer(
         session_project,
-        nstates=2,
-        require_held_lock=True,
         _runner=_blocking_idealization_runner(
             session_project,
             started,
@@ -715,7 +756,7 @@ def test_idealization_survives_legitimate_same_epoch_session_refresh(
         ),
     )
 
-    shell._idealize_current()
+    assert shell.idealize_project(_project_fit(nstates=2))
     try:
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert len(seen_nonces) == 1
@@ -727,8 +768,8 @@ def test_idealization_survives_legitimate_same_epoch_session_refresh(
         gate.set()
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
 
-    assert list_idealizations(project) == ["vbfret"]
-    assert "Idealized" in shell.status_message
+    assert list_idealizations(project) == ["vbconhmm"]
+    assert "Idealized the project" in shell.status_message
     assert session_project.lock_owner() == refreshed
 
 
@@ -1146,12 +1187,10 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
 
 
 #: Every curation key whose command is deferred (#345): the key, and the feature its
-#: status line names. Jump becomes real in #357 and the grid in #364. Each of those
-#: removes its rows here; the category and analysis-window keys write since #359
-#: (tests/test_shell_curation_edits.py).
+#: status line names. The grid becomes real in #364, which removes its row here. Jump is
+#: real since #357 (tests/test_shell_movie_panel.py), and the category and
+#: analysis-window keys write since #359 (tests/test_shell_curation_edits.py).
 _DEFERRED_KEYS = [
-    ("Key_Return", "Jump to movie spot"),
-    ("Key_Enter", "Jump to movie spot"),
     ("Key_G", "Grid toggle"),
 ]
 
@@ -1217,25 +1256,6 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     assert read_labels(project.path).shape == (2,)
     assert "not rejected" in shell.status_message
     assert "Un-rejected" not in shell.status_message
-
-
-def test_one_click_idealize_skips_rejected_selection(shell, qtbot, tmp_path) -> None:
-    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
-    assert shell.load_project(project.path) is not None
-    shell.molecule_list.setCurrentRow(1)
-    shell.curation_project.reject(keys[1])
-    calls: list[str] = []
-
-    def idealize(molecule_key):
-        calls.append(molecule_key)
-        return np.full(12, 0.5)
-
-    shell._idealizer = idealize
-    shell._idealize_current()
-    qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
-
-    assert calls == []
-    assert "rejected" in shell.status_message
 
 
 def test_curation_without_selection_adds_no_row_and_reports_action(shell, qtbot, tmp_path) -> None:
@@ -1339,14 +1359,14 @@ def test_curation_waits_for_background_idealization(shell, qtbot, tmp_path) -> N
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
 
@@ -1396,14 +1416,14 @@ def test_every_source_writer_waits_for_background_idealization(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
 
         assert shell.import_return_leg(tmp_path / "return.hdf5") is None
@@ -1443,20 +1463,18 @@ def test_close_retains_session_lock_until_background_idealization_finishes(
 ) -> None:
     import threading
 
-    from pyqtgraph.Qt import QtCore
-
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
-    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    assert shell.idealize_project(_project_fit())
     qtbot.waitUntil(started.is_set, timeout=2000)
 
     shell.close()
@@ -1474,8 +1492,6 @@ def test_close_retries_release_after_background_idealization(
 ) -> None:
     import threading
 
-    from pyqtgraph.Qt import QtCore
-
     from tether.project.core import Project
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
@@ -1483,13 +1499,13 @@ def test_close_retries_release_after_background_idealization(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
-    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    assert shell.idealize_project(_project_fit())
     qtbot.waitUntil(started.is_set, timeout=2000)
     running = shell._idealize_future
     original_release = Project.release_lock
@@ -1611,38 +1627,56 @@ def test_curation_write_error_adds_no_row_and_never_reports_success(
     assert "Accepted" not in shell.status_message
 
 
-def test_successful_curation_defers_open_population_histogram_refresh(
-    shell, qtbot, tmp_path
+def test_successful_curation_defers_the_analysis_plot_refresh(
+    shell, qtbot, tmp_path, monkeypatch
 ) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui import analysis_section
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    compose = analysis_section.compose_plot
+    calls = 0
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return compose(*args, **kwargs)
+
+    monkeypatch.setattr(analysis_section, "compose_plot", counted)
+    outcome = _draw_all_molecules(shell)
+    assert outcome.results[0][1].n_molecules == 3
+    assert calls == 1
+
+    # The plot lives in Analyze, where the curation keys do not act (#342); the curator
+    # curates in Curate and correct. Three keystrokes there coalesce into one draw: the
+    # _HISTOGRAM_REFRESH_DEBOUNCE_MS single-shot timer is reused for the plot (#374).
+    shell.set_section("curate")
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    assert calls == 1
+    assert shell._analysis_refresh_timer.isActive()
+    assert "Rejected" in shell.status_message
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    assert calls == 1
+    qtbot.waitUntil(lambda: calls == 2, timeout=2000)
+    qtbot.wait(400)  # longer than the debounce: no second, late draw
+    assert calls == 2
+    assert shell.analysis_section.outcome.results[0][1].n_molecules == 0
+    # The hidden redraw is silent: the curation result stays in the status bar.
+    assert "Rejected" in shell.status_message
+
+
+def test_curation_does_not_refresh_an_empty_layer_list(shell, qtbot, tmp_path) -> None:
     from pyqtgraph.Qt import QtCore
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
-    histogram = shell._histogram_seam
-    histogram_calls = 0
-
-    def counted_histogram():
-        nonlocal histogram_calls
-        histogram_calls += 1
-        return histogram()
-
-    shell._histogram_seam = counted_histogram
-    dock = shell.show_histogram()
-    assert dock is not None
-    assert dock.histogram.n_molecules == 3
-    assert histogram_calls == 1
-
-    # Showing the histogram moved the window to Analyze, where the curation keys do not
-    # act (#342); the curator goes back to Curate and correct to curate. The open dock is
-    # still refreshed while its section is hidden (ADR-0116).
     shell.set_section("curate")
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
-
-    assert histogram_calls == 1
-    assert shell._histogram_refresh_timer.isActive()
     assert "Rejected" in shell.status_message
-    qtbot.waitUntil(lambda: histogram_calls == 2, timeout=2000)
-    assert dock.histogram.n_molecules == 2
+    assert not shell._analysis_refresh_timer.isActive()  # no series: nothing to draw again
 
 
 def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -> None:
@@ -1659,7 +1693,7 @@ def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -
     # overlap is gated OFF (no coordinates/patches) → no overlap dock built on selection
     assert shell.overlap_dock is None
     # the analysis substrate still works (corrected layer present)
-    assert shell.show_histogram() is not None
+    assert _draw_all_molecules(shell).drawn
 
 
 def test_load_project_replaces_prior_project(shell, tmp_path) -> None:
@@ -1698,7 +1732,9 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
     assert "Open project failed" in shell.status_message
     assert shell.molecule_list.count() == 3  # prior molecules preserved
     assert shell.overlap_dock is prior_overlap  # prior seams/docks untouched (not reset)
-    assert shell.show_histogram() is not None  # the prior histogram seam still resolves
+    # the Analyze section still reads the prior project
+    assert shell.analysis_section.project == Path(project.path)
+    assert _draw_all_molecules(shell).drawn
 
 
 # --------------------------------------------------------------------------- #
@@ -1714,6 +1750,7 @@ def test_file_menu_exposes_open_close_and_quit(shell) -> None:
         "&Close project",
         "Save as &recipe…",
         "Curator &name…",
+        "Reopen &last project at start",
         "&Quit",
     ]
 

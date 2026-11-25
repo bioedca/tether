@@ -13,11 +13,17 @@ builds the widgets from that data. One [`SectionSpec`][] holds:
 * the menus ([`MenuSpec`][]);
 * the keymap scope that is active while the section shows;
 * ``writes_project``: whether the section may write to the open project. The publish path
-  (#352) reads this flag from [`SectionRegistry.may_write`][] and from no other place.
+  (#352) reads this flag from [`SectionRegistry.may_write`][] and from no other place;
+* ``visible``: whether the shell shows the section. A hidden section stays in the registry,
+  but the shell gives it no page and no way to open it (Deposit, until #956 lands).
 
 A [`SectionRegistry`][] holds the sections. It refuses a second section with the same
 ``id`` or the same ``order``, and it always gives the sections in ascending ``order``, so the
 order does not depend on the order of registration.
+
+The **guided mode** (#897) is Qt-free too: [`guided_step`][] turns the next step of the
+readiness record of ``tether status`` (#896) into the section to open, and
+[`entry_section`][] names the section a project starts in.
 
 **No Qt.** This module imports only the standard library, so the registry and its tests run
 without a display and without a ``QApplication``. A factory receives a
@@ -46,10 +52,13 @@ __all__ = [
     "DockArea",
     "DockSpec",
     "DuplicateSectionError",
+    "GuidedStep",
     "MenuSpec",
     "SectionHostLike",
     "SectionRegistry",
     "SectionSpec",
+    "entry_section",
+    "guided_step",
 ]
 
 # A section, dock or menu id: lower case, starts with a letter, then letters, digits, "_" or "-".
@@ -190,6 +199,9 @@ class SectionSpec:
     keymap_scope
         The name of the keymap scope that is active while the section shows, or ``None`` for a
         section with no keys of its own.
+    visible
+        ``False`` keeps the section in the registry but out of the shell: no page, no menu
+        item and no key opens it. This one flag controls it (#897).
     """
 
     id: str
@@ -200,6 +212,7 @@ class SectionSpec:
     docks: tuple[DockSpec, ...] = field(default=())
     menus: tuple[MenuSpec, ...] = field(default=())
     keymap_scope: str | None = None
+    visible: bool = True
 
     def __post_init__(self) -> None:
         _check_id(self.id, "section id")
@@ -210,6 +223,8 @@ class SectionSpec:
             raise ValueError(f"section {self.id!r}: central must be callable")
         if not isinstance(self.writes_project, bool):
             raise ValueError(f"section {self.id!r}: writes_project must be a bool")
+        if not isinstance(self.visible, bool):
+            raise ValueError(f"section {self.id!r}: visible must be a bool")
         object.__setattr__(self, "docks", tuple(self.docks))
         object.__setattr__(self, "menus", tuple(self.menus))
         for dock in self.docks:
@@ -262,6 +277,15 @@ class SectionRegistry:
         """The section ids, in ascending order."""
         return tuple(spec.id for spec in self.sections())
 
+    def visible_sections(self) -> tuple[SectionSpec, ...]:
+        """The sections the shell shows, in ascending order."""
+        return tuple(spec for spec in self.sections() if spec.visible)
+
+    @property
+    def visible_ids(self) -> tuple[str, ...]:
+        """The ids of the sections the shell shows, in ascending order."""
+        return tuple(spec.id for spec in self.visible_sections())
+
     def get(self, section_id: str) -> SectionSpec:
         """The section with ``section_id``; raise `KeyError` when there is none."""
         try:
@@ -281,3 +305,47 @@ class SectionRegistry:
 
     def __contains__(self, section_id: object) -> bool:
         return section_id in self._by_id
+
+
+@dataclass(frozen=True)
+class GuidedStep:
+    """The next step of the guided mode (#897): what to do, and the section to open for it.
+
+    ``action`` is the text of the next step of ``tether status``. ``section`` and ``title``
+    name the visible section of that step, or are ``None`` when the step has no section the
+    shell shows (every stage is ready, or the stage is in a hidden section).
+    """
+
+    action: str
+    section: str | None
+    title: str | None
+
+
+def guided_step(readiness: object, registry: SectionRegistry) -> GuidedStep | None:
+    """The [`GuidedStep`][] of ``readiness``, or ``None`` when there is no record.
+
+    ``readiness`` is the record of
+    [`read_project_readiness`][tether.project.readiness.read_project_readiness], the one that
+    ``tether status`` prints, so the window and the command give the same next step.
+    """
+    if readiness is None:
+        return None
+    step = readiness.next_step  # type: ignore[attr-defined]
+    section = step.section
+    if section not in registry or not registry.get(section).visible:
+        return GuidedStep(step.action, None, None)
+    return GuidedStep(step.action, section, registry.get(section).title)
+
+
+def entry_section(readiness: object) -> str | None:
+    """The section a project starts in, or ``None`` to keep the section that shows.
+
+    A project made from imported traces has no movie: its stage ``sources`` is *not
+    needed*, so it starts in Curate and correct (page 1, note 01 of the design).
+    """
+    if readiness is None:
+        return None
+    for stage in readiness.stages:  # type: ignore[attr-defined]
+        if stage.key == "sources" and stage.state.value == "not_needed":
+            return "curate"
+    return None

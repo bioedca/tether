@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Priority list of the CodeRabbit queue
 
 The tracked copy of the priority list that `.agents/bin/cr_next_free.py` reads when its state folder
-holds none of its own (`docs/agents/handoff.md`). Copied unchanged from the maintainer's project
+holds none of its own. Copied unchanged from the maintainer's project
 folder on 2026-11-19 at 20:45Z: the list rewritten there at 17:15Z on his request, with the two
 lines added at 20:35Z and 20:41Z. The pull requests below take their CodeRabbit turns first, in
 this order; one that is not listed keeps its join order behind them, and a listed one that has not

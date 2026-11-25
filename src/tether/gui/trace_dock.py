@@ -14,12 +14,14 @@ movie declares one) with a **frame-index toggle**, an idealization **step
 overlay** drawn over the FRET panel, and a per-trace donor–acceptor
 **cross-correlation** panel (#363) — the curve
 [`tether.analysis.crosscorr.cross_correlation`][] returns for the displayed trace,
-on a lag axis in the same seconds or frames.
+on a lag axis in the same seconds or frames. A draggable **frame cursor** on the
+two time-series panels marks one frame; the shell links it to the movie panel's
+displayed frame (#366, [`tether.gui.roundtrip.FrameLink`][]).
 
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
 ``A / (D + A)`` (see [`tether.fret.apparent_fret`][]); leakage/gamma
 corrections land at M3. The idealization **step overlay** is populated by
-one-click vbFRET (M2 S6) through [`TraceDock.set_idealization`][]; it stays
+the whole-project fit (#625) through [`TraceDock.set_idealization`][]; it stays
 empty/hidden until a molecule is idealized, and is cleared when a new trace is
 shown so a stale path never bleeds onto the next molecule. tMAVEN visual-parity
 of this plot is verified with the M6 seven-plot gallery (§10), not in this PR.
@@ -46,6 +48,8 @@ from tether.gui import theme
 if TYPE_CHECKING:
     # Type-only imports (never executed at runtime, so the module stays Qt-free to
     # import): give the accessors real pyqtgraph/Qt types for consumers/IDEs.
+    from collections.abc import Callable
+
     import pyqtgraph as pg
     from pyqtgraph.Qt import QtWidgets
 
@@ -95,14 +99,19 @@ class TraceView:
         Optional display label for the dock title / legend.
     molecule_key
         Optional ``/molecules`` identity (§5.1) of the molecule this trace came
-        from. Carried so the shell's accept/reject and one-click idealize (``I``)
-        handlers can resolve the selected trace back to its store row; ``None``
+        from. Carried so the shell's accept/reject handlers and the step line of a
+        fit can resolve the selected trace back to its store row; ``None``
         for a synthetic trace with no backing store.
     analysis_window
         Optional stored analysis window as ``(start, stop)`` frame indices **into
         this trace** (``0 <= start < stop <= n_frames``), the frames the analysis
         reads (§7.2). The dock marks it and draws the idealization overlay only
         inside it. ``None`` when unknown, which the dock treats as the whole trace.
+    frame_offset
+        The movie frame of this trace's first frame (``>= 0``): the start of the
+        molecule's stored ``frame_range`` (§5.1). Trace frame ``i`` is movie frame
+        ``frame_offset + i``, the mapping the trace↔movie frame link uses (#366).
+        ``0`` (the default) for a trace that starts at the movie's first frame.
     """
 
     donor: np.ndarray
@@ -111,6 +120,7 @@ class TraceView:
     name: str | None = None
     molecule_key: str | None = None
     analysis_window: tuple[int, int] | None = None
+    frame_offset: int = 0
 
     def __post_init__(self) -> None:
         # Defensive copies (``np.array`` always copies), so the stored arrays never
@@ -136,6 +146,10 @@ class TraceView:
             raise ValueError(
                 f"frame_time must be a finite positive number when given, got {self.frame_time!r}"
             )
+        offset = self.frame_offset
+        if isinstance(offset, bool) or not isinstance(offset, int | np.integer) or offset < 0:
+            raise ValueError(f"frame_offset must be a non-negative integer, got {offset!r}")
+        object.__setattr__(self, "frame_offset", int(offset))
         donor.setflags(write=False)
         acceptor.setflags(write=False)
         object.__setattr__(self, "donor", donor)
@@ -392,6 +406,23 @@ class TraceDock:
         for line in self._window_lines:
             self._fret_plot.addItem(line, ignoreBounds=True)
             line.setVisible(False)
+        # The frame cursor (#366): one draggable line on each time-series panel, both
+        # at the centre of the cursor frame. Dragging either moves both, snaps to a
+        # whole frame, and tells the frame-cursor callbacks (the movie panel follows).
+        self._cursor_frame: int | None = None
+        self._cursor_callbacks: list[Callable[[int], object]] = []
+        self._placing_cursor = False
+        self._cursor_lines = (
+            pg.InfiniteLine(pos=0.0, angle=90, movable=True),
+            pg.InfiniteLine(pos=0.0, angle=90, movable=True),
+        )
+        for plot, line in zip(
+            (self._intensity_plot, self._fret_plot), self._cursor_lines, strict=True
+        ):
+            plot.addItem(line, ignoreBounds=True)
+            line.setVisible(False)
+            line.setToolTip("Frame cursor: drag to move through the movie")
+            line.sigPositionChanged.connect(self._on_cursor_dragged)
         self._crosscorr_curve = self._crosscorr_plot.plot([], [])
         self._set_crosscorr_axis_label()
 
@@ -423,6 +454,9 @@ class TraceDock:
         bound = pg.mkPen(active.trace("idealized"), width=1.0, style=self._dash_line())
         for line in self._window_lines:
             line.setPen(bound)
+        cursor = pg.mkPen(active.color("text"), width=1.5)
+        for line in self._cursor_lines:
+            line.setPen(cursor)
         self._crosscorr_text.setColor(active.color("text"))
         for bars in (self._intensity_bars, self._fret_bars):
             if bars is not None:
@@ -541,6 +575,21 @@ class TraceDock:
         return self._window_lines
 
     @property
+    def cursor_lines(self) -> tuple[pg.InfiniteLine, pg.InfiniteLine]:
+        """The frame cursor's draggable lines, on the intensity and the FRET panel (#366)."""
+        return self._cursor_lines
+
+    @property
+    def frame_cursor(self) -> int | None:
+        """The frame the cursor marks, as a frame index **into the trace**, or ``None``.
+
+        ``None`` while no trace is shown. A new trace keeps the cursor frame, moved to
+        the trace's last frame when the new trace is shorter, so a selection of another
+        molecule of the same movie stays on the same movie frame (#366).
+        """
+        return self._cursor_frame
+
+    @property
     def idealized_path(self) -> np.ndarray | None:
         """The current per-frame idealization overlay array, or ``None`` if unset."""
         return self._idealized
@@ -570,7 +619,7 @@ class TraceDock:
             raise TypeError(f"set_trace expects a TraceView, got {type(trace).__name__}")
         self._trace = trace
         # A new molecule invalidates any prior idealization overlay (_render below
-        # hides it via _render_idealization); one-click idealize repopulates it.
+        # hides it via _render_idealization); a finished project fit repopulates it.
         self._idealized = None
         self._window = trace.analysis_window
         # The cross-correlation depends only on the trace, so it is computed once
@@ -583,7 +632,39 @@ class TraceDock:
         self._time_checkbox.setChecked(self.time_mode == "seconds")
         self._time_checkbox.blockSignals(False)
 
+        last = trace.n_frames - 1
+        self._cursor_frame = 0 if self._cursor_frame is None else min(self._cursor_frame, last)
         self._render()
+
+    def set_frame_cursor(self, frame: int) -> None:
+        """Move the frame cursor to trace frame ``frame`` (a call, not a drag: no callback).
+
+        The frame-cursor callbacks fire only when the user drags the cursor, so a caller
+        that keeps the cursor in step with something else (the movie panel, #366) cannot
+        start a loop. Raises if no trace is shown or ``frame`` is not a frame of it.
+        """
+        if self._trace is None:
+            raise RuntimeError("set_trace before its frame cursor")
+        if isinstance(frame, bool) or not isinstance(frame, int | np.integer):
+            raise TypeError(f"frame must be an integer, got {frame!r}")
+        if not 0 <= int(frame) < self._trace.n_frames:
+            raise ValueError(
+                f"frame must be in [0, {self._trace.n_frames}) for this trace, got {frame}"
+            )
+        self._cursor_frame = int(frame)
+        self._render_cursor()
+
+    def connect_frame_cursor(self, callback: Callable[[int], object]) -> None:
+        """Call ``callback(frame)`` each time a drag moves the cursor to another frame.
+
+        ``frame`` is the new trace-relative cursor frame. Moving the cursor with
+        [`set_frame_cursor`][] calls nothing.
+        """
+        self._cursor_callbacks.append(callback)
+
+    def disconnect_frame_cursor(self) -> None:
+        """Detach every callback registered by [`connect_frame_cursor`][]."""
+        self._cursor_callbacks.clear()
 
     def set_time_mode(self, mode: TimeMode) -> None:
         """Set the x-axis to ``"seconds"`` or ``"frames"`` and re-render.
@@ -620,7 +701,8 @@ class TraceDock:
         self._trace = None
         self._idealized = None
         self._window = None
-        for line in self._window_lines:
+        self._cursor_frame = None
+        for line in (*self._window_lines, *self._cursor_lines):
             line.setVisible(False)
         for curve in (self._donor_curve, self._acceptor_curve, self._total_curve, self._fret_curve):
             curve.setData([], [])
@@ -702,8 +784,38 @@ class TraceDock:
         # Re-lay the idealization overlay and the window bounds on the (possibly new)
         # x-axis so a seconds/frame-index toggle moves them with the FRET curve.
         self._render_window()
+        self._render_cursor()
         self._render_idealization()
         self._render_crosscorr()
+
+    def _render_cursor(self) -> None:
+        """Place both cursor lines at the centre of the cursor frame, or hide them."""
+        frame = self._cursor_frame
+        self._placing_cursor = True
+        try:
+            for line in self._cursor_lines:
+                if frame is None or self._trace is None:
+                    line.setVisible(False)
+                    continue
+                line.setPos(frame * self._axis_step())
+                line.setVisible(True)
+        finally:
+            self._placing_cursor = False
+
+    def _on_cursor_dragged(self, line: Any) -> None:
+        """A drag moved a cursor line: snap to the nearest frame, move both, tell the callbacks."""
+        if self._placing_cursor or self._trace is None:
+            return
+        position = float(line.value())
+        if not math.isfinite(position):
+            return
+        frame = min(max(round(position / self._axis_step()), 0), self._trace.n_frames - 1)
+        changed = frame != self._cursor_frame
+        self._cursor_frame = frame
+        self._render_cursor()
+        if changed:
+            for callback in list(self._cursor_callbacks):
+                callback(frame)
 
     def _render_window(self) -> None:
         """Place the two bound lines at the window's first frame and first frame after it.
@@ -846,6 +958,7 @@ class TraceDock:
     def close(self) -> None:
         """Close and release the dock widget."""
         theme.unsubscribe(self.apply_theme)
+        self._cursor_callbacks.clear()
         self._widget.close()
 
     def __enter__(self) -> TraceDock:
@@ -868,7 +981,7 @@ def trace_from_smd(
     ``raw`` is the ``(n_molecules, n_frames, 2)`` array from
     [`tether.idealize.smd.read_smd`][] (``[..., 0]`` donor, ``[..., 1]``
     acceptor). A convenience for wiring a stored/handed-off trace into the dock;
-    pass ``molecule_key`` to keep the trace's store identity for one-click idealize.
+    pass ``molecule_key`` to keep the trace's store identity for curation and fits.
     """
     donor = np.asarray(raw)[index, :, 0]
     acceptor = np.asarray(raw)[index, :, 1]

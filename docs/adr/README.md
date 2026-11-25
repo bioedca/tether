@@ -14,10 +14,15 @@ This directory records Tether's architecture decisions in
 context, the options weighed, and the consequences, so the *rationale* survives
 prose harmonization of the PRD (PRD §12.7).
 
+For a map of how the decisions fit together, and the records to read first, see the
+[architecture overview](../maintainers/architecture.md#where-decisions-are-recorded).
+
 ## How ADRs are created
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
-  `NNNN` = the next zero-padded integer.
+  `NNNN` = the number reserved first, as
+  [Reserving a number](../agents/adr.md#reserving-a-number) describes. Gaps are allowed.
+  Never reuse a number.
 - **Incremental rule.** A PR that *implements* a still-unhomed resolved PRD
   decision lands that decision's ADR **in the same PR** (`AGENTS.md` §Agile
   execution).
@@ -185,8 +190,23 @@ else would make it a worse historical record in exchange for a working link.
 | [0134](0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md) | A γ from few clean acceptor-bleach steps is reported with a warning | accepted; adds to [ADR-0028](0028-gamma-acceptor-bleach-step-estimator.md) and [ADR-0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md), whose decisions govern unchanged | §7.2 (γ), §11.2 (the γ clean-step warning fraction row), Appendix B.2 step 4 |
 | [0135](0135-a-merge-queue-of-our-own-tests-each-pull-request-on-the-ones-ahead-of-it.md) | A merge queue of our own tests each pull request on top of the ones ahead of it | accepted | §12.3 (branch protection and how a merge is bound), §12.6 (CI) |
 | [0136](0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md) | A new extraction of a movie is a new trace generation, and the previous one is archived unchanged | accepted | §5 (data model), §9.1 (additive-only schema), §7.1, §7.5 (FR-ML), §11.2 |
+| [0137](0137-a-verified-clean-coderabbit-walkthrough-is-the-metered-gate.md) | A verified clean CodeRabbit walkthrough is the metered gate, and the Codex handoff ends | accepted; amends [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md) and [ADR-0069](0069-one-metered-review-then-the-codex-close.md) where they read a clean CodeRabbit review as a review object; their other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0138](0138-an-independent-scikit-learn-fit-is-the-reference-for-the-vbgmm-key.md) | An independent scikit-learn fit is the reference for the `vbgmm` key, and the pinned tMAVEN fails it | accepted | §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
 | [0139](0139-the-vbgmm-key-runs-a-corrected-loop-in-tether.md) | The `vbgmm` key runs a corrected vbGMM loop in Tether, and tMAVEN's own loop stays for the published-fit check | accepted | §4.3 (sidecar isolation), §7.4 (idealization), §8 NFR-VALID |
+| [0140](0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md) | A source registry records each source file and what was derived from it | accepted | §5 (data model), §5.4 (migration), §7.3 (FR-ROUNDTRIP), §7.13 (jobs) |
+| [0141](0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md) | The update helper moves the install aside, installs unattended, and puts it back on failure | accepted | §7.12 (FR-UPDATE), §4.1 (application shell), §11.2 (tunables) |
+| [0142](0142-greptile-is-the-metered-gate-for-code-and-codex-closes-docs-and-tests.md) | Greptile is the metered gate for code, Codex alone closes docs and tests, and CodeRabbit is the fallback | accepted; amends [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md) where it names CodeRabbit as the metered gate, [ADR-0069](0069-one-metered-review-then-the-codex-close.md) (the optional Greptile review and the Greptile stand-in are retired) and [ADR-0099](0099-load-bearing-pull-requests-take-one-greptile-review.md) (its route test is replaced); their other decisions govern unchanged | §12 (development & version-control protocol) |
+| [0143](0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md) | Deep-LASI detection mode 5 is ported, and mode 4 stays refused because Deep-LASI cannot run it | accepted | §7.1 FR-EXTRACT, §11.2 (the particle-detection rows), Appendix E stage 3 |
+| [0144](0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md) | CZI movies are read with czifile, and only as one whole movie | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0145](0145-the-analyze-section-is-the-plot-builder-and-the-histogram-dock-is-retired.md) | The Analyze section's page is the plot builder, and the population-histogram dock is retired | accepted; changes one consequence of [ADR-0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) (the histogram dock no longer keeps pyqtgraph) and the Analyze part of [ADR-0116](0116-the-shell-hosts-its-sections-in-one-stack.md) (Analyze has no dock and no menu); their other decisions govern unchanged | §7.7 FR-PLOT (composed plots), §7.11 (the application calls the service layer) |
+| [0146](0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md) | The map file is a separate asset, and its reuse checks the optics, not the date | accepted | §7.1 (FR-EXTRACT), Appendix E stage 10, §5 (data model) |
+| [0147](0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md) | cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §4.1 (technology stack), §9.1 (isolated dependency locks) |
+| [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
+| [0150](0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md) | Tether reads SIF with its own reader, and only movies of raw counts | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0151](0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md) | A movie pair is one /movies row named by the checksum of both files | accepted | §5 (data model), §7.1 FR-EXTRACT, Appendix E stage 1 |
+| [0152](0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md) | Tether reads SIRA with its own reader, and only the current layout | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0153](0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md) | A cellSens .vsi movie's checksum covers its frame files | accepted | §5 (data model, `/movies.sha256`), §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 

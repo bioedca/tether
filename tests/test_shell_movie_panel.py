@@ -32,6 +32,11 @@ pytestmark = [pytest.mark.gui, needs_qt]
 #: the default instead of the stored value would fail.
 _STORED_RADIUS = 2.5
 
+#: Movie 1's channel crops (``[y1, x1, y2, x2]``, 1-based inclusive): the two halves of the
+#: 64×64 fixture, so every stored spot lands inside that frame.
+_MOVIE_1_DONOR_CROP = (1, 1, 64, 32)
+_MOVIE_1_ACCEPTOR_CROP = (1, 33, 64, 64)
+
 
 def _channels(seed: int, n: int = 3, t: int = 12) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
@@ -49,7 +54,11 @@ def _second_movie(tmp_path: Path) -> Path:
 
 
 def _store(tmp_path: Path, *, uri: str = str(MOVIE_FIXTURE), second: Path | None = None) -> Path:
-    """A round-trip ``.tether`` whose movie file is ``uri``; ``second`` appends a second movie."""
+    """A round-trip ``.tether`` whose movie file is ``uri``; ``second`` appends a second movie.
+
+    Movie 1 is the 64×64 fixture split side by side, so its crops are rewritten to fit that
+    frame: donor ``(1, 1, 64, 32)`` and acceptor ``(1, 33, 64, 64)`` (#1293).
+    """
     from _analysis_store import PARSED, _mols_traces_movie, build_store_with_channels, reg_map
     from tether.imaging.extract import write_extraction
     from tether.imaging.split import ChannelGeometry
@@ -77,6 +86,10 @@ def _store(tmp_path: Path, *, uri: str = str(MOVIE_FIXTURE), second: Path | None
             registration_map=reg_map(),
         )
     with h5py.File(path, "r+") as handle:
+        table = handle["movies"]["table"][:]
+        table["donor_crop"][0] = _MOVIE_1_DONOR_CROP
+        table["acceptor_crop"][0] = _MOVIE_1_ACCEPTOR_CROP
+        handle["movies"]["table"][:] = table
         handle["/settings/extraction"].attrs["disk_radius"] = _STORED_RADIUS
     return path
 
@@ -92,6 +105,14 @@ def _molecules(path: Path, movie_id: str) -> tuple[np.ndarray, np.ndarray]:
 
 def _rowcol(xy: np.ndarray) -> np.ndarray:
     return np.asarray(xy, dtype=np.float64)[:, ::-1]
+
+
+def _assert_inside(points: np.ndarray, frame_shape: tuple[int, int]) -> None:
+    """Every ``[row, col]`` of ``points`` is a position on a ``frame_shape`` frame."""
+    points = np.asarray(points, dtype=np.float64)
+    assert len(points)
+    assert (points >= 0).all()
+    assert (points < np.asarray(frame_shape, dtype=np.float64)).all()
 
 
 def _open(section_shell, path: Path):
@@ -188,16 +209,20 @@ def test_overlays_show_each_movies_spots_at_the_stored_radius(section_shell, tmp
     donor, acceptor = _molecules(path, "mov-1")
     assert panel.active_overlay.aperture_radius == _STORED_RADIUS
     np.testing.assert_allclose(panel.donor_layer.data, _rowcol(donor))
-    # The acceptor crop of movie 1 starts at column 65, so the spots sit 64 px right of the
+    # The acceptor crop of movie 1 starts at column 33, so the spots sit 32 px right of the
     # stored acceptor sub-image coordinates: in the acceptor half of the frame.
-    np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor + [64.0, 0.0]))
+    np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor + [32.0, 0.0]))
     np.testing.assert_allclose(panel.donor_aperture_layer.size, 2 * _STORED_RADIUS)
+    _assert_inside(panel.donor_layer.data, (64, 64))
+    _assert_inside(panel.acceptor_layer.data, (64, 64))
 
     shell.movie_switcher.setCurrentIndex(1)
     donor2, acceptor2 = _molecules(path, "mov-2")
     np.testing.assert_allclose(panel.donor_layer.data, _rowcol(donor2))
     np.testing.assert_allclose(panel.acceptor_layer.data, _rowcol(acceptor2 + [24.0, 0.0]))
     np.testing.assert_allclose(panel.acceptor_aperture_layer.size, 2 * _STORED_RADIUS)
+    _assert_inside(panel.donor_layer.data, (40, 48))
+    _assert_inside(panel.acceptor_layer.data, (40, 48))
 
 
 @needs_napari
@@ -314,6 +339,357 @@ def test_reopening_builds_one_new_panel(section_shell, tmp_path) -> None:
     movie_docks = [d for d in shell.section_docks("curate") if d.objectName() == "curate-movie"]
     assert movie_docks == [shell.movie_dock]
     assert len(shell._movie_readers) == 1
+
+
+# --- the trace↔movie round-trip (#357, PRD §7.3, §9 M2) ----------------------------------
+#
+# The two-movie store: rows 0-2 of the molecule list are mov-1's molecules and rows 3-5
+# mov-2's, in /molecules order. Both movies' donor spots sit at the same frame pixels, so a
+# click or a jump resolved in the wrong movie would land on the wrong molecule.
+
+
+class _MouseEvent:
+    """The napari mouse event a ``mouse_drag`` generator reads; ``type`` changes in place."""
+
+    def __init__(self, position: tuple[float, ...]) -> None:
+        self.position = position
+        self.type = "mouse_press"
+
+
+def _click(panel, row_col: np.ndarray) -> None:
+    """Press and release on the canvas at ``row_col`` with no move: a click, not a pan."""
+    (callback,) = panel._spot_click_callbacks
+    event = _MouseEvent((0.0, float(row_col[0]), float(row_col[1])))
+    gen = callback(panel.viewer, event)
+    next(gen)
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
+def _centre(panel) -> tuple[float, float]:
+    return tuple(float(v) for v in panel.viewer.camera.center[-2:])
+
+
+@needs_napari
+@needs_gl
+def test_selecting_a_molecule_shows_its_own_movie_centred_on_its_donor_spot(
+    section_shell, tmp_path
+) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    donor1, _ = _molecules(path, "mov-1")
+    donor2, _ = _molecules(path, "mov-2")
+    assert shell.roundtrip is not None
+    assert shell.molecule_list.count() == 6
+    # The first selection of the open already centres on molecule 0's donor spot.
+    assert panel.active_index == 0
+    assert _centre(panel) == tuple(_rowcol(donor1)[0])
+
+    shell.molecule_list.setCurrentRow(4)  # mov-2's second molecule
+
+    assert panel.active_index == 1
+    assert panel.movie_layer.data.shape == (5, 40, 48)
+    assert _centre(panel) == tuple(_rowcol(donor2)[1])
+    # The shell's switcher names the movie the jump showed.
+    assert shell.movie_switcher.currentIndex() == 1
+    # The selection keeps its own status line; the jump adds none.
+    assert shell.status_message == "Molecule mol-4 (5/6)"
+
+    shell.molecule_list.setCurrentRow(2)  # back to mov-1
+
+    assert panel.active_index == 0
+    assert _centre(panel) == tuple(_rowcol(donor1)[2])
+    assert shell.movie_switcher.currentIndex() == 0
+
+
+@needs_napari
+@needs_gl
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_Enter"])
+def test_enter_jumps_back_to_the_molecules_spot_and_writes_nothing(
+    section_shell, tmp_path, qtbot, key_name
+) -> None:
+    import hashlib
+
+    from pyqtgraph.Qt import QtCore
+
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    donor2, _ = _molecules(path, "mov-2")
+    shell.molecule_list.setCurrentRow(5)
+    # The user looks at the other movie, and pans away.
+    shell.movie_switcher.setCurrentIndex(0)
+    panel.center_on(1.0, 1.0)
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert shell.status_message == "Jumped to mol-5 in movie second_movie_011.tif"
+    assert panel.active_index == 1
+    assert shell.movie_switcher.currentIndex() == 1
+    assert _centre(panel) == tuple(_rowcol(donor2)[2])
+    assert shell.molecule_list.currentRow() == 5
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+@needs_napari
+@needs_gl
+def test_enter_opens_a_closed_movie_dock(section_shell, tmp_path, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    shell = _open(section_shell, _store(tmp_path))
+    dock = shell.movie_dock
+    dock.close()
+    assert dock.isHidden()
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+
+    assert not dock.isHidden()
+    assert shell.status_message.startswith("Jumped to mol-0 in movie ")
+
+
+@needs_napari
+@needs_gl
+def test_a_click_on_either_spot_selects_its_molecule_in_the_movie_shown(
+    section_shell, tmp_path
+) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    _, acceptor1 = _molecules(path, "mov-1")
+    donor2, acceptor2 = _molecules(path, "mov-2")
+
+    # Movie 1: a click on molecule 1's acceptor spot, in the acceptor half of the frame.
+    centre = _centre(panel)
+    _click(panel, _rowcol(acceptor1 + [32.0, 0.0])[1])
+    assert shell.molecule_list.currentRow() == 1
+    assert shell.status_message == "Molecule mol-1 (2/6)"
+    # Selecting by a click leaves the camera where the user clicked.
+    assert _centre(panel) == centre
+
+    # Movie 2: the same donor pixels belong to mov-2's molecules now.
+    shell.movie_switcher.setCurrentIndex(1)
+    _click(panel, _rowcol(donor2)[1])
+    assert shell.molecule_list.currentRow() == 4
+    _click(panel, _rowcol(acceptor2 + [24.0, 0.0])[2])
+    assert shell.molecule_list.currentRow() == 5
+    assert panel.active_index == 1
+
+    # A click on the background, outside every aperture ring, selects nothing.
+    _click(panel, np.array([38.0, 46.0]))
+    assert shell.molecule_list.currentRow() == 5
+
+
+@needs_napari
+@needs_gl
+def test_a_molecule_whose_movie_is_not_shown_cannot_be_jumped_to(
+    section_shell, tmp_path, qtbot
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    second = _second_movie(tmp_path)
+    path = _store(tmp_path, second=second)
+    second.unlink()  # mov-2 is listed (disabled) but not shown
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    centre = _centre(panel)
+
+    shell.molecule_list.setCurrentRow(4)
+    assert panel.active_index == 0
+    assert _centre(panel) == centre
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+    assert shell.status_message == (
+        "Jump to movie spot unavailable: mol-4 has no spot in a movie shown here"
+    )
+
+
+@needs_napari
+@needs_gl
+def test_listing_the_molecules_again_keeps_one_click_handler(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel = shell.movie_panel
+    n_callbacks = len(panel.viewer.mouse_drag_callbacks)
+    first = shell.roundtrip
+
+    shell.set_molecules(list(shell._traces))
+
+    assert shell.roundtrip is not None and shell.roundtrip is not first
+    assert len(panel._spot_click_callbacks) == 1
+    assert len(panel.viewer.mouse_drag_callbacks) == n_callbacks
+
+
+@needs_napari
+@needs_gl
+def test_closing_the_project_drops_the_round_trip(section_shell, tmp_path, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    shell = _open(section_shell, _store(tmp_path))
+    assert shell.roundtrip is not None
+
+    assert shell.close_project()
+
+    assert shell.roundtrip is None
+    shell.set_molecules([])
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Return)
+    assert "Jump to movie spot unavailable" in shell.status_message
+
+
+# --- synchronized scrubbing between the trace dock and the movie panel (#366) ----------
+
+
+def _drag_cursor(shell, frame: int) -> None:
+    """Drag the trace dock's frame cursor to trace frame ``frame`` (what a mouse drag sets)."""
+    dock = shell.trace_dock
+    dock.set_time_mode("frames")
+    dock.cursor_lines[1].setValue(float(frame))
+
+
+@needs_napari
+@needs_gl
+def test_the_trace_cursor_and_the_movie_frame_move_together(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    assert shell.frame_link is not None and shell.frame_link.linked
+    # The open's first selection already shows the cursor frame in the movie.
+    assert dock.frame_cursor == panel.current_frame == 0
+
+    _drag_cursor(shell, 7)
+    assert panel.current_frame == 7
+    panel.viewer.dims.set_current_step(0, 3)  # the user moves napari's time slider
+    assert dock.frame_cursor == 3
+    panel.viewer.dims.set_current_step(0, 40)  # past the 12-frame trace: its last frame
+    assert dock.frame_cursor == 11
+
+    # Another molecule of the same movie keeps the frame.
+    _drag_cursor(shell, 6)
+    shell.molecule_list.setCurrentRow(1)
+    assert dock.frame_cursor == 6 and panel.current_frame == 6
+    # A molecule of the 5-frame second movie: its own movie shows, at that movie's last frame.
+    shell.molecule_list.setCurrentRow(4)
+    assert panel.active_index == 1
+    assert panel.current_frame == 4
+    panel.viewer.dims.set_current_step(0, 2)
+    assert dock.frame_cursor == 2
+
+
+@needs_napari
+@needs_gl
+def test_another_movie_on_screen_is_not_moved_by_the_cursor(section_shell, tmp_path) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel, dock = shell.movie_panel, shell.trace_dock
+    shell.movie_switcher.setCurrentIndex(1)  # molecule 0 is in mov-1; mov-2 is shown
+    panel.viewer.dims.set_current_step(0, 3)
+
+    _drag_cursor(shell, 9)
+    assert panel.current_frame == 3
+    panel.viewer.dims.set_current_step(0, 1)
+    assert dock.frame_cursor == 9
+
+    # A click on molecule 4's spot selects it; the frame the user was looking at stays,
+    # and the cursor moves to it.
+    donor2, _ = _molecules(path, "mov-2")
+    _click(panel, _rowcol(donor2)[1])
+    assert shell.molecule_list.currentRow() == 4
+    assert panel.current_frame == 1 and dock.frame_cursor == 1
+    _drag_cursor(shell, 3)
+    assert panel.current_frame == 3
+
+
+@needs_napari
+@needs_gl
+def test_back_on_the_molecules_movie_the_cursor_follows_it_again(section_shell, tmp_path) -> None:
+    # Away on the other movie, a drag moves only the cursor. Back on the molecule's movie at
+    # the same frame number, the cursor gets back in step with the movie (#1368 review).
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    _drag_cursor(shell, 3)
+    shell.movie_switcher.setCurrentIndex(1)
+    _drag_cursor(shell, 9)
+    assert panel.current_frame == 3
+
+    shell.movie_switcher.setCurrentIndex(0)
+
+    assert panel.current_frame == 3 and dock.frame_cursor == 3
+    _drag_cursor(shell, 8)
+    assert panel.current_frame == 8
+
+
+@needs_napari
+@needs_gl
+def test_a_shorter_trace_of_the_previous_movie_still_jumps(section_shell, tmp_path) -> None:
+    # Molecule 4 (mov-2, 5 frames) has three frames, molecule 3 of the same movie twelve.
+    # From molecule 3, the user shows mov-1 at frame 40, then selects molecule 4: the jump
+    # switches back to mov-2, which tells frame 4 (40 kept, clamped) on the way. That frame
+    # must not be mapped onto the new 3-frame trace with the old trace's length, which raised
+    # inside the jump and left the switcher on the wrong movie (#1368 review).
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    with h5py.File(path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        table["frame_range"][4] = (0, 3)
+        handle["molecules"]["table"][:] = table
+    shell = _open(section_shell, path)
+    panel, dock = shell.movie_panel, shell.trace_dock
+    donor2, _ = _molecules(path, "mov-2")
+    shell.molecule_list.setCurrentRow(3)
+    shell.movie_switcher.setCurrentIndex(0)
+    panel.viewer.dims.set_current_step(0, 40)
+
+    shell.molecule_list.setCurrentRow(4)
+
+    assert shell.status_message == "Molecule mol-4 (5/6)"
+    assert panel.active_index == 1 and shell.movie_switcher.currentIndex() == 1
+    assert _centre(panel) == tuple(_rowcol(donor2)[1])
+    assert dock.trace.n_frames == 3
+    assert dock.frame_cursor == panel.current_frame == 0
+
+
+@needs_napari
+@needs_gl
+def test_the_frame_link_is_opt_out_in_curate_and_not_a_preference(section_shell, tmp_path) -> None:
+    from tether.gui.shell import CURATE_SECTION
+
+    path = _store(tmp_path)
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    action = shell._act_link_frames
+    curation = [m for m in shell.section_menus(CURATE_SECTION) if m.title() == "&Curation"]
+    assert curation and action in curation[0].actions()  # Curate and correct's own menu
+    assert action.isCheckable() and action.isChecked() and shell.frame_link_enabled
+
+    action.trigger()  # off
+    assert not shell.frame_link_enabled and not shell.frame_link.enabled
+    assert shell.status_message == "Trace and movie frames not linked"
+    _drag_cursor(shell, 5)
+    assert panel.current_frame == 0
+    panel.viewer.dims.set_current_step(0, 9)
+    assert shell.trace_dock.frame_cursor == 5
+
+    # Off stays off when a project is opened again in this window.
+    assert shell.close_project()
+    assert shell.load_project(path) is not None, shell.status_message
+    assert not shell.frame_link.enabled and not action.isChecked()
+
+    shell.set_frame_link_enabled(True)  # on again: the movie shows the cursor frame
+    assert action.isChecked()
+    assert shell.movie_panel.current_frame == shell.trace_dock.frame_cursor
+
+    # It is the section's state in this window, not a preference: a new shell starts on.
+    assert section_shell(project=False).frame_link_enabled
+
+
+@needs_napari
+@needs_gl
+def test_closing_the_project_drops_the_frame_link(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path))
+    assert shell.frame_link is not None
+    assert shell.close_project()
+    assert shell.frame_link is None
+    shell.set_frame_link_enabled(False)  # no panel: only the state changes
+    assert not shell.frame_link_enabled
 
 
 # --- when no panel is built -------------------------------------------------------------
@@ -471,3 +847,27 @@ def test_the_macos_offscreen_platform_is_refused_up_front(qapp, monkeypatch) -> 
     )
     monkeypatch.setattr(QtGui.QGuiApplication, "platformName", staticmethod(lambda: "cocoa"))
     assert shell_mod._movie_panel_unavailable() is None
+
+
+@needs_napari
+@needs_gl
+def test_a_filter_that_shows_no_molecule_unlinks_the_frames(section_shell, tmp_path) -> None:
+    # A filter that hides every molecule leaves nothing selected and clears the trace dock
+    # (#630). The link must drop its target too, so the movie's slider moves no cursor.
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    assert shell.frame_link is not None and shell.frame_link.linked
+
+    shell.molecule_view.set_filter("accepted")  # no molecule is accepted yet
+    assert shell.molecule_list.currentRow() == -1
+    assert shell.frame_link.target is None and not shell.frame_link.linked
+    panel.viewer.dims.set_current_step(0, 3)  # must not reach the empty dock
+    assert dock.frame_cursor is None
+    assert panel.current_frame == 3
+
+    # Back to all molecules and a selection: the link follows the new molecule again.
+    shell.molecule_view.set_filter("all")
+    shell.molecule_list.setCurrentRow(0)
+    assert shell.frame_link.linked
+    _drag_cursor(shell, 5)
+    assert panel.current_frame == 5

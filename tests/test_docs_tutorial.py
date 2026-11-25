@@ -67,11 +67,19 @@ ACCEPT_LINES = (
     f"Accepted {ACCEPTED_IDS[0]}; Molecule mol-2 (3/3)",
     f"Accepted {ACCEPTED_IDS[1]}; end of the list reached",
 )
-HISTOGRAM_LINE = "Population histogram — 2 molecule(s), 48 frame(s)"
+HISTOGRAM_LINE = "FRET-efficiency histogram (A1) — All molecules: 2 molecule(s)"
 #: Frames in each molecule's trace: the histogram's 48 frames are two molecules of 24.
 N_FRAMES = 24
-IDEALIZING_LINE = f"Idealizing {ACCEPTED_IDS[1]} (one-click vbFRET)…"
-IDEALIZED_LINE = f"Idealized {ACCEPTED_IDS[1]} (one-click vbFRET)"
+IDEALIZING_LINE = "Idealizing project (consensus VB-HMM)…"
+IDEALIZED_LINE = (
+    "Idealized the project with consensus VB-HMM: 2 states, 2 molecules fitted (model vbconhmm)"
+)
+
+
+def _project_fit():
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit()
 
 
 def _page() -> str:
@@ -119,6 +127,73 @@ def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) 
     assert (tmp_path / "tutorial.tether").is_file()
 
 
+def _step(page: str, number: int) -> str:
+    """The text of the page's step ``number``, from its heading to the next one."""
+    start = page.index(f"\n## {number}. ")
+    return page[start : page.index("\n## ", start + 1)]
+
+
+def _dismiss_as_the_page_says(qtbot, shell, *, warned: bool) -> None:
+    """Click **Dismiss** when the opening line carries a warning, as step 4 tells (#1312)."""
+    from pyqtgraph.Qt import QtCore
+
+    # The window is never shown headless, so "shown" is read as "not hidden".
+    button = shell.messages.dismiss_button
+    assert button.isHidden() is not warned
+    if warned:
+        qtbot.mouseClick(button, QtCore.Qt.MouseButton.LeftButton)
+        assert shell.messages.sticky is None
+        assert button.isHidden()
+
+
+def test_step_4_tells_what_to_do_with_the_movie_panel_warning() -> None:
+    """Step 4 names the optional warning suffix and the **Dismiss** action (#1312)."""
+    step = _step(_page(), 4)
+    assert f"```text\n{OPEN_LINE}\n```" in step
+    assert "`; movie panel unavailable:`" in step
+    assert "**Dismiss**" in step
+    assert "step 5" in step
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_unavailable_movie_panel_warning_is_dismissed_before_step_5(
+    qtbot, tmp_path, monkeypatch, capsys
+) -> None:
+    """Without a movie panel, step 4's warning hides step 5's line until it is dismissed.
+
+    The shell takes this branch only where no OpenGL context exists (macOS offscreen), so the
+    reason is forced here and every platform runs it (#1312).
+    """
+    from pyqtgraph.Qt import QtCore
+
+    import tether.gui.shell as shell_module
+    from tether.gui.app import create_shell
+
+    _extract(tmp_path, monkeypatch, capsys)
+    reason = "no OpenGL context in this test"
+    monkeypatch.setattr(shell_module, "_movie_panel_unavailable", lambda: reason)
+
+    _app, shell = create_shell(["tutorial.tether"])
+    qtbot.addWidget(shell.window)
+    status = shell.window.statusBar()
+    try:
+        lst = shell.molecule_list
+        warned = f"{OPEN_LINE}; movie panel unavailable: {reason}"
+        assert status.currentMessage() == warned
+
+        # Without Dismiss, the warning holds the status bar and step 5's line is hidden.
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Right)
+        assert status.currentMessage() == warned
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Left)
+
+        _dismiss_as_the_page_says(qtbot, shell, warned=True)
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_Right)
+        assert status.currentMessage() == BROWSE_LINE
+    finally:
+        shell.close()
+
+
 @pytest.mark.gui
 @_needs_qt
 def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatch, capsys) -> None:
@@ -133,20 +208,46 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
     page = _page()
 
     # Step 7's fit runs in the tMAVEN sidecar, which this tier does not have. Everything
-    # around it is real: the shell still builds its idealizer through the seam it uses for
-    # a project, and the stub holds the fit open until the test has read the first line.
+    # around it is real: the shell builds its idealizer through the seam it uses for a
+    # project, the dialog starts the service command, and only the sidecar's probe and
+    # runner are stubs. The runner holds the first fit open until the test has read the
+    # first line, and its ELBO is largest at two states, as the real fit's is.
+    from tether.idealize import IdealizationResult, StateModel, read_smd
+    from tether.idealize.supervisor import ProbeResult
+    from tether.services import idealize as service
+
     release = threading.Event()
-    asked: list[str] = []
+    asked: list[list[str]] = []
 
-    def stub_idealizer(_project, **_kwargs):
-        def idealize(molecule_key: str):
-            asked.append(molecule_key)
-            assert release.wait(10), "the test never released the stub fit"
-            return np.full(N_FRAMES, 0.5)
+    def stub_runner(smd_path, *, nstates, model_type="vbconhmm", **_kwargs):
+        assert release.wait(10), "the test never released the stub fit"
+        smd = read_smd(smd_path)
+        asked.append(list(smd.molecule_keys))
+        means = np.linspace(0.25, 0.75, nstates)
+        model = StateModel(
+            model_type=model_type,
+            nstates=nstates,
+            means=means,
+            variances=np.full(nstates, 0.01),
+            tmatrix=np.eye(nstates),
+            norm_tmatrix=np.eye(nstates),
+            elbo=-abs(nstates - 2.0),
+            dtype="FRET",
+            idealized=np.full((smd.n_molecules, smd.n_frames), means[-1]),
+            ran=np.arange(smd.n_molecules, dtype="int64"),
+        )
+        return IdealizationResult(
+            model=model,
+            state_paths={},
+            dwells=[],
+            model_path=Path(smd_path),
+            status={"ok": True},
+            molecule_keys=smd.molecule_keys,
+        )
 
-        return idealize
-
-    monkeypatch.setattr(shell_module, "make_store_idealizer", stub_idealizer)
+    monkeypatch.setattr(service, "sidecar_problem", lambda *_args: None)
+    monkeypatch.setattr(service, "_probe", lambda _supervision: ProbeResult(True, "stub"))
+    monkeypatch.setattr(service, "_runner", stub_runner)
 
     # Step 4: open the project.
     _app, shell = create_shell(["tutorial.tether"])
@@ -159,8 +260,14 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         no_panel = shell_module._movie_panel_unavailable()
         tail = f"; movie panel unavailable: {no_panel}" if no_panel else ""
         assert status.currentMessage() == OPEN_LINE + tail
-        shell.messages.acknowledge()
-        assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
+        # Step 4's note: that warning stays in the status bar until the learner clicks
+        # **Dismiss** (#1274), else it hides step 5's line (#1312).
+        _dismiss_as_the_page_says(qtbot, shell, warned=bool(no_panel))
+        # Each row names the molecule, then its state (#630), as the page says.
+        assert [lst.item(i).text() for i in range(lst.count())] == [
+            f"mol-{i} · Undecided" for i in range(3)
+        ]
+        assert "`mol-0 · Undecided`" in page
         assert lst.currentRow() == 0
 
         def press(key: QtCore.Qt.Key) -> str:
@@ -179,18 +286,35 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         assert press(QtCore.Qt.Key.Key_Space) == ACCEPT_LINES[1]
         assert lst.currentRow() == 2
 
-        # Step 7: idealize mol-2, the second accepted molecule, still selected.
-        assert press(QtCore.Qt.Key.Key_I) == IDEALIZING_LINE
+        # Step 7: I opens the dialog; its defaults fit the two accepted molecules.
+        qtbot.keyClick(lst, QtCore.Qt.Key.Key_I)
+        dialog = shell.idealize_dialog
+        assert dialog is not None and dialog.dialog.isVisible()
+        assert dialog.dialog.windowTitle() == "Idealize project"
+        assert "**Idealize project**" in page
+        assert dialog.choice() == _project_fit()
+        assert "Accepted molecules (2)" in page
+        dialog.ok_button.click()
+        assert status.currentMessage() == IDEALIZING_LINE
         release.set()
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
         assert status.currentMessage() == IDEALIZED_LINE
-        assert asked == [ACCEPTED_IDS[1]]
+        assert asked == [list(ACCEPTED_IDS)] * 4  # one fit for each state count, 1 to 4
         assert len(shell.trace_dock.idealized_path) == N_FRAMES  # drawn on the dock
 
-        # Step 8: the population histogram leaves the rejected molecule out.
-        shell._act_histogram.trigger()
+        # Step 8: the population histogram leaves the rejected molecule out. The page's
+        # steps: open Analyze, keep the first plot, and add All molecules (#374).
+        shell.set_section("analyze")
+        section = shell.analysis_section
+        assert section.plot_combo.currentText() == "FRET-efficiency histogram (A1)"
+        assert section.add_button.text() == "Add selection"
+        section.add_menu.aboutToShow.emit()
+        everything = section.add_menu.actions()[0]
+        assert everything.text() == "All molecules"
+        everything.trigger()
         assert status.currentMessage() == HISTOGRAM_LINE
-        assert shell.histogram_dock is not None
+        assert section.figure is not None
+        assert section.outcome.results[0][1].n_samples == 48
     finally:
         shell.close()
 

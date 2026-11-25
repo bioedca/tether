@@ -228,6 +228,22 @@ def test_a_reused_join_key_never_borrows_an_earlier_reason(tmp_path: Path) -> No
     assert L.reject_record_of(path, "k1") is None
 
 
+def test_two_reason_rows_of_one_join_read_no_reason(tmp_path: Path) -> None:
+    # #1291: one /labels reject row that two "reject" reason rows join (what a merge-back leaves
+    # when a later pull makes the join ambiguous) names no reason; one joining row still does.
+    path = _seed(tmp_path, ["k1"])
+    L.reject(path, "k1", reason="artifact", labeler="ana", timestamp=_TS)
+    assert L._to_str(L.reject_record_of(path, "k1")["reason"]) == "artifact"
+    with h5py.File(path, "r+") as f:
+        log = f["labels"][L.REJECT_LOG]
+        extra = log[:1].copy()
+        extra["reason"] = "low-signal"
+        log.resize((2,))
+        log[1:] = extra
+    assert L.read_labels(path).shape == (1,)
+    assert L.reject_record_of(path, "k1") is None
+
+
 @pytest.mark.parametrize("note", ["artifact\x00detail", "bad \udcff surrogate"])
 def test_a_note_hdf5_cannot_store_is_refused_before_any_write(tmp_path: Path, note: str) -> None:
     # CodeRabbit finding on PR #1050: the note is checked before the label changes, for a

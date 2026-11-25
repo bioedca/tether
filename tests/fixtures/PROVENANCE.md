@@ -638,6 +638,43 @@ smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`, `NOTIC
 `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv`,
 `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv`.
 
+## Deep-LASI detection images (findPart comparison, #924, ADR-0143) — **CC-BY-4.0** (one file)
+
+The inputs of the `findpart` task of `scripts/reference/matlab/deep_lasi.py`, made by
+`scripts/make_deeplasi_findpart_images.py` (each value written as the shortest repr of its double,
+one image row per line, so the same source gives the same bytes):
+
+- `tests/fixtures/deep_lasi_findpart_images/public.csv` (98,472 B · plain git, SHA-256
+  `2b88841dd45d06a175de8cb7cd8f8c74d6e19402be3e93aaf1e376f798136ca4`) — rows 1-128 and columns
+  257-384 (1-based, MATLAB's orientation) of the first `Cumulated` image of channel 1 in
+  `DNAorigami_GR_2state_7p5nt_1color.tdat` (797,424,164 B, SHA-256
+  `4248894186a6353c7c642c20a73d8b33b72b7fcb7c00393a862fa243f10a0d72`), the one file of
+  `Figure_2.zip` (487,933,185 B, SHA-256
+  `fccd230c630272503bcf7d3dbe1c7953c10adb9a6d87ba9570d7d1153ec570ee`, MD5
+  `df27b3884d2dc4ef1ba9aef9e83ead76` as Zenodo lists it) of Zenodo record 7561162 (Wanninger
+  *et al.*, *Nat Commun* 14:6564, 2023, doi:10.1038/s41467-023-42272-9). `Cumulated` is the
+  detection image Deep-LASI made and saved (its moving-average maximum projection); no value is
+  changed. **Accessed:** 2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0. Manifest id
+  `deeplasi-findpart-public-image` (an extract of the workstation entry `deeplasi-zenodo-fig2`).
+- `tests/fixtures/deep_lasi_findpart_images/synthetic.csv` (48,074 B · plain git, SHA-256
+  `4b66fff82006910de371b23f9ecfd51e6a09a974e51f5b38fdc72a4228a62ab3`) — seven Gaussian spots
+  (σ = 1.3 px), three of them on or next to the image edge, on a uniform background of
+  amplitude 0.02 seeded with 924. Tether's own; GPL-3.0-or-later with the repository.
+
+`tests/fixtures/reference/deep-lasi/findpart-zmw/` is the frozen output of Deep-LASI's own
+`findPart` (mode 5, thresholds 0.1, 0.3 and 0.5, background mask of length 1, no refinement) on
+those two images, made by the `findpart` task of `scripts/reference/matlab/deep_lasi.py` with
+Deep-LASI at `d2d348c` and MATLAB R2023b Update 10 on the maintainer's workstation (2026-11-24),
+with `provenance.json` as the harness record. Three files are spot positions computed from the
+CC-BY-4.0 crop, so they carry **CC-BY-4.0** (`REUSE.toml`, `NOTICE`, manifest ids
+`deeplasi-findpart-public-t1` to `-t3`):
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t1.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t2.csv`,
+`tests/fixtures/reference/deep-lasi/findpart-zmw/public_t3.csv`.
+`synthetic_t1.csv` to `synthetic_t3.csv`, `mode4_error.txt` (the error MATLAB gave for mode 4)
+and `provenance.json` carry the repository's licence. Nothing of Deep-LASI itself is in the
+repository.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the
@@ -996,6 +1033,223 @@ those of the survey of #721; the whole archive downloaded once to compute its SH
 its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the member above out of
 the archive; manifest ids `weninger-hairpin-traces` (the archive) and
 `weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.
+
+## CZI movies for the CZI adapter (#903, ADR-0144)
+
+Tether writes no CZI, and the ZISRAW specification permits no third-party writer, so the CZI
+test files were written by **ZEISS libCZI**, through its Python binding **pylibCZIrw 6.1.0**
+(LGPL-3.0; not in any Tether lock), with `scripts/make_czi_fixtures.py`. Their pixels are
+synthetic and seeded, so they are Tether's own work: **License:** `GPL-3.0-or-later` (REUSE
+blanket). A second run writes the same pixels but not the same bytes (libCZI writes a new file
+GUID each time).
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/czi/movie_zstd_64x64x64.czi` | 64 frames of 64 x 64 Gray16, `zstd1` (Zstd with the byte shuffle), the frames of seed 901 of the adapter conformance module; pixel size 0.16 um, channel `Cy3` | 489,568 B | `d0332f0e7468f29df05b87feff7203b6fd42007021c62203d4332ca70b1a31ed` |
+| `tests/fixtures/czi/movie_raw_16x16x4.czi` | 4 uncompressed frames of 16 x 16 Gray16 (seed 903); pixel size 0.1 um, channel `Cy5` | 5,984 B | `649eac21954d00a1d3f9752f8ead8e6f72a1fe196bd1a898613f434eb4afd651` |
+| `tests/fixtures/czi/two_channels.czi` | refusal: C = 2 | 3,104 B | `4f07756edf0a2551933b7579ce261a6e62293c7a530903e235d7ba378ec28120` |
+| `tests/fixtures/czi/two_scenes.czi` | refusal: two scenes | 3,040 B | `9b286a2e3ba9723646f385fa32cb71fd8812c8e165fbb76cadfd491dfd502b01` |
+| `tests/fixtures/czi/z_stack.czi` | refusal: Z = 2 | 3,040 B | `8a4fcf8f7165f2913b78404864371bb3a8c590dc829fa9abfea2707553939f26` |
+| `tests/fixtures/czi/two_tiles.czi` | refusal: one frame in two mosaic tiles | 3,040 B | `85575afd053660a26ac2bc42281a6106d8eeb8c004301d668a40e470bcf3dac1` |
+| `tests/fixtures/czi/rgb.czi` | refusal: Bgr24 pixels | 3,168 B | `20af768a446dfa61c2b7168fcaf99ccca181a875d4ae266641a57c7ecf83e111` |
+| `tests/fixtures/czi/gap_in_time.czi` | refusal: frames T = 0 and T = 2, no T = 1 | 3,040 B | `89621cab03c988a64147b343dfe0aaf4e231ce83591bf2110c1268618c3afba6` |
+
+### ZEN test movie of ZEISS (reference export) — **CC-BY-4.0**
+
+External third-party data under a different licence: **Rhode S**, *CZI (Carl Zeiss Image)
+dataset with artificial test camera images with various dimension for testing libraries
+reading*, Zenodo **doi:10.5281/zenodo.7015307** (published 2022-08-22), **CC-BY-4.0**: files
+written by ZEN with a simulated microscope and a test camera. It is annotated CC-BY-4.0 in
+`REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+The movie `T=2_CH=1.czi` (1,566,976 B, MD5 `149841db10463f836a9a148937a050c7` as the record
+states, SHA-256 `3a182cd9818fa9d8543ffee717226177ca2df3f9ff91e4d4c3175a613876e0ef`; manifest id
+`zeiss-czi-t2-ch1`, tier `download`) is larger than the git tier allows and is not committed.
+Its two uncompressed 256 x 256 Gray16 frames were read with **pylibCZIrw 6.1.0** (ZEISS libCZI,
+`CziReader.read` of each plane `T = 0, 1`, `C = 0`, `Z = 0`, default region) and saved with
+**tifffile 2026.6.1** as an uncompressed little-endian TYX TIFF
+(`scripts/make_czi_fixtures.py --reference T=2_CH=1.czi`; manifest id
+`zeiss-czi-t2-ch1-reference`):
+
+| Fixture | Source | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/czi/zeiss_t2_ch1_reference.tif` | the two frames of `T=2_CH=1.czi` | 262,518 B | `e06060e4b4141531445545c5f077c0f11579289d74285e9bf9c8025b8be57f68` |
+
+The two-channel movie `T=3_CH=2.czi` of the same record (2,110,368 B, MD5
+`19173922f52cbe67e3ce740a2c66a237`, SHA-256
+`abcaaaa3e44440e463383cb697e11ac180df510f4dd0d81a30feaaf6f2895a67`; manifest id
+`zeiss-czi-t3-ch2`) is the public refusal case. The weekly `reference-data` job downloads both
+movies. **Accessed:** 2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+## Public ND2 files (#902, ADR-0148) — **CC-BY-4.0**
+
+External third-party data under a different licence, two verbatim copies (no transformation) of
+public Zenodo files, annotated CC-BY-4.0 in `REUSE.toml` and named in `NOTICE`. They are the test
+files of Tether's own ND2 reader (`tether.io.nd2`); the maintainer's card D2 (option B, 2026-11-14)
+asks for a public file with a licence that permits the copy.
+
+| Fixture | Record | Size | SHA-256 | Content |
+|---|---|---|---|---|
+| `tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2` | Bakker H., "Glyco-PAINT reference", Zenodo **doi:10.5281/zenodo.17487086** (2025-10-30, Leiden University) | 708,608 B | `b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d` | ND2 version 3.0, one frame of 512 × 512 `uint16` from a single-molecule PAINT microscope, 0.160325 µm per pixel |
+| `tests/fixtures/nd2/ZC.nd2` | Chiaruttini N., "nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511", Zenodo **doi:10.5281/zenodo.24363428** (2026-11-19, EPFL) | 495,616 B | `bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae` | ND2 version 3.0, 2 Z planes × 2 channels (Cy5, Cy3) of 32 × 32 `uint16`; the reader must refuse it |
+
+The records' MD5 values (`62bbc09fe7e6638e3cf04d960a51b59f`, `108e4f8dc7a6591dfdd99edcac0a64da`)
+match the downloads. **Accessed:** 2026-11-24, from
+`https://zenodo.org/records/<record>/files/<name>?download=1`. Manifest ids
+`nd2-glyco-paint-bf-frame` and `nd2-bioformats-pr4511-zc`.
+
+**The pixel reference.** The frame of the first file was exported to TIFF by Bio-Formats
+`bfconvert` **7.3.1** (build `41e12f630ad7349caa0293cba23948c17d22732b`, 11 July 2024; the
+`bioformats_package.jar` of the python-bioformats 4.1.0 wheel, jar SHA-256
+`289af1d5c9b34766fccea1fc7deb072b2e8ce445b6fe9a5677bce2e95bdc8cc9`) with
+`java -cp bioformats_package.jar loci.formats.tools.ImageConverter -nogroup -overwrite
+221012-Exp-1-A1-1-BF.nd2 bf_reference.tif`. The TIFF (528,690 B, SHA-256
+`17c22d24b0d1bc2f9f95bd8fb34912faacf88e8038c9fcb7c214823a6ff85cea`) is not committed; the
+SHA-256 of its pixels as C-order little-endian `uint16` bytes,
+`2806dc93e8f93c847eb8ff2ff67af8c388a416d8ed6f3ee0c31306982bccf143`, is in
+`tests/fixtures/nd2/reference.json`, with the metadata values. `nd2.imread` of the `nd2` package
+0.12.0 (PyPI, BSD-3-Clause) gives the same pixel digest, the same pixel size and the same channel
+name; Bio-Formats reports the same `PhysicalSizeX`/`PhysicalSizeY` and channel name.
+
+**The synthetic files.** A time series, a frame time and each refused variant come from
+`tests/_nd2_synth.py`, because neither public file is a time series. On 2026-11-24 the `nd2`
+package 0.12.0 read a 64-frame `uint16`, a 5-frame row-padded `uint16` and a 4-frame `float32`
+file of that writer to the written frames, frame times, pixel size and channel name, and
+Bio-Formats 7.3.1 exported the unpadded two to the written frames. For the padded file the two
+readers disagree (Bio-Formats reads the padding as pixels), which is why the reader refuses padded
+rows.
+
+## Andor Solis SIF files for the SIF adapter (#904, ADR-0150)
+
+Tether reads SIF with its own reader (`src/tether/io/sif.py`), so each check below compares it
+with files that **Andor Solis** wrote and with an independent reader, **sif_parser 0.3.6**
+(BSD-3-Clause, PyPI; not in any Tether lock), installed in a scratch environment with numpy
+2.5.5 and tifffile 2026.11.16. sif_parser returns the stored row order (bottom row first); every
+reference below reverses the rows, as Tether and Solis's own TIFF export do.
+
+### ZnO-PVA spectra of Chukova O — **CC-BY-4.0**
+
+External third-party data under a different licence: **Chukova O**, *Data on Luminescence
+properties of ZnO-PVA nanoparticles*, Zenodo **doi:10.5281/zenodo.18293266** (published
+2026-01-18), **CC-BY-4.0**: spectra that Solis wrote from an Andor DU920P camera (format version
+65567, one 1 x 1024 frame each, full vertical binning), with the ASCII export that Solis made of
+each. It is annotated CC-BY-4.0 in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+| Fixture | What it is | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `tests/fixtures/sif/ZP2270-1.sif` | a spectrum of data type `Counts`, unchanged | 8,514 B | `904b370c1b60bc11be559fc85841e781` | `1120e508c7f4f7b2d9c384b9010c1762c35b713fcf3a046712caddb0729fd28b` |
+| `tests/fixtures/sif/ZP2270-1.asc` | Solis's ASCII export of it (wavelength and counts, tab-separated, decimal comma), unchanged | 17,281 B | `7e97e21d25b224f20c0e26925572345a` | `78bbf9c699762f6945db12ad0ed13e2a60ca077498d2f65dbbee2d97788a3d48` |
+| `tests/fixtures/sif/ZP1-1.sif` | a spectrum of data type `Counts (Bg Corrected)` with a background block, unchanged: the refusal case | 16,894 B | `4222a3e5b4e8d3741ece7ac737c3ab79` | `58feb756603df669a872819799d01b034d8e492686cc57acdc1031898d204638` |
+| `tests/fixtures/sif/ZP2270-1_reference.tif` | the frame of `ZP2270-1.sif` as sif_parser 0.3.6 reads it, saved by tifffile 2026.11.16 as an uncompressed `float32` TIFF (`python scripts/make_sif_reference.py ZP2270-1.sif ZP2270-1_reference.tif`) | 4,368 B | — | `fddcd1dab834f90cfcf8001bfb5ed5f95711211b6e4bbc0a3c9b183f987b8aca` |
+
+On 2026-11-24 all 106 SIF files of this record and of its companion record
+(doi:10.5281/zenodo.24287163, same author and licence) were read: the 9 of data type `Counts`
+equal sif_parser 0.3.6 bit for bit, the 97 of data type `Counts (Bg Corrected)` are refused, and
+all 90 that have a Solis ASCII export equal it value for value (sif_parser). **Accessed:**
+2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+### Andor Zyla image of Wu Y — **CC0-1.0**
+
+**Wu Y**, *Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and
+diet-enhanced long-term memory*, Dryad **doi:10.5061/dryad.80gb5mkpx**, mirrored on Zenodo
+record 4904806 (published 2021-06-08), **CC0-1.0**. Two of its files are `download` entries of
+the manifest, so the weekly `reference-data` job reads them; neither is committed:
+
+| Manifest id | File | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `wu-magfret-c739-sif` | `c739xMagFRET_1.sif`: one 2048 x 2048 frame of an Andor Zyla 4.2P, format version 65567, data type `Counts` | 16,781,286 B | `ac3039b7e6dd28f56e75e69c59f387fd` | `7022eff33764fcf5e954025d1f932ff91a59d62fd52b35815e761f1d21cb01e2` |
+| `wu-magfret-c739-solis-tiff` | `c739xMagFRET_1.tif`: the 8-bit TIFF that Solis exported from it (software tag `Andor Technology`, description `Andor SOLIS`) | 4,213,274 B | `43937be9f462e7b105329092ab6e7af9` | `807cd682ea532dcb135b77a046721b1489f60b2a99b62814e49db4681e4b94e9` |
+
+The pixel SHA-256 of the frame as sif_parser 0.3.6 reads it (rows reversed, C-order
+little-endian `float32`), `e7819391c89d539458d3d9690c08a2b0baad8771b3a612880bc407c7a1922b9d`, is in
+`tests/fixtures/sif/reference.json` (`python scripts/make_sif_reference.py c739xMagFRET_1.sif
+--digest`). The Solis TIFF is a linear 8-bit scale of the counts: after a least-squares fit, the
+frame in Tether's row order maps onto it within one grey level (correlation 0.99998), and the
+stored row order does not (correlation 0.64). That fixes the row order. **Accessed:** 2026-11-24.
+
+### Andor iXon movie of Chazot-Franguiadakis L (checked once, not a fixture)
+
+The SIF movie `L_110424_Au_50z_HIV_GFP_MM24_10%_FSB_dil100_200nm_0.0mbar_1.sif` of **Chazot-
+Franguiadakis L**, *Movies of HIV (VLP) particles through 200 nm nanopores*, Zenodo
+**doi:10.5281/zenodo.11185140**, **CC-BY-4.0** (262,149,548 B, MD5
+`628b99552d9ec967197da318447430f3`, SHA-256
+`a9f34089086125a64e0933c4ac2471f9aabebf66fc0fda77add9873dc14ecd01`) is a 250-frame kinetic series
+of an Andor iXon 897 (512 x 512, format version 65566). It is over the 200 MB download limit, so
+no test reads it. On 2026-11-24 Tether read its 250 frames, every value a whole number of counts
+from 173 to 16,460 (pixel SHA-256 `e6364eaa2114aec9dc323efdde2e97a917f5e4fc765a97fd8872e65718e4978e`),
+with the frame time 0.03035 s; the header's time stamps step by 30,350 µs. sif_parser 0.3.6 cannot
+open this file (`UnicodeDecodeError` in its header parser), so it gave no reference here. The
+`SIFReader` of Bio-Formats (read from its source, `ome/bioformats` `develop`, 2026-11-24; not run)
+places the frames 8 bytes before the end of the file; on this file that is the offset Tether finds,
+5,540, since the frames are followed only by the four block flags `0\n0\n0\n0\n`.
+
+### The synthetic SIF files
+
+`tests/_sif_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. On 2026-11-24 sif_parser 0.3.6 read four of its files (64 x 64 x 64; 5 x 8 x 12 with a
+0.1 s kinetic cycle; 3 x 4 x 6 with 2 x 4 binning; a flag line of `0`) to the written frames and
+kinetic cycle times. **License:** `GPL-3.0-or-later` (REUSE blanket).
+
+## MASH-FRET SIRA movies for the SIRA adapter (#905, ADR-0152)
+
+Tether reads SIRA with its own reader (`src/tether/io/sira.py`), so each check below compares it
+with files in the MASH-FRET repository and with **MASH-FRET's own code**:
+**RNA-FRETools/MASH-FRET** at commit `2877992d246acbe65148ef1c948578f623a518b2` (2026-11-09),
+GPL-3.0 (the repository gives the version 3 text with no "or later" statement, so
+`GPL-3.0-only`). Its format description is `docs/output-files/sira-mash-video.md`; its reader is
+`MASH-FRET/source/mod-video-processing/graphic-files/readSira.m` (with `getSiraDat.m`) and its
+writer `writeSiraFile.m`. `scripts/make_sira_reference.py` runs them under **GNU Octave 8.4.0**
+(Ubuntu `octave` 8.4.0-1build5, `gnuplot-nox` for the invisible figure), headless in MASH-FRET's
+own `mute_actions` mode; it gives Octave a MATLAB-equivalent `contains`, which Octave 8 lacks and
+`getSiraDat.m` calls. The frames were saved with NumPy 2.1.3 and tifffile 2026.6.1. **Accessed:**
+2026-11-25.
+
+### The test movies of MASH-FRET — **GPL-3.0-only**
+
+Two `download` entries of the manifest, so the weekly `reference-data` job reads them; neither is
+committed whole:
+
+| Manifest id | File in the repository | Size | SHA-256 |
+|---|---|---|---|
+| `mash-fret-1chan1exc-sira` | `MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc/1chan1exc.sira`: 200 frames of 64 x 64, frame time 0.1 s, header version `dummy` | 3,277,670 B | `86b94e36d00d3df70552a68b5e7b051ebb8e7647c63a304e7158e1b1196f38df` |
+| `mash-fret-2020-sira` | `MASH-FRET/source/routines/mod_video_processing/assets/2020.sira`: 20 frames of 256 x 256, frame time 0.10107 s, header version `1.1.2 (prev. commit: 352a251)` | 5,243,053 B | `41a99340abc891812600aba7936830f43ed91eb248505c53dc61968d73a889ea` |
+
+Every offset in both is 0 and every pixel a whole number. The pixel SHA-256 of each movie as
+`readSira.m` reads it (C-order little-endian `float32`), from `python
+scripts/make_sira_reference.py reference FILE --mash MASH-FRET/source --digest`, is in
+`tests/fixtures/sira/reference.json`:
+`406ce9c74477870ea42827601b471ce6af006a0fbae85dd2d1ecf9d2c5709b5c` and
+`15173c65fd0e72cde473872ee3d755552976298047a3216ea3dda583362676ff`.
+
+The committed files:
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/sira/1chan1exc_16.sira` | the first 16 frames of `1chan1exc.sira`: header line and frame bytes unchanged, the header's frame count set to 16 (`python scripts/make_sira_reference.py extract 1chan1exc.sira 1chan1exc_16.sira --frames 16`) | 262,278 B | `5b89c03b209b1e2866099d163b96d00ac4818815038c5d6630d1f499e1f95b24` |
+| `tests/fixtures/sira/1chan1exc_16_reference.tif` | its 16 frames as `readSira.m` reads them, an uncompressed `float32` TYX TIFF (`python scripts/make_sira_reference.py reference 1chan1exc_16.sira 1chan1exc_16_reference.tif --mash MASH-FRET/source`) | 265,086 B | `086993a1a37fb6572683245f67a45331fb52f0480b724ab002588b8926dd281b` |
+
+**License:** GPL-3.0-only — annotated in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+### The offsets that MASH-FRET's writer stores — Tether's own frames
+
+`tests/fixtures/sira/mash_offsets.sira` (326 B, SHA-256
+`7c4ad070b6c6030b0c17a643caa8fcfb494a4d89de28b8417614aa8cfd2ba68b`) is three 4 x 5 frames in halves that Tether chose
+(`offset_frames()` of the script), two with negative values, written by MASH-FRET's
+`writeSiraFile.m` (`python scripts/make_sira_reference.py offsets mash_offsets.sira --mash
+MASH-FRET/source`). The writer stored the offsets 3.5, 4.5 and 0. Read one frame at a time
+(`readSira(file, n, …)`), MASH-FRET gives back the written frames: it takes the offset off. Read
+whole (`readSira(file, 'all', …)`), it gives the written frames plus twice the offset: that path
+adds the offset to the stored values (its line `fread(…) + fread(f,1,…)`), where the one-frame path
+and the writer subtract it. Tether takes the offset off, as the writer means and as the one-frame
+read does (ADR-0152); on a file whose offsets are all 0, as in both test movies above, the two
+paths agree. The frames are Tether's, so the file keeps the REUSE blanket licence
+(`GPL-3.0-or-later`).
+
+### The synthetic SIRA files
+
+`tests/_sira_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. It writes the layout of `writeSiraFile.m`, offsets included. **License:**
+`GPL-3.0-or-later` (REUSE blanket).
 
 ## Update-verifier attestation answer and `gh` report (#333)
 

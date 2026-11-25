@@ -47,18 +47,18 @@ GROUPS = (IN_APP, CLI, PYTHON, NOT_YET)
 #: ``None`` binds a fact that is not an import; see :func:`_in_application`.
 BINDINGS: dict[str, tuple[str, ...] | None] = {
     "Open and browse": ("tether.gui.trace_dock",),
-    "Curation": ("tether.project.labels",),
+    "Curation": ("tether.services.curation",),
     "Neighbor view": ("tether.gui.overlap_dock",),
-    "One-trace idealization": ("tether.project.idealize",),
+    "Whole-project idealization": ("tether.gui.idealize_project",),
     "Standalone-tMAVEN hand-off": ("tether.project.handoff",),
     "Condition validation": ("tether.gui.conditions",),
     "Deep-LASI import": ("tether.gui.deeplasi_wizard_ui",),
-    "Population histogram": ("tether.gui.histogram_dock",),
     "Native extraction": ("tether.project.extract",),
     "Batch pipeline": ("tether.project.batch",),
     "Corrections": ("tether.project.correct",),
     "Quality ranker": ("tether.ml", "tether.project.gbranking", "tether.project.ranking"),
-    "Analysis plots": ("tether.analysis.tdp", "tether.analysis.dwell", "tether.analysis.cloud"),
+    # The Analyze section's plot registry (#374) runs every population plot.
+    "Analysis plots": ("tether.services.plots",),
     "Exports": ("tether.project.export", "tether.analysis.plot_export"),
     "Movie panel": ("tether.gui.movie_panel",),
     "Trace ⇄ movie round trip": ("tether.gui.roundtrip",),
@@ -66,12 +66,7 @@ BINDINGS: dict[str, tuple[str, ...] | None] = {
 }
 
 #: Labels no import decides, each with the reason.
-UNBOUND: dict[str, str] = {
-    "Whole-project idealization": (
-        "the GUI already imports idealize_molecules for the one-trace fit, so only a menu "
-        "action (#625) would tell the two apart"
-    ),
-}
+UNBOUND: dict[str, str] = {}
 
 #: The planned-panel sentence on the two site pages, which the panel's PR removes.
 PLANNED_PANEL = "movie panel, which reaches the application"
@@ -230,11 +225,12 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     assert "embedded napari movie panel" in _flat(old)
     old_list = "## What it does\n\n### In the application today\n\n- **Movie panel** — embedded\n"
     assert _groups(old_list)[IN_APP] == ["Movie panel"]
-    # A feature still planned shows that the import check can say "not in the application";
-    # the movie panel itself has been in since #356.
-    assert not _in_application("Trace ⇄ movie round trip", _gui_imports())
+    # A feature the application does not run shows that the import check can say "not in the
+    # application"; the movie panel has been in since #356 and the round trip since #357.
+    assert not _in_application("Native extraction", _gui_imports())
+    assert _in_application("Trace ⇄ movie round trip", _gui_imports())
     assert _in_application("Movie panel", _gui_imports())
-    assert _in_application("Population histogram", _gui_imports())
+    assert _in_application("Analysis plots", _gui_imports())
 
 
 def test_a_type_only_import_is_not_a_gui_import() -> None:
