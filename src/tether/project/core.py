@@ -742,6 +742,28 @@ class Project:
             self.path, molecule_key, windows, labeler=labeler, reason=reason, timestamp=timestamp
         )
 
+    def restore_categories(
+        self,
+        molecule_key: str,
+        categories: Mapping[str, str],
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Give each row of a molecule its own category back, by ``molecule_id``
+        ([`molecule_edits.restore_categories`][tether.project.molecule_edits.restore_categories]).
+
+        The writer behind an undo or redo of a category edit (#632). Refuses the write if
+        the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.restore_categories(
+            self.path, molecule_key, categories, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
     def read_molecule_audit(self) -> np.ndarray:
         """The append-only per-molecule edit log (`molecule_edits.read_molecule_audit`)."""
         from tether.project import molecule_edits

@@ -405,6 +405,17 @@ def _window_state(rows: Sequence[StoredMolecule], row: int) -> WindowState:
     )
 
 
+def _category_state(rows: Sequence[StoredMolecule]) -> tuple[tuple[str, str], ...]:
+    """Each stored row's ``(molecule_id, category)``, the category state an undo writes back.
+
+    Two rows can share a molecule key with different categories, so the state is kept
+    row by row (#632). Raises ``KeyError`` when ``rows`` is empty.
+    """
+    if not rows:
+        raise KeyError("no stored row of the molecule")
+    return tuple((m.molecule_id, m.category) for m in rows)
+
+
 def _movie_panel_unavailable() -> str | None:
     """Why no napari movie panel can be built in this process, or ``None`` (#356).
 
@@ -4419,7 +4430,9 @@ class TetherShell:
             self._guard_session_write(project, nonce)
             result = writers[action](key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
-            self._keep_history_if_unchanged(before, lambda: curation_snapshot(project.path, key))
+            self._keep_history_if_unchanged(
+                key, before, lambda: curation_snapshot(project.path, key)
+            )
             self._status(f"{verb} failed: {exc}")
             return
         if action is CurationAction.UNREJECT and result is None:
@@ -4646,7 +4659,7 @@ class TetherShell:
         """Put a stored curation action on the undo list; an action that changed nothing is not.
 
         ``before`` (or the state after) is ``None`` when it could not be read: the action
-        is then stored but cannot be undone, and both lists are emptied.
+        is then stored but cannot be undone, and the molecule's entries leave both lists.
 
         For an accept, reject or un-reject (``project`` given) the state after the write
         is read back from the store, so a redo writes what the action stored.
@@ -4658,9 +4671,12 @@ class TetherShell:
             except Exception:  # noqa: BLE001 - the write stands; it only cannot be undone
                 after = None
         if before is None or after is None:
-            # A stored action that cannot be undone empties both lists: an undo or a redo
-            # of an earlier action written over it would take it back unseen.
-            self._clear_undo()
+            # A stored action that cannot be undone drops the molecule's entries: an undo
+            # or a redo of an earlier action written over it would take it back unseen.
+            # A redo of another molecule's action must not follow a new action either.
+            self._forget_undo(key)
+            self._undo.clear_redo()
+            self._sync_undo_actions()
             return
         if after == before:
             return
@@ -4672,17 +4688,24 @@ class TetherShell:
         self._undo.clear()
         self._sync_undo_actions()
 
-    def _keep_history_if_unchanged(self, before: object, read: Callable[[], object]) -> None:
-        """Keep the undo and redo lists after a failed write only if the store is unchanged.
+    def _keep_history_if_unchanged(
+        self, key: str, before: object, read: Callable[[], object]
+    ) -> None:
+        """Keep molecule ``key``'s entries after a failed write only if its state is unchanged.
 
         A writer can fail part way, after it changed the stored state: a reject can store
         its label and then fail on its reject-log row. An undo or a redo written over such
-        a state would take it back unseen, so both lists are emptied unless the state can
-        be read and still equals ``before``.
+        a state would take it back unseen, so the molecule's entries leave both lists
+        unless its state can be read and still equals ``before``.
         """
         if before is not None and _read_or_none(read) == before:
             return
-        self._clear_undo()
+        self._forget_undo(key)
+
+    def _forget_undo(self, key: str) -> None:
+        """Drop molecule ``key``'s entries from both lists (see [`UndoStack.forget`][])."""
+        self._undo.forget(key)
+        self._sync_undo_actions()
 
     def _sync_undo_actions(self) -> None:
         """Name the action each Edit entry acts on, and enable it only when there is one."""
@@ -4723,14 +4746,26 @@ class TetherShell:
             return False
         project, nonce = writable
         state = entry.after if redo else entry.before
+        expected = entry.before if redo else entry.after
+        if _read_or_none(lambda: self._read_entry_state(project, entry)) != expected:
+            # Something the lists do not hold changed the molecule since (a return-leg
+            # import, a bulk reject, a step the store refused): writing this step would
+            # take that back unseen, so the molecule's entries leave both lists.
+            self._forget_undo(entry.molecule_key)
+            self._status(
+                f"{verb} unavailable: {entry.description} was changed since by an edit "
+                "that cannot be undone, so its steps are no longer on the lists"
+            )
+            return False
         try:
             self._guard_session_write(project, nonce)
             self._write_undo_state(project, entry, state, verb.lower())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             # The store refused this step, so it stays refused: drop it, so the steps
             # before it can still be taken. A lost lock has emptied both lists already,
-            # and a write that failed part way empties them here.
+            # and a write that failed part way drops the molecule's entries here.
             self._keep_history_if_unchanged(
+                entry.molecule_key,
                 entry.before if redo else entry.after,
                 lambda: self._read_entry_state(project, entry),
             )
@@ -4760,7 +4795,7 @@ class TetherShell:
         if entry.kind == CURATION:
             return curation_snapshot(project.path, key)
         if entry.kind == CATEGORY:
-            return stored_molecule(project.path, key, row=entry.row).category
+            return _category_state(stored_rows(project.path, (key,)))
         return _window_state(stored_rows(project.path, (key,)), entry.row)
 
     def _write_undo_state(
@@ -4787,10 +4822,7 @@ class TetherShell:
                 **labeler,
             )
         elif entry.kind == CATEGORY:
-            if state:
-                project.set_category(key, state, reason=reason, **labeler)
-            else:
-                project.clear_category(key, reason=reason, **labeler)
+            project.restore_categories(key, dict(state), reason=reason, **labeler)
         else:
             window: WindowState = state
             if window.whole:
@@ -4809,8 +4841,12 @@ class TetherShell:
                 self._queue_analysis_refresh()
                 self._queue_readiness_refresh()
             elif entry.kind == CATEGORY:
-                category = stored_molecule(project.path, key, row=entry.row).category
-                self._molecule_view.update_rows(rows, category=category)
+                # Each list row shows its own stored category; a listed row the store
+                # does not hold shows its key's first.
+                by_row = {m.row: m for m in stored_rows(project.path, (key,))}
+                first = next(iter(by_row.values()))
+                for i in rows:
+                    self._molecule_view.update_rows([i], category=by_row.get(i, first).category)
             else:
                 self._queue_analysis_refresh()
                 self._queue_readiness_refresh()
@@ -4859,13 +4895,16 @@ class TetherShell:
             count = f"{len(classes)} " + ("category" if len(classes) == 1 else "categories")
             self._status(f"{verb} unavailable: its condition has {count}")
             return
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            self._keep_history_if_unchanged(
-                stored.category, lambda: stored_molecule(project.path, key, row=row).category
-            )
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
         target = trace.name or key
@@ -4874,8 +4913,8 @@ class TetherShell:
             key,
             row,
             f"category {integer_class} ({name}) for {target}",
-            stored.category,
-            after=name,
+            before,
+            after=_read_or_none(read),
         )
         self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=name)
         self._after_states_changed()
@@ -4890,18 +4929,25 @@ class TetherShell:
         project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
-        before = _read_or_none(lambda: stored_molecule(project.path, key, row=row).category)
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.clear_category(key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            self._keep_history_if_unchanged(
-                before, lambda: stored_molecule(project.path, key, row=row).category
-            )
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
         self._record_undo(
-            CATEGORY, key, row, f"category clearing for {trace.name or key}", before, after=""
+            CATEGORY,
+            key,
+            row,
+            f"category clearing for {trace.name or key}",
+            before,
+            after=_read_or_none(read),
         )
         self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category="")
         self._after_states_changed()
@@ -5353,7 +5399,7 @@ class TetherShell:
             self._guard_session_write(project, nonce)
             write()
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            self._keep_history_if_unchanged(before, read)
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_analysis_refresh()
@@ -5362,7 +5408,7 @@ class TetherShell:
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
-            self._record_undo(WINDOW, key, row, undo_text, None)  # empties both lists
+            self._record_undo(WINDOW, key, row, undo_text, None)  # cannot be undone
             self._status(
                 f"Analysis window saved for {trace.name or key}, "
                 f"but the trace view could not reread it: {exc}"

@@ -35,7 +35,8 @@ __all__ = [
 #: An accept, reject or un-reject: the state is a
 #: [`CurationSnapshot`][tether.services.curation.CurationSnapshot].
 CURATION = "curation"
-#: A category assign or clear: the state is the category name (``""`` for none).
+#: A category assign or clear: the state is each row's ``(molecule_id, category)``
+#: (``""`` for none), since rows that share a molecule can differ.
 CATEGORY = "category"
 #: An analysis-window edit: the state is a [`WindowState`][].
 WINDOW = "window"
@@ -100,7 +101,8 @@ class UndoStack:
     [`undo_entry`][] and [`redo_entry`][] name what an undo or redo would act on; the
     shell writes the state and then calls [`undone`][] or [`redone`][] to move the
     entry across. [`discard`][] drops an entry whose write failed, so one broken step
-    cannot block the steps before it.
+    cannot block the steps before it, and [`forget`][] drops a molecule's entries once
+    its stored state no longer follows from them.
     """
 
     def __init__(self) -> None:
@@ -147,6 +149,24 @@ class UndoStack:
     def discard(self, *, redo: bool = False) -> UndoEntry:
         """Drop the [`undo_entry`][] (or the [`redo_entry`][]) after its write failed."""
         return (self._redo if redo else self._undo).pop()
+
+    def clear_redo(self) -> None:
+        """Empty the redo list: a stored action that cannot be undone came after it."""
+        self._redo.clear()
+
+    def forget(self, molecule_key: str) -> int:
+        """Drop every entry of ``molecule_key`` from both lists; return how many.
+
+        The molecule's stored state no longer follows from its entries (a write failed
+        part way, a state could not be read, or an edit the lists do not hold changed
+        it), so replaying one would take back a change unseen. Entries of other
+        molecules stay: an action writes the rows of one molecule only.
+        """
+        undo = [e for e in self._undo if e.molecule_key != molecule_key]
+        redo = [e for e in self._redo if e.molecule_key != molecule_key]
+        dropped = len(self._undo) + len(self._redo) - len(undo) - len(redo)
+        self._undo[:], self._redo[:] = undo, redo
+        return dropped
 
     def clear(self) -> None:
         """Empty both lists: the project closed, another opened, or it became read-only."""

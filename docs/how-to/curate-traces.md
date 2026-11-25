@@ -329,8 +329,11 @@ Undo does not take back a correction pass, an idealization, an import or a bulk
 threshold-reject.
 
 Sometimes Tether cannot read a molecule's state around an action, or a write fails part way.
-Then Tether keeps what was stored and empties both lists. So an undo of an earlier action
-never takes back a change that is not on the list.
+Then Tether keeps what was stored and removes that molecule's actions from both lists.
+
+An import or a bulk reject can also change a molecule after an action on the list. Then the
+undo of that action does not run. The status bar says so, and the molecule's actions leave
+the lists. So an undo never takes back a change that is not on the list.
 
 Nothing you do here deletes a molecule or a decision. An undo adds the rows that restore the
 earlier state. It removes no row, so the history survives a reversal.

@@ -382,6 +382,9 @@ def test_an_undo_the_store_refuses_is_dropped_so_earlier_steps_still_undo(
     shell, qtbot, tmp_path
 ) -> None:
     project, keys = _loaded(shell, tmp_path)
+    shell.molecule_list.setCurrentRow(1)
+    _press(qtbot, shell, "Key_Space")  # another molecule's step
+    shell.molecule_list.setCurrentRow(0)
     _press(qtbot, shell, "Key_Space")
     _press(qtbot, shell, "Key_1")  # "bound"
     _press(qtbot, shell, "Key_2")  # "unbound"; its undo writes "bound" back
@@ -390,11 +393,74 @@ def test_an_undo_the_store_refuses_is_dropped_so_earlier_steps_still_undo(
 
     assert not shell.undo()
     assert "failed" in shell.status_message
-    assert shell.undo_stack.undo_count == 2
+    assert shell.undo_stack.undo_count == 3
 
-    assert shell.undo()  # the category assign: back to uncategorized
-    assert shell.undo()  # the accept
-    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.UNCURATED
+    # "unbound" stays, so the molecule's earlier steps no longer follow from its state:
+    # they leave the lists rather than take "unbound" back unseen.
+    assert not shell.undo()
+    assert "changed since by an edit that cannot be undone" in shell.status_message
+    assert shell.undo_stack.undo_count == 1
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.ACCEPT
+
+    assert shell.undo()  # the other molecule's accept
+    assert labels.curation_label_of(project.path, keys[1]) == labels.CurationLabel.UNCURATED
+
+
+@_needs_qt
+@pytest.mark.gui
+@pytest.mark.parametrize("key_name", ["Key_0", "Key_3"])
+def test_an_undo_gives_each_row_of_a_shared_key_its_own_category_back(
+    shell, qtbot, tmp_path, key_name
+) -> None:
+    # Two rows share a molecule_key with different categories. A category key writes one
+    # name to both; the undo must give each row its own category back.
+    project, keys = _store(tmp_path)
+    with h5py.File(project.path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        table["molecule_key"][1] = table["molecule_key"][0]
+        table["category"][0] = "bound"
+        table["category"][1] = "unbound"
+        f["molecules"]["table"][:] = table
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(0)
+    before = _state(project.path, keys[0])
+    assert before[1] == ("bound", "unbound")
+
+    _press(qtbot, shell, key_name)
+    after = _state(project.path, keys[0])
+    assert after != before, shell.status_message
+
+    assert shell.undo(), shell.status_message
+    assert _state(project.path, keys[0]) == before
+    assert shell.redo(), shell.status_message
+    assert _state(project.path, keys[0]) == after
+
+
+@_needs_qt
+@pytest.mark.gui
+@pytest.mark.parametrize("edit", ["curation", "window"])
+def test_an_undo_over_an_edit_the_lists_do_not_hold_is_refused(
+    shell, qtbot, tmp_path, edit
+) -> None:
+    # An import of a return leg (or a bulk reject) writes the store outside the lists.
+    project, keys = _loaded(shell, tmp_path)
+    shell.molecule_list.setCurrentRow(1)
+    _press(qtbot, shell, "Key_Space")
+    shell.molecule_list.setCurrentRow(0)
+    _press(qtbot, shell, "Key_Space" if edit == "curation" else "Key_BracketLeft")
+    if edit == "curation":
+        project.reject(keys[0])
+    else:
+        project.set_analysis_window(keys[0], 5, 40)
+    outside = _state(project.path, keys[0])
+
+    assert not shell.undo()
+
+    assert "changed since by an edit that cannot be undone" in shell.status_message
+    assert _state(project.path, keys[0]) == outside
+    assert shell.undo_stack.undo_count == 1
+    assert shell.undo()  # the other molecule's step still undoes
+    assert labels.curation_label_of(project.path, keys[1]) == labels.CurationLabel.UNCURATED
 
 
 @_needs_qt
