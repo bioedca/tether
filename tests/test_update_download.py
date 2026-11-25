@@ -23,6 +23,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from email.message import Message
@@ -218,6 +219,58 @@ def test_cancel_during_the_download_removes_the_folder(tmp_path: Path) -> None:
     result, _ = _run(tmp_path, _Response(body), cancelled=cancelled)
     assert result.outcome is DownloadOutcome.CANCELLED
     assert _left(tmp_path) == []
+
+
+# --- folders left behind --------------------------------------------------------------
+
+
+def _aged(path: Path, seconds: float) -> Path:
+    when = time.time() - seconds
+    os.utime(path, (when, when))
+    return path
+
+
+def test_a_download_removes_this_users_old_download_folders_first(tmp_path: Path) -> None:
+    day = update_download.STALE_AFTER_S
+    old = tmp_path / "tether-download-old"
+    (old / "sub").mkdir(parents=True)
+    (old / NAME).write_bytes(b"left behind")
+    _aged(old, day + 60)
+    fresh = tmp_path / "tether-download-fresh"
+    fresh.mkdir()
+    other = tmp_path / "keep-me"
+    other.mkdir()
+    _aged(other, day + 60)
+    plain = tmp_path / "tether-download-file"
+    plain.write_bytes(b"x")
+    _aged(plain, day + 60)
+    result, _ = _run(tmp_path, _Response(b"abc"))
+    assert result.outcome is DownloadOutcome.DOWNLOADED
+    assert not old.exists()
+    assert fresh.exists()
+    assert other.exists() and plain.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need privileges on Windows")
+def test_a_link_with_the_download_name_is_left_alone(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "keep").write_bytes(b"x")
+    link = tmp_path / "tether-download-link"
+    link.symlink_to(target, target_is_directory=True)
+    when = time.time() - update_download.STALE_AFTER_S - 60
+    os.utime(link, (when, when), follow_symlinks=False)
+    _run(tmp_path, _Response(b"abc"))
+    assert link.is_symlink() and (target / "keep").exists()
+
+
+def test_a_failed_sweep_does_not_stop_the_download(tmp_path: Path, monkeypatch) -> None:
+    def refuse(_path):
+        raise PermissionError("no listing")
+
+    monkeypatch.setattr(update_download.os, "scandir", refuse)
+    result, _ = _run(tmp_path, _Response(b"abc"))
+    assert result.outcome is DownloadOutcome.DOWNLOADED
 
 
 # --- the redirect ----------------------------------------------------------------------

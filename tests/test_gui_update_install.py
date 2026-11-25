@@ -103,6 +103,7 @@ class _Steps:
         self.installer = object()
         self.folder: Path | None = None
         self.gate: threading.Event | None = None
+        self.ignore_cancel = False
 
     def download(self, version, *, progress, cancelled):
         from tether.gui.update_download import DownloadOutcome, DownloadResult
@@ -111,7 +112,7 @@ class _Steps:
         progress(0, 4)
         if self.gate is not None:
             self.gate.wait(5)
-        if cancelled():
+        if cancelled() and not self.ignore_cancel:
             return DownloadResult(DownloadOutcome.CANCELLED)
         self.folder = self.tmp_path / "download"
         self.folder.mkdir()
@@ -469,6 +470,67 @@ def test_cancel_at_the_confirmation_removes_the_download(qtbot, window, store, t
     assert steps.folder is not None and not steps.folder.exists()
     notice.confirm()  # nothing left to hand off
     assert steps.quits == []
+
+
+# --- quitting -------------------------------------------------------------------------
+
+
+def test_quitting_at_the_confirmation_removes_the_download(qtbot, window, store, tmp_path) -> None:
+    _allow(store)
+    steps = _Steps(tmp_path)
+    notice = _notice(window, store, steps)
+    _shown(qtbot, notice)
+    notice.install()
+    qtbot.waitUntil(lambda: notice.mode == "confirm", timeout=3000)
+    assert steps.folder is not None and steps.folder.exists()
+    notice.shutdown()
+    assert not steps.folder.exists()
+    notice.confirm()  # nothing left to hand off
+    assert steps.quits == []
+
+
+def test_a_download_that_finishes_after_quitting_removes_its_own_folder(
+    qtbot, window, store, tmp_path
+) -> None:
+    _allow(store)
+    steps = _Steps(tmp_path)
+    steps.gate = threading.Event()
+    steps.ignore_cancel = True  # the worst case: the download does not stop when asked
+    notice = _notice(window, store, steps)
+    _shown(qtbot, notice)
+    notice.install()
+    thread = notice.install_thread
+    assert thread is not None
+    threading.Timer(0.2, steps.gate.set).start()
+    notice.shutdown()  # waits for the thread, which finishes the download after the quit
+    assert not thread.is_alive()
+    assert steps.folder is not None and not steps.folder.exists()
+    qtbot.wait(20)
+    assert [step for step, _ in steps.log] == ["download"]  # nothing verified after the quit
+
+
+def test_quitting_during_the_download_stops_it(qtbot, window, store, tmp_path) -> None:
+    _allow(store)
+    steps = _Steps(tmp_path)
+    steps.gate = threading.Event()
+    notice = _notice(window, store, steps)
+    _shown(qtbot, notice)
+    notice.install()
+    thread = notice.install_thread
+    threading.Timer(0.2, steps.gate.set).start()
+    notice.shutdown()
+    assert thread is not None and not thread.is_alive()
+    assert steps.folder is None  # the download saw the cancel and wrote nothing
+
+
+def test_the_notice_shuts_down_when_the_application_quits(qtbot, window, store) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    notice = _notice(window, store)
+    app = QtWidgets.QApplication.instance()
+    # Disconnecting succeeds only for a connected slot; it also keeps this test's notice
+    # out of any later quit.
+    assert app.aboutToQuit.disconnect(notice.shutdown)
 
 
 def test_turning_the_check_off_during_the_download_stops_the_update(

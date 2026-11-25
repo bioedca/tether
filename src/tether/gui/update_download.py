@@ -23,7 +23,9 @@ default port; any other target ends the download.
 ``.part`` name and then renamed to the installer name once every byte arrived, because
 ``verify_update`` accepts only that exact name. A failed or cancelled download removes the
 folder. The caller removes it after the hand-off, which copies the file into a folder of its
-own first.
+own first. An application that quit in the middle of a download may leave its folder behind;
+each new download first removes this user's download folders in the same place that are older
+than [`STALE_AFTER_S`][].
 
 **Bounded.** Each read may wait at most ``timeout`` seconds ([`DOWNLOAD_TIMEOUT_S`][]); a
 body larger than [`MAX_INSTALLER_BYTES`][], or shorter or longer than the length the server
@@ -46,6 +48,7 @@ import http.client
 import os
 import shutil
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -60,6 +63,7 @@ __all__ = [
     "DOWNLOAD_BASE",
     "DOWNLOAD_TIMEOUT_S",
     "MAX_INSTALLER_BYTES",
+    "STALE_AFTER_S",
     "DownloadOutcome",
     "DownloadResult",
     "Progress",
@@ -80,6 +84,11 @@ DOWNLOAD_TIMEOUT_S = 60.0
 MAX_INSTALLER_BYTES = 4 * 1024**3
 """The largest installer Tether downloads. A 1.0 release installer is about 0.8 GB."""
 
+STALE_AFTER_S = 24 * 3600.0
+"""Age in seconds after which a download folder left behind is removed by the next download
+(PRD §11.2). A download still running in another Tether window is far younger than this."""
+
+_FOLDER_PREFIX = "tether-download-"
 _GITHUB_HOST = "github.com"
 _ALLOWED_HOSTS = frozenset({_GITHUB_HOST, ASSET_HOST})
 _USER_AGENT = "Tether"
@@ -148,8 +157,35 @@ def _default_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(_ReleaseHostsOnly())
 
 
+def _remove_stale(workroot: Path | None) -> None:
+    """Remove this user's download folders in ``workroot`` older than [`STALE_AFTER_S`][].
+
+    Only real directories with the download prefix count: a link, a junction, another user's
+    folder or a plain file is left alone. Never raises.
+    """
+    root = Path(workroot) if workroot is not None else Path(tempfile.gettempdir())
+    cutoff = time.time() - STALE_AFTER_S
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.name.startswith(_FOLDER_PREFIX):
+            continue
+        try:
+            if not entry.is_dir(follow_symlinks=False) or getattr(entry, "is_junction", bool)():
+                continue
+            info = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if (uid is not None and info.st_uid != uid) or info.st_mtime >= cutoff:
+            continue
+        shutil.rmtree(entry.path, ignore_errors=True)
+
+
 def _private_folder(workroot: Path | None) -> Path:
-    folder = Path(tempfile.mkdtemp(prefix="tether-download-", dir=workroot))
+    folder = Path(tempfile.mkdtemp(prefix=_FOLDER_PREFIX, dir=workroot))
     if os.name == "posix":
         folder.chmod(0o700)
     return folder
@@ -182,6 +218,7 @@ def download_installer(
     if url is None:
         return DownloadResult(DownloadOutcome.FAILED, reason="no installer for this platform")
     name = url.rsplit("/", 1)[1]
+    _remove_stale(workroot)
     folder = _private_folder(workroot)
     try:
         path = _download(url, folder / name, progress, cancelled, timeout, opener)

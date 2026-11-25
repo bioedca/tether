@@ -59,6 +59,15 @@ update. A download that does not finish says so in one line and keeps the link; 
 asked for it, so the user is told. The downloaded file is removed whatever the outcome: the
 hand-off works on its own private copy.
 
+**Quitting removes the download too.** When the application quits (``aboutToQuit``), or the
+notice is shut down with ``shutdown``, the notice stops the install job, removes every
+download folder it holds, and waits at most [`SHUTDOWN_WAIT_S`][] for the job's thread, so a
+download stopped between two reads removes its own folder. A download that finishes after that
+removes its folder itself instead of handing it over. A download that could not stop in time
+is removed the next time an update is downloaded
+([`tether.gui.update_download.download_installer`][] removes folders of its own older than a
+day).
+
 **The result of the last update.** At the next start the notice reads the helper's report
 ([`tether.gui.update_handoff.read_update_result`][]), shows it once in the bar (*updated*,
 *restored*, *unchanged* or *failed*, the last with the folder of the previous copy), writes it
@@ -87,6 +96,7 @@ __all__ = [
     "ACTION_OBJECT_NAME",
     "BAR_OBJECT_NAME",
     "NOTICE_OBJECT_NAME",
+    "SHUTDOWN_WAIT_S",
     "UpdateNotice",
     "install_update_notice",
     "report_text",
@@ -116,6 +126,47 @@ DOWNLOAD_FAILED_TEXT = (
     "The update could not be downloaded. Try again later, or download it from the Releases page."
 )
 """The one line a download that did not finish gives."""
+
+SHUTDOWN_WAIT_S = 5.0
+"""Seconds the quitting application waits for a running install job to stop (PRD §11.2)."""
+
+
+class _Folders:
+    """The download folders a notice holds, shared with its worker threads.
+
+    A worker *adopts* the folder of a finished download before it hands the result to the GUI
+    thread; once the notice is closed, adopting fails and the worker removes the folder itself,
+    so no download outlives the application that asked for it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._held: set[Path] = set()
+        self._closed = False
+
+    def adopt(self, folder: Path) -> bool:
+        with self._lock:
+            if self._closed:
+                return False
+            self._held.add(folder)
+            return True
+
+    def remove(self, folder: Path) -> None:
+        with self._lock:
+            self._held.discard(folder)
+        shutil.rmtree(folder, ignore_errors=True)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            held, self._held = self._held, set()
+        for folder in held:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def held(self) -> frozenset[Path]:
+        with self._lock:
+            return frozenset(self._held)
+
 
 _REPORT_TEXT = {
     "updated": "Tether was updated to {version}.",
@@ -206,6 +257,7 @@ def _make_notice_class() -> type:
             self._job_thread: threading.Thread | None = None
             self._cancel = threading.Event()
             self._download_folder: Path | None = None
+            self._folders = _Folders()
             self._installer: Any | None = None
             # Set for the rest of the session when verification could not run, so the
             # notice keeps only the link.
@@ -217,6 +269,9 @@ def _make_notice_class() -> type:
             self._progress.connect(self._on_progress)
             self._downloaded.connect(self._on_downloaded)
             self._verified.connect(self._on_verified)
+            app = QtWidgets.QApplication.instance()
+            if app is not None:
+                app.aboutToQuit.connect(self.shutdown)
 
             self._bar = QtWidgets.QToolBar("Update", window)
             self._bar.setObjectName(BAR_OBJECT_NAME)
@@ -425,6 +480,7 @@ def _make_notice_class() -> type:
             cancel = self._cancel
             self._show_progress("downloading", f"Downloading Tether {version}…")
             emit_progress, emit_done = self._progress.emit, self._downloaded.emit
+            folders = self._folders
 
             def run() -> None:
                 def progress(received: int, total: int | None) -> None:
@@ -436,8 +492,16 @@ def _make_notice_class() -> type:
                 except Exception:  # noqa: BLE001 - reported as a failed download
                     _LOG.debug("update download failed", exc_info=True)
                     result = None
-                with contextlib.suppress(RuntimeError):
+                path = getattr(result, "path", None)
+                folder = path.parent if isinstance(path, Path) else None
+                if folder is not None and not folders.adopt(folder):
+                    shutil.rmtree(folder, ignore_errors=True)  # the application is quitting
+                    return
+                try:
                     emit_done(job, result)
+                except RuntimeError:  # the notice is gone: nobody will remove the folder
+                    if folder is not None:
+                        folders.remove(folder)
 
             self._run_job(run, "tether-update-download")
 
@@ -486,6 +550,25 @@ def _make_notice_class() -> type:
             self._installer = None
             self._discard_download()
             self._show_notice()
+
+        def shutdown(self) -> None:
+            """Stop the install job and remove every download (the application is quitting).
+
+            Connected to ``aboutToQuit``. Waits at most [`SHUTDOWN_WAIT_S`][] for the job's
+            thread, so that a download stopped between two reads removes its own folder.
+            """
+            self._cancel.set()
+            self._job += 1
+            self._installer = None
+            self._download_folder = None
+            self._folders.close()
+            thread = self._job_thread
+            if (
+                thread is not None
+                and thread.is_alive()
+                and thread is not threading.current_thread()
+            ):
+                thread.join(SHUTDOWN_WAIT_S)
 
         # --- internals ---------------------------------------------------------
 
@@ -670,7 +753,7 @@ def _make_notice_class() -> type:
         def _discard_download(self) -> None:
             folder, self._download_folder = self._download_folder, None
             if folder is not None:
-                shutil.rmtree(folder, ignore_errors=True)
+                self._folders.remove(folder)
 
         def _on_progress(self, job: object, received: object, total: object) -> None:
             if job != self._job or self._mode != "downloading":
@@ -684,10 +767,12 @@ def _make_notice_class() -> type:
             if job != self._job or self._mode != "downloading":
                 # Cancelled: the job's file is not wanted.
                 if isinstance(path, Path):
-                    shutil.rmtree(path.parent, ignore_errors=True)
+                    self._folders.remove(path.parent)
                 return
             outcome = getattr(getattr(result, "outcome", None), "value", None)
             if outcome != "downloaded" or not isinstance(path, Path):
+                if isinstance(path, Path):
+                    self._folders.remove(path.parent)
                 if outcome != "cancelled":
                     _LOG.debug("update download did not finish: %s", getattr(result, "reason", ""))
                     messages.post(self._window, DOWNLOAD_FAILED_TEXT, messages.Level.WARNING)
@@ -729,7 +814,7 @@ def _make_notice_class() -> type:
                 # case the first attempt met a file the verifier still held open.
                 path = getattr(getattr(result, "installer", None), "path", None)
                 if isinstance(path, Path):
-                    shutil.rmtree(path.parent, ignore_errors=True)
+                    self._folders.remove(path.parent)
                 return
             outcome = getattr(getattr(result, "outcome", None), "value", None)
             if outcome == "verified" and self.state().network_allowed:

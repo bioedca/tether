@@ -599,7 +599,8 @@ true:
 When you select **Install update**:
 
 1. Tether downloads the installer of the new release. A progress bar shows how much has
-   arrived. **Cancel** stops the download and deletes the file.
+   arrived. **Cancel** stops the download and deletes the file. If you close Tether before
+   the update starts, Tether also deletes the file.
 2. Tether checks the download against the release's build-provenance attestation, as
    [How the in-app updater checks a download](packaging.md#how-the-in-app-updater-checks-a-download)
    tells you. If the check refuses the file, the bar gives the reason and Tether installs
