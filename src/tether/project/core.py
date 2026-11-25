@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         RekeyPreview,
         RekeyResult,
     )
+    from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
     from tether.project.lock import LockIdentity, LockInfo, RecoveryAction
@@ -408,6 +409,19 @@ class Project:
 
         self._assert_writable()
         return labels.unreject(self.path, molecule_key, **provenance)
+
+    def confirm_carried(self, molecule_keys: Iterable[str], **provenance: object) -> ConfirmResult:
+        """Confirm carried molecules of a new trace generation (#923).
+
+        Removes the mark *carried* and records who confirmed and when
+        ([`confirm_carried`][tether.project.generation_reconcile.confirm_carried]; the
+        keyword arguments ``labeler``, ``timestamp`` and ``source_file`` pass through).
+        Refuses the canonical write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import generation_reconcile
+
+        self._assert_writable()
+        return generation_reconcile.confirm_carried(self.path, molecule_keys, **provenance)  # type: ignore[arg-type]
 
     def curation_label(self, molecule_key: str) -> int:
         """The molecule's current ``curation_label`` (`labels.curation_label_of`)."""
