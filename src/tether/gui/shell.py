@@ -130,6 +130,7 @@ if TYPE_CHECKING:
     from tether.project.core import Project
     from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
+    from tether.services.corrections import CorrectionPassResult
     from tether.services.curation import MoleculeState, StoredMolecule
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
@@ -242,6 +243,14 @@ _DEFAULT_SECTION = CURATE_SECTION
 _ProjectOwnerKey = tuple[str, int, int] | tuple[str, str]
 _GUI_PROJECT_OWNERS: dict[_ProjectOwnerKey, object] = {}
 _GUI_PROJECT_OWNERS_LOCK = Lock()
+# A shell whose pass publishes a replacement of its project file holds the canonical path
+# here until its claim has moved to the new file (`_rebind_gui_project`). Between the
+# replace and that move the new file has no owner key, so a claim of the path must wait.
+_GUI_PUBLISHING_PATHS: dict[str, object] = {}
+
+
+def _canonical_project_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
@@ -252,7 +261,7 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
     """
     from tether.project.lock import file_identity
 
-    resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
+    resolved = _canonical_project_path(path)
     identity = file_identity(resolved)
     if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
@@ -263,13 +272,34 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
     """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
-    key = _project_owner_key(path)
+    canonical = _canonical_project_path(path)
     with _GUI_PROJECT_OWNERS_LOCK:
+        # Read the identity under the lock: a pass that replaces the file and moves its
+        # claim between this read and the check would leave the old identity free.
+        key = _project_owner_key(path)
         owner = _GUI_PROJECT_OWNERS.get(key)
         if owner is not None and owner is not token:
             return None
+        publisher = _GUI_PUBLISHING_PATHS.get(canonical)
+        if publisher is not None and publisher is not token:
+            return None
         _GUI_PROJECT_OWNERS[key] = token
     return key
+
+
+def _hold_publishing_path(path: str | Path, token: object) -> str:
+    """Mark ``path`` as being replaced by ``token``'s shell; return the canonical path."""
+    canonical = _canonical_project_path(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        _GUI_PUBLISHING_PATHS[canonical] = token
+    return canonical
+
+
+def _drop_publishing_path(canonical: str, token: object) -> None:
+    """End the mark of `_hold_publishing_path` when ``token`` still holds it."""
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if _GUI_PUBLISHING_PATHS.get(canonical) is token:
+            del _GUI_PUBLISHING_PATHS[canonical]
 
 
 def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
@@ -279,6 +309,31 @@ def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
     with _GUI_PROJECT_OWNERS_LOCK:
         if _GUI_PROJECT_OWNERS.get(key) is token:
             del _GUI_PROJECT_OWNERS[key]
+
+
+def _rebind_gui_project(
+    key: _ProjectOwnerKey | None, path: str | Path, token: object
+) -> _ProjectOwnerKey | None:
+    """Move ``token``'s claim from ``key`` to the file now at ``path``; return the key it holds.
+
+    A guarded publish replaces the project file with one atomic ``os.replace``, so the
+    file at ``path`` has a new identity and ``key`` names a file that is gone. The lock
+    moves its identity record across that replace (ADR-0112); this moves the
+    process-local claim the same way. If ``token`` does not hold ``key``, or another
+    token holds the new file, the claim stays as it was.
+    """
+    if key is None:
+        return None
+    new = _project_owner_key(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if new == key or _GUI_PROJECT_OWNERS.get(key) is not token:
+            return key
+        owner = _GUI_PROJECT_OWNERS.get(new)
+        if owner is not None and owner is not token:
+            return key
+        del _GUI_PROJECT_OWNERS[key]
+        _GUI_PROJECT_OWNERS[new] = token
+    return new
 
 
 def _probe_project_writable(path: str | Path) -> None:
@@ -765,6 +820,8 @@ class TetherShell:
         # The currently open modal wrapper, retained so timer-detected lock loss can
         # reject it before its stale Project handle reaches another write action.
         self._active_conditions_dialog: Any | None = None
+        # The summary of the last correction pass (#360), shown non-modal, or None.
+        self._correction_summary: Any | None = None
         # A fit abandoned by shell close remains a writer until its Future settles.
         # Keep that Future separate from the visible idealization state so the
         # nonce-safe release timer waits for the writer and retries teardown errors.
@@ -1562,6 +1619,11 @@ class TetherShell:
                             title="&Conditions",
                             populate=lambda _host, menu: self._populate_conditions_menu(menu),
                         ),
+                        MenuSpec(
+                            id="corrections",
+                            title="Co&rrections",
+                            populate=lambda _host, menu: self._populate_corrections_menu(menu),
+                        ),
                     ),
                     keymap_scope=CURATION_SCOPE,
                 ),
@@ -1662,6 +1724,19 @@ class TetherShell:
         self._conditions_menu = menu
         self._act_validate_conditions = menu.addAction("Validate &conditions…")
         self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
+
+    def _populate_corrections_menu(self, menu: Any) -> None:
+        """Curate and correct's Corrections menu: run the correction pass (#360, §7.2).
+
+        The action is enabled from the project's correction state (G03), read each time
+        the menu opens; a disabled action says why in its tooltip.
+        """
+        # A QMenu shows no action tooltip unless asked to, and the tooltip holds the reason.
+        menu.setToolTipsVisible(True)
+        self._corrections_menu = menu
+        self._act_correction_pass = menu.addAction("Run &correction pass…")
+        self._act_correction_pass.triggered.connect(self._correction_pass_dialog)
+        menu.aboutToShow.connect(self.sync_correction_controls)
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -3873,6 +3948,177 @@ class TetherShell:
             return
         self._status("Conditions validation closed")
 
+    # --- corrections (the correction pass, §7.2, #360) -----------------------
+
+    @property
+    def corrections_menu(self) -> QtWidgets.QMenu:
+        """The ``Co&rrections`` menu of the Curate and correct section (#360)."""
+        return self._corrections_menu
+
+    @property
+    def correction_pass_action(self) -> Any:
+        """The **Run correction pass…** action of the Corrections menu (#360)."""
+        return self._act_correction_pass
+
+    @property
+    def correction_summary(self) -> Any | None:
+        """The [`CorrectionSummaryDialog`][tether.gui.corrections.CorrectionSummaryDialog].
+
+        It is the summary of the last correction pass, or ``None`` before the first one.
+        """
+        return self._correction_summary
+
+    def _correction_pass_unavailable(self) -> str | None:
+        """Why the correction pass cannot start now, or ``None`` when it can.
+
+        It needs an idle, writable session, a correction state of
+        [`PASS_STATES`][tether.services.corrections.PASS_STATES] and no manual factor
+        ([`pass_refusal`][tether.services.corrections.pass_refusal], read now, with no lock).
+        """
+        from tether.services.corrections import pass_refusal
+
+        if self._idealize_future is not None:
+            return "a background task is running; wait for it to finish"
+        project = self._curation_project
+        if project is None:
+            reason = self._curation_read_only_reason or "load a writable project first"
+            prefix = "project is read-only: " if self._curation_read_only_reason else ""
+            return f"{prefix}{reason}"
+        try:
+            return pass_refusal(project.path)
+        except Exception as exc:  # noqa: BLE001 - a state that cannot be read refuses the pass
+            return f"the correction state could not be read: {exc}"
+
+    def sync_correction_controls(self) -> None:
+        """Enable **Run correction pass…** from the correction state, with the reason if not.
+
+        The Corrections menu calls this each time it opens.
+        """
+        reason = self._correction_pass_unavailable()
+        self._act_correction_pass.setEnabled(reason is None)
+        tip = "" if reason is None else f"Unavailable: {reason}"
+        self._act_correction_pass.setToolTip(tip)
+        self._act_correction_pass.setStatusTip(tip)
+
+    def run_correction_pass(self, *, apparent_e_only: bool = False) -> bool:
+        """Start the correction pass over the open project; return whether it started.
+
+        The pass is [`compute_corrected_fret`][tether.project.correct.compute_corrected_fret]
+        over every molecule, through
+        [`run_correction_pass`][tether.services.corrections.run_correction_pass]. It runs on
+        the background-task service (#343), so idealization and every other project write
+        are frozen until it ends. Its writes are bound to the retained session lock: the
+        write guard asserts the exact nonce held when the pass started, so a lock stolen
+        while it runs refuses the publish. When it ends, the summary shows field by field
+        ([`correction_summary`][]). A refusal is a status message and starts nothing.
+        """
+        from tether.services.corrections import run_correction_pass
+
+        verb = "Correction pass"
+        if self._curation_project is not None:
+            self._refresh_project_lock()
+        reason = self._correction_pass_unavailable()
+        project = self._curation_project
+        if reason is None and project is not None:
+            try:
+                nonce = project._assert_held_lock()
+            except Exception:  # noqa: BLE001 - fail closed: any doubt about ownership refuses
+                self._refresh_project_lock()
+                reason = self._curation_read_only_reason or "the session lock is not held"
+        if reason is not None or project is None:
+            self._status(f"{verb} unavailable: {reason}")
+            return False
+
+        def guard() -> None:
+            project._assert_held_lock(expected_nonce=nonce)
+
+        claimed = self._claimed_project_key
+        token = self._project_owner_token
+
+        # The publish replaces the file, and the new file has no owner key until the claim
+        # moves to it after the pass. The path is held from now until then, so another
+        # window in this process cannot claim the new file in between.
+        publishing = _hold_publishing_path(project.path, token)
+
+        def task() -> CorrectionPassResult:
+            # The window's key moves here too, before the task settles: a window closed
+            # while the pass ran abandons the task, and its release after the task then
+            # frees the new key. Open and close project are refused while a task runs, so
+            # nothing else changes the key meanwhile.
+            try:
+                return run_correction_pass(
+                    project.path, apparent_e_only=apparent_e_only, write_guard=guard
+                )
+            finally:
+                rebound = _rebind_gui_project(claimed, project.path, token)
+                if rebound != claimed:
+                    self._claimed_project_key = rebound
+                _drop_publishing_path(publishing, token)
+
+        self._status("Running the correction pass…")
+        started = self._tasks.start(
+            task,
+            context=project.path,
+            label="Correction pass",
+            on_finished=self._finish_correction_pass,
+        )
+        if started is None:
+            _drop_publishing_path(publishing, token)
+        self._sync_project_write_controls()
+        return started is not None
+
+    def _finish_correction_pass(self, outcome: TaskOutcome) -> None:
+        """Apply a finished correction pass on the main thread: show it, or say why not."""
+        from tether.gui.corrections import BANNER_FAILURE, CorrectionSummaryDialog
+        from tether.gui.messages import Level
+        from tether.gui.tasks import TaskState
+
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        if outcome.state is not TaskState.DONE:
+            # A lost lock is one way to fail: the refresh turns the window read-only then,
+            # and does nothing while the lock is still held.
+            self._refresh_project_lock()
+            self._status(f"Correction pass failed: {outcome.error}", Level.ERROR)
+            return
+        self._queue_readiness_refresh()
+        result = outcome.value
+        if self._correction_summary is not None:
+            self._correction_summary.close()
+        summary = CorrectionSummaryDialog(result, parent=self._window)
+        self._correction_summary = summary
+        summary.show()
+        s = result.summary
+        line = (
+            f"Correction pass: {s.n_corrected + s.n_manual} of {s.n_molecules} molecules "
+            f"corrected, {s.n_apparent} in apparent E (state {result.state})"
+        )
+        if summary.banner_kind == BANNER_FAILURE:
+            self._status(f"{line}. {summary.banner.text()}", Level.WARNING)
+        else:
+            self._status(line)
+
+    def _correction_pass_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        """Menu entry: ask whether to keep apparent E by choice, then run the pass."""
+        from pyqtgraph.Qt import QtWidgets
+
+        box = QtWidgets.QMessageBox(self._window)
+        box.setWindowTitle("Run correction pass")
+        box.setText(
+            "Stamp each molecule's correction method from its leakage factor α and γ. "
+            "A molecule without a valid factor stays in apparent E."
+        )
+        only = QtWidgets.QCheckBox("Apparent E only (keep every molecule in apparent E)")
+        box.setCheckBox(only)
+        box.setStandardButtons(
+            QtWidgets.QMessageBox.StandardButton.Ok | QtWidgets.QMessageBox.StandardButton.Cancel
+        )
+        if box.exec() != QtWidgets.QMessageBox.StandardButton.Ok:
+            self._status("Correction pass cancelled")
+            return
+        self.run_correction_pass(apparent_e_only=only.isChecked())
+
     # --- legacy (M7 Deep-LASI re-analysis bundle import, §7.8) ---------------
 
     @property
@@ -4925,6 +5171,10 @@ class TetherShell:
         theme.unsubscribe(self._apply_menu_icons)
         self._molecule_view.close()
         self._start_page.close()
+        # The correction summary is its own top-level window: it would outlive the shell.
+        if self._correction_summary is not None:
+            self._correction_summary.close()
+            self._correction_summary = None
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer
             # settles. The repeating timer then attempts release and keeps retrying

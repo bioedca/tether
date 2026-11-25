@@ -78,6 +78,7 @@ from tether.project.correct import compute_corrected_fret
 from tether.project.labels import LABEL_SOURCE_DEEPLASI, CurationLabel, set_curation_label
 from tether.project.lock import PublishGuardRequiredError
 from tether.project.photobleach import compute_photobleach
+from tether.project.sources import project_movie_uri
 from tether.project.weighting import recompute_label_weights
 
 __all__ = ["ReconstructionSummary", "add_reconstruction_to_project", "reconstruct_project"]
@@ -255,7 +256,10 @@ def reconstruct_project(
         The linked movie's provenance ([`MovieMetadata`][tether.imaging.extract.MovieMetadata]);
         its ``sha256`` seeds every ``molecule_key`` and its ``n_frames`` **must** equal
         ``export.n_frames`` (they describe the same movie). The wizard builds this by
-        hashing the paired raw ``.tif``.
+        hashing the paired raw ``.tif``. Its ``uri`` is the movie's path as given (a
+        relative one is read from the current folder); the ``/movies`` row records it
+        relative to the project's folder
+        ([`tether.project.sources.project_movie_uri`][], #1282).
     coordinates:
         Recovered per-molecule coordinates, index-aligned with ``export`` traces. When
         ``None`` (default), recovered from ``export`` itself
@@ -500,6 +504,10 @@ def _reconstruct_into(
     if parsed is None:
         parsed = parse_filename(export.movie_name or f"{movie.movie_id}.tif")
 
+    if movie.uri:
+        # PRD §5.1: the row records the movie relative to the project's folder. ``path``
+        # is the project or a staged copy beside it, so its folder is the project's.
+        movie = replace(movie, uri=project_movie_uri(path, movie.uri))
     molecules = _colocalized_from_coordinates(coordinates)
     traces = _traces_from_export(export, donor_patches, acceptor_patches)
     settings = {
