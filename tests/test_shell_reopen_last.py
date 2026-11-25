@@ -166,6 +166,39 @@ def test_a_project_on_the_command_line_wins_over_the_last_one(launch, tmp_path) 
 
 @pytest.mark.gui
 @needs_qt
+def test_a_waiting_file_open_request_wins_over_the_last_one(launch, tmp_path, monkeypatch) -> None:
+    from tether.gui import app as gui_app
+    from tether.gui.shell import TetherShell
+
+    last = _stale_fit(tmp_path)
+    named = _new_project(tmp_path)
+    launch([str(last)]).close()
+
+    # The file manager asked for a project before the shell was built.
+    install = gui_app.install_file_open_handler
+
+    def _with_request(app, *, filter_events=None):
+        handler = install(app, filter_events=filter_events)
+        handler.pending.append(str(named))
+        return handler
+
+    opened: list[Path] = []
+    load = TetherShell.load_project
+
+    def _record(self, path):
+        opened.append(Path(path))
+        return load(self, path)
+
+    monkeypatch.setattr(gui_app, "install_file_open_handler", _with_request)
+    monkeypatch.setattr(TetherShell, "load_project", _record)
+    shell = launch()
+    # The last project is not opened first: its lock cannot stop the request.
+    assert opened == [named]
+    assert shell.project_path == named
+
+
+@pytest.mark.gui
+@needs_qt
 def test_a_missing_last_project_shows_the_start_page_with_a_message(launch, tmp_path) -> None:
     gone = tmp_path / "gone.tether"
     preferences.add_recent_project(gone, preferences.preferences_path())
