@@ -67,7 +67,7 @@ ACCEPT_LINES = (
     f"Accepted {ACCEPTED_IDS[0]}; Molecule mol-2 (3/3)",
     f"Accepted {ACCEPTED_IDS[1]}; end of the list reached",
 )
-HISTOGRAM_LINE = "Population histogram — 2 molecule(s), 48 frame(s)"
+HISTOGRAM_LINE = "FRET-efficiency histogram (A1) — All molecules: 2 molecule(s)"
 #: Frames in each molecule's trace: the histogram's 48 frames are two molecules of 24.
 N_FRAMES = 24
 IDEALIZING_LINE = f"Idealizing {ACCEPTED_IDS[1]} (one-click vbFRET)…"
@@ -256,10 +256,19 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         assert asked == [ACCEPTED_IDS[1]]
         assert len(shell.trace_dock.idealized_path) == N_FRAMES  # drawn on the dock
 
-        # Step 8: the population histogram leaves the rejected molecule out.
-        shell._act_histogram.trigger()
+        # Step 8: the population histogram leaves the rejected molecule out. The page's
+        # steps: open Analyze, keep the first plot, and add All molecules (#374).
+        shell.set_section("analyze")
+        section = shell.analysis_section
+        assert section.plot_combo.currentText() == "FRET-efficiency histogram (A1)"
+        assert section.add_button.text() == "Add selection"
+        section.add_menu.aboutToShow.emit()
+        everything = section.add_menu.actions()[0]
+        assert everything.text() == "All molecules"
+        everything.trigger()
         assert status.currentMessage() == HISTOGRAM_LINE
-        assert shell.histogram_dock is not None
+        assert section.figure is not None
+        assert section.outcome.results[0][1].n_samples == 48
     finally:
         shell.close()
 
