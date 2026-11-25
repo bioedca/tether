@@ -640,19 +640,27 @@ def save_project_map(
         optics = str(recorded.get("optics") or "")
     if pixel_size_um is _RECORDED:
         pixel_size_um = recorded.get("pixel_size_um")
+    # A project written before map ids has the file's checksum only; its id is then
+    # ``sha256:<hex>``, as project_map_links and load_map_asset name it.
+    map_id = recorded.get("map_id") or (
+        f"sha256:{recorded['sha256']}" if recorded.get("sha256") else None
+    )
     asset = MapAsset.from_registration_map(
         reg_map,
-        map_id=recorded.get("map_id") or None,
+        map_id=map_id,
         channel_layout=channel_layout,
         optics=optics,
         pixel_size_um=pixel_size_um,
     )
-    arrays = _asset_arrays(asset)
-    with open(output, "xb") as handle:  # FileExistsError if another writer made it
-        try:
-            np.savez(handle, **arrays)
-        except BaseException:
-            handle.close()
-            output.unlink(missing_ok=True)
-            raise
+    # Written to a sibling temporary file and published the way ``tether map create``
+    # publishes, never replacing a file: a failed publish removes only the file this
+    # call made, never a map another writer put at ``output`` meanwhile.
+    from tether.services.maps import _publish  # noqa: PLC0415, PLC2701
+
+    tmp = output.with_name(f"{output.stem}.{uuid.uuid4().hex}.tmp.npz")
+    try:
+        save_map_asset(asset, tmp)
+        _publish(tmp, output, overwrite=False)
+    finally:
+        tmp.unlink(missing_ok=True)  # only this call's own temporary file
     return asset

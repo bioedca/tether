@@ -466,6 +466,65 @@ def test_a_projects_map_is_saved_as_a_separate_asset_and_the_project_is_unchange
     assert (other.optics, other.pixel_size_um) == ("100x", 0.267)
 
 
+def test_a_project_written_before_map_ids_keeps_the_checksum_id(
+    monkeypatch, tmp_path, fitted
+) -> None:
+    # A project from before this change records the map file's name and sha256 only.
+    from tether.imaging import map_asset as map_asset_module
+
+    project, calibration_id, reg_map = fitted
+    digest = "ab" * 32
+    old = replace(
+        reg_map,
+        provenance={**reg_map.provenance, "map_file": {"name": "old.npz", "sha256": digest}},
+    )
+    monkeypatch.setattr(map_asset_module, "read_calibration", lambda *_: old)
+    asset = save_project_map(project, calibration_id, tmp_path / "old-copy.npz")
+    # The id project_map_links gives such a project, so both name one map (Greptile P2).
+    assert asset.map_id == f"sha256:{digest}"
+    assert load_map_asset(tmp_path / "old-copy.npz").map_id == f"sha256:{digest}"
+
+
+def test_a_saved_copy_keeps_the_quality_record_of_its_map_file(tmp_path, fitted) -> None:
+    _, _, reg_map = fitted
+    quality = {"rms_residual": 0.12, "n_pairs": 40}
+    map_file = save_map_asset(
+        replace(_asset(reg_map), quality=quality), tmp_path / "with-quality.npz"
+    )
+    project = tmp_path / "quality.tether"
+    extract_movie(
+        _write_movie(tmp_path / "q.tif"),
+        project,
+        options=ExtractOptions(window=_WINDOW),
+        map_path=map_file,
+    )
+    (link,) = project_map_links(project)
+    copy = save_project_map(project, link.calibration_id, tmp_path / "copy.npz")
+    # Same id, same quality record: the copy is the same asset (Greptile P2).
+    assert copy.map_id == load_map_asset(map_file).map_id
+    assert load_map_asset(tmp_path / "copy.npz").quality == quality
+
+
+def test_a_failed_save_never_removes_a_map_another_writer_made(
+    monkeypatch, tmp_path, fitted
+) -> None:
+    from tether.imaging import map_asset as map_asset_module
+
+    project, calibration_id, _ = fitted
+    output = tmp_path / "contested.npz"
+
+    def another_writer_then_fail(asset, path):
+        output.write_bytes(b"their complete map")  # lands while this save is running
+        raise OSError("disk full")
+
+    monkeypatch.setattr(map_asset_module, "save_map_asset", another_writer_then_fail)
+    with pytest.raises(OSError, match="disk full"):
+        save_project_map(project, calibration_id, output)
+    # The failure removes only this call's own temporary file (Greptile P1).
+    assert output.read_bytes() == b"their complete map"
+    assert sorted(p.name for p in tmp_path.glob("contested*")) == ["contested.npz"]
+
+
 def test_save_map_still_writes_a_full_asset(tmp_path, fitted) -> None:
     _, _, reg_map = fitted
     asset = load_map_asset(save_map(reg_map, tmp_path / "plain.npz"))

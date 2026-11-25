@@ -523,6 +523,8 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
         )
     provenance = dict(reg_map.provenance)
     provenance["map_file"] = {"name": path.name, "sha256": digest, **asset.record()}
+    if asset.quality is not None:  # the file's record, so a saved copy keeps it
+        provenance["map_quality"] = asset.quality
     return replace(reg_map, provenance=provenance)
 
 
