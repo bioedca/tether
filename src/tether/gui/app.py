@@ -201,7 +201,11 @@ def create_shell(
 
     The shell remembers the session in the per-user preferences file
     ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
-    the molecule selected at close, the layout and the curator name. Last, the update
+    the molecule selected at close, the layout and the curator name. With no project on the
+    command line and no file-open event waiting, the newest recent project opens again in
+    the section of its next step, unless **File → Reopen last project at start** is off
+    ([`reopen_last_project`][tether.gui.shell.TetherShell.reopen_last_project], #1159). Last,
+    the update
     notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
     is queued for the event loop.
     """
@@ -239,6 +243,11 @@ def create_shell(
         shell = TetherShell(preferences_file=preferences_path(), keymap_file=default_keymap_path())
         if args.project is not None:
             shell.load_project(args.project)
+        elif not file_open.pending:
+            # No project named, and none waits from the file manager: the last one, in the
+            # section of its next step (#1159). A waiting file-open request opens in its
+            # place below, so the last project is not opened and closed first.
+            shell.reopen_last_project()
         # The opt-in update notice (#248): the first-run question, or one check on a
         # background thread once the user allowed it. Queued for the event loop, so it
         # never delays the window, and it makes no request without the stored consent.
