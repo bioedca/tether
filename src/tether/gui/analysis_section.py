@@ -312,8 +312,11 @@ class AnalysisSection:
 
     # --- drawing -------------------------------------------------------------
 
-    def refresh(self) -> PlotOutcome:
+    def refresh(self, *, announce: bool = True) -> PlotOutcome:
         """Draw the current plot over the layer list again, and return what was drawn.
+
+        ``announce=False`` draws without a status-bar summary, so a delayed redraw behind
+        another section does not replace that section's own result there.
 
         The model choices are read from the project again first, so a model that a fit or
         a tMAVEN return leg wrote after the project opened can be chosen, and the current
@@ -336,10 +339,10 @@ class AnalysisSection:
             )
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, show the cause
             outcome = PlotOutcome(spec.id, missing=f"{spec.title} cannot be drawn: {exc}")
-        self._show(outcome)
+        self._show(outcome, announce=announce)
         return outcome
 
-    def _show(self, outcome: PlotOutcome) -> None:
+    def _show(self, outcome: PlotOutcome, *, announce: bool = True) -> None:
         previous = self._canvas
         self._canvas = None
         if outcome.figure is not None:
@@ -359,7 +362,7 @@ class AnalysisSection:
             previous.deleteLater()
         self._outcome = outcome
         self._sync_buttons()
-        if self._status is not None and outcome.drawn:
+        if announce and self._status is not None and outcome.drawn:
             self._status(_drawn_message(outcome))
 
     # --- controls ------------------------------------------------------------

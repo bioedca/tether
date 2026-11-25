@@ -3762,8 +3762,12 @@ class TetherShell:
             self._readiness_refresh_timer.start()
 
     def _run_queued_analysis_refresh(self) -> None:
-        """Apply one coalesced refresh of the Analyze plot; a failure shows in its preview."""
-        self._analysis_section.refresh()
+        """Apply one coalesced refresh of the Analyze plot; a failure shows in its preview.
+
+        The redraw posts its summary only while Analyze shows, so it never replaces the
+        curation result that queued it in the status bar (as the old histogram refresh).
+        """
+        self._analysis_section.refresh(announce=self._section == ANALYZE_SECTION)
 
     # --- handlers ------------------------------------------------------------
 

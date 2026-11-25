@@ -1658,6 +1658,8 @@ def test_successful_curation_defers_the_analysis_plot_refresh(
     qtbot.wait(400)  # longer than the debounce: no second, late draw
     assert calls == 2
     assert shell.analysis_section.outcome.results[0][1].n_molecules == 0
+    # The hidden redraw is silent: the curation result stays in the status bar.
+    assert "Rejected" in shell.status_message
 
 
 def test_curation_does_not_refresh_an_empty_layer_list(shell, qtbot, tmp_path) -> None:
