@@ -202,19 +202,20 @@ theme and white in the dark theme
 ## 8. Draw the population histogram
 
 1. Choose **View → Section → Analyze**. You can also click **Analyze** on the section bar, or
-   press Ctrl+3 (Cmd+3 on macOS). Each section has its own menus, and the **Analysis** menu is
-   in this one.
-2. Choose **Analysis → Population histogram…**.
+   press Ctrl+3 (Cmd+3 on macOS).
+2. Keep the plot **FRET-efficiency histogram (A1)**, the first one in the **Plot** list.
+3. Click **Add selection**, then **All molecules**.
 
-A **Population histogram** panel opens, and the status bar reads:
+The series **All molecules** shows in the **Layers** list, the histogram shows beside it, and the
+status bar reads:
 
 ```text
-Population histogram — 2 molecule(s), 48 frame(s)
+FRET-efficiency histogram (A1) — All molecules: 2 molecule(s)
 ```
 
-There are two molecules, because the histogram leaves out the one that you rejected. There are
-48 frames, because each of the two molecules has 24. The histogram has two peaks, one near 0.25
-and one near 0.75. These are the two FRET levels that you saw in the traces.
+There are two molecules, because the histogram leaves out the one that you rejected. Together
+they have 48 frames, because each of the two molecules has 24. The histogram has two peaks, one
+near 0.25 and one near 0.75. These are the two FRET levels that you saw in the traces.
 
 To go back to the traces, choose **View → Section → Curate and correct**.
 
