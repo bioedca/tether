@@ -384,11 +384,23 @@ def _unchecked_import_lines() -> list[str]:
     missed = []
     for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
         rel = path.relative_to(ROOT).as_posix()
-        for first, last, text in _logical_lines(_page_text(path)):
+        page = _page_text(path)
+        reported: set[int] = set()
+        for first, last, text in _logical_lines(page):
             if _TETHER_IMPORT_LINE_RE.search(text) and not any(
                 (rel, number) in checked for number in range(first, last + 1)
             ):
                 missed.append(f"{rel}:{first}: {text.strip()}")
+                reported.update(range(first, last + 1))
+        # Each physical line is read on its own too: a backslash that ends a comment, as in
+        # ``# C:\``, continues nothing, so the import on the next line must not hide in it.
+        for number, line in enumerate(page.split("\n"), start=1):
+            if (
+                number not in reported
+                and (rel, number) not in checked
+                and _TETHER_IMPORT_LINE_RE.search(line)
+            ):
+                missed.append(f"{rel}:{number}: {line.strip()}")
     return missed
 
 
@@ -854,6 +866,15 @@ def test_an_import_continued_with_a_backslash_is_one_line_to_the_guard(
     untagged = "# A\n\n```\nimport os, \\\n    tether.no_such_module\n```\n"
     _page(tmp_path, monkeypatch, untagged)
     assert _unchecked_import_lines() == ["docs/a.md:4: import os,     tether.no_such_module"]
+
+
+def test_a_backslash_that_ends_a_comment_hides_no_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A comment is not continued by a backslash, so the import on the next line is read."""
+    untagged = "# A\n\n```\n# Example path: C:\\\nimport tether.no_such_module\n```\n"
+    _page(tmp_path, monkeypatch, untagged)
+    assert _unchecked_import_lines() == ["docs/a.md:5: import tether.no_such_module"]
 
 
 def test_a_continued_import_in_a_python_fence_is_checked(

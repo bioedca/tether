@@ -1358,7 +1358,9 @@ def _heading_text(raw: str, definitions: frozenset[str]) -> str:
         return "".join(out) + prose(pos, b)
 
     # A comment is stripped whole, with whatever the link patterns made inside it (#1013).
-    comments = _comments(view)
+    # It is found as in a paragraph, with each node stashed: a `<!--` in an image's alt or
+    # a link's text opens none.
+    comments = _inline_comments(view, 0, len(view), nodes)
 
     def text_of(nodes: tuple[_Node, ...] | list[_Node], a: int, b: int) -> str:
         out, pos = [], a
@@ -2112,6 +2114,13 @@ _GAP_ROWS = [
         [f"docs/a.md:5: reference-style link [broken][missing] has no [missing]: {_REF}"],
         "<p>--&gt; [broken][missing]</p>",
         id="gap-10-a-definition-cuts-a-comment",
+    ),
+    pytest.param(
+        # A heading's comments are found the same way, so its slug keeps the link's text.
+        "## A ![<!--](#a) [B](#a) --> C\n\n[ok](#a-b-c) [bad](#a-ba-c)\n",
+        ["docs/a.md:5: link to '#a-ba-c': no heading or HTML anchor '#a-ba-c' in docs/a.md"],
+        '<h2 id="a-b-c">A <img alt="&lt;!--" src="#a" /> <a href="#a">B</a> --&gt; C</h2>',
+        id="gap-10-delimiters-in-an-image-in-a-heading",
     ),
 ]
 
