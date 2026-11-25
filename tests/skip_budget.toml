@@ -30,9 +30,10 @@ max_skipped = 25
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-# 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py),
-# 63 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
-max_skipped = 63
+# 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
+# 62: main's 61 plus the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py).
+# 64 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+max_skipped = 64
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
@@ -376,7 +377,7 @@ test (ubuntu-latest) under xvfb and test (windows-latest) run the test."""
 test = "tests/test_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The seven movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
+why = """The movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
 under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
 test (windows-latest) run them."""
 

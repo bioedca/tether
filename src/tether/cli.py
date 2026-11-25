@@ -157,11 +157,11 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         help=summary,
         description=(
             "Run the native extraction pipeline (split -> detect -> register -> "
-            "colocalize -> integrate) on a dual-channel TIFF movie and write a "
+            "colocalize -> integrate) on a dual-channel movie (TIFF or ND2) and write a "
             "new .tether project."
         ),
     )
-    extract.add_argument("movie", help="path to the dual-channel TIFF movie")
+    extract.add_argument("movie", help="path to the dual-channel movie (TIFF or ND2)")
     extract.add_argument(
         "-o", "--output", required=True, help="path to the .tether project to create"
     )
@@ -602,7 +602,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         "movies",
         nargs="+",
         help=(
-            "dual-channel TIFF movies: files, folders (the movies directly inside) or "
+            "dual-channel movies (TIFF or ND2): files, folders (the movies directly inside) or "
             "quoted patterns such as 'data/*.tif', which Tether expands in every shell"
         ),
     )
