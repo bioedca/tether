@@ -251,6 +251,31 @@ def test_refit_stale_only_refits_only_a_model_reidealize_finds_stale(tmp_path, s
     )
 
 
+def test_a_refit_counts_the_fits_reidealize_runs() -> None:
+    """The progress total of a refit: one fit for a fixed count, one per scanned count else."""
+    from types import SimpleNamespace
+
+    from tether.project.idealize import NSTATES_GRID_DEFAULT
+
+    fixed = SimpleNamespace(nstates_selected_by="fixed", elbo_by_nstates=None)
+    scanned = SimpleNamespace(nstates_selected_by="elbo", elbo_by_nstates={1: -3.0, 2: -1.0})
+    unrecorded = SimpleNamespace(nstates_selected_by="elbo", elbo_by_nstates=None)
+    assert service._fits_of(fixed) == 1
+    assert service._fits_of(scanned) == 2
+    assert service._fits_of(unrecorded) == len(NSTATES_GRID_DEFAULT)
+
+
+def test_the_sidecar_check_names_an_interpreter_that_does_not_exist(tmp_path) -> None:
+    """The quick check starts no process: a path that exists passes, a missing one is named."""
+    import sys
+
+    missing = tmp_path / "no-such-python"
+    assert service.sidecar_problem(sys.executable) is None
+    assert service.sidecar_problem(str(missing)) == (
+        f"sidecar interpreter does not exist: {missing}"
+    )
+
+
 def test_a_cancel_before_the_write_leaves_the_project_unchanged(tmp_path, sidecar) -> None:
     from tether.gui.idealize_project import fit_project
     from tether.gui.tasks import CancelToken, ProgressReport, TaskCancelled
