@@ -29,10 +29,11 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 *three-color* or *confocal point detectors* describes your setup, Tether does not fit. See
 [What Tether does not do](#what-tether-does-not-do).
 
-If your movies are in a vendor container (`.czi`, `.sif`, `.sira`), export them to uncompressed
-TIFF first, and Tether reads them. Tether opens a ZEISS `.czi` movie of one channel, an Andor
-`.sif` movie of raw counts and a MASH-FRET `.sira` movie (see
-[Movie containers](reference/movie-containers.md)). Extraction does not read CZI, SIF or SIRA yet.
+If your movies are in a vendor container (`.sif`, `.sira`), export them to uncompressed TIFF
+first, and Tether reads them. Tether reads a ZEISS `.czi` movie of one channel and a cellSens
+`.vsi` movie. It extracts each as it extracts a TIFF (see
+[Movie containers](reference/movie-containers.md)). Tether opens an Andor `.sif` movie of raw
+counts and a MASH-FRET `.sira` movie, but extraction does not read SIF or SIRA yet.
 Tether reads a current ND2 movie with its own reader, and it extracts the movie as it extracts a
 TIFF (see [ND2 movies](#nd2-movies)).
 
@@ -40,7 +41,7 @@ TIFF (see [ND2 movies](#nd2-movies)).
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF; a ZEISS `.czi`, Andor `.sif` or MASH-FRET `.sira` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
+| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel, a current `.nd2` movie and a cellSens `.vsi` movie extract too; an Andor `.sif` or MASH-FRET `.sira` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
 | Compression | **none**. The movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
@@ -64,7 +65,7 @@ wrong data quietly, which is worse than failing.
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
 message says so. A container that Tether does not read, such as a `.lif`, is refused too.
-That message lists what Tether reads (today, TIFF, CZI, ND2, SIF and cellSens VSI), and it
+That message lists what Tether reads (today, TIFF, CZI, ND2, SIF, cellSens VSI and SIRA), and it
 names the Bio-Formats route for the others.
 
 **cellSens `.vsi` (the Bio-Formats route).** A `.vsi` file begins with a TIFF header. So the
@@ -77,7 +78,9 @@ Tether reads the image with the most time points, at full resolution. It refuses
 the same length in one file, and a movie of several channels or focal planes. It also refuses
 color pixels and frames stored with JPEG or JPEG 2000. The pixel size, the frame time and the
 channel name come from the file when Bio-Formats finds them. Otherwise they are *unknown*.
-Extraction does not read a `.vsi` movie yet (#1398).
+
+Extraction reads a `.vsi` movie as it reads an ND2. It copies the frames to the temporary folder
+in blocks. Then the same steps as for a TIFF give the same traces (ADR-0149).
 
 Extension matching exists only in the Deep-LASI folder-intake wizard. There,
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role. It maps `.tdat`,

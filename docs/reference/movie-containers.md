@@ -28,12 +28,16 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 | SIRA (MASH-FRET) | `.sira` | Tether ([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)) |
 
-Extraction (the application, `tether extract` and `tether batch`) reads TIFF and ND2
-([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI,
-SIF, cellSens VSI or SIRA movie opens through its reader, but extraction refuses it. The message is
-"this CZI movie opens, but extraction does not read CZI yet", or the same for SIF, cellSens VSI or
-SIRA. The change that lets extraction read CZI is planned (#1390), and the one for `.vsi` is #1398.
-SIF and SIRA each need a change of their own. Until then, export the movie to uncompressed TIFF.
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI, ND2 and
+cellSens VSI ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
+A CZI movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
+that the reader refuses (for example, two channels) fails with the reader's own message. A `.vsi`
+movie needs the optional Bio-Formats stack. Without it, extraction fails with the message that
+says how to install it.
+
+A SIF or SIRA movie opens through its reader, but extraction refuses it. The message is "this SIF
+movie opens, but extraction does not read SIF yet", or the same for SIRA. SIF and SIRA each need a
+change of their own. Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
@@ -127,6 +131,11 @@ A `.vsi` file needs the [optional Bio-Formats stack](../install.md#the-optional-
 The file begins with a TIFF header, so its extension chooses this reader. A renamed `.vsi` is read
 as a TIFF. Keep the `_<name>_` folder that cellSens writes beside the file, because the frames are
 in its `.ets` files.
+
+The movie's checksum covers the `.ets` files too, so a movie whose `.ets` files changed is a new
+movie to `tether batch --into`
+([ADR-0153](../adr/0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md)). To rename the
+movie, rename the file and the folder together. The checksum stays the same.
 
 Of the series in the file, Tether reads the one with the most time points, at full resolution. It
 refuses the file in these cases:
