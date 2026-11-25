@@ -35,7 +35,10 @@ The user moves between the sections in two ways (#897). **Direct navigation**: t
 section bar under the menu bar, **View → Section**, and ``Ctrl+1``, ``Ctrl+2``, ...
 (``Cmd`` on macOS) open any visible section at any time. The **guided mode**: the same bar
 shows the next step that ``tether status`` gives for the open project, and **Go to** opens
-its section. A project made from imported traces opens in Curate and correct.
+its section. A project made from imported traces opens in Curate and correct. A control
+that needs an earlier stage declares it with
+[`TetherShell.require`][tether.gui.shell.TetherShell.require] (#898): it is disabled, it
+names the missing step, and it offers **Go to this step** ([`tether.gui.requirements`][]).
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
@@ -83,6 +86,7 @@ from tether.gui.curation import (
     Keymap,
     KeymapError,
 )
+from tether.gui.requirements import RequirementGate
 from tether.gui.sections import (
     DockArea,
     DockSpec,
@@ -111,11 +115,13 @@ if TYPE_CHECKING:
 
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.generation_reconcile import GenerationReconcilePage
     from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
+    from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.services.curation import StoredMolecule
 
@@ -798,6 +804,8 @@ class TetherShell:
         self._project_path: Path | None = None
         # The readiness of each stage of the open project (#896), read on each open.
         self._readiness: Any | None = None
+        # The controls that declare a stage as their requirement (#898), in the order made.
+        self._requirement_gates: list[RequirementGate] = []
         # The intensity_quantity that open used, so a lock recovery reopens the same
         # trace layer rather than load_project's default (#1097).
         self._intensity_quantity = "corrected"
@@ -891,6 +899,8 @@ class TetherShell:
         # QStackedWidget with one page per registered section, and each dock belongs to
         # one section and shows only while that section is current. A section switch
         # changes only which page and which docks show; it never touches the session lock.
+        # The reconciliation page of a new trace generation (#923), while it is open.
+        self._generation_page: GenerationReconcilePage | None = None
         self._sections = self._build_sections()
         self._section_stack = QtWidgets.QStackedWidget()
         self._section_pages: dict[str, Any] = {}
@@ -1283,8 +1293,43 @@ class TetherShell:
         self.set_section(step.section)
         return step.section
 
+    def require(self, control: Any, stage: str) -> RequirementGate:
+        """Disable ``control`` until the stage ``stage`` of the readiness record is done (#898).
+
+        ``control`` is a ``QWidget`` or a ``QAction`` of a section; ``stage`` is a key of
+        [`REQUIREMENTS`][tether.gui.requirements.REQUIREMENTS]. The returned
+        [`RequirementGate`][tether.gui.requirements.RequirementGate] owns the enabled state,
+        the tooltip and the accessible description of the control, and its **Go to this
+        step** opens the section of the stage. It follows each read of the readiness.
+        """
+        gate = RequirementGate(
+            control,
+            stage,
+            go_to=self.set_section,
+            section_title=self._shown_section_title,
+        )
+        self._requirement_gates.append(gate)
+        gate.update(self._readiness)
+        return gate
+
+    @property
+    def requirement_gates(self) -> tuple[RequirementGate, ...]:
+        """The gates that [`require`][] made, in the order made (#898)."""
+        return tuple(self._requirement_gates)
+
+    def _shown_section_title(self, section_id: str) -> str | None:
+        """The title of a section the shell shows, or ``None`` for a hidden or unknown one."""
+        if section_id not in self._sections or not self._sections.get(section_id).visible:
+            return None
+        return self._sections.get(section_id).title
+
     def _sync_guided(self) -> None:
-        """Show the next step of the readiness record on the section bar (#897)."""
+        """Show the next step of the readiness record on the section bar (#897).
+
+        The gated controls (#898) follow the same record.
+        """
+        for gate in self._requirement_gates:
+            gate.update(self._readiness)
         step = guided_step(self._readiness, self._sections)
         if step is None:
             self._next_step_label.setText("Next step: open or import a project")
@@ -1558,6 +1603,8 @@ class TetherShell:
         self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
+        self._act_reconcile_generation = menu.addAction("Reconcile trace &generations…")
+        self._act_reconcile_generation.triggered.connect(self.show_generation_reconcile)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -2672,6 +2719,7 @@ class TetherShell:
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
+        self._close_generation_page()
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
@@ -3134,7 +3182,24 @@ class TetherShell:
             except Exception:  # noqa: BLE001 - an open never fails on this read
                 self._readiness = None
         self._sync_guided()
+        self._reload_generation_page()
         return self._readiness
+
+    def _reload_generation_page(self) -> None:
+        """Read the lists of the open reconciliation page again after a write (#923).
+
+        An accept or reject in the trace view also confirms a carried molecule, so the page
+        must not keep showing it as waiting.
+        """
+        page = self._generation_page
+        if page is None or self._project_path is None:
+            return
+        from tether.services.reconcile import read_reconciliations
+
+        try:
+            page.set_reconciliations(read_reconciliations(self._project_path))
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Reconcile trace generations: the lists could not be read: {exc}")
 
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.
@@ -3153,6 +3218,7 @@ class TetherShell:
         name = self._project_path.name
         self._remember_position()
         self._reject_active_conditions_dialog()
+        self._close_generation_page()
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
@@ -3900,12 +3966,12 @@ class TetherShell:
             "the next trace; Un-reject and the category keys keep the same trace."
         )
 
-    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
-        """The writable project, list row, trace and lock nonce a curation write acts on.
+    def _writable_project(self, verb: str) -> tuple[Project, str] | None:
+        """The writable project and lock nonce a project write acts on, or ``None``.
 
-        Refuses writes during background idealization, in a read-only project,
-        or without a selected project molecule. Pass the returned lock nonce to
-        [`_guard_session_write`][] immediately before writing.
+        Refuses writes during background idealization and in a read-only project, with
+        a status message. Pass the returned lock nonce to [`_guard_session_write`][]
+        immediately before writing.
         """
         if self._idealization_blocks_write(verb):
             return None
@@ -3924,12 +3990,98 @@ class TetherShell:
             prefix = "project is read-only: " if self._curation_read_only_reason else ""
             self._status(f"{verb} unavailable: {prefix}{reason}")
             return None
+        return project, nonce
+
+    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
+        """The writable project, list row, trace and lock nonce a curation write acts on.
+
+        Refuses writes during background idealization, in a read-only project,
+        or without a selected project molecule. Pass the returned lock nonce to
+        [`_guard_session_write`][] immediately before writing.
+        """
+        writable = self._writable_project(verb)
+        if writable is None:
+            return None
+        project, nonce = writable
         row = self._molecule_list.currentRow()
         trace = self._traces[row] if 0 <= row < len(self._traces) else None
         if trace is None or trace.molecule_key is None:
             self._status(f"{verb} failed: select a project molecule first")
             return None
         return project, row, trace, nonce
+
+    # --- the reconciliation of a new trace generation (#923) ------------------
+
+    def show_generation_reconcile(self) -> GenerationReconcilePage | None:
+        """Show the carried, new and lost molecules of each movie extracted again.
+
+        Curation → Reconcile trace generations…. Returns the page, or ``None`` when no
+        project is open or its lists cannot be read (each said on the status bar). The
+        page is not modal: a molecule it opens is selected in the trace view.
+        """
+        from tether.gui.generation_reconcile import GenerationReconcilePage
+        from tether.services.reconcile import read_reconciliations
+
+        path = self._project_path
+        if path is None:
+            self._status("Reconcile trace generations: open a project first")
+            return None
+        try:
+            reconciliations = read_reconciliations(path)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Reconcile trace generations failed: {exc}")
+            return None
+        self._close_generation_page()
+        page = GenerationReconcilePage(
+            reconciliations,
+            confirm=self._confirm_carried,
+            open_molecule=self.select_molecule,
+            reload=lambda: read_reconciliations(path),
+            parent=self._window,
+        )
+        self._generation_page = page
+        page.show()
+        return page
+
+    @property
+    def generation_page(self) -> GenerationReconcilePage | None:
+        """The reconciliation page while it is open, else ``None``."""
+        return self._generation_page
+
+    def _close_generation_page(self) -> None:
+        """Close the reconciliation page: its lists belong to the project it was opened on."""
+        if self._generation_page is not None:
+            self._generation_page.dialog.close()
+            self._generation_page = None
+
+    def _confirm_carried(self, keys: list[str]) -> ConfirmResult | None:
+        """Confirm carried molecules under the session's writer lock; ``None`` if refused."""
+        writable = self._writable_project("Confirm")
+        if writable is None:
+            return None
+        project, nonce = writable
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.confirm_carried(keys, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._status(f"Confirm failed: {exc}")
+            return None
+        self._queue_readiness_refresh()
+        self._status(f"Confirmed {len(result.confirmed)} carried molecule(s)")
+        return result
+
+    def select_molecule(self, molecule_key: str) -> bool:
+        """Select the molecule ``molecule_key`` in the trace view; return whether it is there.
+
+        The Curate and correct section is shown first, so the trace view is in sight.
+        """
+        for row, trace in enumerate(self._traces):
+            if trace.molecule_key == molecule_key:
+                if CURATE_SECTION in self._sections:
+                    self.set_section(CURATE_SECTION)
+                self._molecule_list.setCurrentRow(row)
+                return True
+        return False
 
     def _guard_session_write(self, project: Project, nonce: str) -> None:
         """Require the lock epoch ``nonce`` [`_writable_selection`][] read, just before a write.

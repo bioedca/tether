@@ -368,6 +368,18 @@ def label_reviews_in(f: Any) -> dict[str, int]:
     return states
 
 
+def label_review_events_in(f: Any) -> frozenset[int]:
+    """Every label event index a review row names, the older reviews of a molecule included.
+
+    [`label_reviews_in`][] keeps the last review of each molecule; this keeps them all, so
+    a reader can tell a review row of ``/labels/table`` from a curation row.
+    """
+    reviews = f.get(f"{_GROUP}/{_LABEL_REVIEWS}")
+    if reviews is None:
+        return frozenset()
+    return frozenset(int(e) for e in reviews["label_event"][()] if int(e) >= 0)
+
+
 def pending_label_ids_in(f: Any) -> frozenset[str]:
     """Read the IDs held out of supervised learning from an open project."""
     return frozenset(

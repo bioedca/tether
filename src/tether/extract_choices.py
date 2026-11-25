@@ -27,8 +27,8 @@ __all__ = [
 DONOR_SIDES: tuple[str, ...] = ("left", "right")
 """The horizontal half of the frame that carries the donor channel."""
 
-DETECTION_MODES: tuple[str, ...] = ("wavelet", "intensity", "bandpass")
-"""The spot detectors, in Deep-LASI ``findPart`` mode order.
+DETECTION_MODES: tuple[str, ...] = ("wavelet", "intensity", "bandpass", "zmw")
+"""The spot detectors, in Deep-LASI ``findPart`` mode order (modes 1, 2, 3 and 5; ADR-0143).
 
 These are the values of
 [`ParticleDetectionMode`][tether.imaging.detect.ParticleDetectionMode]; a test keeps the two
