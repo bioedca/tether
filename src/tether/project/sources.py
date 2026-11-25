@@ -132,7 +132,8 @@ class FileDigest:
         ------
         SourceReplaced
             If the path names another file or no file, or the file's size or modification
-            time changed.
+            time changed. Where the filesystem gives no inode number, both identities are
+            ``None`` and only the size and modification time are compared.
         """
         try:
             now = os.stat(path)
