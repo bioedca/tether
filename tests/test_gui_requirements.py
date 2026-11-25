@@ -56,6 +56,10 @@ _UNDECLARED: frozenset[tuple[str, str, str]] = frozenset(
         # The seconds axis of the trace dock is on only for a trace with a frame interval.
         ("no project", "curate", "widget:Time axis in seconds"),
         ("project open", "curate", "widget:Time axis in seconds"),
+        # The Analyze page reads series from a project, so with none it has nothing to add or
+        # remove (#374). Remove is off, too, while no series is selected.
+        ("no project", "analyze", "widget:Add selection"),
+        ("no project", "analyze", "widget:Remove"),
     }
 )
 
@@ -165,7 +169,9 @@ def test_the_helper_applies_each_registered_requirement(section_shell, readiness
     shell = section_shell()
     section = _SECTION_OF[stage]
     visible = section in shell.sections.visible_ids
-    host = "analyze" if section != "analyze" else "prepare"
+    # The host needs a section menu: Analyze has none since #374, so Prepare hosts, or
+    # Curate for a Prepare step.
+    host = "prepare" if section != "prepare" else "curate"
     button, row = _page_button(shell, host, "Fit")
     gate = shell.require(button, stage)
     go_button = gate.make_go_button(button.parentWidget())
@@ -253,7 +259,7 @@ def test_the_keyboard_and_a_screen_reader_reach_the_missing_step(
     gate = shell.require(button, "traces")
     go_button = gate.make_go_button(button.parentWidget())
     row.addWidget(go_button)
-    menu, action = _section_action(shell, "analyze", "Fit all")
+    menu, action = _section_action(shell, "curate", "Fit all")  # Analyze has no menu (#374)
     menu_gate = shell.require(action, "traces")
     readiness_of(shell, _readiness(traces=StageState.NOT_STARTED))
     reason = gate.status.reason

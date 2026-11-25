@@ -8,15 +8,14 @@ and a one-line readout of the **nearest-neighbour distance** with an
 apertures-overlap warning. All geometry — the NN distance and the overlap flag —
 comes from the Qt-free [`tether.analysis.overlap`][] core (an
 [`OverlapInfo`][tether.analysis.overlap.OverlapInfo]); this dock only draws what that core
-returns, exactly as [`tether.gui.histogram_dock.HistogramDock`][] draws a
-``Histogram1D``.
+returns.
 
 Because the patch is cached at extraction/import, the view works **without the
 movie loaded** (movie-less curation, §5.1). An **analysis-only** project that
 carries no patches (§7.4) still gets the NN readout; the patch panel just shows a
 "no patch" placeholder rather than a fabricated image.
 
-**Lazy Qt import.** As in [`tether.gui.histogram_dock`][], pyqtgraph and its Qt
+**Lazy Qt import.** As in [`tether.gui.trace_dock`][], pyqtgraph and its Qt
 binding are imported lazily inside [`OverlapDock.__init__`][], so importing this
 module costs no Qt. Constructing an [`OverlapDock`][] needs a live
 ``QApplication`` (the embedding shell, ``qtbot``, or ``pyqtgraph.mkQApp``).
