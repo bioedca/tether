@@ -90,6 +90,25 @@ _FIXTURES = {
     },
 }
 
+# Per-trace vbFRET (ADR-0110) is measured on the two small fixtures, cross-seed. Its
+# ``nstates`` is the largest state count each trace may choose: the ``{1, 2, 3, 4}`` of
+# the PRD 11.2 auto state-count selection.
+_PER_TRACE_FIXTURES = {
+    "smd_2mol": {
+        "smd": "tests/fixtures/smd_2mol.hdf5",
+        "reference": None,
+        "nstates": 4,
+    },
+    "smd_4mol": {
+        "smd": "tests/fixtures/smd_4mol.hdf5",
+        "reference": None,
+        "nstates": 4,
+    },
+}
+
+#: The committed tolerance artifact. Only a population method may write it.
+_CANONICAL_OUT = "schema/parity_tolerance.json"
+
 #: The population methods, which also carry the transition-matrix term (ADR-0110).
 _POPULATION_METHODS = ("vbconhmm", "ebhmm")
 
@@ -201,18 +220,62 @@ def _replace_nonfinite(value: object) -> object:
     return value
 
 
+def _write_per_trace_evidence(
+    args: argparse.Namespace,
+    pooled: dict[str, SpreadSummary],
+    per_fixture: dict[str, dict],
+) -> int:
+    """Write the per-trace vbFRET cross-seed spread as evidence, with no frozen row.
+
+    The maintainer decision recorded in ADR-0110 freezes no per-trace row: the
+    pinned build does not reproduce across seeds. So nothing here calls
+    :func:`freeze`, the output is never the canonical tolerance file, and every
+    non-finite value becomes ``null`` so the file is strict JSON.
+    """
+    out = {
+        "schema_version": 1,
+        "measured_utc": time.strftime("%Y-%m-%d", time.gmtime()),
+        "freeze_status": "not_frozen",
+        "method": {
+            "model_type": args.model_type,
+            "n_runs_per_fixture": args.n_runs,
+            **probe_sidecar_build(os.environ.get("TETHER_SIDECAR_PYTHON")),
+            "note": (
+                "Evidence only (ADR-0110): no per-trace row is frozen, because the "
+                "per-trace step does not reproduce across seeds on the pinned build."
+            ),
+        },
+        "pooled_worst": {k: v.worst for k, v in pooled.items()},
+        "spread_by_fixture": per_fixture,
+    }
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(_replace_nonfinite(out), indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"\nEVIDENCE (not frozen) -> {out_path}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--n-runs", type=int, default=20, help="self-reseeded fits per fixture")
     ap.add_argument("--margin", type=float, default=0.5, help="safety margin for freeze()")
-    ap.add_argument("--out", default="schema/parity_tolerance.json")
+    ap.add_argument(
+        "--out",
+        default=None,
+        help=f"output path (default: {_CANONICAL_OUT}). Per-trace vbFRET writes "
+        "evidence only and needs an explicit --out other than that file (ADR-0110).",
+    )
     ap.add_argument("--scratch", default=None, help="scratch dir for run model files")
     ap.add_argument(
         "--fixtures",
         nargs="+",
-        default=list(_FIXTURES),
-        choices=list(_FIXTURES),
-        help="which fixtures to measure",
+        default=None,
+        choices=sorted(set(_FIXTURES) | set(_PER_TRACE_FIXTURES)),
+        help="which fixtures to measure (default: smd_4mol and smd_281mol; for "
+        "--model-type vbfret, the small fixtures smd_2mol and smd_4mol)",
     )
     ap.add_argument(
         "--model-type",
@@ -230,13 +293,32 @@ def main() -> int:
         "ELBO is not commensurable with the vbconhmm reference model's.",
     )
     args = ap.parse_args()
+    per_trace = args.model_type == "vbfret"
+    if args.out is None:
+        if per_trace:
+            ap.error(
+                "--model-type vbfret writes evidence only, never a frozen tolerance "
+                f"(ADR-0110): pass --out with a path other than {_CANONICAL_OUT}"
+            )
+        args.out = _CANONICAL_OUT
+    elif per_trace and Path(args.out).resolve() == Path(_CANONICAL_OUT).resolve():
+        ap.error(
+            f"--model-type vbfret must not write {_CANONICAL_OUT}: it freezes no "
+            "per-trace row (ADR-0110). Pass --out with another path."
+        )
+    table = _PER_TRACE_FIXTURES if per_trace else _FIXTURES
+    if args.fixtures is None:
+        args.fixtures = list(table)
+    unknown = [name for name in args.fixtures if name not in table]
+    if unknown:
+        ap.error(f"--model-type {args.model_type} has no fixture configuration for {unknown}")
 
     # A non-vbconhmm method compared to the committed (vbconhmm) reference model is
     # not commensurable — its ELBO is a different model's variational bound — so
     # measuring it against that reference silently corrupts the freeze. Enforce the
     # cross-seed anchor the --model-type help promises, rather than only documenting it.
     if args.model_type != "vbconhmm" and not args.cross_seed:
-        referenced = [name for name in args.fixtures if _FIXTURES[name]["reference"] is not None]
+        referenced = [name for name in args.fixtures if table[name]["reference"] is not None]
         if referenced:
             ap.error(
                 f"--cross-seed is required for --model-type {args.model_type}: fixtures "
@@ -262,7 +344,7 @@ def main() -> int:
     transition_values: list[float] = []
 
     for name in args.fixtures:
-        cfg = _FIXTURES[name]
+        cfg = table[name]
         reference = None if args.cross_seed else cfg["reference"]
         mode = "cross-seed" if reference is None else "vs-reference"
         print(
@@ -313,6 +395,8 @@ def main() -> int:
         ),
         "relative_elbo": SpreadSummary("relative_elbo", "ceiling", combined["relative_elbo"]),
     }
+    if per_trace:
+        return _write_per_trace_evidence(args, pooled, per_fixture)
     tolerance = freeze(pooled, margin=args.margin)
 
     out = {

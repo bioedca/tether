@@ -393,7 +393,8 @@ pull request touching an idealization path, and reports a "not applicable" pass 
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
 `test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
-transition-matrix term (below). On the required matrix,
+transition-matrix term (below), and `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model`.
+On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -489,11 +490,19 @@ selection changes from seed to seed (ADR-0043). The live tests also check that e
 requested model type with the requested state count, which a cross-seed comparison of two
 equally wrong fits cannot see.
 
-> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small fixtures as
-> well as the consensus fit. `$.coverage.measured_methods` records only
-> `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
-> vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
-> measurement, and no committed test fits `model_type="vbfret"` against it.
+> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small
+> fixtures as well as the consensus fit. `model_type="vbfret"` now runs tMAVEN's own per-trace
+> step (`tracelevel_vbhmm_modelselection`, 1 to 4 states per trace, the highest evidence kept),
+> but it does not reproduce across seeds on the pinned build: over 20 unseeded fits per fixture
+> the worst state-count agreement was 0.0 on both `smd_2mol` and `smd_4mol`, and on
+> `smd_281mol` two fits differed by up to 0.96 FRET in a state mean. A row frozen from that
+> spread would have floors of 0.0, so none is frozen (maintainer decision of 2026-11-15, ADR-0110).
+>
+> `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that one seed gives one
+> model and writes the cross-seed agreement to the job log. `$.coverage.measured_methods`
+> records only `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` still lists
+> per-trace vbFRET, and no test asserts a per-trace fit against `$.tolerance`. The open row is
+> [#949](https://github.com/bioedca/tether/issues/949).
 
 ### Plain vbGMM against an independent fit
 
@@ -1755,8 +1764,10 @@ evidence about the size of the difference and not a tolerance.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
-  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
+- (b) has no per-trace vbFRET *parity* row: tMAVEN's per-trace step does not reproduce
+  across seeds on the pinned build, so no row is frozen, and the seeded test checks only that
+  one seed gives one model (ADR-0110). Its comparison with the original vbFRET_nov12 on
+  measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
   the workstation only. Each is stated in its own section above with the ADR that

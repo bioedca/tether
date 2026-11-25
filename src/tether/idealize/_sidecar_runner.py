@@ -56,7 +56,16 @@ _DISPATCH = {
     "vbgmm_vbhmm": ("run_vbgmm_vbhmm_modelselection", None),
     "kmeans_vbhmm": ("run_kmeans_vbhmm", "modeler.vbhmm.nstates"),
     "vbgmm": ("run_vbgmm", "modeler.vbgmm.nstates"),
+    # Per-trace vbFRET (issue #545, ADR-0110). The pinned tMAVEN has no modeler method for it:
+    # its stand-alone per-trace ``run_vbhmm_modelselection`` is commented out in that build
+    # (ADR-0090). ``None`` routes it to `run_vbfret_per_trace`, which calls the step tMAVEN's
+    # own "vb GMM + vb HMM" and "kmeans + vb HMM" models start with.
+    "vbfret": (None, "modeler.vbhmm.nstates"),
 }
+
+#: The ``type`` the per-trace vbFRET model is written with. It is the name the commented-out
+#: ``run_vbhmm_modelselection`` of the pinned tMAVEN gives the same model.
+PER_TRACE_VBFRET_TYPE = "vb HMM_model selection"
 
 
 def seed_random_streams(seed):
@@ -116,6 +125,58 @@ def seed_random_streams(seed):
     _reproducible_seed._tether_original = original_seed
     np.random.seed = _reproducible_seed
     original_seed(seed % (2**32))
+
+
+def run_vbfret_per_trace(maven):
+    """Fit tMAVEN's per-trace VB-HMM to every kept trace and make it the active model.
+
+    Each trace gets its own variational-Bayes HMM for ``k = 1 .. nstates`` states and keeps the
+    ``k`` with the highest evidence (ELBO), which is vbFRET's own procedure [Bronson2009]. The
+    fit is ``tmaven.controllers.modeler.hmm_vb.tracelevel_vbhmm_modelselection`` of the pinned
+    build, called with tMAVEN's own priors and model settings, exactly as its "vb GMM + vb HMM"
+    and "kmeans + vb HMM" models call it. Unlike those two, nothing is fitted on top: the result
+    is the per-trace models themselves.
+
+    The model is assembled the way the commented-out ``run_vbhmm_modelselection`` of that build
+    assembles it: a container of type `PER_TRACE_VBFRET_TYPE` whose ensemble ``mean`` is NaN
+    (there is no ensemble state), with the ``idealized`` path of every trace and one
+    ``trace_level`` entry per trace carrying that trace's own means and ELBO history.
+    """
+    import numpy as np
+    from tmaven.controllers.modeler.hmm_vb import tracelevel_vbhmm_modelselection
+
+    modeler = maven.modeler
+    dtype = maven.prefs["modeler.dtype"]
+    success, keep, y = modeler.get_traces(dtype)
+    if not success:
+        raise RuntimeError("tMAVEN returned no traces to fit")
+    nstates = int(maven.prefs["modeler.vbhmm.nstates"])
+    data = maven.data
+    trace_level, idealized, ran = tracelevel_vbhmm_modelselection(
+        y,
+        keep,
+        nstates,
+        modeler.get_priors,
+        modeler.get_model_specs(),
+        data.nmol,
+        data.nt,
+        data.pre_list,
+        data.post_list,
+        dtype,
+    )
+    empty = np.full(nstates, np.nan)
+    result = modeler.model_container(
+        type=PER_TRACE_VBFRET_TYPE,
+        nstates=nstates,
+        mean=empty.copy(),
+        var=empty.copy(),
+        frac=empty.copy(),
+    )
+    result.idealized = idealized
+    result.ran = ran
+    result.dtype = dtype
+    result.trace_level = trace_level
+    modeler.model = result
 
 
 def vbgmm_lower_bound(x, r, a, b, m, beta, alpha, a0, b0, m0, beta0, alpha0):
@@ -332,7 +393,10 @@ def run(
     if corrected_vbgmm:
         use_corrected_vbgmm()
 
-    getattr(maven.modeler, method_name)()
+    if method_name is None:
+        run_vbfret_per_trace(maven)
+    else:
+        getattr(maven.modeler, method_name)()
     model = maven.modeler.model
     if model is None:
         raise RuntimeError("idealization produced no model (no usable traces?)")
@@ -346,7 +410,7 @@ def run(
         "nmol": nmol,
         "nt": nt,
         "model_type": model_type,
-        "method": method_name,
+        "method": method_name or "run_vbfret_per_trace",
         "result_type": str(model.type),
         "nstates": int(model.nstates),
         "model_out": os.path.abspath(model_out),
