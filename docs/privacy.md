@@ -7,7 +7,7 @@ description: "What Tether and this documentation site collect and do not collect
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
 needed to read it or to rely on it.
 
-**Effective date: 19 November 2026**
+**Effective date: 25 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -28,32 +28,49 @@ you allow it** (below).
   During idealization, selected traces are copied to your operating system's temporary
   directory for local processing; Tether normally removes this scratch directory when the
   run finishes.
-- **No telemetry or analytics.** The application contains no usage tracking, no analytics,
-  no crash/telemetry reporting, no advertising, and no account or login. It makes **no
-  network connection** as part of normal analysis; it neither sends your data to us or to
-  any third party, nor "phones home". The one exception is the optional check for a newer
-  release described next, and it is off until you allow it.
-- **Optional check for a newer release (off by default).** At its first start, the
-  application asks in a bar at the top of the window whether it may check for a newer
-  release. **Until you answer yes, it makes no network request at all.** If you never
-  answer, it never makes one. If you answer yes, it sends **one** request to GitHub each
-  time it starts:
-  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. The request is
-  unauthenticated HTTPS. GitHub necessarily sees your computer's **IP address**, the time
-  and the user-agent `Tether`. The GitHub General Privacy Statement linked below applies to
-  it, and the Tether project does not receive its data. Tether adds **nothing** to the
-  request: no account, no installation id, no version number, no usage data and no
-  telemetry. It sends nothing about your computer, your projects or your data. From the
-  answer it reads only the version number of the newest release. If that is newer than your
-  copy, a notice links to the Releases page. It **downloads nothing and installs nothing**.
-  You download a new release yourself. If the request fails, for example with no network or
-  a timeout, nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
+- **No telemetry or analytics.** Tether has no usage tracking, no analytics, no crash
+  reporting, no advertising and no account or login. Tether makes no network connection during
+  analysis. It sends your data to nobody: not to us and not to a third party.
+- **The check for a newer release is the one exception, and it is off until you turn it on.**
+  At its first start, the application asks in a bar at the top of the window whether it may
+  check for a newer release. **Until you answer yes, Tether makes no network request at
+  all.** If you never answer, it never makes one. When the check is on, Tether sends **one**
+  request to GitHub each time the application runs: when the application starts, or when you
+  turn the check on, whichever comes first:
+
+  `GET https://api.github.com/repos/bioedca/tether/releases/latest`
+
+  This is the only host the application contacts. The request is unauthenticated HTTPS, and
+  Tether verifies GitHub's certificate. If GitHub answers with a redirect to another host,
+  Tether does not follow it. The request uses your proxy settings: the `HTTPS_PROXY`,
+  `HTTP_PROXY` and `NO_PROXY` variables, and on Windows and macOS the system proxy settings.
+  If the request fails, for example with no network, a refusing proxy or a timeout, Tether
+  shows nothing.
+- **What the request carries.** The request carries these five headers and nothing more:
+  `Host: api.github.com`, `Accept: application/vnd.github+json`, `User-Agent: Tether`,
+  `Accept-Encoding: identity` and `Connection: close`. It carries no version number, no
+  operating-system name, no installation id, no account, no cookie and no usage data. It
+  sends nothing from your projects, your movies or your settings. GitHub receives your
+  computer's **IP address**, the time and the user-agent `Tether`, as it does for any
+  request to its site. The GitHub General Privacy Statement linked below applies to that
+  data, and the Tether project does not receive it.
+- **What Tether does with the answer.** From the answer, Tether reads only the version
+  number of the newest release. If that is newer than your copy, a notice links to the
+  [Releases page](https://github.com/bioedca/tether/releases). The link always goes to that
+  fixed page. If you select the link, your web browser opens the page, and GitHub's
+  privacy statement applies to that visit. Tether **downloads nothing and installs
+  nothing**. You download and install a new release yourself.
 - **Turning the check off.** Untick **Help → Check for new releases at startup**, or answer
   **Don't check** to the first question. Your answer is kept in a small settings file
   outside the install folder, so a newer release you install keeps it. An administrator can
   turn the check off for every user of a computer.
   [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder) says where
   that file and the settings file are.
+- **The update verifier in the installer.** The installer includes a copy of the GitHub
+  command-line tool `gh` in a folder of its own. A later release of Tether will use it to
+  verify a downloaded update before it installs it. This release of Tether never runs it,
+  so it sends nothing. Before Tether uses it, this page will name each host it contacts and
+  each value it sends.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
@@ -90,8 +107,10 @@ you allow it** (below).
   or copy them into a bug report. Each line holds the time, the level and the text of one
   message. The log holds no trace data and no file contents. A message that shows a file
   path, such as the project you opened, keeps that path. The log keeps at most about 4 MB in
-  four files. It is **never transmitted by Tether**. Delete the folder and it is gone.
-  [Troubleshooting](troubleshooting.md#i-missed-a-message-in-the-status-bar) lists the folder
+  four files. When the file is larger than about 1 MB, Tether renames it `tether.log.1` and keeps
+  the three newest old files. If Tether cannot write the file, it stops writing it for that
+  session. The log is **never transmitted by Tether**. Delete the folder and it is gone.
+  [Troubleshooting](troubleshooting.md#a-status-bar-message-went-away-before-you-read-it) lists the folder
   on each system, and **Help → Open log folder** opens it.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
