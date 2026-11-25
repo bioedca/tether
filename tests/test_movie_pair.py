@@ -113,7 +113,7 @@ def test_the_store_records_both_sources_and_their_roles(
     summary = extract_movie(donor, project, acceptor_movie=acceptor)
 
     (row,) = _movie_rows(project)
-    sha_donor, sha_acceptor = file_sha256(donor), file_sha256(acceptor)
+    sha_donor, sha_acceptor = file_sha256(donor).sha256, file_sha256(acceptor).sha256
     assert _text(row["sha256"]) == pair_sha256(sha_donor, sha_acceptor) == summary.movie_sha256
     # Each file is one whole channel of the acquisition.
     assert list(row["donor_crop"]) == list(row["acceptor_crop"]) == [1, 1, 40, 40]
@@ -262,8 +262,8 @@ def test_a_bead_file_pair_gives_the_map_of_the_same_beads_in_one_frame(
     assert whole == two.registration_map.moving_geometry
     assert whole is not None and whole.crop == (1, 1, *donor.shape)
     provenance = two.registration_map.provenance
-    assert provenance["bead_source"]["source_id"] == f"sha256:{file_sha256(d)}"
-    assert provenance["acceptor_bead_source"]["source_id"] == f"sha256:{file_sha256(a)}"
+    assert provenance["bead_source"]["source_id"] == f"sha256:{file_sha256(d).sha256}"
+    assert provenance["acceptor_bead_source"]["source_id"] == f"sha256:{file_sha256(a).sha256}"
     assert provenance["bead_settings"]["two_files"] is True
     assert two.acceptor_source is not None and two.acceptor_source.kind == "image"
 
