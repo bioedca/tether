@@ -398,6 +398,13 @@ semicolons = 0
 long_paragraphs = 0
 retired = 0
 
+[pages."docs/maintainers/architecture.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/maintainers/building-installers.md"]
 kind = "procedure"
 long_share = 2.8

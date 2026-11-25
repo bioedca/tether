@@ -582,6 +582,8 @@ Source: `docs/PRD.md` §12.2 and §12.6.
 - [`docs/PRD.md`](docs/PRD.md): the product and the science. Section 12 governs the contribution process.
 - [Writing style for documentation](docs/maintainers/writing-style.md): the rules for each page.
 - [Docstring standard](docs/maintainers/docstring-style.md): the rules for each docstring.
+- [The architecture overview](docs/maintainers/architecture.md): how the program is built, and
+  the checks that protect its structure.
 - [The ADR index](docs/adr/README.md): why each decision was made.
 - [`SECURITY.md`](SECURITY.md): how to report a vulnerability.
 - The sections below: how the project is run, and the rules that protect it.

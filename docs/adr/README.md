@@ -14,6 +14,9 @@ This directory records Tether's architecture decisions in
 context, the options weighed, and the consequences, so the *rationale* survives
 prose harmonization of the PRD (PRD §12.7).
 
+For a map of how the decisions fit together, and the records to read first, see the
+[architecture overview](../maintainers/architecture.md#where-decisions-are-recorded).
+
 ## How ADRs are created
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
