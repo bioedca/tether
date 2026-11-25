@@ -117,3 +117,17 @@ def test_a_movie_on_another_drive_is_recorded_absolute(tmp_path, monkeypatch) ->
     monkeypatch.setattr(os.path, "relpath", no_relative_path)
 
     assert project_movie_uri(tmp_path / "out" / "m.tether", movie) == movie.as_posix()
+
+
+def test_a_relative_path_past_a_linked_folder_is_recorded_absolute(tmp_path) -> None:
+    movie = _raw_movie(tmp_path / "data" / "raw")
+    (tmp_path / "elsewhere" / "out").mkdir(parents=True)
+    try:
+        (tmp_path / "data" / "out").symlink_to(tmp_path / "elsewhere" / "out")
+    except OSError:  # Windows without the right to make a link
+        pytest.skip("cannot make a folder link here")
+    project = tmp_path / "data" / "out" / "m.tether"
+
+    # ``../raw/m.tif`` from the linked folder leads to elsewhere/raw, where no movie is.
+    assert project_movie_uri(project, movie) == movie.as_posix()
+    assert project_movie_uri(tmp_path / "data" / "m.tether", movie) == "raw/m.tif"

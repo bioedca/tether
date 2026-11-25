@@ -257,7 +257,7 @@ of the movie and therefore never hydrates a cloud placeholder.
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `movie_id` | `str:utf-8` | scalar | Movie identity within this store; the CLI writes `mov-<uuid4>` (`src/tether/project/extract.py`). |
-| `uri` | `str:utf-8` | scalar | Source movie path as text, relative to the folder of the project file with `/` separators (`../raw/m.tif`), or absolute when no relative path exists (the movie is on another Windows drive); `""` when unknown. |
+| `uri` | `str:utf-8` | scalar | Source movie path as text, relative to the folder of the project file with `/` separators (`../raw/m.tif`), or absolute when no relative path exists (the movie is on another Windows drive) or the relative one would lead to another file (past a linked folder); `""` when unknown. |
 | `sha256` | `str:utf-8` | scalar | 64-char hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)); seeds every `molecule_key`. |
 | `file_size` | `i8` | scalar | `Path.stat().st_size`, **bytes**. |
 | `mtime` | `f8` | scalar | `Path.stat().st_mtime`, **POSIX epoch seconds**. |
