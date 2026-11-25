@@ -4,167 +4,280 @@ description: "What a project and its exports record about how they were made, ho
 
 # Reproducibility and reporting
 
-**Who this page is for.** Anyone who has to write the Methods paragraph for an analysis done
-in Tether, or answer a reviewer who asks which version and which settings produced a figure.
-It lists what a `.tether` project and its exports record about how they were made, shows how
-to read that record back, and explains how to rebuild the software environment that produced
-it.
+**Who this page is for.** Anyone who writes the Methods paragraph for an analysis done in Tether.
+It is also for anyone who must tell a reviewer which version and which settings made a figure.
+The page lists what a `.tether` project and its exports record about how they were made. It shows
+how to read that record back, and how to rebuild the software environment that made it.
 
 Tether's design rule is that every datum carries its origin
-([ADR-0001](adr/0001-provenance-first-data-model.md)). In practice that means three things,
-covered in turn below: a version stamp and the stage's settings on extraction, the leakage,
-γ and correction passes and each idealization inside the project, the same stamp in a provenance file
-beside every publication export, and committed dependency locks that pin the environment the
-version ran in. The record is not complete: some steps and some settings are never stamped,
-and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
-[project file reference](reference/tether-format.md) documents every group and dataset in a
-`.tether` file, and the [exports reference](reference/exports.md) documents every column of
-every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis). Which
-files to deposit with a paper is on [Share and deposit a dataset](how-to/share-a-dataset.md).
+([ADR-0001](adr/0001-provenance-first-data-model.md)). In practice that means three records, and
+the sections below cover them in turn:
+
+- Inside the project, a version stamp and the settings of each stage: extraction, the leakage, γ
+  and correction passes, and each idealization.
+- Beside every publication export, a provenance file with the same stamp.
+- In the source tree, committed dependency locks that pin the environment that the version ran in.
+
+The record is not complete. Some steps and some settings are never stamped, and
+[What is not recorded](#what-is-not-recorded) lists them. Other pages go further:
+
+- The [project file reference](reference/tether-format.md) documents every group and dataset in a
+  `.tether` file.
+- The [exports reference](reference/exports.md) documents every column of every export.
+- [Citing Tether](citing.md#reporting-a-tether-analysis) says what to cite.
+- [Share and deposit a dataset](how-to/share-a-dataset.md) says which files to deposit with a
+  paper.
+
+## How to read this page
+
+Each table of recorded attributes has the same five columns, in this order:
+
+| Column | What it holds |
+|---|---|
+| **Attribute** | The name of the attribute or key, as its writer spells it. |
+| **Type** | `int`, `float`, `bool` or `str` for an HDF5 attribute. A key of a provenance file is `str` or `object`. |
+| **Unit** | The unit of a number: frames, pixels, count or dimensionless. A dash means that the value is text, a flag or a code. |
+| **Empty value** | The value when there is no result, such as `NaN`. **absent** means that the attribute can be missing, and a dash means that the current writer always writes it. |
+| **Meaning** | What the value is, in at most 25 words. A longer note is in the numbered notes below the table. |
+
+A paragraph above each table names the module that writes the attributes. Search that file for an
+attribute's name to find the line that writes it.
+
+A warning before a table gives a fact that can change a number that you report. The
+[Background](#background) section at the end gives the reasons behind some records.
 
 ## What is recorded
 
 ### The project root
 
-Every project is created with these attributes on its root group
-(`create_project`, `src/tether/io/schema.py`):
+`create_project` in `src/tether/io/schema.py` writes these attributes on the root group of every
+project.
 
-| Attribute | Meaning |
-|---|---|
-| `format` | Always `tether-project`; marks the file as a Tether project file. |
-| `schema_version` | The project file layout version, an integer. |
-| `app_version` | The Tether version that **created** the project. It is optional: a writer can leave it out, so a valid project may lack it. |
+> **Do not report the root `app_version` as the version of a later step.** A project created with
+> one release can be corrected or idealized with another. Each of those steps stamps its own
+> version, as the sections below show.
 
-The root `app_version` says nothing about later steps. A project created with one release
-can be corrected or idealized with another, and each of those steps stamps its own version
-below.
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `format` | `str` | — | — | Always `tether-project`. It marks the file as a Tether project file. |
+| `schema_version` | `int` | — | — | The version of the project file layout. |
+| `app_version` | `str` | — | absent | The Tether version that **created** the project. A writer can leave it out, so a valid project can lack it. |
 
 ### Each pipeline stage, under `/settings`
 
-Each stage writes one group under `/settings` holding its parameters and its own
-`app_version`. Every attribute named here is written by the module listed, so you can search
-that file for the name and land on the line that writes it.
+Each stage writes one group under `/settings`. The group holds the stage's parameters and its own
+`app_version`.
 
-**`/settings/extraction`** — `src/tether/imaging/extract.py`. Written the **first** time a
-movie is extracted into the project and never rewritten. A later movie must use the same
-`window`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window` or the write is
-refused; nothing else is compared, so `profile_json` and `app_version` describe the first
-movie only, and a later movie's detection or registration settings are not recorded. In a
-project rebuilt from a Deep-LASI acquisition it holds Tether's
-standard aperture values, recording where the traces came from rather than an integration
-Tether performed.
+**`/settings/extraction`**, written by `src/tether/imaging/extract.py`. Tether writes it the
+**first** time that a movie is extracted into the project, and it never rewrites it. A later movie
+must use the same `window`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window`, or Tether
+refuses the write.
 
-| Attribute | Meaning |
-|---|---|
-| `window` | Aperture window edge (also the patch edge), pixels. |
-| `disk_radius` | Signal disk radius, pixels. |
-| `ring_inner`, `ring_outer` | Background annulus radii, pixels. |
-| `bg_window` | Background moving-average length, frames. |
-| `n_psf` | Number of pixels in the signal disk. |
-| `molecule_key_quantum_px` | The coordinate quantum behind each molecule's key, pixels. |
-| `app_version` | The Tether version that extracted the first movie. In a project rebuilt from a Deep-LASI acquisition it is the version that did the rebuild, not the software that extracted the traces. |
-| `profile_json` | Present only when a settings profile was supplied, as JSON. From the native pipeline behind `tether extract` and `tether batch` it holds the detection, registration and colocalization settings plus the registration source and its RMS error. From a Deep-LASI reconstruction it holds only where the traces came from: `source`, `coordinate_source`, `movie_name` and `exported_by`. |
+> **Read `profile_json` and `app_version` as the record of the first movie only.** Tether compares
+> nothing else for a later movie. So a later movie's detection or registration settings are not
+> recorded.
 
-**`/settings/leakage`** — `src/tether/project/leakage.py`. Rewritten on every leakage pass.
-`alpha` is the donor-to-acceptor leakage factor α, estimated from the signal left in the
-acceptor channel after the acceptor bleaches (`source` = `post-acceptor-bleach-tail`); `withheld` is `True`, and
-`alpha` is `NaN`, when too few traces qualified. The other attributes record the inputs to
-that decision: `n_qualifying`, `n_molecules`, `min_window_frames`, `ceiling`,
-`min_qualifying_traces` and `intensity_quantity`, plus `app_version` and `created_utc`.
+> **Do not read the `/settings/extraction` of a Deep-LASI reconstruction as the settings of an
+> integration.** In a project rebuilt from a Deep-LASI acquisition, it holds Tether's standard
+> aperture values. They record where the traces came from, not an integration that Tether
+> performed.
 
-**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass, and removed
-by a leakage pass that withholds α, because that pass clears the processed `gamma` rows. The
-detection-efficiency and quantum-yield ratio γ is estimated **per molecule** at its acceptor
-bleach step (`source` = `acceptor-bleach-step`), and each molecule that passes the gates
-stores its own value in the `gamma` column of `/molecules`, unless the population value
-below is withheld, in which case every processed molecule's `gamma` is cleared to `NaN`,
-including those that had an estimate of their own. Storing is all the pass does;
-nothing in Tether applies γ to a displayed or exported value (see the note under the sample
-Methods paragraph). The `gamma`
-attribute here is the population median of those values, which the `n_fallback` molecules
-that failed the gates receive instead; it follows the same `withheld` rule. The rest are
-`n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
-`min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`,
-`n_step_evaluated`, `n_step_clean`, `min_clean_step_fraction`, `few_clean_steps`,
-`n_excluded`, `app_version` and `created_utc`.
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `window` | `int` | pixels | — | The edge of the aperture window, which is also the edge of the patch. |
+| `disk_radius` | `float` | pixels | — | The radius of the signal disk. |
+| `ring_inner`, `ring_outer` | `float` | pixels | — | The radii of the background annulus. |
+| `bg_window` | `int` | frames | — | The length of the background moving average. |
+| `n_psf` | `int` | pixels | — | The number of pixels in the signal disk. |
+| `molecule_key_quantum_px` | `float` | pixels | — | The coordinate quantum behind the key of each molecule. |
+| `app_version` | `str` | — | — | The Tether version that extracted the first movie (note 1). |
+| `profile_json` | `str` | — | absent | The settings profile as JSON. It is present only when a settings profile was supplied (note 2). |
 
-`n_excluded` counts the molecules that a
-person or a recipe excluded from the median in the γ evidence table
-([#927](https://github.com/bioedca/tether/issues/927)). It is `0` until one is excluded.
+**Notes**
 
-`level_window` names the frames each γ level was averaged over. It reads `half-window` when
-`half_window` frames each side were used, 20 by default
-([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)). It reads `whole-segment`
-when the whole segments were used, and then `half_window` is `0`. A project from before
-ADR-0130 has no `level_window`.
+1. In a project rebuilt from a Deep-LASI acquisition, it is the version that did the rebuild. It
+   is not the software that extracted the traces.
+2. From the native pipeline behind `tether extract` and `tether batch`, it holds the detection,
+   registration and colocalization settings. It also holds the registration source and its RMS
+   error. From a Deep-LASI reconstruction, it holds only where the traces came from: `source`,
+   `coordinate_source`, `movie_name` and `exported_by`.
 
-`n_step_evaluated` counts the molecules whose acceptor-bleach step was measured, because
-both of its segments were long enough, and `n_step_clean` those of them whose donor rose and
-whose leakage-corrected acceptor dropped across the step, the shape an acceptor bleach must
-have. `few_clean_steps` is `True` when γ was applied and fewer than `min_clean_step_fraction`
-of the measured steps were clean
-([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
-Such a γ is still stored and is not changed by the flag. The flag is a reason to check it, not
-proof that it is wrong: noise alone can make many steps read clean by chance (ADR-0134 states
-the noise model), so the γ may rest largely on noise. Check it, report it with
-that caveat, or enter a factor measured another way. A project from before ADR-0134 has none of
-these four attributes.
+**`/settings/leakage`**, written by `src/tether/project/leakage.py`. Tether rewrites it on every
+leakage pass. The pass estimates the donor-to-acceptor leakage factor α from the signal that is
+left in the acceptor channel after the acceptor bleaches. The other attributes record the inputs to
+the decision to withhold α.
 
-**`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
-pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
-usable and records the outcome in `/molecules` as `correction_method` and
-`correction_confidence`, with any manual factor written into `alpha` and `gamma`. It does
-not compute a corrected E itself.
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `alpha` | `float` | dimensionless | `NaN` (withheld) | The leakage factor α. |
+| `withheld` | `bool` | — | — | `True` when too few traces qualified. Then `alpha` is `NaN`. |
+| `source` | `str` | — | — | The estimator, `post-acceptor-bleach-tail`. |
+| `n_qualifying` | `int` | count | — | The number of traces that gave an α. |
+| `n_molecules` | `int` | count | — | The number of molecules in the pass. |
+| `min_window_frames` | `int` | frames | — | The shortest tail after the acceptor bleach from which α can be measured. |
+| `ceiling` | `float` | dimensionless | — | The largest α of one trace that the pass accepts. |
+| `min_qualifying_traces` | `int` | count | — | How many traces had to qualify before the pass gave an α. |
+| `intensity_quantity` | `str` | — | — | The trace layer that the pass read. |
+| `app_version`, `created_utc` | `str` | — | — | The version and the time of the pass. |
 
-| Attribute | Meaning |
-|---|---|
-| `apparent_e_only` | `True` when the pass was told to keep every molecule on apparent E on purpose, even where factors exist. |
-| `alpha_override`, `gamma_override` | A factor requested by hand, or `NaN` when none was. It is recorded whether or not it took effect (`apparent_e_only`, for one, overrides it), so read `n_manual` for how many molecules it was actually applied to. |
-| `n_molecules` | Molecules in the pass. |
-| `n_corrected`, `n_manual`, `n_apparent` | How many molecules this pass classified `corrected`, `manual` or apparent E. `corrected` means the molecule had a finite stored α, a positive stored γ and no override was requested in this pass; it does not prove the factors were estimated. A factor stored earlier by an override or by a Deep-LASI reconstruction counts as `corrected` on a later pass with no override, and the later pass replaces this group, so check how the factors were produced if that matters. |
-| `total_failure` | `True` when no molecule carries a correction. It is also `True` under `apparent_e_only`, where nothing was corrected by choice, so check that attribute first. |
-| `app_version`, `created_utc` | The version and time of the pass. |
+**`/settings/gamma`**, written by `src/tether/project/gamma.py`. Tether rewrites it on every γ
+pass. A leakage pass that withholds α removes it, because that pass clears the processed `gamma`
+rows. The pass estimates the detection-efficiency and quantum-yield ratio γ **per molecule**, at
+the acceptor bleach step of the molecule.
 
-Direct excitation (δ) has no attribute here. Tether's two-color, single-laser scheme carries
-δ as an inert `0` ([ADR-0008](adr/0008-correction-factor-remap.md)), stored per molecule in
-the `delta` column of `/molecules` rather than under `/settings`.
+Each molecule that passes the gates stores its own value in the `gamma` column of `/molecules`.
+The `gamma` attribute here is the population median of those values. The `n_fallback` molecules
+that failed the gates receive that median instead. When the median is withheld, Tether clears the
+`gamma` of every processed molecule to `NaN`. This includes the molecules that had an estimate of
+their own.
 
-**`/settings/batch`** — `src/tether/project/batch.py`. Written by `tether batch`, rewritten on
-every run: `source` (`batch-runner`), `policy`, `idealize_requested`, one `<stage>_status`
-per stage (`extract_status`, `correct_status`, `idealize_status`), `app_version` and
-`created_utc`.
+> **Do not report the stored γ as applied to a value.** Storing γ is all that the pass does.
+> Nothing in Tether applies γ to a value that it shows or exports (see the warning under
+> [A sample Methods paragraph](#a-sample-methods-paragraph)).
 
-**`/settings/analysis_only`** — `src/tether/project/analysis_import.py`. Present only in a
-project file imported from someone else's traces, where there is no movie to go back to:
-`round_trip_available` (`False`), `reason`, `n_molecules`, `n_frames`, `banner`, `source`,
-`source_kind`, `app_version` and `created_utc`. Such a project file has no `/settings/extraction`
-at all.
+> **Check a γ whose `few_clean_steps` is `True`, report it with that caveat, or enter a factor
+> measured another way.** The flag does not change the stored γ. It is not proof that the γ is
+> wrong
+> ([Why the few-clean-steps flag is only a reason to check](#why-the-few-clean-steps-flag-is-only-a-reason-to-check)).
+
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `gamma` | `float` | dimensionless | `NaN` (withheld) | The population median of the per-molecule γ values. |
+| `withheld` | `bool` | — | — | `True` when too few molecules qualified. Then `gamma` is `NaN`. |
+| `source` | `str` | — | — | The estimator, `acceptor-bleach-step`. |
+| `n_qualifying` | `int` | count | — | The number of molecules that passed the gates and have their own γ. |
+| `n_fallback` | `int` | count | — | The number of molecules that failed the gates and receive the median. |
+| `n_molecules` | `int` | count | — | The number of molecules in the pass. |
+| `level_window` | `str` | — | absent (note 1) | The frames that each γ level was averaged over: `half-window` or `whole-segment` (note 2). |
+| `half_window` | `int` | frames | — | The frames on each side of the step, 20 by default. It is `0` for `whole-segment`. |
+| `min_window_frames` | `int` | frames | — | The length that both segments around the step had to be longer than. |
+| `ceiling` | `float` | dimensionless | — | The largest γ of one molecule that the pass accepts. |
+| `min_qualifying_traces` | `int` | count | — | How many molecules had to qualify before the pass gave a γ. |
+| `intensity_quantity` | `str` | — | — | The trace layer that the pass read. |
+| `n_step_evaluated` | `int` | count | absent (note 3) | The number of molecules whose acceptor-bleach step was measured, because both of its segments were long enough. |
+| `n_step_clean` | `int` | count | absent (note 3) | The number of measured steps with the shape of an acceptor bleach (note 4). |
+| `min_clean_step_fraction` | `float` | dimensionless | absent (note 3) | The share of clean steps below which the pass sets `few_clean_steps`. |
+| `few_clean_steps` | `bool` | — | absent (note 3) | `True` when γ was applied and fewer than `min_clean_step_fraction` of the measured steps were clean. |
+| `n_excluded` | `int` | count | — | The number of molecules that a person or a recipe excluded from the median in the γ evidence table. |
+| `app_version`, `created_utc` | `str` | — | — | The version and the time of the pass. |
+
+**Notes**
+
+1. A project from before
+   [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md) has no
+   `level_window`.
+2. `half-window` means that `half_window` frames on each side of the step were used.
+   `whole-segment` means that the whole segments were used.
+3. A project from before
+   [ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)
+   has none of these four attributes.
+4. A clean step is one where the donor rose and the leakage-corrected acceptor dropped across the
+   step.
+
+`n_excluded` is `0` until a person or a recipe excludes a molecule.
+
+**`/settings/correction`**, written by `src/tether/project/correct.py`. Tether rewrites it on every
+correction pass. The pass decides, for each molecule, whether its α and γ are usable. It records
+the outcome in `/molecules` as `correction_method` and `correction_confidence`, and it writes any
+manual factor into `alpha` and `gamma`. It does not compute a corrected E itself.
+
+> **Do not read `corrected` as proof that the factors were estimated.** `corrected` means that
+> the molecule had a finite stored α and a positive stored γ, and that this pass requested no
+> override. A factor stored earlier by an override or by a Deep-LASI reconstruction counts as
+> `corrected` on a later pass with no override. The later pass replaces this group, so check how
+> the factors were produced if that matters.
+
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `source` | `str` | — | — | The method, `accurate-fret`. |
+| `apparent_e_only` | `bool` | — | — | `True` when the pass was told to keep every molecule on apparent E on purpose, even where factors exist. |
+| `alpha_override`, `gamma_override` | `float` | dimensionless | `NaN` (none requested) | A factor requested by hand (note 1). |
+| `n_molecules` | `int` | count | — | The number of molecules in the pass. |
+| `n_corrected`, `n_manual`, `n_apparent` | `int` | count | — | How many molecules this pass classified `corrected`, `manual` or apparent E. |
+| `total_failure` | `bool` | — | — | `True` when no molecule carries a correction (note 2). |
+| `app_version`, `created_utc` | `str` | — | — | The version and the time of the pass. |
+
+**Notes**
+
+1. It is recorded whether or not it took effect. `apparent_e_only`, for one, overrides it. So read
+   `n_manual` for how many molecules it was actually applied to.
+2. It is also `True` under `apparent_e_only`, where nothing was corrected by choice. So check that
+   attribute first.
+
+Direct excitation (δ) has no attribute here. Tether's two-color, single-laser scheme carries δ as
+an inert `0` ([ADR-0008](adr/0008-correction-factor-remap.md)). Tether stores it for each molecule
+in the `delta` column of `/molecules`, not under `/settings`.
+
+**`/settings/batch`**, written by `src/tether/project/batch.py`. `tether batch` writes it and
+rewrites it on every run.
+
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `source` | `str` | — | — | The writer, `batch-runner`. |
+| `policy` | `str` | — | — | The failure policy of the run, such as `warn`. |
+| `idealize_requested` | `bool` | — | — | `True` when the run asked for the idealization stage. |
+| `extract_status`, `correct_status`, `idealize_status` | `str` | — | — | How each stage ended, one `<stage>_status` for each stage. |
+| `app_version`, `created_utc` | `str` | — | — | The version and the time of the run. |
+
+**`/settings/analysis_only`**, written by `src/tether/project/analysis_import.py`. It is present
+only in a project file imported from someone else's traces, where there is no movie to go back to.
+Such a project file has no `/settings/extraction` at all.
+
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `round_trip_available` | `bool` | — | — | Always `False`: there is no movie to go back to. |
+| `reason` | `str` | — | — | Why the round trip is not available. |
+| `n_molecules` | `int` | count | — | The number of molecules imported. |
+| `n_frames` | `int` | frames | — | The shared frame extent of the imported traces. |
+| `banner` | `str` | — | — | The notice that the project file has no coordinates or patches. |
+| `source` | `str` | — | — | The name of the imported file. |
+| `source_kind` | `str` | — | — | The reader that read it: `smd` or `txt`. |
+| `app_version`, `created_utc` | `str` | — | — | The version and the time of the import. |
 
 ### Each idealization, under `/idealization`
 
-Every fitted model is its own group, `/idealization/<model>`, stamped by
-`write_idealization_model` in `src/tether/project/idealize.py`:
+Every fitted model is its own group, `/idealization/<model>`. `write_idealization_model` in
+`src/tether/project/idealize.py` stamps it.
 
-| Attribute | Meaning |
-|---|---|
-| `type` | The backend, for example `vbconhmm` (Tether's default) or `ebhmm`. A model imported from standalone tMAVEN keeps tMAVEN's own label. |
-| `nstates` | Number of states in the chosen model. |
-| `nstates_selected_by` | How `nstates` was chosen: `max-elbo` (the best evidence lower bound over the states tried), `fixed`, or `imported`. |
-| `dtype`, `intensity_quantity` | What was fitted. For Tether's own fits `dtype` is `FRET` and `intensity_quantity` names the trace layer: `corrected` means the background-subtracted layer, not α- or γ-corrected, and the fit runs on apparent E computed from it ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)), so the state means are apparent efficiencies. A model imported from standalone tMAVEN keeps whatever `dtype` tMAVEN gave it, unchecked, so read `dtype` to know what quantity its state means are in. |
-| `n_molecules` | Molecules this fit covered. |
-| `app_version`, `created_utc` | The Tether version and time of the fit. For a model imported from standalone tMAVEN both describe the import instead: the version that imported it and the time it was written (`apply_reconcile`, `src/tether/project/handoff.py`), not the software or time of the fit, so record those yourself if they matter. |
-| `elbo`, `elbo_by_nstates` | The evidence lower bound of the chosen model, and of every state count tried (JSON), when the backend reports them. |
+> **Report the state means of a Tether fit as apparent efficiencies.** For Tether's own fits,
+> `intensity_quantity` is `corrected`. That means the background-subtracted layer, not α- or
+> γ-corrected. The fit runs on apparent E computed from it
+> ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)).
+
+> **Record the software and the time of the fit yourself for a model imported from standalone
+> tMAVEN.** Its `app_version` and `created_utc` describe the import instead. They give the version
+> that imported it and the time it was written (`apply_reconcile`,
+> `src/tether/project/handoff.py`).
+
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `type` | `str` | — | — | The backend, for example `vbconhmm` (Tether's default) or `ebhmm`. A model imported from standalone tMAVEN keeps tMAVEN's own label. |
+| `nstates` | `int` | count | — | The number of states in the chosen model. |
+| `nstates_selected_by` | `str` | — | — | How `nstates` was chosen: `max-elbo`, `fixed` or `imported` (note 1). |
+| `dtype` | `str` | — | — | The quantity that was fitted. For Tether's own fits, it is `FRET` (note 2). |
+| `intensity_quantity` | `str` | — | — | The trace layer that the fit read. |
+| `n_molecules` | `int` | count | — | The number of molecules that this fit covered. |
+| `app_version`, `created_utc` | `str` | — | — | The Tether version and the time of the fit. |
+| `elbo` | `float` | dimensionless | absent | The evidence lower bound of the chosen model, when the backend reports it. |
+| `elbo_by_nstates` | `str` | dimensionless | absent | The evidence lower bound of every state count tried, as JSON, when the backend reports them. |
+
+**Notes**
+
+1. `max-elbo` is the best evidence lower bound over the states tried.
+2. A model imported from standalone tMAVEN keeps whatever `dtype` tMAVEN gave it, unchecked. So
+   read `dtype` to know what quantity its state means are in.
 
 The backends and the papers behind each are listed on [Citing Tether](citing.md#idealization).
 
 ### Two more stamps
 
-Two other records carry a version, and the read-back below does not print them. The
-engineered feature table, the dataset `/features/table`, carries `app_version`,
-`created_utc`, `intensity_quantity`, `feature_schema_version`, `feature_names` and
-`n_molecules` as attributes (`src/tether/project/features.py`). Each row of the
-`/settings/condition_audit` log of condition re-keys and merges carries its own
-`app_version` and `timestamp` (`src/tether/project/conditions.py`).
+Two other records carry a version, and the read-back below does not print them:
+
+- The engineered feature table, the dataset `/features/table`, carries `app_version`,
+  `created_utc`, `intensity_quantity`, `feature_schema_version`, `feature_names` and `n_molecules`
+  as attributes (`src/tether/project/features.py`).
+- Each row of the `/settings/condition_audit` log of condition re-keys and merges carries its own
+  `app_version` and `timestamp` (`src/tether/project/conditions.py`).
 
 ### What is not recorded
 
@@ -172,52 +285,59 @@ Some steps leave no version or parameter stamp in the project, and one leaves on
 
 - Photobleach detection. Rerunning it overwrites the bleach frames and analysis windows and
   records no version.
-- Ranking and classification runs. A saved classical ranker records the version it was
-  trained under (`tether_version` in its model manifest). The deep classifier records none.
+- Ranking and classification runs. A saved classical ranker records the version it was trained
+  under (`tether_version` in its model manifest). The deep classifier records none.
 - The SMD file handed off to standalone tMAVEN has no provenance file. A fit run there is stamped
   only with the Tether version that imported it, so report the tMAVEN version you ran.
-- Extraction is stamped once, for the first movie (see `/settings/extraction` above).
-  Tether records no per-movie version, so the release that extracted a later movie is not
-  recorded.
+- Extraction is stamped once, for the first movie (see `/settings/extraction` above). Tether
+  records no per-movie version, so the release that extracted a later movie is not recorded.
 
-For those, keep your own note of the version and settings, and see
+For those, keep your own note of the version and settings. See
 [Citing Tether](citing.md#reporting-a-tether-analysis) for what to quote.
 
-Nor is every setting of the stamped stages stored. The idealization fitter's restart count
-(`nrestarts`), for one, is passed to tMAVEN but never written to the model group. The
-*Recorded in `.tether`* column of the [parameters reference](reference/parameters.md) says,
-for each tunable, whether and where it is stamped; anything marked **no** that you changed
-belongs in your own notes.
+Nor is every setting of the stamped stages stored. For example, Tether passes the restart count of
+the idealization fitter (`nrestarts`) to tMAVEN, but it never writes it to the model group. The
+*Recorded in `.tether`* column of the [parameters reference](reference/parameters.md) says, for
+each tunable, whether and where it is stamped. Keep your own note of any tunable marked **no**
+that you changed.
 
 ### Every export
 
 Each publication export writes a provenance file beside its output with the same stamp
-(`write_provenance_sidecar`, `src/tether/project/export.py`). The name is the full output
-filename with `.provenance.json` appended, so the original extension survives:
-`molecules.csv.provenance.json`, `traces.txt.provenance.json`,
-`subset.tether.provenance.json`. A figure exported with `export_figure`
-(`src/tether/analysis/plot_export.py`) is named by its stem, so its provenance file is
-`<stem>.provenance.json`.
+(`write_provenance_sidecar`, `src/tether/project/export.py`). Its name is the full output filename
+with `.provenance.json` added, so the original extension stays: `molecules.csv.provenance.json`,
+`traces.txt.provenance.json` and `subset.tether.provenance.json`. A figure exported with
+`export_figure` (`src/tether/analysis/plot_export.py`) is named by its stem. So its provenance file
+is `<stem>.provenance.json`.
 
-| Key | Meaning |
-|---|---|
-| `tether_export` | Which export wrote it, for example `molecule-table-csv`. |
-| `app_version` | The Tether version that wrote the export. |
-| `created_utc` | When. |
-| `source_project` | The project it came from, as a file name. For a figure it is whatever the code that exported it passed in. |
-| `parameters` | For the project exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
+> **Pass every setting that a plot was drawn with when you export a figure.** Nothing records a
+> plotting choice, such as the bin count, unless the code that exports the figure passes it.
 
-Figures are stamped twice more: the version is printed in the figure footer and embedded in
-the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
-default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the provenance file
-and the embedded metadata are still written. A figure re-rendered and exported again at the same pinned
-time gives byte-identical files in all three formats. Each export's parameters are listed in
-the [exports reference](reference/exports.md#provenance-file).
+| Attribute | Type | Unit | Empty value | Meaning |
+|---|---|---|---|---|
+| `tether_export` | `str` | — | — | The export that wrote the file, for example `molecule-table-csv`. |
+| `app_version` | `str` | — | — | The Tether version that wrote the export. |
+| `created_utc` | `str` | — | — | When the export was written. |
+| `source_project` | `str` | — | — | The project that the export came from, as a file name (note 1). |
+| `parameters` | `object` | — | — | The export's own settings, such as the intensity quantity and the molecule count (note 2). |
+
+**Notes**
+
+1. For a figure, it is whatever the code that exported it passed in.
+2. For a figure, it holds whatever the code that exported it passed in, plus `formats`, `dpi` and
+   `outputs`.
+
+Figures carry the version in two more places. Tether prints it in the figure footer, and it embeds
+it in the PDF, SVG and PNG metadata. The printed footer is there only with the default
+`stamp=True` of `export_figure`. A caller that passes `stamp=False` gets no footer, but Tether
+still writes the provenance file and the embedded metadata. A figure that is rendered and exported
+again at the same pinned time gives byte-identical files in all three formats. The
+[exports reference](reference/exports.md#provenance-file) lists the parameters of each export.
 
 ## How to read it back
 
-You do not need Tether to read any of this. Any HDF5 viewer shows the attributes; with `h5py`,
-this prints the root and every stage and model. For your own project, put its file name in
+You do not need Tether to read any of this. Any HDF5 viewer shows the attributes. With `h5py`,
+this script prints the root and every stage and model. For your own project, put its file name in
 place of `reproducibility_movie.tether`:
 
 ```python
@@ -243,21 +363,31 @@ with h5py.File("reproducibility_movie.tether", "r") as f:
             show(f"/idealization/{name}", group.attrs)
 ```
 
-The `isinstance` test skips `/settings/condition_audit`, which is a dataset (a log of
-condition edits) rather than a group. The `.__writing__` test skips the staging group a fit
-leaves behind if it is interrupted while being saved; that group is an incomplete model, and
-`list_idealizations` in `src/tether/project/idealize.py` skips it the same way.
+The script skips two kinds of entry:
 
-Here is that script's output for a project you can make yourself. It is an illustration, not
-a reference value. The project comes from a synthetic movie of 16 molecules and 150 frames,
-written by `scripts/make_tutorial_movie.py`, the same script that makes the
-[tutorial](tutorial.md)'s movie. The tutorial's three molecules and 24 frames are too few for
-the leakage and γ estimates, so this movie is larger. Its leakage α is 0.08 and its γ is 1 by
-construction, so you can compare those with what Tether estimates. To make the project, download
-[`make_tutorial_movie.py`](https://github.com/bioedca/tether/blob/main/scripts/make_tutorial_movie.py)
-into an empty folder, move into that folder, and run these two commands, with the Python that
-came with Tether in place of `python` ([Your first analysis, step 9](tutorial.md#9-export-the-molecule-table)
-gives its path):
+- The `isinstance` test skips `/settings/condition_audit`, which is a dataset (a log of condition
+  edits) and not a group.
+- The `.__writing__` test skips the staging group that a fit leaves behind if it is interrupted
+  while it is saved. That group is an incomplete model. `list_idealizations` in
+  `src/tether/project/idealize.py` skips it in the same way.
+
+Here is that script's output for a project that you can make yourself. It is an illustration, not
+a reference value.
+
+The project comes from a synthetic movie of 16 molecules and 150 frames. The
+movie is written by `scripts/make_tutorial_movie.py`, the same script that makes the movie of the
+[tutorial](tutorial.md). The tutorial's three molecules and 24 frames are too few for the leakage
+and γ estimates, so this movie is larger. Its leakage α is 0.08 and its γ is 1 by construction. So
+you can compare those with what Tether estimates.
+
+To make the project, do these steps:
+
+1. Download
+   [`make_tutorial_movie.py`](https://github.com/bioedca/tether/blob/main/scripts/make_tutorial_movie.py)
+   into an empty folder.
+2. Move into that folder.
+3. Run the two commands below. Use the Python that came with Tether in place of `python`
+   ([Your first analysis, step 9](tutorial.md#9-export-the-molecule-table) gives its path).
 
 ```console
 python make_tutorial_movie.py --reproducibility-movie reproducibility_movie.tif
@@ -265,34 +395,40 @@ tether batch reproducibility_movie.tif -d .
 ```
 
 The first command writes the movie, about 3.6 MB. The second extracts it into
-`reproducibility_movie.tether`, runs the leakage, γ and correction passes and the default
-idealization, and writes `batch-log.jsonl`. Then run the script above in the same folder.
+`reproducibility_movie.tether`. It runs the leakage, γ and correction passes and the default
+idealization, and it writes `batch-log.jsonl`. Then run the script above in the same folder.
 
-Some values differ between runs and machines. The output shows `<your version>` for the Tether
-version and `<time of the run>` for each time stamp; yours shows the real ones. The `elbo`
-values come from the tMAVEN fit and can differ in their last digits from one run to the next,
-and other numbers can differ in their last digits between operating systems. Everything else
-should match. With your own data the numbers will differ, and so can the set of groups and
-keys, because some are written only when a step ran or produced a result:
+Some values differ between runs and machines:
 
-- `/settings/gamma` is absent when leakage withheld α (too few qualifying molecules), since
-  `tether batch` then skips γ; the correction pass still runs and records the apparent-E
-  fallback.
-- `/idealization/<model>` is absent when no fit completed, and `elbo` and `elbo_by_nstates` appear
-  only when the backend reports them.
+- The output shows `<your version>` for the Tether version and `<time of the run>` for each time
+  stamp. Yours shows the real ones.
+- The `elbo` values come from the tMAVEN fit. They can differ in their last digits from one run to
+  the next.
+- Other numbers can differ in their last digits between operating systems.
+
+Everything else should match. With your own data, the numbers will differ. The set of groups and
+keys can differ too, because Tether writes some of them only when a step ran or gave a result:
+
+- `/settings/gamma` is absent when leakage withheld α (too few qualifying molecules), because
+  `tether batch` then skips γ. The correction pass still runs and records the apparent-E fallback.
+- `/idealization/<model>` is absent when no fit completed. `elbo` and `elbo_by_nstates` appear only
+  when the backend reports them.
 - `profile_json` appears only when a settings profile was supplied.
-- `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
+- `/settings/batch` appears only for a `tether batch` run. `/settings/analysis_only` appears only
   for an imported analysis-only project file.
 
-In an intact project, a missing group means the step left no completed record: it did not
-run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status`
-in `/settings/batch` records how that stage ended (`done`, `skipped`, `failed`, `blocked`,
-`deferred` or `not-requested`), and the batch log has the detail. A warning, such as a
-provenance stamp that failed, goes only to the batch log: the stage can still read `done`. The groups alone
-cannot tell any of these apart from a record that was deleted or damaged. One loss does leave
-a trace: a save interrupted between removing an old model and renaming its replacement can
-leave only the `<model>.__writing__` staging group, which the script skips. If
-`/idealization` holds one with no matching model, re-run that fit.
+In an intact project, a missing group means that the step left no completed record. The step did
+not run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status` in
+`/settings/batch` records how that stage ended. The value is `done`, `skipped`, `failed`,
+`blocked`, `deferred` or `not-requested`, and the batch log has the detail.
+
+> **Read the batch log for warnings, also when a stage reads `done`.** A warning, such as a
+> provenance stamp that failed, goes only to the batch log.
+
+The groups alone cannot tell any of these cases apart from a record that was deleted or damaged.
+One loss does leave a trace. A save interrupted between removing an old model and renaming its
+replacement can leave only the `<model>.__writing__` staging group, which the script skips. If
+`/idealization` holds one with no matching model, run that fit again.
 
 ```text
 [/]
@@ -376,7 +512,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
 ```
 
 An export's provenance file is plain JSON. To make one from the same project, start the Python that
-came with Tether in the same folder and export the molecule table:
+came with Tether in the same folder, and export the molecule table:
 
 ```pycon
 >>> from tether.project.export import export_molecule_table_csv
@@ -385,8 +521,8 @@ came with Tether in the same folder and export the molecule table:
 16
 ```
 
-That writes `molecules.csv` and its provenance file, `molecules.csv.provenance.json`. This prints the
-stamp and then each parameter:
+That writes `molecules.csv` and its provenance file, `molecules.csv.provenance.json`. This script
+prints the stamp and then each parameter:
 
 ```python
 import json
@@ -414,80 +550,93 @@ parameters.n_molecules: 16
 
 ## What a version string means
 
-Tether's version comes from git when it is built, so the string tells you which build you
-have:
+Tether's version comes from git when it is built. So the string tells you which build you have:
 
-- **A release**, such as `1.0.0`, or a release candidate such as `1.0.0rc2`, is what an
-  installer from the [releases page](https://github.com/bioedca/tether/releases) reports.
+- **A release**, such as `1.0.0`, or a release candidate, such as `1.0.0rc2`, is what an installer
+  from the [releases page](https://github.com/bioedca/tether/releases) reports.
 - **A development build** looks like `1.0.0rc3.dev28+gdfadf1f74`: 28 commits after the last
-  release tag, at commit `dfadf1f74`. That commit
-  identifies the exact source only for a build made from a clean checkout; a dirty or edited
-  one runs code the commit does not name ([Reproducing the environment](#reproducing-the-environment)).
-- **`0.0.0`** means one of two things: a build that had no git history to read, for example
-  one made from a downloaded source archive, or a build at the project's first milestone tag,
-  `v0.0.0`. The string alone cannot tell them apart, so check it against your own record of
+  release tag, at commit `dfadf1f74`. That commit identifies the exact source only for a build
+  made from a clean checkout. A dirty or edited checkout runs code that the commit does not name
+  ([Reproducing the environment](#reproducing-the-environment)).
+- **`0.0.0`** means one of two things. It is a build that had no git history to read, for example
+  one made from a downloaded source archive. Or it is a build at the project's first milestone
+  tag, `v0.0.0`. The string alone cannot tell them apart, so check it against your own record of
   what you installed.
-- **`0.0.0+unknown`** means the version could not be determined at all, for example code run
+- **`0.0.0+unknown`** means that the version could not be found at all. An example is code run
   straight from a source tree that was never installed.
 
-To see the version you have installed, run `tether --version` once Tether's launcher folder
-is on your PATH ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)),
-or run the launcher by its full path as that page shows. For results already on disk, read
-the stamps above instead: they record the version that actually ran each step, which may not
-be the one installed today.
+To see the version that you have installed, run `tether --version`. This works once Tether's
+launcher folder is on your PATH
+([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)). Or run the
+launcher by its full path, as that page shows.
+
+> **Read the stamps above, not the installed version, for results already on disk.** The stamps
+> record the version that actually ran each step. That may not be the version installed today.
 
 ## Reproducing the environment
 
-A release, or a development build installed from a clean checkout, pins Tether's own code
-through its version string. Three cases do not. `0.0.0+unknown` names no commit at all, and
-`0.0.0` names one only when you know the build was made at the `v0.0.0` tag rather than
-from a source tree with no git history; the string alone cannot tell you which, as the
-section above explains. An editable install (`pip install -e`, used below) runs
-whatever is in the checkout, so uncommitted changes, or edits made after installing, are not
-in the version string, which names only the commit it was built from. In those cases keep
-the commit plus a patch, a source archive or a checksum of the source you ran as a separate
-record.
+A release, or a development build installed from a clean checkout, pins Tether's own code through
+its version string. Three cases do not:
 
-The libraries Tether ran on are pinned by three committed lock files, and CI checks on every change that each lock still matches the
-specification it was solved from ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)):
+- `0.0.0+unknown` names no commit at all.
+- `0.0.0` names a commit only when you know that the build was made at the `v0.0.0` tag. The
+  string alone cannot tell you that, as the section above explains.
+- An editable install (`pip install -e`, used below) runs whatever is in the checkout. The version
+  string names only the commit that it was built from. So it does not show uncommitted changes, or
+  edits made after the install.
+
+> **Keep a separate record of the source for these three cases.** Keep the commit plus a patch, a
+> source archive or a checksum of the source that you ran.
+
+Three committed lock files pin the libraries that Tether ran on. CI checks on every change that
+each lock still matches the specification that it was solved from
+([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)):
 
 | Lock | Pins | In the installer |
 |---|---|---|
 | `conda-lock.yml` | The application: Python, NumPy, Numba, h5py, PySide6, napari and the rest. | Yes, as `envs/tether`. |
 | `sidecar/conda-lock.yml` | The isolated tMAVEN idealization environment (PyQt5, `numpy<2`). | Yes, as `envs/sidecar`. |
-| `deep/conda-lock.yml` | The optional deep-classifier add-on (PyTorch), CPU build only. | **No.** It is a separate opt-in install; see [Deep trace classifier](ml/deep-classifier.md). |
+| `deep/conda-lock.yml` | The optional deep-classifier add-on (PyTorch), CPU build only. | **No.** It is a separate opt-in install ([Deep trace classifier](ml/deep-classifier.md)). |
 
-The deep lock covers only the CPU build. The GPU path adds a CUDA PyTorch wheel from the
-PyTorch index on top, with whatever pip resolves alongside it, and that install is deliberately unpinned
-([ADR-0047](adr/0047-deep-model-optional-stack-and-dataset.md)). If you trained or scored with the GPU
-build, record the PyTorch wheel version, its CUDA channel and your NVIDIA driver version
-yourself (`pip freeze` in that environment lists the wheels); the lock does not.
+> **Record the PyTorch wheel version, its CUDA channel and your NVIDIA driver version yourself if
+> you trained or scored with the GPU build.** The deep lock covers only the CPU build. The GPU path
+> adds a CUDA PyTorch wheel from the PyTorch index, with whatever pip resolves beside it. That
+> install is deliberately not pinned
+> ([ADR-0047](adr/0047-deep-model-optional-stack-and-dataset.md)). `pip freeze` in that
+> environment lists the wheels.
 
-Two parts of the sidecar sit outside its lock: tMAVEN itself, installed from a pinned git
-commit by `scripts/setup_sidecar.py`, and a setuptools compatibility wheel pinned by version
-and hash in `packaging/setuptools-compatibility.txt`, which replaces the lock's own
-setuptools. From `v1.0.0-rc2` on, the installer bundles both, and a release's record of its
-environment is those three locks plus `scripts/setup_sidecar.py` and
-`packaging/setuptools-compatibility.txt` at the release tag. `v1.0.0-rc1` predates the
-compatibility pin: the file is not at that tag, its sidecar has the lock's own setuptools,
-and its one-click idealization fails with a `pkg_resources` error
-([Install Tether](install.md) says so). Each release
-also publishes a software bill of materials, `tether-sbom.cyclonedx.json`, beside the locks.
+Two parts of the sidecar are outside its lock:
+
+- tMAVEN itself, which `scripts/setup_sidecar.py` installs from a pinned git commit.
+- A setuptools compatibility wheel, pinned by version and hash in
+  `packaging/setuptools-compatibility.txt`. It replaces the lock's own setuptools.
+
+From `v1.0.0-rc2` on, the installer bundles both. A release's record of its environment is then
+those three locks, plus `scripts/setup_sidecar.py` and `packaging/setuptools-compatibility.txt` at
+the release tag. `v1.0.0-rc1` predates the compatibility pin. The file is not at that tag, and its
+sidecar has the lock's own setuptools. So its one-click idealization fails with a `pkg_resources`
+error ([Install Tether](install.md) says so). Each release also publishes a software bill of
+materials, `tether-sbom.cyclonedx.json`, beside the locks.
 
 **With an installer**, the environment comes with the version. Each installer is built from
-per-platform locks rendered from the first two files, with no fresh solve, so two installs of
-the same release on the same platform get the same packages. Linux, Intel macOS, Apple
-silicon macOS and Windows each have their own solution, so the packages differ between
-platforms. Each release publishes the source locks as assets
-on its [release page](https://github.com/bioedca/tether/releases), so you can see exactly
-what a release pinned without installing it. `v1.0.0-rc1` predates the deep lock's addition
-to the release assets and carries only the base and sidecar locks
-([its asset record](release.md#what-a-published-release-contains-verified-v100-rc1)); for that release, read `deep/conda-lock.yml` from the
-`v1.0.0-rc1` tag in the source tree.
+per-platform locks rendered from the first two files, with no fresh solve. So two installs of the
+same release on the same platform get the same packages. Linux, Intel macOS, Apple silicon macOS
+and Windows each have their own solution, so the packages differ between platforms.
 
-**From source**, check out the release tag you are reproducing, create the environment from
-the committed lock, and install Tether on top of it without letting pip install any
-runtime dependency:
+Each release
+publishes the source locks as assets on its
+[release page](https://github.com/bioedca/tether/releases). So you can see exactly what a release
+pinned without installing it. `v1.0.0-rc1` predates the addition of the deep lock to the release
+assets. It carries only the base and sidecar locks
+([its asset record](release.md#what-a-published-release-contains-verified-v100-rc1)). For that
+release, read `deep/conda-lock.yml` from the `v1.0.0-rc1` tag in the source tree.
+
+**From source**, check out the release tag that you are reproducing. Then create the environment
+from the committed lock, and install Tether on top of it without letting pip install any runtime
+dependency.
+
+> **Never create the environment from `environment.yml`.** That is the specification that the lock
+> was solved from. Solving it again today gives newer packages than the release used.
 
 ```console
 micromamba create -n tether -f conda-lock.yml   # or: conda-lock install -n tether
@@ -495,22 +644,30 @@ micromamba activate tether
 pip install -e . --no-deps
 ```
 
-Never create the environment from `environment.yml`: that is the specification the lock was
-solved from, and solving it again today gives newer packages than the release used. One
-step is not pinned by the lock: `pip install` still downloads Tether's build backend
-(`hatchling` and `hatch-vcs`) into a temporary build environment, so it needs network
-access, and the backend version can differ from the one the release was built with. The
-sidecar has its own guided setup, `python scripts/setup_sidecar.py` from the same tag,
-which installs the pinned tMAVEN and setuptools; see
-[`CONTRIBUTING.md`](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md).
+The lock does not pin one step. `pip install` still downloads Tether's build backend (`hatchling`
+and `hatch-vcs`) into a temporary build environment. So it needs network access, and the version
+of the backend can differ from the one that the release was built with.
+
+The sidecar has its own guided setup, `python scripts/setup_sidecar.py` from the same tag. It
+installs the pinned tMAVEN and setuptools
+([`CONTRIBUTING.md`](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md)).
 
 ## A sample Methods paragraph
 
 This paragraph is built from the read-back above: the version, the extraction settings, the
-correction stamps and the idealization stamp. The spread of the per-molecule γ values comes
-from the `gamma` column of the molecule-table CSV exported from the same project. Swap in
-your own values and drop what you did
-not run. The citations are the ones [Citing Tether](citing.md) gives for each step.
+correction stamps and the idealization stamp. The spread of the per-molecule γ values comes from
+the `gamma` column of the molecule-table CSV exported from the same project. Put in your own
+values, and remove what you did not run. The citations are the ones that
+[Citing Tether](citing.md) gives for each step.
+
+> **Report every E value from Tether as apparent E, unless you computed corrected E yourself.**
+> Tether stores α and γ with each molecule, but it does not apply them to any value that it shows
+> or exports. The trace views, the analysis functions, the E summary of the molecule-table CSV and
+> the hidden Markov model all use apparent E. So none of them is a corrected efficiency. If you
+> report corrected E, compute it yourself from the stored factors, and say so. The
+> [exports reference](reference/exports.md#at-a-glance) gives the formula.
+
+Here is the sample, for the project made above:
 
 > Single-molecule FRET movies were processed with Tether version `<your version>`
 > (<https://doi.org/10.5281/zenodo.23306397>). Donor and acceptor intensities were integrated
@@ -528,15 +685,15 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 > (two) chosen by the maximum evidence lower bound over one to four states; the state
 > means are therefore apparent efficiencies.
 
-The idealization clause matters most. Tether stores α and γ with each molecule but does not
-apply them to any value it shows or exports: the trace views, the analysis functions, the
-molecule-table CSV's E summary and the hidden Markov model all use apparent E, so none of
-them is a corrected efficiency. If you report corrected E, compute it yourself from the
-stored factors (the [exports reference](reference/exports.md#at-a-glance) gives the formula)
-and say so.
+Report the version that actually produced the results, also when it is a development build. Never
+put in a release that did not run. For a paper, run the final analysis again on a release if you
+can, and then cite that release. If one exact release matters, cite the DOI of that version from
+its Zenodo record, not the concept DOI. If steps ran under different versions, name each one.
 
-Report the version that actually produced the results, even when it is a development build;
-never substitute a release that did not run. For a paper, rerun the final analysis on a
-release if you can, and then cite that release. If one exact release matters, cite that
-version's own DOI from its Zenodo record instead of the concept DOI. If steps ran under
-different versions, name each one.
+## Background
+
+### Why the few-clean-steps flag is only a reason to check
+
+The flag is a reason to check the γ, not proof that it is wrong. Noise alone can make many steps
+read clean by chance, and ADR-0134 states the noise model. So the γ may rest largely on noise
+([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).

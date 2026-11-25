@@ -253,8 +253,8 @@ retired = 0
 
 [pages."docs/reproducibility.md"]
 kind = "descriptive"
-long_share = 30.2
-semicolons = 18
+long_share = 1.1
+semicolons = 2
 long_paragraphs = 0
 retired = 0
 
