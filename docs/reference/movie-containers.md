@@ -26,10 +26,12 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 | cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 
-The extraction commands (`tether extract`, `tether batch`) read TIFF only for now. A CZI, ND2 or
-`.vsi` movie opens through its reader, but extraction refuses it with "extraction reads only TIFF
-today". The changes that let extraction read them are planned (#1388 for ND2, #1390 for CZI,
-and #1398 for `.vsi`). Until then, export the movie to uncompressed TIFF.
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF and ND2
+([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
+or cellSens VSI movie opens through its reader, but extraction refuses it. The message says
+"this CZI movie opens, but extraction does not read CZI yet", or the same for cellSens VSI.
+The changes that let extraction read them are planned (#1390 for CZI, #1398 for `.vsi`).
+Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 

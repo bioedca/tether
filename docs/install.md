@@ -689,8 +689,8 @@ Install it only if you open `.vsi` files.
     ```
 
 Tether then opens a `.vsi` file through its reader. Keep the `_<name>_` folder that cellSens
-writes beside the `.vsi` file. The frames are in the `.ets` files inside it. The extraction
-commands read TIFF only for now ([Movie containers](reference/movie-containers.md)).
+writes beside the `.vsi` file. The frames are in the `.ets` files inside it. Extraction does not
+read a `.vsi` movie yet (#1398, [Movie containers](reference/movie-containers.md)).
 
 Without the stack, Tether refuses
 a `.vsi` with a message that gives these steps. Tether also refuses frames stored with JPEG or

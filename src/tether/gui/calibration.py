@@ -47,8 +47,17 @@ __all__ = ["ChannelMapActions"]
 
 _BEAD_FILTER = "Bead image or video (*.tif *.tiff);;All files (*)"
 _MAP_FILTER = "Channel map (*.npz)"
-_MOVIE_FILTER = "Movie (*.tif *.tiff);;All files (*)"
 _TETHER_FILTER = "Tether project (*.tether)"
+
+
+def _movie_filter() -> str:
+    """Return the file-dialog filter of a movie to extract: every suffix it reads (#1388)."""
+    from tether.services.movies import movie_file_suffixes  # noqa: PLC0415 - imports the readers
+
+    patterns = " ".join(f"*{suffix}" for suffix in movie_file_suffixes())
+    return f"Movie ({patterns});;All files (*)"
+
+
 #: The interval of the main-thread poll of a running map or extract command, in ms.
 _POLL_MS = 50
 
@@ -278,7 +287,7 @@ class ChannelMapActions:
             self._status("Extract: make or choose a channel map first")
             return
         movie, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self._window, "Movie to extract", "", _MOVIE_FILTER
+            self._window, "Movie to extract", "", _movie_filter()
         )
         if not movie:
             self._status("Extract cancelled")
