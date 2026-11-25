@@ -189,3 +189,31 @@ def test_a_figure_sidecar_needs_its_merged_keys(validator, sidecars) -> None:
         changed = copy.deepcopy(sidecars["plot:a1"])
         changed["parameters"].pop(key)
         assert _errors(validator, changed), key
+
+
+def _schema_store_kinds() -> set[str]:
+    """The ``tether_export`` values the schema reads as store exports, not as figures."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    for rule in schema["allOf"]:
+        kind = rule.get("if", {}).get("properties", {}).get("tether_export", {})
+        if "not" in kind:
+            return set(kind["not"]["enum"])
+    raise AssertionError("the schema names no store-export kinds")
+
+
+@pytest.mark.parametrize("kind", ["deeplasi-txt", "molecule-table-csv", "subset-tether"])
+def test_a_figure_cannot_take_a_store_export_kind(tmp_path: Path, kind: str) -> None:
+    # #1248: the schema reads these three kinds as store exports, so a figure sidecar under
+    # one of them would fail it. The export is refused before any file is written.
+    rng = np.random.default_rng(0)
+    figure = plot_export.render_histogram1d(apparent_e_histogram(rng.uniform(0.0, 1.0, 50)))
+    with pytest.raises(ValueError, match=kind):
+        plot_export.export_figure(
+            figure, tmp_path / "fig", tether_export=kind, source="x", parameters={}
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_refused_figure_kinds_are_the_schemas_store_kinds() -> None:
+    assert _schema_store_kinds() == {"deeplasi-txt", "molecule-table-csv", "subset-tether"}
+    assert set(plot_export._STORE_EXPORT_KINDS) == _schema_store_kinds()
