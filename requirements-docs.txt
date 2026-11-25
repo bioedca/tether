@@ -7,7 +7,7 @@
 # identical toolchain (pin-and-hold, PRD §4.1). Bump deliberately (Dependabot
 # pip watches "/"), re-verifying `mkdocs build --strict` on the new versions.
 mkdocs==1.6.1
-mkdocs-material==9.8.1
+mkdocs-material==9.8.2
 mike==2.2.0
 # The renderer mkdocs resolves (it asks only for >=3.3.6). Pinned because the docs guards
 # model its exact parse: tests/test_docs_links.py and tests/test_docs_examples.py follow
