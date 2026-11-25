@@ -449,18 +449,26 @@ profile.
 | `done` | the stage ran and succeeded | no |
 | `skipped` | a checkpoint found the stage already complete | no |
 | `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
-| `blocked` | an upstream stage failed | no |
+| `blocked` | an upstream stage did not complete, or (with `--into`) the movie left the project | no |
 | `deferred` | the sidecar was unavailable at startup | no |
 | `not-requested` | `--no-idealize` | no |
-| `warning` | non-fatal, for example provenance stamping failed | no |
 
-Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
-makes it exit `3`. See
+A `warning` is not a stage status. It is a log event for a non-fatal problem, for example a
+failed provenance stamp or a write lock that was not released. It goes to the structured log
+at the WARNING level. Unless you pass `--quiet`, the progress output on stderr shows it too. It
+does not change the exit code.
+
+In a finished run, only `failed` makes the run exit `1`. A `deferred` stage in a run with no
+`failed` stage makes it exit `3`. See
 [a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+The command also exits `1`, with no summary, when it cannot create the output directory or
+write the batch log (`tether.services.batch`).
 
-`blocked` is the one row that never shows up on an exit-`0` run in practice. A stage is
-blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
-with a `failed` in the same movie and the run exits `1` anyway.
+A stage is usually blocked because its upstream stage was not `done`/`skipped`. So a `blocked`
+usually travels with a `failed` in the same movie, and the run exits `1` anyway. There is one
+exception. With `--into`, a movie that another writer removed from the project after its
+extract stage gets `correct=blocked`, with the detail `no longer in <project>`. Its extract
+stage is `done` or `skipped`, so that run can exit `0`.
 
 ### Which movies a folder or a pattern gives
 
