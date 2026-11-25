@@ -218,6 +218,22 @@ def test_movie_metadata_is_hashed_from_the_tif(tmp_path: Path) -> None:
     assert [_decode(v) for v in mols["molecule_key"]] == expected_keys
 
 
+def test_movie_uri_is_recorded_relative_to_the_project_folder(tmp_path: Path) -> None:
+    """PRD §5.1: the reconstruction's ``/movies`` ``uri`` is relative to the project (#1282)."""
+    export = read_deeplasi_mat(_MAT)
+    (tmp_path / "raw").mkdir()
+    movie = _write_movie(tmp_path / "raw" / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT), WizardMode.RECONSTRUCT, coordinate_source="mat"
+    )
+
+    report = execute_plan(_plan(recon), tmp_path / "out")
+
+    assert report.ok
+    with h5py.File(report.executed[0].output_path, "r") as f:
+        assert [_decode(v) for v in f["movies"]["table"]["uri"]] == ["../raw/mov.tif"]
+
+
 # --------------------------------------------------------------------------- #
 # coordinate source — honour .tdat where aligned, fall back honestly otherwise
 # --------------------------------------------------------------------------- #

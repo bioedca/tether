@@ -14,6 +14,9 @@ This directory records Tether's architecture decisions in
 context, the options weighed, and the consequences, so the *rationale* survives
 prose harmonization of the PRD (PRD §12.7).
 
+For a map of how the decisions fit together, and the records to read first, see the
+[architecture overview](../maintainers/architecture.md#where-decisions-are-recorded).
+
 ## How ADRs are created
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
@@ -202,6 +205,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
 | [0150](0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md) | Tether reads SIF with its own reader, and only movies of raw counts | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0151](0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md) | A movie pair is one /movies row named by the checksum of both files | accepted | §5 (data model), §7.1 FR-EXTRACT, Appendix E stage 1 |
+| [0152](0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md) | Tether reads SIRA with its own reader, and only the current layout | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 

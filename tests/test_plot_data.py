@@ -4,7 +4,7 @@
 
 Each acceptance criterion of #661 has its tests here:
 
-* every plot type ``export_figure`` can write also has a data table — all thirteen
+* every plot type ``export_figure`` can write also has a data table — all fourteen
   renderers, bare and as several series;
 * each table read back equals the plotted result exactly: the expected columns below are
   taken from the result's own arrays, not from ``tether.analysis.plot_data``;
@@ -186,6 +186,13 @@ def _expected(kind: str, r) -> dict[str, object]:
             "peak_frame": [e.peak_frame for _, _, e in events],
             "peak_magnitude": [e.peak_magnitude for _, _, e in events],
         }
+    if kind == "succ":
+        return {
+            "molecule": r.pairs.molecule_index,
+            "frame": r.pairs.frame_index,
+            "e_i": r.pairs.pairs[:, 0],
+            "e_next": r.pairs.pairs[:, 1],
+        }
     raise AssertionError(kind)
 
 
@@ -328,6 +335,39 @@ def test_a_cloud_writes_its_density_and_levels(results, tmp_path):
     _assert_table(columns, rows, _cells(cloud.time_edges, cloud.signal_edges, cloud.density))
     _, columns, rows = _read(out.data_paths["levels"])
     _assert_table(columns, rows, {"coverage": cloud.hdr_coverages, "level": cloud.hdr_levels})
+
+
+def test_a_successive_cloud_writes_its_density_levels_and_centroids(results, tmp_path):
+    # #1085: the pairs are the main table; the density grid, the contour levels and the
+    # centroids are tables of their own, each equal to the result.
+    cloud = results["succ"][0]
+    out = _export(pe.render_successive_frame_cloud(cloud), tmp_path / "succ")
+    assert set(out.data_paths) == {"data", "density", "levels", "centroids"}
+    _, columns, rows = _read(out.data_paths["density"])
+    grid = np.asarray(cloud.grid)
+    g = grid.size
+    _assert_table(
+        columns,
+        rows,
+        {
+            "x": np.repeat(grid, g),
+            "y": np.tile(grid, g),
+            "value": np.asarray(cloud.density).ravel(),
+        },
+    )
+    _, columns, rows = _read(out.data_paths["levels"])
+    _assert_table(columns, rows, {"coverage": cloud.hdr_coverages, "level": cloud.hdr_levels})
+    _, columns, rows = _read(out.data_paths["centroids"])
+    centroids = np.asarray(cloud.centroids)
+    _assert_table(
+        columns,
+        rows,
+        {
+            "centroid": np.arange(1, centroids.shape[0] + 1),
+            "e_i": centroids[:, 0],
+            "e_next": centroids[:, 1],
+        },
+    )
 
 
 def test_an_alpha_shape_over_its_cloud_writes_the_points(results, tmp_path):

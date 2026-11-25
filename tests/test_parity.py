@@ -28,6 +28,7 @@ from tether.idealize import (
     freeze,
     load_frozen_tolerance,
     measure_spread,
+    read_model,
     state_count_fraction,
     state_mean_abs_delta,
     viterbi_agreement,
@@ -35,9 +36,11 @@ from tether.idealize import (
 )
 from tether.idealize.parity import (
     FREEZE_RESOLUTION,
+    PER_TRACE_MODEL_TYPE,
     PROVISIONAL,
     SpreadSummary,
     canonical_state_path,
+    compare_trace_models,
     freeze_transition_matrix,
     load_transition_matrix_tolerance,
     relative_elbo,
@@ -818,3 +821,178 @@ def test_transition_matrix_block_covers_its_own_evidence():
         assert ceiling == freeze_transition_matrix(worst, margin=margin), (
             f"{method}: the ceiling is not the freeze of its own evidence"
         )
+
+
+# Per-trace vbFRET (#545, ADR-0110).
+
+
+def _trace(levels_row, elbo):
+    """One per-trace model: its idealized row (FRET level per frame) and its ELBO."""
+    row = np.asarray(levels_row, dtype="float64")
+    fitted = np.unique(row[np.isfinite(row)])
+    return StateModel(
+        model_type="vb HMM_tracelevel",
+        nstates=fitted.size,
+        means=fitted,
+        elbo=elbo,
+        idealized=row,
+    )
+
+
+def _per_trace(traces):
+    return StateModel(
+        model_type=PER_TRACE_MODEL_TYPE,
+        nstates=4,
+        means=np.full(4, np.nan),
+        trace_level=dict(enumerate(traces)),
+    )
+
+
+def test_compare_trace_models_pools_the_four_metrics_over_traces():
+    ref = _per_trace(
+        [
+            _trace([0.1, 0.1, 0.6, 0.6], -10.0),
+            _trace([0.2, 0.8, 0.8, NAN], -20.0),
+        ]
+    )
+    test = _per_trace(
+        [
+            _trace([0.1, 0.1, 0.6, 0.6], -10.0),  # identical
+            _trace([0.25, 0.25, 0.75, NAN], -21.0),  # same count, level drift, 1 frame differs
+        ]
+    )
+    m = compare_models(ref, test)  # dispatches on the per-trace type
+    assert m.state_count_fraction == 1.0
+    assert m.state_mean_abs_delta == pytest.approx(0.05)
+    assert m.viterbi_agreement == pytest.approx(6 / 7)
+    assert m.relative_elbo == pytest.approx(1 / 30)
+    assert (m.n_states_ref, m.n_states_test) == (2, 2)
+    assert m.transition_matrix_abs_delta == float("inf")
+
+
+def test_compare_trace_models_scores_a_count_mismatch_as_disagreement():
+    ref = _per_trace([_trace([0.1, 0.1, 0.6, 0.6], -10.0), _trace([0.2, 0.2, 0.8], -5.0)])
+    test = _per_trace(
+        [
+            _trace([0.1, 0.4, 0.6, 0.6], -10.0),  # 3 occupied vs 2: every frame disagrees
+            _trace([0.2, 0.2, 0.8], -5.0),
+        ]
+    )
+    m = compare_trace_models(ref, test)
+    assert m.state_count_fraction == 0.5
+    assert m.viterbi_agreement == pytest.approx(3 / 7)
+    assert m.state_mean_abs_delta == 0.0  # only the matched trace is scored
+    no_match = _per_trace([_trace([0.1, 0.4, 0.6, 0.6], -10.0), _trace([0.2, 0.5, 0.8], -5.0)])
+    assert compare_trace_models(ref, no_match).state_mean_abs_delta == float("inf")
+
+
+def test_compare_trace_models_ignores_fitted_but_unoccupied_states():
+    # Variational Bayes can keep a state no frame uses; it is not a state of the path.
+    ref = _per_trace([_trace([0.1, 0.1, 0.6], -10.0)])
+    padded = _trace([0.1, 0.1, 0.6], -10.0)
+    padded.means = np.array([0.1, 0.6, 1.45, 1.47])
+    padded.nstates = 4
+    m = compare_trace_models(ref, _per_trace([padded]))
+    assert (m.state_count_fraction, m.state_mean_abs_delta, m.viterbi_agreement) == (1.0, 0.0, 1.0)
+
+
+def test_compare_trace_models_refuses_incomparable_inputs():
+    one = _per_trace([_trace([0.1, 0.6], -1.0)])
+    with pytest.raises(ValueError, match="different molecules"):
+        compare_trace_models(one, _per_trace([_trace([0.1, 0.6], -1.0)] * 2))
+    with pytest.raises(ValueError, match="frame-aligned"):
+        compare_trace_models(one, _per_trace([_trace([0.1, 0.6, 0.6], -1.0)]))
+    with pytest.raises(ValueError, match="trace_level"):
+        compare_trace_models(one, _model([0.1, 0.6]))
+    # A missing ELBO is inf, never a pass.
+    no_elbo = _per_trace([_trace([0.1, 0.6], None)])
+    assert compare_trace_models(one, no_elbo).relative_elbo == float("inf")
+    # A per-trace model is never compared with an ensemble model.
+    with pytest.raises(ValueError, match="per-trace model with an ensemble model"):
+        compare_models(one, _model([0.1, 0.6], idealized=[[0.1, 0.6]]))
+
+
+def test_runner_writes_the_per_trace_type_parity_dispatches_on():
+    from tether.idealize import _sidecar_runner as runner
+
+    assert runner.PER_TRACE_VBFRET_TYPE == PER_TRACE_MODEL_TYPE
+    method, nstates_key = runner._DISPATCH["vbfret"]
+    assert method is None  # routed to run_vbfret_per_trace, not a tMAVEN method
+    assert nstates_key == "modeler.vbhmm.nstates"
+
+
+def test_read_model_reads_the_per_trace_models(tmp_path):
+    import h5py
+
+    path = tmp_path / "per_trace.hdf5"
+    with h5py.File(path, "w") as f:
+        g = f.create_group("model")
+        g.attrs["type"] = PER_TRACE_MODEL_TYPE
+        g["mean"] = np.full(4, np.nan)
+        g["nstates"] = 4
+        g["idealized"] = np.array([[0.1, 0.6, np.nan], [0.2, 0.2, 0.2]])
+        for i, (row, elbo) in enumerate((([0.1, 0.6, np.nan], -3.0), ([0.2, 0.2, 0.2], -4.0))):
+            t = g.create_group(f"trace_level/{i}")
+            t["mean"] = np.unique(np.asarray(row)[np.isfinite(row)])
+            t["nstates"] = t["mean"].shape[0]
+            t["idealized"] = np.asarray(row)
+            t["likelihood"] = np.array([[elbo - 1, 0.0], [elbo, 0.0]])
+            t["type"] = "vb HMM_tracelevel"
+        g.create_group("trace_level/notes")  # no 'mean': skipped
+    model = read_model(path)
+    assert model.model_type == PER_TRACE_MODEL_TYPE
+    assert sorted(model.trace_level) == [0, 1]
+    assert model.trace_level[0].elbo == -3.0
+    assert model.trace_level[1].means.tolist() == [0.2]
+    assert model.trace_level[0].idealized.shape == (3,)
+    assert model.trace_level[0].model_type == "vb HMM_tracelevel"
+
+
+def test_state_paths_of_a_per_trace_model_use_each_trace_s_own_means():
+    # The ensemble means of a per-trace model are NaN; nearest-NaN would put every frame in
+    # state 0 and erase every transition (Codex review of #1374).
+    from tether.idealize.driver import _state_paths_from_model, dwells_from_states
+
+    rows = [[0.1, 0.1, 0.6, 0.6, NAN], [0.3, 0.8, 0.8, 0.3, 0.3]]
+    traces = [_trace(rows[0], -1.0), _trace(rows[1], -2.0)]
+    model = _per_trace(traces)
+    model.idealized = np.asarray(rows)
+    paths = _state_paths_from_model(model)
+    assert sorted(paths) == [0, 1]
+    assert paths[0].tolist() == [0, 0, 1, 1, NO_STATE]
+    assert paths[1].tolist() == [0, 1, 1, 0, 0]
+    assert [(d.state, d.start, d.length) for d in dwells_from_states(paths[1], 1)] == [
+        (0, 0, 1),
+        (1, 1, 2),
+        (0, 3, 2),
+    ]
+    # A molecule with no per-trace model gets no path rather than a made-up one.
+    model.trace_level = {0: traces[0]}
+    assert sorted(_state_paths_from_model(model)) == [0]
+
+
+def test_per_trace_state_indices_index_the_trace_s_own_means_past_a_nan_mean():
+    # A NaN mean inside a trace's means is never chosen, and the indices after it stay
+    # indices into ``trace.means`` (CodeRabbit review of #1374).
+    from tether.idealize.driver import _state_paths_from_model
+
+    row = [0.2, 0.8, 0.8, NAN]
+    trace = StateModel(
+        model_type="vb HMM_tracelevel",
+        nstates=3,
+        means=np.asarray([0.2, NAN, 0.8]),
+        elbo=-1.0,
+        idealized=np.asarray(row),
+    )
+    model = _per_trace([trace])
+    model.idealized = np.asarray([row])
+    assert _state_paths_from_model(model)[0].tolist() == [0, 2, 2, NO_STATE]
+
+
+def test_state_paths_of_an_ensemble_model_use_the_shared_means():
+    from tether.idealize.driver import _state_paths_from_model
+
+    model = _model([0.2, 0.7], idealized=[[0.2, 0.7, NAN], [0.69, 0.21, 0.2]])
+    paths = _state_paths_from_model(model)
+    assert paths[0].tolist() == [0, 1, NO_STATE]
+    assert paths[1].tolist() == [1, 0, 0]

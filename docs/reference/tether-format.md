@@ -318,7 +318,7 @@ relocation and staleness reads no bytes of the movie, so it never hydrates a clo
 | Field | Type | Shape | Unit | Empty value | Meaning |
 |---|---|---|---|---|---|
 | `movie_id` | `str:utf-8` | scalar | — | — | The movie's identity in this store. The CLI writes `mov-<uuid4>` (`src/tether/project/extract.py`). |
-| `uri` | `str:utf-8` | scalar | — | `""` (unknown) | The path of the source movie, as text. |
+| `uri` | `str:utf-8` | scalar | — | `""` (unknown) | The path of the source movie, as text, relative to the folder of the project file (note 2). |
 | `sha256` | `str:utf-8` | scalar | — | — | The 64-character hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)). It seeds every `molecule_key`. |
 | `file_size` | `i8` | scalar | bytes | — | `Path.stat().st_size`. |
 | `mtime` | `f8` | scalar | seconds since the POSIX epoch | — | `Path.stat().st_mtime`. |
@@ -348,6 +348,18 @@ relocation and staleness reads no bytes of the movie, so it never hydrates a clo
    `tether.project.extract` and the Deep-LASI reconstruction's
    [`_movie_metadata`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_executor.py)
    (`src/tether/gui/deeplasi_executor.py`).
+2. A relative `uri` is relative to the folder that holds the project file. It is not relative
+   to the folder that a command ran in. It uses `/` separators, such as `../raw/m.tif`. So the
+   movie is found from any working folder. The `uri` is absolute when no relative path exists,
+   as for a movie on another Windows drive. It is also absolute when the relative path leads to
+   another file, as past a linked folder. Every writer records the `uri` this way
+   (`project_movie_uri` in `src/tether/project/sources.py`, #1282). These writers are
+   `tether extract`, `tether batch` with and without `--into`, and a new trace generation. The
+   Deep-LASI reconstruction is one too. A project written before #1282 can hold the path that
+   the extraction was given. That path is relative to the folder the command ran in. So a reader
+   looks in the project's folder first. Then it tries the same relative path from the current
+   folder. It takes that file only when its size and modification time match the row
+   (`src/tether/services/movies.py`). Existing projects are not rewritten.
 
 The group also holds an additive child, `/movies/layouts/<movie_id>`. It records the **channel
 layout** that split the movie, and `write_layout_record` in `src/tether/imaging/layout.py` writes
@@ -909,8 +921,22 @@ with one part for each source. It reads in 1 MiB blocks, with progress and cance
 whose checksum differs from the one already known (the registry's or `/movies.sha256`) fails
 its part, and nothing is written.
 
+**Only a file can be a source.** `register_source` refuses a folder. A file outside the
+project's folder is accepted.
+
 **A source that moved** is linked again with `relink_source` only when the checksums match.
 The new file must have the registry's checksum or, for a movie with none, its `/movies.sha256`.
+The size stored is the size of the file that was read.
+
+**A file replaced during the read is not stored.** The checksum records the device, inode
+and modification time of the file it read, and the bytes read. Just before the write, the
+checksum job and `relink_source` check that the path still names that file, with that size
+and modification time. If another process replaced the file or wrote into it, the write is
+refused (`SourceReplaced`) and nothing is stored. A write that keeps the size and lands
+within the filesystem's time resolution is not seen.
+
+On a filesystem that gives no inode number, only the size and modification time are compared.
+A replacement with the same size and modification time is then not seen either (#1419).
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It
 keeps only the file name of a path that is absolute or that steps out of the folder (`..`). A

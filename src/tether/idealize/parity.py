@@ -24,10 +24,13 @@ numpy-only — what CI's ``sidecar.yml`` asserts against the frozen numbers) and
 the four §11.2 numbers are frozen from at M0.5). The frozen numbers live in
 ``schema/parity_tolerance.json`` and PRD §11.2; CI never recomputes them.
 
-A fifth comparison sits beside the four (issue #545, ADR-0110): the population
-methods (consensus VB-HMM, ebFRET) are also compared on their **transition
-matrix** ([`transition_matrix_abs_delta`][]), with its own frozen ceiling under
-``$.transition_matrix`` ([`load_transition_matrix_tolerance`][]).
+Two further comparisons sit beside the four (issue #545, ADR-0110). **Per-trace
+vbFRET** has no ensemble states — each trace carries its own model — so
+[`compare_trace_models`][] computes the same four quantities trace by trace
+(see its docstring for how). And the population methods (consensus VB-HMM,
+ebFRET) are also compared on their **transition matrix**
+([`transition_matrix_abs_delta`][]), a fifth quantity with its own frozen
+ceiling under ``$.transition_matrix`` ([`load_transition_matrix_tolerance`][]).
 
 State labels are arbitrary across seeds, so every comparison first relabels both
 models to a **canonical order — states sorted by ascending mean FRET** — the
@@ -67,6 +70,11 @@ PROVISIONAL = {
     "relative_elbo_max": 0.01,  # ceiling: |ΔELBO| / |ELBO|
 }
 
+#: The ``type`` of a per-trace vbFRET model file: the name the pinned tMAVEN's own
+#: (commented-out) per-trace ``run_vbhmm_modelselection`` gives that model, which the
+#: sidecar runner's ``model_type="vbfret"`` writes (ADR-0110).
+PER_TRACE_MODEL_TYPE = "vb HMM_model selection"
+
 #: The bound key of the transition-matrix ceiling in ``$.transition_matrix`` (ADR-0110).
 TRANSITION_MATRIX_BOUND = "transition_matrix_abs_delta_max"
 
@@ -86,8 +94,8 @@ class ParityMetrics:
 
     ``transition_matrix_abs_delta`` is the fifth, *lower-is-better* quantity of the
     population methods ([`transition_matrix_abs_delta`][]). It is ``inf`` when it
-    was not computed (a model with no transition matrix), so it can never pass a
-    transition-matrix bound by default.
+    was not computed — a per-trace comparison, or a model with no transition
+    matrix — so it can never pass a transition-matrix bound by default.
     """
 
     state_count_fraction: float
@@ -256,6 +264,103 @@ def transition_matrix_abs_delta(ref: StateModel, test: StateModel) -> float:
     return float(np.max(delta))
 
 
+def _occupied_path(trace: StateModel) -> tuple[np.ndarray, np.ndarray]:
+    """One per-trace model's occupied levels and its state path over them.
+
+    Returns ``(levels, path)``: the sorted distinct FRET levels the trace's
+    idealized row actually takes, and the per-frame index into ``levels``
+    ([`NO_STATE`][] outside the window). Index 0 is the lowest level, so the path
+    is in canonical (mean-sorted) labels by construction.
+    """
+    if trace.idealized is None:
+        raise ValueError("per-trace model has no 'idealized' row to derive a state path")
+    row = np.asarray(trace.idealized, dtype="float64").reshape(-1)
+    finite = np.isfinite(row)
+    levels = np.unique(row[finite])
+    path = np.full(row.shape, NO_STATE, dtype="int64")
+    path[finite] = np.searchsorted(levels, row[finite])
+    return levels, path
+
+
+def compare_trace_models(ref: StateModel, test: StateModel) -> ParityMetrics:
+    """The four parity metrics for two **per-trace** vbFRET models (ADR-0110).
+
+    Per-trace vbFRET fits each trace on its own and picks that trace's state count
+    by its own evidence, so there is no ensemble state to align. Each trace is
+    compared on the states its idealized path **occupies** — the distinct levels
+    the path takes, sorted by ascending FRET, which is its canonical order. A state
+    the fit kept but no frame uses (variational Bayes leaves such states empty) is
+    not a state of the idealization and is not counted. The four quantities are
+    pooled over traces:
+
+    1. **state count** — fraction of informative traces whose two paths occupy the
+       same number of states, as in [`state_count_fraction`][];
+    2. **per-state mean ΔE** — the largest ``|Δ|`` between the sorted occupied
+       levels over every trace whose two paths occupy the same number of states
+       (``inf`` when no trace does). A trace whose counts differ has no one-to-one
+       level match; it is scored by metrics 1 and 3, never silently by this one;
+    3. **Viterbi per-frame agreement** — over the frames in-window in both fits, the
+       fraction whose canonical states match; every frame of a trace whose two
+       paths occupy different numbers of states counts as a disagreement (the
+       consensus rule of [`compare_models`][], per trace);
+    4. **relative ELBO** — ``|ΣELBO_test − ΣELBO_ref| / |ΣELBO_ref|`` over the
+       per-trace final ELBOs (independent per-trace models: the evidence of the
+       data set is their sum). ``inf`` when any trace has no ELBO.
+
+    ``n_states_ref``/``n_states_test`` are the largest number of states one trace
+    of each fit occupies. ``transition_matrix_abs_delta`` stays ``inf`` (not
+    computed): the transition-matrix term belongs to the population methods.
+
+    Raises ``ValueError`` when either model has no per-trace models, or the two
+    cover different molecules or different frame counts.
+    """
+    if not ref.trace_level or not test.trace_level:
+        raise ValueError("both models must carry per-trace models (trace_level)")
+    if set(ref.trace_level) != set(test.trace_level):
+        raise ValueError(
+            "per-trace models cover different molecules: "
+            f"{sorted(ref.trace_level)} vs {sorted(test.trace_level)}"
+        )
+    informative = agree = matched = 0
+    worst_delta = 0.0
+    frames_total = frames_agree = 0
+    elbo_ref = elbo_test = 0.0
+    elbo_ok = True
+    k_ref = k_test = 0
+    for mol in sorted(ref.trace_level):
+        r, t = ref.trace_level[mol], test.trace_level[mol]
+        r_levels, rp = _occupied_path(r)
+        t_levels, tp = _occupied_path(t)
+        if rp.shape != tp.shape:
+            raise ValueError(f"molecule {mol}: per-trace paths are not frame-aligned")
+        k_ref, k_test = max(k_ref, r_levels.size), max(k_test, t_levels.size)
+        if r_levels.size or t_levels.size:
+            informative += 1
+            agree += int(r_levels.size == t_levels.size)
+        both = (rp != NO_STATE) & (tp != NO_STATE)
+        frames_total += int(both.sum())
+        if r_levels.size == t_levels.size and r_levels.size > 0:
+            matched += 1
+            worst_delta = max(worst_delta, float(np.max(np.abs(r_levels - t_levels))))
+            frames_agree += int((rp[both] == tp[both]).sum())
+        if r.elbo is None or t.elbo is None:
+            elbo_ok = False
+        else:
+            elbo_ref += float(r.elbo)
+            elbo_test += float(t.elbo)
+    rel_elbo = float("inf")
+    if elbo_ok and elbo_ref != 0.0:
+        rel_elbo = float(abs(elbo_test - elbo_ref) / abs(elbo_ref))
+    return ParityMetrics(
+        state_count_fraction=float(agree / informative) if informative else 1.0,
+        state_mean_abs_delta=worst_delta if matched else float("inf"),
+        viterbi_agreement=float(frames_agree / frames_total) if frames_total else 0.0,
+        relative_elbo=rel_elbo,
+        n_states_ref=int(k_ref),
+        n_states_test=int(k_test),
+    )
+
+
 def compare_models(ref: StateModel, test: StateModel) -> ParityMetrics:
     """Compute the four parity metrics for ``test`` against ``ref``.
 
@@ -264,7 +369,20 @@ def compare_models(ref: StateModel, test: StateModel) -> ParityMetrics:
     §11.2 tolerance. State-count and Viterbi metrics need both models'
     ``idealized`` paths; mean-ΔE and ELBO use the model summaries. The fifth,
     ``transition_matrix_abs_delta``, uses their transition matrices.
+
+    Two per-trace vbFRET models (``model_type`` [`PER_TRACE_MODEL_TYPE`][]) are
+    compared by [`compare_trace_models`][]. A per-trace model against an ensemble
+    model raises ``ValueError``: the two are different models, and no metric of
+    one is commensurable with the other's.
     """
+    per_trace = (ref.model_type == PER_TRACE_MODEL_TYPE, test.model_type == PER_TRACE_MODEL_TYPE)
+    if all(per_trace):
+        return compare_trace_models(ref, test)
+    if any(per_trace):
+        raise ValueError(
+            f"cannot compare a per-trace model with an ensemble model "
+            f"({ref.model_type!r} vs {test.model_type!r})"
+        )
     ref_path = canonical_state_path(ref)
     test_path = canonical_state_path(test)
     n_states_ref = int(np.asarray(ref.means).reshape(-1).size)
@@ -545,7 +663,7 @@ def load_transition_matrix_tolerance(path: str | PathLike[str], method: str) -> 
 
     The ceilings live under ``$.transition_matrix.tolerance_by_method`` — apart
     from the four-bound rows, which keep their shape — one per population method
-    (``"vbconhmm"``, ``"ebhmm"``). Raises ``KeyError``
+    (``"vbconhmm"``, ``"ebhmm"``). Per-trace vbFRET has none. Raises ``KeyError``
     for a method with no frozen ceiling: there is no default to fall back to.
     """
     data = json.loads(Path(path).read_text(encoding="utf-8"))

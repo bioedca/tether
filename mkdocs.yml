@@ -146,6 +146,7 @@ nav:
       - Privacy policy: privacy.md
       - Brand: brand.md
       - How AI tools are used: ai-use.md
+      - Architecture overview: maintainers/architecture.md
       - Architecture decisions: adr/README.md
       - Releasing (tag-driven pipeline): release.md
       - Building the installers: maintainers/building-installers.md

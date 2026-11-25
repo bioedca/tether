@@ -5,7 +5,7 @@
 ``tether.services.plots`` is Qt-free, so these run with no ``QApplication``. They check the
 promises the section rests on:
 
-* all fifteen population plot functions of ``tether.analysis`` have an entry — closing the
+* all sixteen population plot functions of ``tether.analysis`` have an entry — closing the
   "5 of 7 Appendix C plot types unreachable" defect — and nothing else does
   (``pooled_exit_rates`` pools rates and is not a plot);
 * each entry draws one series and two named series on a store that has a model;
@@ -23,8 +23,9 @@ from tether.services.plots import ALL_MOLECULES, PLOTS, PlotSeries, compose_plot
 
 pytest.importorskip("matplotlib")
 
-#: The fifteen entry points #374 names, in no particular order.
-FIFTEEN = {
+#: The fifteen entry points #374 names and the successive-frame cloud of #1085, in no
+#: particular order.
+SIXTEEN = {
     "population_anticorrelation_events",
     "population_raw_fret_cloud",
     "population_fret_cloud_alpha_shape",
@@ -40,6 +41,7 @@ FIFTEEN = {
     "population_state_number",
     "population_transition_density",
     "population_transition_prob_histogram",
+    "population_successive_frame_cloud",
 }
 
 MODEL = "vbconhmm"
@@ -89,10 +91,10 @@ def _texts(figure) -> list[str]:
 # --- the registry ---------------------------------------------------------------
 
 
-def test_the_registry_has_exactly_the_fifteen_population_plots() -> None:
+def test_the_registry_has_exactly_the_sixteen_population_plots() -> None:
     ids = [spec.id for spec in PLOTS]
-    assert len(ids) == len(set(ids)) == 15
-    assert set(ids) == FIFTEEN
+    assert len(ids) == len(set(ids)) == 16
+    assert set(ids) == SIXTEEN
     assert "pooled_exit_rates" not in ids  # a rate-pooling helper, not a plot
 
 
@@ -115,8 +117,8 @@ def test_the_model_derived_entries_are_the_ones_that_take_a_model_name() -> None
 
 
 def test_an_unknown_plot_is_refused() -> None:
-    with pytest.raises(KeyError, match="no plot 'population_successive_frame_cloud'"):
-        plot_spec("population_successive_frame_cloud")
+    with pytest.raises(KeyError, match="no plot 'population_no_such_plot'"):
+        plot_spec("population_no_such_plot")
 
 
 # --- drawing --------------------------------------------------------------------

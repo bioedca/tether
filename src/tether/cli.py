@@ -1229,13 +1229,25 @@ _PLAIN_WINDOWS_WORD = re.compile(r"[\w+=:,./\\-]+")
 
 
 def _windows_word(word: str) -> str:
-    """Quote ``word`` for the Tether Command Prompt (``cmd.exe``) of Windows.
+    """Quote ``word`` for the Tether Command Prompt (``cmd.exe``) of Windows (#1310, #1354).
 
     A word with a space or a sign that the console reads (``&``, ``|``, ``<``, ``>``, ``^``)
-    goes in double quotes. Inside them a ``"`` gets a backslash, and so does each backslash
-    before a ``"``, which is how a Windows program splits its command line into words.
-    Quotes do not stop ``cmd.exe`` from expanding a ``%NAME%`` of the environment, so a
-    word that holds one can change when it is pasted; a Windows path seldom holds one.
+    goes in double quotes, so ``cmd.exe`` passes those signs on. The quotes must stay in step
+    between ``cmd.exe``, which turns its quote state on and off at each ``"``, and the
+    Windows rule by which a program splits its command line into words. Two signs need more:
+
+    - A ``"`` in the word is written ``""``. Inside quotes the program reads ``""`` as one
+      ``"``, and ``cmd.exe`` turns its quote state off and on again, so the rest of the word
+      stays quoted for both. A backslash before the ``"`` would put ``cmd.exe`` outside the
+      quotes, where it would split the command at an ``&`` that follows.
+    - A ``%`` is written outside the quotes as ``^%``, between two quoted parts. Inside
+      quotes ``cmd.exe`` expands a ``%NAME%`` of the environment; outside them the caret
+      stops it, and ``cmd.exe`` then takes the caret away.
+
+    These forms read the same again when ``tether.bat`` passes the words on with ``%*``, so
+    the program gets the word unchanged. The backslashes before each quote are doubled, so
+    the program reads them as written. A ``!`` stays as it is, because the console expands
+    ``!NAME!`` only with delayed expansion, which is off unless a person turns it on.
     """
     if _PLAIN_WINDOWS_WORD.fullmatch(word):
         return word
@@ -1244,8 +1256,12 @@ def _windows_word(word: str) -> str:
         if char == "\\":
             backslashes += 1
             continue
-        escape = "\\" * (2 * backslashes + 1) if char == '"' else "\\" * backslashes
-        quoted.append(escape + char)
+        if char == '"':
+            quoted.append("\\" * (2 * backslashes) + '""')
+        elif char == "%":
+            quoted.append("\\" * (2 * backslashes) + '"^%"')
+        else:
+            quoted.append("\\" * backslashes + char)
         backslashes = 0
     quoted.append("\\" * (2 * backslashes) + '"')
     return "".join(quoted)

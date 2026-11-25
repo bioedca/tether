@@ -799,6 +799,13 @@ def _import_model(
         raise ValueError(
             f"{model_path.name} has no state means; refusing to import a degenerate model"
         )
+    if not np.isfinite(means).any():
+        # A per-trace model (ensemble means NaN, states per trace): nearest-NaN would put
+        # every frame in state 0, so it is refused like the in-app path (ADR-0110).
+        raise ValueError(
+            f"{model_path.name} has no finite state mean (a per-trace model); refusing "
+            "to import state paths that would all read state 0"
+        )
     idealized_src = np.asarray(model.idealized, dtype="float64")
     if idealized_src.shape[0] != state.smd.n_molecules:
         raise ValueError(

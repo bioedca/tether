@@ -16,9 +16,10 @@ This policy describes how the **Tether** project handles data. It covers both th
 
 In short: **Tether does not transmit or sell your personal data.** The application
 processes your research data locally on your own computer; you choose its persistent
-storage, and temporary idealization files are described below. The only network request
-the application can make is an optional check for a newer release, which is **off until
-you allow it** (below).
+storage, and temporary idealization files are described below. The only network requests
+the application can make are an optional check for a newer release and, when you select
+**Install update**, the download and check of that release. They are **off until you allow
+them** (below).
 
 ## The desktop application
 
@@ -40,7 +41,8 @@ you allow it** (below).
 
   `GET https://api.github.com/repos/bioedca/tether/releases/latest`
 
-  This is the only host the application contacts. The request is unauthenticated HTTPS, and
+  This is the only request the check makes. Tether contacts other hosts only after you select
+  **Install update**, as the next items say. The request is unauthenticated HTTPS, and
   Tether verifies GitHub's certificate. If GitHub answers with a redirect to another host,
   Tether does not follow it. The request uses your proxy settings: the `HTTPS_PROXY`,
   `HTTP_PROXY` and `NO_PROXY` variables, and on Windows and macOS the system proxy settings.
@@ -59,7 +61,37 @@ you allow it** (below).
   [Releases page](https://github.com/bioedca/tether/releases). The link always goes to that
   fixed page. If you select the link, your web browser opens the page, and GitHub's
   privacy statement applies to that visit. Tether **downloads nothing and installs
-  nothing**. You download and install a new release yourself.
+  nothing** until you select **Install update**. You can also download and install a new
+  release yourself.
+- **Install update: the download.** If this copy of Tether can update itself, the notice also
+  has an **Install update** button. Tether sends the requests in this item and the next one
+  only after you select it, and only while the check is on. First, Tether downloads the
+  installer of the new release with one request:
+
+  `GET https://github.com/bioedca/tether/releases/download/v<version>/<installer file>`
+
+  GitHub answers with a redirect to `release-assets.githubusercontent.com`. Tether follows a
+  redirect to that host and to `github.com` only. The request carries
+  `Accept: application/octet-stream`, `User-Agent: Tether`, `Accept-Encoding: identity`,
+  `Connection: close` and the `Host` header. The file name tells GitHub your operating system
+  and processor, for example `Tether-1.0.1-Windows-x86_64.exe`, because each system has its
+  own installer. Tether keeps the file in a private folder and deletes it after the update,
+  or when you cancel.
+- **Install update: the check of the download.** Before anything runs the file, Tether checks
+  it against the release's build-provenance attestation. Tether asks GitHub for the
+  attestation with one request, which has the file's SHA-256 checksum in its path:
+
+  `GET https://api.github.com/repos/bioedca/tether/attestations/sha256:<checksum>`
+
+  It carries the same headers as the check for a newer release. Then the bundled `gh` tool
+  gets the Sigstore trust root from `tuf-repo-cdn.sigstore.dev` and `tuf-repo.github.com`.
+  Its requests carry the user-agent `GitHub CLI <version>`. `gh` runs with no token, no
+  account and its telemetry off, and it then checks the file with no network.
+
+  The download and the attestation request use your proxy settings, as the check does. `gh`
+  uses the `HTTPS_PROXY` and `NO_PROXY` variables. Each of these hosts receives your computer's
+  **IP address** and the time, as for any request. The Tether project receives none of this.
+  Tether runs the installer only after you confirm, and only when the check passed.
 - **Turning the check off.** Untick **Help → Check for new releases at startup**, or answer
   **Don't check** to the first question. Your answer is kept in a small settings file
   outside the install folder, so a newer release you install keeps it. An administrator can
@@ -67,10 +99,8 @@ you allow it** (below).
   [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder) says where
   that file and the settings file are.
 - **The update verifier in the installer.** The installer includes a copy of the GitHub
-  command-line tool `gh` in a folder of its own. A later release of Tether will use it to
-  verify a downloaded update before it installs it. This release of Tether never runs it,
-  so it sends nothing. Before Tether uses it, this page will name each host it contacts and
-  each value it sends.
+  command-line tool `gh` in a folder of its own. Tether runs it only for **Install update**,
+  as the item above says.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
@@ -95,8 +125,8 @@ you allow it** (below).
   desktop application keeps a small file, `preferences.json`, in your own settings folder.
   It holds the paths of the last ten projects you opened. For up to 50 projects it also
   holds the path and the molecule you last selected there. A path can therefore stay in the
-  file after it has left **Open recent**. It also holds the window layout, and the curator
-  name if you set one. This file
+  file after it has left **Open recent**. It also holds the window layout, the curator
+  name if you set one, and whether to open the last project at start. This file
   is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
   and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)

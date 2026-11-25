@@ -11,7 +11,7 @@ callbacks: ``progress(done, total)`` after each source and ``file_progress(sourc
 read, size)`` after each 1 MiB block. Cancel stops between blocks, the store stays as it
 was before that source, and a later run continues from the checkpoint. A file whose checksum
 differs from the one already known for it (it changed since extraction) fails its part and
-writes nothing.
+writes nothing, and so does a file replaced at its path while it was read (#1356).
 
 Like [`tether.services.movies`][], this is not a registered service command: it has no
 command-line subcommand. The request records only source ids, never a path, so a stored
