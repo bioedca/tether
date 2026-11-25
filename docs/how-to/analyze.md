@@ -34,27 +34,37 @@ how it matches its tMAVEN counterpart. This page tells you how to make them.
   you supply it.
 - The Python that came with Tether. At the default install locations, it is
   `~/tether/envs/tether/bin/python` on Linux and `~/Tether/envs/tether/bin/python` on macOS.
-  On Windows, it is `$env:USERPROFILE\Tether\envs\tether\python.exe`. Only the histogram
-  has a menu item. You make the other two plots from Python.
+  On Windows, it is `$env:USERPROFILE\Tether\envs\tether\python.exe`. The application
+  window shows the three plots. You save them as figures from Python.
 
-## 1. Look at the histogram in the application window
+## 1. Look at the plots in the application window
 
-The **Analysis** menu shows only in the **Analyze** section.
+The **Analyze** section draws each population plot of Tether. It has three parts:
+
+- **Plot** — the list of plots. A plot that reads a fit, such as the TDP, also shows the
+  **Idealization model** to read. The dwell times and the transition probabilities also show
+  the states.
+- **Layers** — the series of the plot. **Add selection** adds **All molecules**, or one
+  series for each condition, movie or source file of the project. **Remove** takes out the
+  selected series. Each series has its own color on the figure.
+- The figure. It is the same figure that an export writes.
 
 1. Open the project with `tether-gui movie.tether`.
 2. Choose **View → Section → Analyze**.
-3. Choose **Analysis → Population histogram…**.
+3. In **Plot**, choose **FRET-efficiency histogram (A1)**.
+4. Click **Add selection**, then **All molecules**.
 
-A panel opens with the histogram. The status bar names how many molecules and frames went into
-it, for example:
+The histogram shows. The status bar names the plot and how many molecules went into each
+series, for example:
 
 ```text
-Population histogram — 398 molecule(s), 71640 frame(s)
+FRET-efficiency histogram (A1) — All molecules: 398 molecule(s)
 ```
 
-Rejected molecules are left out. The panel is only for a look at the plot. To save the plot
-as a figure, use the script below. **View → Section → Curate and correct** takes you back to
-the traces.
+Rejected molecules are left out. Choose **Transition-density plot (B1)** or **Dwell-time
+survival (B2)** in **Plot** to see the other two plots over the same series. If the project has
+no fit yet, the section says so in place of the figure. To save a plot as a figure, use the
+script below. **View → Section → Curate and correct** takes you back to the traces.
 
 ## 2. Make and save all three plots
 

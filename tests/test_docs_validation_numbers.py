@@ -82,10 +82,8 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import importlib
 import json
 import math
-import os
 import re
 import sys
 import textwrap
@@ -96,6 +94,7 @@ from typing import NamedTuple
 import pytest
 
 import _docs_source
+from _docs_source import ATTR_LIST_PATTERNS, attrs_rejected, python_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "docs" / "validation.md"
@@ -165,9 +164,9 @@ _LEADING_IDENT_RE = re.compile(r"^[A-Za-z_]\w*")
 _LEADING_TOKEN_RE = re.compile(r"^[A-Za-z_$][\w.$/-]*")
 #: Python-Markdown's fenced-code rule, copied verbatim from
 #: ``markdown.extensions.fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE`` in
-#: Python-Markdown 3.11, the version the docs toolchain resolves here.
-#: ``requirements-docs.txt`` pins ``mkdocs==1.6.1``, which enables ``fenced_code`` by
-#: default, and leaves Markdown itself unpinned. It is copied rather than imported so the
+#: Python-Markdown 3.11.3, the version ``requirements-docs.txt`` pins for the docs
+#: toolchain (#1013). It pins ``mkdocs==1.6.1`` too, which enables ``fenced_code`` by
+#: default. It is copied rather than imported so the
 #: guard stays dependency-free; :func:`test_the_fence_rule_is_python_markdowns` compares
 #: it with the installed one wherever Markdown is importable, and the required
 #: ``docs-build`` job makes that import mandatory (#517). What it encodes: the opening
@@ -187,30 +186,11 @@ _FENCED_BLOCK_RE = re.compile(
 )
 
 
-#: The token patterns of Python-Markdown's attribute-list scanner, copied verbatim from
-#: ``markdown.extensions.attr_list._scanner`` in Python-Markdown 3.11 for the same reason
-#: and under the same parity test as :data:`_FENCED_BLOCK_RE`. ``FencedBlockPreprocessor``
-#: scans an ``{attrs}`` opener with it and rejects the opener when the text the scanner
-#: could not consume contains a ``}`` — ``{.a} {.b}``, say, whose braces do not balance.
-_ATTR_LIST_PATTERNS = (
-    r'[^ =}]+=".*?"',
-    r"[^ =}]+='.*?'",
-    r"[^ =}]+=[^ =}]+",
-    r"[^ =}]+",
-    r" ",
-)
-_ATTR_LIST_SCANNER = re.Scanner([(pattern, None) for pattern in _ATTR_LIST_PATTERNS])
-
-
-def _attrs_rejected(attrs: str) -> bool:
-    """Whether Python-Markdown refuses an ``{attrs}`` opener carrying ``attrs``.
-
-    ``get_attrs_and_remainder`` discards unscanned text before the first ``}`` and the
-    preprocessor rejects the opener when anything is left, so the test is a ``}`` anywhere
-    in what the scanner could not consume.
-    """
-    _, remainder = _ATTR_LIST_SCANNER.scan(attrs)
-    return "}" in remainder
+#: The attribute-list scanner ``FencedBlockPreprocessor`` reads an ``{attrs}`` opener with,
+#: shared with ``tests/test_docs_examples.py`` (#1013) and pinned to Python-Markdown by
+#: :func:`test_the_attr_list_scanner_is_python_markdowns`.
+_ATTR_LIST_PATTERNS = ATTR_LIST_PATTERNS
+_attrs_rejected = attrs_rejected
 
 
 def _fenced(lines: list[str]) -> list[bool]:
@@ -2760,16 +2740,7 @@ def test_a_fence_closes_only_on_its_own_delimiter(text: str) -> None:
     assert _tables(text.replace("## Fake heading", "| a | b |")) == []
 
 
-def _python_markdown(name: str):
-    """Import a Python-Markdown module, skipping where it is absent unless CI requires it.
-
-    The base lock carries no Markdown, so the 3-OS matrix skips the parity tests. The
-    required ``docs-build`` job installs the Markdown the docs build resolves and sets
-    ``TETHER_REQUIRE_PYTHON_MARKDOWN=1``, which turns that skip into a failure (#517).
-    """
-    if os.environ.get("TETHER_REQUIRE_PYTHON_MARKDOWN") == "1":
-        return importlib.import_module(name)
-    return pytest.importorskip(name)
+_python_markdown = python_markdown
 
 
 def test_the_fence_rule_is_python_markdowns() -> None:
