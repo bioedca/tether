@@ -3,7 +3,7 @@
 """Embedded napari movie panel — the FR-ROUNDTRIP movie surface (PRD §4.1, §7.3).
 
 [`NapariMoviePanel`][] wraps a single `napari.Viewer` that displays a
-lazy TIRF movie ([`tether.io.movie.MovieReader`][]) as a 2-D image layer with
+lazy TIRF movie (any [`tether.io.adapters.MovieSource`][]) as a 2-D image layer with
 **donor/acceptor spot points + integration-aperture overlays**, and switches
 between **multiple movies** for a multi-movie experiment (PRD §7.3: "an embedded
 napari movie panel showing the lazy movie + donor/acceptor points + aperture
@@ -40,7 +40,7 @@ round-trip resolver's job ([`tether.gui.roundtrip`][]); the panel stays
 presentational, exposing only the camera-centre / click seam it drives.
 
 **Byte order.** The reference acquisitions are big-endian ``>u2`` (PRD Appendix A);
-[`MovieReader`][] preserves that on-disk order so the lazy ``memmap`` stays
+[`tether.io.movie.MovieReader`][] preserves that on-disk order so the lazy ``memmap`` stays
 zero-copy. GL textures, however, interpret 16-bit pixel bytes in the host's
 **native** order, so uploading big-endian bytes would render garbled. The panel
 therefore converts to native order **at the display boundary**, and does so
@@ -67,13 +67,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from tether.gui import theme
-from tether.io.movie import MovieReader
+from tether.services.movies import movie_frames
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     import napari
     from qtpy.QtWidgets import QComboBox
+
+    from tether.io.adapters import MovieSource
 
 __all__ = ["MovieOverlay", "NapariMoviePanel"]
 
@@ -246,7 +248,7 @@ class NapariMoviePanel:
     """A napari viewer showing lazy TIRF movies with donor/acceptor overlays.
 
     Create the panel (optionally headless with ``show=False``), then either
-    [`set_movie`][] a single [`MovieReader`][] or [`add_movie`][] several
+    [`set_movie`][] a single movie source or [`add_movie`][] several
     (each optionally with a [`MovieOverlay`][]) and [`set_active_movie`][]
     between them. Use as a context manager or call [`close`][]. The napari Qt
     main window is exposed as [`qt_window`][], which the Tether shell docks (#356).
@@ -387,42 +389,43 @@ class NapariMoviePanel:
 
     # --- movies --------------------------------------------------------------
 
-    def set_movie(self, movie: MovieReader, *, name: str = _MOVIE_LAYER_NAME):
+    def set_movie(self, movie: MovieSource, *, name: str = _MOVIE_LAYER_NAME):
         """Display ``movie`` as the sole movie, replacing any previous ones.
 
         The single-movie M0 contract: shows one image layer (no overlays). Returns
         the napari image layer. To overlay spots or hold several movies, use
         [`add_movie`][] + [`set_active_movie`][] instead.
         """
-        if not isinstance(movie, MovieReader):
-            raise TypeError(f"set_movie expects a MovieReader, got {type(movie).__name__}")
+        movie_frames(movie)  # a TypeError before the current movies are cleared
         self.clear_movies()
         self.add_movie(movie, name=name)
         return self._movie_layer
 
     def add_movie(
         self,
-        movie: MovieReader,
+        movie: MovieSource,
         *,
         overlay: MovieOverlay | None = None,
         name: str | None = None,
     ) -> int:
         """Register ``movie`` (optionally with ``overlay``); return its index.
 
-        The movie's lazy ``memmap`` is prepared for native-order display and its
-        first-frame contrast is sampled now, so a later switch is a cheap layer
-        swap. The **first** movie added becomes active immediately. Its ``memmap``
-        must stay open (the caller owns the [`MovieReader`][] lifetime, as with
+        The movie's lazy frames (a TIFF's ``memmap``, or a
+        [`tether.io.frames.FrameView`][] of any other reader) are prepared for
+        native-order display and its first-frame contrast is sampled now, so a later
+        switch is a cheap layer swap. The **first** movie added becomes active
+        immediately. The source must stay open (the caller owns its lifetime, as with
         [`set_movie`][]).
         """
-        if not isinstance(movie, MovieReader):
-            raise TypeError(f"add_movie expects a MovieReader, got {type(movie).__name__}")
         if overlay is not None and not isinstance(overlay, MovieOverlay):
             raise TypeError(f"overlay must be a MovieOverlay or None, got {type(overlay).__name__}")
+        # A TIFF shows its memory map; any other reader a lazy view that reads only the
+        # frame napari asks for (#1388). A value that is not a movie source raises TypeError.
+        frames = movie_frames(movie)
         index = len(self._movies)
         entry = _MovieEntry(
-            display=_display_array(movie.data),
-            contrast=_first_frame_contrast(movie.data),
+            display=_display_array(frames),
+            contrast=_first_frame_contrast(frames),
             overlay=overlay,
             name=name if name is not None else f"movie-{index}",
         )

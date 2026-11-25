@@ -212,6 +212,21 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Nicolas Chiaruttini, EPFL (Zenodo 10.5281/zenodo.24363428)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Andor Solis SIF spectra (#904, ADR-0150): two files of Zenodo 10.5281/zenodo.18293266 (Chukova O,
+# CC-BY-4.0), committed unchanged, Solis's ASCII export of one, and its reference TIFF export by
+# sif_parser 0.3.6 (scripts/make_sif_reference.py). reference.json is Tether's own record and
+# keeps the blanket licence. See NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = [
+    "tests/fixtures/sif/ZP2270-1.sif",
+    "tests/fixtures/sif/ZP2270-1.asc",
+    "tests/fixtures/sif/ZP1-1.sif",
+    "tests/fixtures/sif/ZP2270-1_reference.tif",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Oksana Chukova (Zenodo 10.5281/zenodo.18293266)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

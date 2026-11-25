@@ -677,7 +677,7 @@ Tether **shall** present a multi-movie round-trip browser:
   analysis-window **start** (`pre_list`) and `[`/`]` nudge the **end** (`post_list`) — distinct bounds, not one
   action; `R` reset, `P` photobleach, `G` grid) for muscle-memory continuity, and adds the Tether-only actions
   **`Space` = accept, `Backspace`/`Delete` = reject, `Enter` = jump to the movie spot (round-trip focus), `I` =
-  one-click idealize**. tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
+  one-click idealize, `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
   v1** so no Tether-only binding shadows them. The integer↔category lookup pins **tMAVEN class 0 ↔ Tether
   "uncategorized"** and named categories ↔ tMAVEN classes ≥ 1, so a tMAVEN round-trip never silently turns an
   uncategorized trace into a named category (§7.4, Appendix D).
@@ -1639,6 +1639,7 @@ this section.
 | Parameter | Default | Source / rationale |
 |---|---|---|
 | Channel layout (split geometry) | `side-by-side`, donor on the left (`ExtractOptions.channel_layout = None`, `donor_side = left`) — selectable `{side-by-side, top-bottom, rectangles}`; both channels the same size (a half layout drops an odd trailing column/row); rectangles of different size or outside the frame are refused, overlapping rectangles warn | Tether (#908, G02 note 01); the per-channel crop is Deep-LASI's `processImage` crop (`deeplasi/functions/tools/processImage.m`) |
+| Extraction read block (`READ_BLOCK_FRAMES`) | 64 frames — the frames of a non-TIFF movie (ND2) are copied to a temporary file 64 at a time before extraction; it sets only the memory the copy holds and changes no value (the copy is the same for every block size, tested), so it is not a tunable a user sets | Tether (#1388, [ADR-0149](adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)); `tether.io.frames` |
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |

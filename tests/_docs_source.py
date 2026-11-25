@@ -17,8 +17,12 @@ as a top-level module on every OS in the CI matrix, like ``tests/_analysis_store
 from __future__ import annotations
 
 import ast
+import importlib
+import os
 import re
 from pathlib import Path
+
+import pytest
 
 # --- A page's YAML front matter ------------------------------------------------------
 
@@ -194,3 +198,73 @@ def tether_calls(
             continue
         found.append((label, call, target if isinstance(target, ast.FunctionDef) else None, bound))
     return found
+
+
+# --- Python-Markdown rules the docs guards copy ------------------------------------------
+
+
+def python_markdown(name: str):
+    """Import a Python-Markdown module, skipping where it is absent unless CI requires it.
+
+    The base lock carries no Markdown, so the 3-OS matrix skips the parity tests. The
+    required ``docs-build`` job installs the Markdown the docs build resolves and sets
+    ``TETHER_REQUIRE_PYTHON_MARKDOWN=1``, which turns that skip into a failure (#517).
+    """
+    if os.environ.get("TETHER_REQUIRE_PYTHON_MARKDOWN") == "1":
+        return importlib.import_module(name)
+    return pytest.importorskip(name)
+
+
+#: The token patterns of Python-Markdown's attribute-list scanner, copied verbatim from
+#: ``markdown.extensions.attr_list._scanner`` (Python-Markdown 3.11.3), which
+#: ``FencedBlockPreprocessor`` scans an ``{attrs}`` fence opener with.
+#: ``tests/test_docs_validation_numbers.py`` pins them to the installed Markdown.
+ATTR_LIST_PATTERNS = (
+    r'[^ =}]+=".*?"',
+    r"[^ =}]+='.*?'",
+    r"[^ =}]+=[^ =}]+",
+    r"[^ =}]+",
+    r" ",
+)
+
+
+def _word(_scanner: object, token: str) -> tuple[str, str | None]:
+    if token.startswith("."):
+        return ".", token[1:]
+    if token.startswith("#"):
+        return "id", token[1:]
+    return token, None
+
+
+# The scanner's actions, as ``attr_list``'s handlers: (key, value) for each token.
+_ATTR_LIST_SCANNER = re.Scanner(
+    [
+        (ATTR_LIST_PATTERNS[0], lambda _s, t: (t.split("=", 1)[0], t.split("=", 1)[1].strip('"'))),
+        (ATTR_LIST_PATTERNS[1], lambda _s, t: (t.split("=", 1)[0], t.split("=", 1)[1].strip("'"))),
+        (ATTR_LIST_PATTERNS[2], lambda _s, t: tuple(t.split("=", 1))),
+        (ATTR_LIST_PATTERNS[3], _word),
+        (ATTR_LIST_PATTERNS[4], None),
+    ]
+)
+
+
+def attr_list(attrs: str) -> tuple[list[tuple[str, str | None]], bool]:
+    """``get_attrs_and_remainder``: the (key, value) pairs, and whether the opener is refused.
+
+    The renderer discards unscanned text before the first ``}`` and refuses the opener when
+    anything is left, so it is refused when what the scanner could not consume holds a ``}``
+    -- ``{.a} {.b}``, say, whose braces do not balance.
+    """
+    pairs, remainder = _ATTR_LIST_SCANNER.scan(attrs)
+    return pairs, "}" in remainder
+
+
+def attrs_rejected(attrs: str) -> bool:
+    """Whether Python-Markdown refuses an ``{attrs}`` fence opener carrying ``attrs``."""
+    return attr_list(attrs)[1]
+
+
+def attrs_language(attrs: str) -> str:
+    """The language ``FencedBlockPreprocessor`` takes from an accepted opener: its first class."""
+    classes = [value for key, value in attr_list(attrs)[0] if key == "."]
+    return classes[0] if classes else ""
