@@ -21,10 +21,10 @@ publication exports carry the same stamp beside them.
 record and how to read it back.
 
 **Where each feature runs today.** The desktop application opens a project, curates its
-traces, fits one trace at a time and draws a population histogram. Extraction runs from the
+traces, fits one trace at a time and draws the population plots. Extraction runs from the
 [command line](cli.md). There, `tether batch` also applies the corrections and fits every
 molecule. From Python, you can run the corrections and whole-project fits with your own
-settings. You can also make the other plots and the exports, as each
+settings. You can also make the exports, as each
 [how-to guide](#using-tether) shows.
 
 The application also shows the movies of a project in a movie panel, with their donor and
