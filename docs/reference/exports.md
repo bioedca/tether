@@ -513,7 +513,7 @@ The fourteen renderers, and the plot each produces (Appendix-C ids as used in th
 | `render_alpha_shape` | `AlphaShape` (+ optional `RawFretCloud`) | Alpha-shape support boundary of the raw FRET cloud | `Time (s)` when the frame duration is not `1.0`, otherwise `Frame` |
 | `render_state_number_elbow` | `StateNumberElbow` | k-vs-RMSE elbow state-count hint | Number of clusters *k* (a count) |
 | `render_population_anticorrelation` | `PopulationAnticorrelation` | Anticorrelation events, one row per molecule | `Frame (analysis window)` — always frames |
-| `render_successive_frame_cloud` | `SuccessiveFrameCloud` | Successive-frame FRET cloud: *E* at frame *i* against *E* at frame *i* + 1 | *E* at frame *i* (dimensionless); the y-axis is *E* at frame *i* + 1 |
+| `render_successive_frame_cloud` | `SuccessiveFrameCloud` | Successive-frame FRET cloud: *E* at frame *i* against *E* at frame *i* + 1 | *E* at frame *i* (dimensionless). The y-axis is *E* at frame *i* + 1 |
 
 `render_transition_density` draws the B1 color scale as `color_scale="log"` by default, the
 log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
@@ -562,13 +562,15 @@ event is a bar over its frames, colored by its peak `|lag-0|`, with a tick at it
 frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
 to 30 molecules and an index above that.
 
-`render_successive_frame_cloud` draws the density surface, the highest-density-region contours at the
-cloud's coverages, the pairs as points, the k-means centroids as crosses and the diagonal
-*E*(*i* + 1) = *E*(*i*) as a dashed line. It is a different plot from the raw FRET cloud, which draws
-*E* against time. It thins its points to `max_points` (default 20 000) as the raw cloud does; the
-density and the centroids were computed from every pair. The record of each series in the provenance
-file also holds the cloud's own analysis provenance under `analysis`, with every parameter and the
-`molecule_key` of each molecule that entered.
+`render_successive_frame_cloud` draws five things. They are the density surface, the
+highest-density-region contours, the pairs as points, the k-means centroids as crosses and the
+diagonal *E*(*i* + 1) = *E*(*i*) as a dashed line. It is not the raw FRET cloud, which draws *E*
+against time.
+
+It thins its points to `max_points` (default 20 000), as the raw cloud does. The density and the
+centroids come from every pair. Each series record in the provenance file holds
+the cloud's own analysis provenance under `analysis`. That record gives every parameter and the
+`molecule_key` of each molecule in the cloud.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface
@@ -737,7 +739,7 @@ The tables of each plot:
 | `render_alpha_shape` | `data` | One row per boundary segment. `edge`: its number, from 1. `time_start`, `time_end`: in s or frames. `e_start`, `e_end`: *E* (dimensionless). An empty shape has no rows |
 | | `points` | With `cloud=`: the cloud's points, as the `data` table of `render_raw_fret_cloud` |
 | `render_state_number_elbow` | `data` | `k`: the number of clusters. `rmse`: the within-cluster RMSE of *E*. `elbow`: `1` for the suggested *k*, otherwise `0` |
-| `render_successive_frame_cloud` | `data` | One row per pair. `molecule`: the molecule's position, from 0, in the `molecule_keys` list of the cloud's provenance. `frame`: the frame *i* of the pair, in frames from the start of that molecule's analysis window. `e_i`, `e_next`: *E* at frame *i* and at frame *i* + 1 (dimensionless) |
+| `render_successive_frame_cloud` | `data` | One row per pair. `molecule`: the molecule's position, from 0, in the `molecule_keys` of the cloud's provenance. `frame`: the frame *i* of the pair, counted from the start of the molecule's analysis window. `e_i`, `e_next`: *E* at frame *i* and at frame *i* + 1 (dimensionless) |
 | | `density` | With a density surface, one row per grid node. `x`: *E* at frame *i*. `y`: *E* at frame *i* + 1. `value`: the KDE density |
 | | `levels` | With HDR contours. `coverage`: the fraction of the density inside the contour. `level`: the KDE density of the contour |
 | | `centroids` | With centroids, one row per centroid. `centroid`: its number, from 1. `e_i`, `e_next`: its *E* at frame *i* and at frame *i* + 1 |
