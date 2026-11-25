@@ -1999,14 +1999,15 @@ class TetherShell:
 
     def _on_list_row_changed(self, row: int) -> None:
         self._molecule_view.sync_header(row)
+        # The frame link still names the previous molecule: drop it before the dock shows
+        # the new trace and the jump below switches movies, so a frame the panel tells on
+        # the way is not mapped onto the new trace with the old one's length. With no row
+        # selected (a filter that shows none, #630) it stays dropped: the dock is empty.
+        if self._frame_link is not None:
+            self._frame_link.clear_target()
         if 0 <= row < len(self._traces):
             self._current_index = row
             trace = self._traces[row]
-            # The frame link still names the previous molecule: drop it before the dock
-            # shows the new trace and the jump below switches movies, so a frame the panel
-            # tells on the way is not mapped onto the new trace with the old one's length.
-            if self._frame_link is not None:
-                self._frame_link.clear_target()
             self._trace_dock.set_trace(trace)
             # Navigation (via the ←/→/↑/↓ keys or a click) shows which molecule is
             # active — so the live smoke sees NEXT/PREV firing, not just accept.

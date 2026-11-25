@@ -847,3 +847,27 @@ def test_the_macos_offscreen_platform_is_refused_up_front(qapp, monkeypatch) -> 
     )
     monkeypatch.setattr(QtGui.QGuiApplication, "platformName", staticmethod(lambda: "cocoa"))
     assert shell_mod._movie_panel_unavailable() is None
+
+
+@needs_napari
+@needs_gl
+def test_a_filter_that_shows_no_molecule_unlinks_the_frames(section_shell, tmp_path) -> None:
+    # A filter that hides every molecule leaves nothing selected and clears the trace dock
+    # (#630). The link must drop its target too, so the movie's slider moves no cursor.
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    assert shell.frame_link is not None and shell.frame_link.linked
+
+    shell.molecule_view.set_filter("accepted")  # no molecule is accepted yet
+    assert shell.molecule_list.currentRow() == -1
+    assert shell.frame_link.target is None and not shell.frame_link.linked
+    panel.viewer.dims.set_current_step(0, 3)  # must not reach the empty dock
+    assert dock.frame_cursor is None
+    assert panel.current_frame == 3
+
+    # Back to all molecules and a selection: the link follows the new molecule again.
+    shell.molecule_view.set_filter("all")
+    shell.molecule_list.setCurrentRow(0)
+    assert shell.frame_link.linked
+    _drag_cursor(shell, 5)
+    assert panel.current_frame == 5

@@ -34,8 +34,8 @@ min_collected = 4011
 # 61 with the five Windows-helper tests of #331 (test_update_handoff.py);
 # 62 with the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py);
 # 65 with the three Python-Markdown parity tests of #1013 (see the line above the ubuntu leg);
-# 73 since #366 added eight frame-link tests behind needs_gl (two panel, six shell).
-max_skipped = 73
+# 74 since #366 added nine frame-link tests behind needs_gl (two panel, seven shell).
+max_skipped = 74
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
@@ -401,7 +401,7 @@ test = "tests/test_shell_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
 why = """The tests that dock the shell's napari movie panel (#356, the eight round-trip tests \
-of #357 and the six frame-link tests of #366) open a napari Viewer, \
+of #357 and the seven frame-link tests of #366) open a napari Viewer, \
 which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
 test (ubuntu-latest) under xvfb and test (windows-latest) run them. The module's tests of an \
 unwired panel run on macOS too."""
