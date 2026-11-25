@@ -194,12 +194,17 @@ def test_the_repr_names_the_file_and_its_shape(tmp_path: Path) -> None:
         assert repr(movie) == "SifMovie('m.sif', frames=4, height=6, width=10, dtype='<f4')"
 
 
-def test_the_extraction_path_still_reads_only_tiff(tmp_path: Path) -> None:
-    from tether.io.movie import open_movie
+def test_extraction_does_not_read_sif_yet(tmp_path: Path) -> None:
+    from tether.io.frames import open_extraction_movie
+    from tether.io.movie import EXTRACTED_CONTAINERS
 
+    assert "SIF" not in EXTRACTED_CONTAINERS
     path = write_sif(tmp_path / "m.sif", _frames())
-    with pytest.raises(UnsupportedContainerError, match="extraction reads only TIFF"):
-        open_movie(path)
+    with (
+        pytest.raises(UnsupportedContainerError, match="extraction does not read SIF yet"),
+        open_extraction_movie(path),
+    ):
+        pass
 
 
 def test_the_registry_chooses_sif_by_its_header(tmp_path: Path) -> None:

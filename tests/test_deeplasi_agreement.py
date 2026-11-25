@@ -8,11 +8,12 @@ the neutral ids; an assertion message names ids and quantities, never a file. Ea
 export is read through its ``window`` role, a frozen copy beside a ``provenance.json`` that says
 Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
 
-* **Spots and traces** (:data:`_deeplasi_agreement.EXTRACTION_IDS`): Tether extracts the movie
-  with the series map file and the detection settings of the maintainer's Deep-LASI state, and
-  the oracle (a) scorer compares it with the maintainer's Deep-LASI export, with the limits of
-  ADR-0022. ADR-0115 makes these acquisitions part of the oracle: a failure on one of them is a
-  finding to report, never a reason to change a limit.
+* **Spots and traces** (:data:`_deeplasi_agreement.EXTRACTION_IDS`): Tether extracts the movie,
+  once its SHA-256 is the ``movie`` input of the id's ``window`` record (#1115), with the series
+  map file and the detection settings of the maintainer's Deep-LASI state, and the oracle (a)
+  scorer compares it with the maintainer's Deep-LASI export, with the limits of ADR-0022.
+  ADR-0115 makes these acquisitions part of the oracle: a failure on one of them is a finding
+  to report, never a reason to change a limit.
 * **Corrected FRET** (:data:`_deeplasi_agreement.FRET_IDS`): Tether's correction chain on the
   traces of each Deep-LASI export, against Deep-LASI's corrected FRET with its own factors in
   the ``(1 + α)`` convention of ADR-0028. The numbers are recorded and only the convention
@@ -27,6 +28,7 @@ Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
 from __future__ import annotations
 
 import math
+import time
 
 import pytest
 
@@ -49,9 +51,13 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
     from tether.project.extract import ExtractOptions, extract_movie  # noqa: PLC0415
     from tether.project.oracle import evaluate_project  # noqa: PLC0415
 
-    movie = private_data.path(neutral_id, "movie")
     tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", agree.STATE))
-    mat = agree.window_export(private_data, neutral_id)
+    mat, window = agree.window_record(private_data, neutral_id)
+    # The movie is pinned by the window record, not by the repository (#1115); the seconds the
+    # check takes are recorded so the cost of a workstation run stays visible.
+    started = time.perf_counter()
+    movie = agree.check_movie(private_data.path(neutral_id, "movie"), window, neutral_id)
+    movie_check_s = time.perf_counter() - started
     out = tmp_path / f"{neutral_id}.tether"
     # The ADR-0022 limits were set for the donor-anchored rule; this names it, so the
     # partner-in-both default cannot move recall (#1231, ADR-0127).
@@ -73,6 +79,7 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
                 "n_ground_truth": res.n_ground_truth,
                 "n_extracted": res.n_extracted,
                 "n_matched": res.n_matched,
+                "movie_check_s": movie_check_s,
             }
         ),
     )
