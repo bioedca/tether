@@ -64,7 +64,7 @@ wrong data quietly, which is worse than failing.
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
 message says so. A container that Tether does not read, such as an Olympus `.oir`, is refused
-too. That message lists what Tether reads (today, TIFF, CZI and ND2) and names the Bio-Formats route for
+too. That message lists what Tether reads (today, TIFF, CZI, ND2 and SIF) and names the Bio-Formats route for
 the others.
 
 Extension matching exists only in the Deep-LASI folder-intake wizard. There,
