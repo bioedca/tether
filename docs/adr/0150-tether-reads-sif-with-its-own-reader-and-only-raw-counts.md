@@ -62,11 +62,13 @@ the kinetic cycle time, by position), and then **anchors on the image-structure 
 than counting lines: the first record of the form `65541|65538 left top right bottom frames
 sub-images total-length frame-length` that has the three axis labels before it (each written as
 `<length>\n<text>`, the middle one the data type) and a sub-image record after it. Then come one
-time-stamp line for each frame and, in the newer versions, a flag line (`0`, or `1` and one more
-line for each frame). The frames start after them. **The start is accepted only when the frames
-end where the next block's presence flag (`0\n` or `1\n`) or the end of the file is**; the
-candidates that the three layouts give must leave exactly one such start. A frame-range read seeks
-to the frames it returns.
+time-stamp line for each frame and, from format version 65566, a flag line (`0`, or `1` and one
+more line for each frame). The frames start after them. **The format version decides whether the
+flag line is there**: none in 65559 and before, one from 65566 on, and a version between them,
+which Tether has not met, is refused. The bytes after the time stamps do not decide it, since a
+copy cut short by the two bytes of a `0` line would then read two bytes early. **The start is
+accepted only when the frames end where the next block's presence flag (`0\n` or `1\n`) or the
+end of the file is.** A frame-range read seeks to the frames it returns.
 
 ### What Tether reads
 
@@ -79,6 +81,8 @@ match the area, and the file holds every declared frame. Anything else raises
   Solis has processed the stored frames, so they are not the values the camera recorded;
 - more than one image area in a frame (multi-track, random-track, fast kinetics);
 - frames shorter than the header declares (an incomplete copy, or frames spooled to other files);
+- a format version from 65560 to 65565, or a version from 65566 on with no flag line after the
+  time stamps;
 - frames that do not end where the header says (compressed frames, or a layout not met).
 
 The pixel type is `<f4`, as Solis stores it. The blocks after the signal (a background, for

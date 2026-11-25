@@ -83,6 +83,22 @@ def test_a_background_corrected_file_is_refused() -> None:
         open_movie_source(SIF / "ZP1-1.sif")
 
 
+def test_a_solis_file_cut_short_by_its_flag_line_is_refused_not_read_early(
+    tmp_path: Path,
+) -> None:
+    """A copy short by two bytes, the length of the ``0`` flag line, is refused (#904 review).
+
+    Without the version rule, a start before the flag line made the frames end at the end of
+    the file, and the frame was read two bytes early.
+    """
+    data = (SIF / "ZP2270-1.sif").read_bytes()
+    path = tmp_path / "short.sif"
+    path.write_bytes(data[: 2836 + 1024 * 4])
+    assert len(data) - path.stat().st_size > 2, "the cut removes the trailing block flags too"
+    with pytest.raises(UnsupportedContainerError, match="shorter than the 1 frames"):
+        SifMovie(path)
+
+
 # --- values, row order and metadata -------------------------------------------------------
 
 
@@ -128,7 +144,7 @@ def test_binned_frames_have_the_binned_size(tmp_path: Path) -> None:
     "variant",
     [
         {"stamp_flag": b"0"},  # a flag line of 0, as in the public spectra
-        {"stamp_flag": b""},  # no flag line, as in format version 65559
+        {"version": 65559, "stamp_flag": b""},  # no flag line, as in format version 65559
         {"structure_version": 65538},  # the older image-structure record
         {"after": b""},  # the frames end the file
         {"after": b"0\n1\n65567 0 0 1"},  # a background block follows
@@ -206,7 +222,11 @@ def test_the_registry_chooses_sif_by_its_header(tmp_path: Path) -> None:
         ({"data_type": b"Counts per second"}, "'Counts per second'"),
         ({"truncate": 5}, "shorter than the 4 frames"),
         ({"after": b"XX"}, "do not end where its header says"),
-        ({"stamp_flag": b"7"}, "do not end where its header says"),
+        ({"stamp_flag": b"7"}, "no flag line after its frame time stamps"),
+        ({"stamp_flag": b""}, r"no flag line .* format version \(65567\)"),
+        ({"version": 65559}, "do not end where its header says"),
+        ({"version": 65563, "stamp_flag": b""}, "format version 65563, whose layout"),
+        ({"stamp_flag": b"0", "truncate": 2}, "shorter than the 4 frames"),
     ],
 )
 def test_a_file_that_is_not_one_whole_movie_of_counts_is_refused(

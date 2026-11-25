@@ -86,6 +86,8 @@ SIF file **only when it can read all of it as one movie of counts**:
   refused.
 - Every frame that the header declares is in the file. A file cut short, or an acquisition that
   Solis spooled to other files, is refused.
+- The format version is 65559 or older, or 65566 or newer. A version between them is a layout
+  that Tether has not met, so it is refused.
 - The frames end where the header says. Any other layout is refused, not guessed.
 
 Any other file is refused, and the message names the reason. An example is "this file holds

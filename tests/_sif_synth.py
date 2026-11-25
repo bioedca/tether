@@ -49,6 +49,7 @@ def sif_bytes(
     frames: np.ndarray,
     *,
     kinetic_cycle: float = 0.05,
+    version: int = 65567,
     data_type: bytes = b"Counts",
     signal: int = 1,
     sub_images: int = 1,
@@ -60,14 +61,18 @@ def sif_bytes(
     truncate: int = 0,
     user_text: bytes = b"",
 ) -> bytes:
-    """Return the bytes of a SIF file that holds ``frames`` (``(n, h, w)``, top row first)."""
+    """Return the bytes of a SIF file that holds ``frames`` (``(n, h, w)``, top row first).
+
+    ``version`` is the format version of the first record; the layout stays that of 65567,
+    so a file of format version 65559 is written with ``stamp_flag=b""``.
+    """
     frames = np.asarray(frames, dtype="<f4")
     n, h, w = frames.shape
     detector = b"DU897_BV"
     name = b"C:\\data\\synthetic.sif"
     exposure = kinetic_cycle * 0.9
     line3 = (
-        b"65567 0 0 1 1700000000 -70 \x00 \x00 \x00 \x05 \x00 "
+        b"%d 0 0 1 1700000000 -70 \x00 \x00 \x00 \x05 \x00 " % version
         + b"0 %r %r %r 1 \x00 %r " % (exposure, kinetic_cycle, kinetic_cycle, kinetic_cycle)
         + b"1e-07 0 1 300 0 0 1e-08 0 0 \x04 \x00 1 0 4 1 1 0 0 0 0 0 0 0 1.7e-06 0 5.1 "
         + b"4077 0 1 -999 1 0 1 0 0 -1 4 21 30007 0 0 1 100 0 0 0 550 0 0 0 0 0 0 0 0 0 1 1 "

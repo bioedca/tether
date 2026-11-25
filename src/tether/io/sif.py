@@ -78,6 +78,11 @@ _SUBIMAGE = re.compile(rb"65538 (-?\d+) (-?\d+) (-?\d+) (-?\d+) (\d+) (\d+) -?\d
 _NUMBER_LINE = re.compile(rb" *-?\d+\n")
 # After the signal frames, each of the other four blocks starts with its presence flag.
 _NEXT_BLOCK = (b"0\n", b"1\n")
+# The format version decides whether a flag line follows the frame time stamps: none in
+# 65559 and before, one from 65566 on (the versions of the public files, ADR-0150). The
+# versions between are refused, since Tether has not met them and their layout is a guess.
+_NO_FLAG_LINE_UNTIL = 65559
+_FLAG_LINE_FROM = 65566
 _COUNTS = b"Counts"
 
 
@@ -238,8 +243,15 @@ def _find_layout(path: Path, fh: BinaryIO, size: int) -> _Layout:
     if frame_len != width * height or total != n_frames * frame_len:
         raise _refuse(path, "has frame lengths that do not match its image area")
 
-    # The frame time stamps, one line for each frame, then (in the newer versions) a flag
+    # The frame time stamps, one line for each frame, then (from format version 65566) a flag
     # line, which is 1 when one more line for each frame follows. The frames start after it.
+    # The version alone decides whether the flag line is there, so a file cut short by the
+    # length of that line is refused rather than read two bytes early.
+    if _NO_FLAG_LINE_UNTIL < version < _FLAG_LINE_FROM:
+        raise _refuse(
+            path,
+            f"has the format version {version}, whose layout Tether has not been checked against",
+        )
     pos = sub.end()
     need = pos + 64 * n_frames + 4096
     if need > len(head):
@@ -250,43 +262,39 @@ def _find_layout(path: Path, fh: BinaryIO, size: int) -> _Layout:
         if stamp is None:
             raise _refuse(path, "has a damaged list of frame time stamps")
         pos = stamp.end()
-    starts = [pos]
-    flag = head[pos : pos + 2]
-    if flag == b"0\n":
-        starts.append(pos + 2)
-    elif flag == b"1\n":
-        q = pos + 2
-        for _ in range(n_frames):
-            line = _NUMBER_LINE.match(head, q)
-            if line is None:
-                break
-            q = line.end()
+    start = pos
+    if version >= _FLAG_LINE_FROM:
+        flag = head[pos : pos + 2]
+        if flag == b"0\n":
+            start = pos + 2
+        elif flag == b"1\n":
+            start = pos + 2
+            for _ in range(n_frames):
+                line = _NUMBER_LINE.match(head, start)
+                if line is None:
+                    raise _refuse(path, "has a damaged list of frame time stamps")
+                start = line.end()
         else:
-            starts.append(q)
-    frame_bytes = width * height * _DTYPE.itemsize
-    found = []
-    for start in starts:
-        end = start + n_frames * frame_bytes
-        if end > size:
-            continue
-        fh.seek(end)
-        after = fh.read(2)
-        if end == size or after in _NEXT_BLOCK:
-            found.append(start)
-    if len(found) != 1:
-        last = max(starts) + n_frames * frame_bytes
-        if last > size:
             raise _refuse(
                 path,
-                f"is shorter than the {n_frames} frames that its header declares (an incomplete "
-                "copy, or frames that Solis spooled to other files)",
+                f"has no flag line after its frame time stamps, where its format version "
+                f"({version}) puts one",
             )
+    end = start + n_frames * width * height * _DTYPE.itemsize
+    if end > size:
+        raise _refuse(
+            path,
+            f"is shorter than the {n_frames} frames that its header declares (an incomplete "
+            "copy, or frames that Solis spooled to other files)",
+        )
+    fh.seek(end)
+    if end != size and fh.read(2) not in _NEXT_BLOCK:
         raise _refuse(
             path,
             "has frames that do not end where its header says (compressed frames, or a "
             "variant that Tether has not been checked against)",
         )
-    return _Layout(n_frames, height, width, found[0], data_type, kinetic, version)
+    return _Layout(n_frames, height, width, start, data_type, kinetic, version)
 
 
 class SifMovie:
