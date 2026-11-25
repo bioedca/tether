@@ -82,6 +82,10 @@ directory that an environment variable names). A test skips, with the reason, wh
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
 
+A download that times out, loses its connection or gets an HTTP 5xx, 408 or 429 answer is tried
+again two times, after 15 s and 45 s, from an empty file (#1229). An HTTP 4xx answer and a wrong
+checksum are not tried again, because they tell that the upstream file moved or changed.
+
 **The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
 Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
 [doi:10.1038/s41467-024-50885-x](https://doi.org/10.1038/s41467-024-50885-x), publishes its Source
