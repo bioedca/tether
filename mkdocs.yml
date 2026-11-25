@@ -151,6 +151,7 @@ nav:
       - Building the installers: maintainers/building-installers.md
       - Standalone-tMAVEN cross-OS record: maintainers/standalone-tmaven-cross-os-record.md
       - Running the private-data checks: maintainers/workstation-runner.md
+      - The merge queue: maintainers/merge-queue.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
       - Writing docstrings: maintainers/docstring-style.md
