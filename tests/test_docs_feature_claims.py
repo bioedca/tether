@@ -53,12 +53,12 @@ BINDINGS: dict[str, tuple[str, ...] | None] = {
     "Standalone-tMAVEN hand-off": ("tether.project.handoff",),
     "Condition validation": ("tether.gui.conditions",),
     "Deep-LASI import": ("tether.gui.deeplasi_wizard_ui",),
-    "Population histogram": ("tether.gui.histogram_dock",),
     "Native extraction": ("tether.project.extract", "tether.gui.extraction"),
     "Batch pipeline": ("tether.project.batch",),
     "Corrections": ("tether.project.correct",),
     "Quality ranker": ("tether.ml", "tether.project.gbranking", "tether.project.ranking"),
-    "Analysis plots": ("tether.analysis.tdp", "tether.analysis.dwell", "tether.analysis.cloud"),
+    # The Analyze section's plot registry (#374) runs every population plot.
+    "Analysis plots": ("tether.services.plots",),
     "Exports": ("tether.project.export", "tether.analysis.plot_export"),
     "Movie panel": ("tether.gui.movie_panel",),
     "Trace ⇄ movie round trip": ("tether.gui.roundtrip",),
@@ -237,7 +237,7 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     assert _in_application("Native extraction", _gui_imports())
     assert _in_application("Trace ⇄ movie round trip", _gui_imports())
     assert _in_application("Movie panel", _gui_imports())
-    assert _in_application("Population histogram", _gui_imports())
+    assert _in_application("Analysis plots", _gui_imports())
 
 
 def test_a_type_only_import_is_not_a_gui_import() -> None:
