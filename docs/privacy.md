@@ -15,8 +15,8 @@ This policy describes how the **Tether** project handles data. It covers both th
 (GPL-3.0-or-later) developed for the Mondragón Lab at Northwestern University.
 
 In short: **Tether does not transmit or sell your personal data.** The application
-processes your research data locally on your own computer. You choose where it stores that
-data, and this page describes the temporary idealization files below. The only network request
+processes your research data locally on your own computer; you choose its persistent
+storage, and temporary idealization files are described below. The only network request
 the application can make is an optional check for a newer release, which is **off until
 you allow it** (below).
 
@@ -71,11 +71,11 @@ you allow it** (below).
   verify a downloaded update before it installs it. This release of Tether never runs it,
   so it sends nothing. Before Tether uses it, this page will name each host it contacts and
   each value it sends.
-- **Local provenance metadata.** Tether records technical metadata **inside your own local
-  files**. The metadata supports scientific reproducibility, and it lets only one writer edit a
-  project at a time. The `.tether` project file records the application version and your
-  analysis parameters. It also records your operating-system username, as the curator, or
-  "labeler", of your annotations. If you set a curator name in the application, new annotations record that
+- **Local provenance metadata.** For scientific reproducibility and to coordinate
+  one-writer-at-a-time editing, Tether records technical metadata **inside your own local
+  files**. The `.tether` project file records the application version, your analysis
+  parameters, and your operating-system username (as the curator, or "labeler", of your
+  annotations). If you set a curator name in the application, new annotations record that
   name instead. A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open. With it, a second copy of the application can tell
   who holds the write-lock now. This information is stored only in files at the location you

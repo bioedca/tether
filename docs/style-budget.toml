@@ -365,8 +365,8 @@ retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 0.8
-semicolons = 0
+long_share = 0.9
+semicolons = 1
 long_paragraphs = 0
 retired = 0
 
