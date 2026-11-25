@@ -26,16 +26,16 @@
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
 # Each of the three legs is three higher since #1013 added three Python-Markdown parity tests.
-max_skipped = 26
+# 28 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+max_skipped = 28
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-# 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py);
-# 61 with the five Windows-helper tests of #331 (test_update_handoff.py);
-# 62 with the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py);
-# 65 with the three Python-Markdown parity tests of #1013 (see the line above the ubuntu leg);
-# 74 since #366 added nine frame-link tests behind needs_gl (two panel, seven shell).
-max_skipped = 74
+# 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
+# 62: main's 61 plus the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py).
+# 67 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+# 76 since #366 added nine frame-link tests behind needs_gl (two panel, seven shell).
+max_skipped = 76
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
@@ -84,6 +84,14 @@ jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)", 
 why = """torch is only in the isolated deep stack (ADR-0047); the base environment of these \
 jobs has none. The module skips at import, before `-m` can deselect its `deep` tests, so it is \
 one skip and not a missing test. deep / smoke runs the module in the deep environment."""
+
+[[skip]]
+test = "tests/test_recipe.py::test_a_printed_windows_command_passes_each_value_unchanged_through_cmd_exe*"
+reason = "cmd.exe is the console of the Windows install guide"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The two tests run a printed recovery command through cmd.exe, directly and through a copy \
+of the installer's tether.bat line (#1354). macOS and Linux have no cmd.exe; the Windows leg runs \
+both. They cost each of the other two legs two skips, so max_skipped there is two higher."""
 
 [[skip]]
 test = "tests/test_claim.py::test_the_default_really_is_strict_on_the_interpreters_that_have_it"
