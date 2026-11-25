@@ -108,7 +108,15 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
     with pytest.raises(ValueError, match="already claims"):
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF", "SIRA", "Later"]
+    assert [a.name for a in registered_adapters()] == [
+        "TIFF",
+        "CZI",
+        "ND2",
+        "SIF",
+        "cellSens VSI",
+        "SIRA",
+        "Later",
+    ]
 
 
 def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +135,14 @@ def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(adapters, "_register", _fail_once)
     with pytest.raises(RuntimeError, match="simulated"):
         registered_adapters()
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF", "SIRA"]
+    assert [a.name for a in registered_adapters()] == [
+        "TIFF",
+        "CZI",
+        "ND2",
+        "SIF",
+        "cellSens VSI",
+        "SIRA",
+    ]
 
 
 def test_a_failure_part_way_through_the_builtins_leaves_none_of_them(
@@ -149,7 +164,14 @@ def test_a_failure_part_way_through_the_builtins_leaves_none_of_them(
     with pytest.raises(RuntimeError, match="second built-in"):
         registered_adapters()
     assert adapters._REGISTRY == []
-    assert [a.name for a in registered_adapters()] == ["TIFF", "CZI", "ND2", "SIF", "SIRA"]
+    assert [a.name for a in registered_adapters()] == [
+        "TIFF",
+        "CZI",
+        "ND2",
+        "SIF",
+        "cellSens VSI",
+        "SIRA",
+    ]
 
 
 def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,7 +189,7 @@ def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) ->
         th.start()
     for th in threads:
         th.join()
-    assert seen == [("TIFF", "CZI", "ND2", "SIF", "SIRA")] * 8
+    assert seen == [("TIFF", "CZI", "ND2", "SIF", "cellSens VSI", "SIRA")] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:

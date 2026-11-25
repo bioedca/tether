@@ -24,7 +24,7 @@ CI = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
 SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 #: ``$CONDA`` / ``${CONDA}``, but not ``$CONDA_EXE`` or another longer name.
 IMAGE_CONDA = re.compile(r"\$\{?CONDA(?![A-Za-z0-9_])")
-VERIFY_STEP = "Verify base + sidecar + deep locks match their environment.yml"
+VERIFY_STEP = "Verify base + sidecar + deep + bioformats locks match their environment.yml"
 
 
 def _steps() -> list[dict]:
