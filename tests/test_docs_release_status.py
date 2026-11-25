@@ -87,18 +87,26 @@ def test_the_guard_reports_the_wording_it_replaced() -> None:
 _ANNOUNCEMENT_ROW = re.compile(r"^\| Where is it announced\? \|.*$", re.MULTILINE)
 
 #: The row's exact allowed content, pinned. It describes *where* deprecations are announced and
-#: links the Releases page, the change record (#182) and the release pipeline page; it says
-#: nothing about what is
+#: links the Releases page. Its note 3 below the table (#607 keeps a cell to two sentences) links
+#: the change record (#182) and the release pipeline page, and is pinned too. Neither says
+#: anything about what is
 #: currently on the Releases page. A denylist of state-describing phrasings could not be made
 #: complete -- each version of one let ordinary wording through -- so the row is pinned whole.
 EXPECTED_ANNOUNCEMENT_ROW = (
     "| Where is it announced? | **The GitHub release notes** for the release that introduces "
     "the deprecation, at [github.com/bioedca/tether/releases]"
     "(https://github.com/bioedca/tether/releases). There is no `CHANGELOG.md` in this "
-    "repository, so do not go looking for one. The Releases page is the record of every "
-    "published Release; the [change record](release.md#change-record) says how the notes are "
-    "produced and where pre-1.0 history lives, and the [release pipeline](release.md) describes "
-    "how a Release is cut. |"
+    "repository (note 3). |"
+)
+
+
+#: Note 3 of the deprecation-policy table, which carries the rest of the announcement row (#607),
+#: pinned whole for the same reason as the row. Compared with its whitespace collapsed, and up to
+#: the marker of note 4, so a sentence added at its end fails too.
+EXPECTED_ANNOUNCEMENT_NOTE = (
+    "3. So do not look for one. The Releases page is the record of every published Release. The "
+    "[change record](release.md#change-record) says how the notes are made and where the history "
+    "before 1.0 is. The [release pipeline](release.md) describes how a Release is cut. 4."
 )
 
 
@@ -125,6 +133,13 @@ def test_the_announcement_row_is_pinned_to_describe_the_page_not_its_contents() 
         "change is deliberate and does that, update EXPECTED_ANNOUNCEMENT_ROW with it.\n"
         f"expected: {EXPECTED_ANNOUNCEMENT_ROW}\nfound:    {row}"
     )
+    flat = " ".join(STABILITY.read_text(encoding="utf-8").split())
+    assert EXPECTED_ANNOUNCEMENT_NOTE in flat, (
+        "note 3 of the deprecation-policy table changed. It carries the rest of the "
+        "'Where is it announced?' row and is pinned with it (#323): update "
+        "EXPECTED_ANNOUNCEMENT_NOTE only with a deliberate change that still says nothing about "
+        "what is or is not currently published."
+    )
 
 
 def test_the_pin_reports_a_row_that_describes_the_page_contents() -> None:
@@ -140,6 +155,15 @@ def test_the_pin_reports_a_row_that_describes_the_page_contents() -> None:
         )
         assert reworded != page
         assert _announcement_row(reworded) != EXPECTED_ANNOUNCEMENT_ROW
+
+
+def test_the_note_pin_reports_a_sentence_added_to_the_note() -> None:
+    """Presence before absence for note 3: a state note appended to it fails the pin."""
+    page = STABILITY.read_text(encoding="utf-8")
+    end = "describes how a Release is cut."
+    assert page.count(end) == 1
+    reworded = page.replace(end, f"{end} The prerelease is currently the only available Release.")
+    assert EXPECTED_ANNOUNCEMENT_NOTE not in " ".join(reworded.split())
 
 
 def test_the_two_release_pages_agree_about_the_retained_prerelease() -> None:
