@@ -454,7 +454,7 @@ def _local_paths(mime: Any) -> list[Path]:
 def _guide_page(title: str, text: str) -> Any:
     """A plain page with a heading and one paragraph that says where the tools are.
 
-    The Prepare and Analyze sections show one until their own content lands (#897 and the
+    The Analyze and Deposit sections show one until their own content lands (#897 and the
     issues it lists); the page never offers an action the shell cannot do.
     """
     from pyqtgraph.Qt import QtCore, QtWidgets
@@ -1659,11 +1659,7 @@ class TetherShell:
                     id=PREPARE_SECTION,
                     title="Prepare",
                     order=1,
-                    central=lambda _host: _guide_page(
-                        "Prepare",
-                        "To make a project from a folder of Deep-LASI files, choose "
-                        "Import → Deep-LASI bundle…. The project opens in this window.",
-                    ),
+                    central=lambda _host: self._build_extraction_page(),
                     writes_project=True,
                     menus=(
                         MenuSpec(
@@ -1738,6 +1734,23 @@ class TetherShell:
                 ),
             ]
         )
+
+    def _build_extraction_page(self) -> Any:
+        """Prepare's page: one movie, its options, the stage preview and a run (#350)."""
+        from tether.gui.extraction import ExtractionSection
+
+        self._extraction = ExtractionSection(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        return self._extraction.widget
+
+    @property
+    def extraction(self) -> Any:
+        """Prepare's extraction page.
+
+        An [`ExtractionSection`][tether.gui.extraction.ExtractionSection] (#350).
+        """
+        return self._extraction
 
     # --- the menus of the sections (#342) --------------------------------------
 
@@ -5816,6 +5829,8 @@ class TetherShell:
         # The same for a running channel-map command (#353): its outcome is not applied
         # to a closed shell, and its worker stops once the command ends.
         self._channel_map.close()
+        # The same for a running preview or extraction of the Prepare page (#350).
+        self._extraction.close()
         self._busy_indicator.stop()
         self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)

@@ -76,6 +76,12 @@ to the application.
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
   missing or changed movie file is listed but not shown. A movie with no recorded geometry has
   no spots.
+- **Native extraction.** The **Prepare** section, `tether extract` and `tether batch` extract
+  traces from a TIFF movie. The steps are channel split, à trous spot detection, polynomial
+  registration, donor-anchored colocalization and aperture integration. The project validates
+  this extraction against Deep-LASI. The application previews each stage and shows the detected
+  spots and the control-point residuals on the movie before it extracts
+  ([how-to](docs/how-to/extract-traces.md#extract-in-the-application)).
 - **Trace ⇄ movie round trip.** Select a trace, or press Enter, and the movie panel shows its
   own movie centered on its spot. Click a donor or acceptor spot and the list selects its trace,
   across all the movies of the project
@@ -86,10 +92,6 @@ to the application.
 
 ### From the command line today
 
-- **Native extraction.** `tether extract` and `tether batch` extract traces from a TIFF movie.
-  The steps are channel split, à trous spot detection, polynomial registration, donor-anchored
-  colocalization and aperture integration. The project validates this extraction against
-  Deep-LASI. The application gets it with the [trace extraction section (M15)](https://github.com/bioedca/tether/milestone/17).
 - **Batch pipeline.** `tether batch` runs extraction, the corrections and a whole-project
   consensus VB-HMM fit over many movies, one project per movie. A second run resumes at the
   first stage that did not finish. When the tMAVEN sidecar is not available, the fit is left

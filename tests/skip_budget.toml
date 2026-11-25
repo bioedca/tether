@@ -35,7 +35,8 @@ min_collected = 4011
 # 62: main's 61 plus the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py).
 # 67 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
 # 76 since #366 added nine frame-link tests behind needs_gl (two panel, seven shell).
-max_skipped = 76
+# 77: main's 76 plus the extraction page's real-viewer test of #350 (test_gui_extraction.py).
+max_skipped = 77
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
@@ -445,6 +446,15 @@ jobs = ["test (macos-latest)"]
 why = """The four round-trip tests open a napari Viewer (#745 added the click-versus-drag \
 test), which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not \
 give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
+
+[[skip]]
+test = "tests/test_gui_extraction.py::test_the_real_viewer_shows_the_overlays_as_napari_layers"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """The one extraction-page test that shows the preview overlays in a real napari Viewer \
+(#350) needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run it. The page's other tests use a \
+fake viewer and run on macOS too."""
 
 [[skip]]
 test = "tests/test_file_type.py::test_linux_post_install_adds_the_mime_type"

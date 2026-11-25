@@ -53,7 +53,7 @@ BINDINGS: dict[str, tuple[str, ...] | None] = {
     "Standalone-tMAVEN hand-off": ("tether.project.handoff",),
     "Condition validation": ("tether.gui.conditions",),
     "Deep-LASI import": ("tether.gui.deeplasi_wizard_ui",),
-    "Native extraction": ("tether.project.extract",),
+    "Native extraction": ("tether.project.extract", "tether.gui.extraction"),
     "Batch pipeline": ("tether.project.batch",),
     "Corrections": ("tether.project.correct",),
     "Quality ranker": ("tether.ml", "tether.project.gbranking", "tether.project.ranking"),
@@ -226,8 +226,10 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     old_list = "## What it does\n\n### In the application today\n\n- **Movie panel** — embedded\n"
     assert _groups(old_list)[IN_APP] == ["Movie panel"]
     # A feature the application does not run shows that the import check can say "not in the
-    # application"; the movie panel has been in since #356 and the round trip since #357.
-    assert not _in_application("Native extraction", _gui_imports())
+    # application"; the movie panel has been in since #356, the round trip since #357 and
+    # native extraction since the Prepare page (#350).
+    assert not _in_application("Batch pipeline", _gui_imports())
+    assert _in_application("Native extraction", _gui_imports())
     assert _in_application("Trace ⇄ movie round trip", _gui_imports())
     assert _in_application("Movie panel", _gui_imports())
     assert _in_application("Analysis plots", _gui_imports())

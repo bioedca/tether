@@ -35,6 +35,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.plots
 
+::: tether.services.preview
+
 ::: tether.services.profile
 
 ::: tether.services.recipe

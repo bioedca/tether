@@ -39,6 +39,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.env_path
 
+::: tether.gui.extraction
+
 ::: tether.gui.file_type
 
 ::: tether.gui.generation_reconcile
