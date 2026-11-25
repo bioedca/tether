@@ -76,6 +76,12 @@ _STRUCTURE = re.compile(
 # last field that Tether does not read.
 _SUBIMAGE = re.compile(rb"65538 (-?\d+) (-?\d+) (-?\d+) (-?\d+) (\d+) (\d+) -?\d+\n")
 _NUMBER_LINE = re.compile(rb" *-?\d+\n")
+# A time stamp line is at most 20 digits and a newline; a longer line is damage.
+_LINE_LIMIT = 64
+_SHORTER = (
+    "is shorter than the {n} frames that its header declares (an incomplete copy, or frames "
+    "that Solis spooled to other files)"
+)
 # After the signal frames, each of the other four blocks starts with its presence flag.
 _NEXT_BLOCK = (b"0\n", b"1\n")
 # The format version decides whether a flag line follows the frame time stamps: none in
@@ -252,41 +258,36 @@ def _find_layout(path: Path, fh: BinaryIO, size: int) -> _Layout:
             path,
             f"has the format version {version}, whose layout Tether has not been checked against",
         )
+    # Each time stamp line is two bytes at least, so a header that declares more frames than
+    # the file can hold is refused before any line is read. The lines are then read one at a
+    # time, so a damaged count never makes the open read more than the lines that are there.
+    frame_bytes = width * height * _DTYPE.itemsize
     pos = sub.end()
-    need = pos + 64 * n_frames + 4096
-    if need > len(head):
-        fh.seek(0)
-        head = fh.read(min(size, need))
-    for _ in range(n_frames):
-        stamp = _NUMBER_LINE.match(head, pos)
-        if stamp is None:
-            raise _refuse(path, "has a damaged list of frame time stamps")
-        pos = stamp.end()
-    start = pos
+    if pos + n_frames * (2 + frame_bytes) > size:
+        raise _refuse(path, _SHORTER.format(n=n_frames))
+    fh.seek(pos)
+
+    def number_lines(count: int) -> None:
+        for _ in range(count):
+            if _NUMBER_LINE.fullmatch(fh.readline(_LINE_LIMIT)) is None:
+                raise _refuse(path, "has a damaged list of frame time stamps")
+
+    number_lines(n_frames)
+    start = fh.tell()
     if version >= _FLAG_LINE_FROM:
-        flag = head[pos : pos + 2]
-        if flag == b"0\n":
-            start = pos + 2
-        elif flag == b"1\n":
-            start = pos + 2
-            for _ in range(n_frames):
-                line = _NUMBER_LINE.match(head, start)
-                if line is None:
-                    raise _refuse(path, "has a damaged list of frame time stamps")
-                start = line.end()
-        else:
+        flag = fh.read(2)
+        if flag == b"1\n":
+            number_lines(n_frames)
+        elif flag != b"0\n":
             raise _refuse(
                 path,
                 f"has no flag line after its frame time stamps, where its format version "
                 f"({version}) puts one",
             )
-    end = start + n_frames * width * height * _DTYPE.itemsize
+        start = fh.tell()
+    end = start + n_frames * frame_bytes
     if end > size:
-        raise _refuse(
-            path,
-            f"is shorter than the {n_frames} frames that its header declares (an incomplete "
-            "copy, or frames that Solis spooled to other files)",
-        )
+        raise _refuse(path, _SHORTER.format(n=n_frames))
     fh.seek(end)
     if end != size and fh.read(2) not in _NEXT_BLOCK:
         raise _refuse(

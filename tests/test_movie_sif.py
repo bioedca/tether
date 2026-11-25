@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import tracemalloc
 from pathlib import Path
 
 import pytest
@@ -270,6 +271,32 @@ def test_a_damaged_header_is_refused(tmp_path: Path, damage, message: str) -> No
     path.write_bytes(damage(sif_bytes(_frames())))
     with pytest.raises(UnsupportedContainerError, match=message):
         SifMovie(path)
+
+
+def test_a_header_that_declares_too_many_frames_is_refused_without_a_large_read(
+    tmp_path: Path,
+) -> None:
+    """A count of ten million frames in a 32 MiB file is refused at once (#904 review).
+
+    The open once read up to 64 bytes for each declared frame, here the whole file, before
+    it refused the file.
+    """
+    data = sif_bytes(_frames())
+    record = b"65541 1 6 10 1 4 1 240 60\n"
+    assert data.count(record) == 1
+    path = tmp_path / "m.sif"
+    path.write_bytes(data.replace(record, b"65541 1 6 10 1 10000000 1 600000000 60\n"))
+    with path.open("r+b") as fh:
+        fh.truncate(32 << 20)  # a large file, so that the size of the file does not bound a read
+    tracemalloc.start()
+    try:
+        with pytest.raises(UnsupportedContainerError) as err:
+            SifMovie(path)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 4 << 20, f"the refusal allocated {peak} B"
+    assert "shorter than the 10000000 frames" in str(err.value)
 
 
 def test_a_file_that_shrinks_after_it_opened_is_refused_not_read_in_part(tmp_path: Path) -> None:
