@@ -98,6 +98,10 @@ from tether.gui.sections import (
 )
 from tether.gui.task_service import TaskService
 from tether.services.curation import (
+    ACCEPTED,
+    REJECTED,
+    UNDECIDED,
+    molecule_states,
     resolved_frame_range,
     resolved_window,
     stored_molecule,
@@ -106,7 +110,7 @@ from tether.services.curation import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
     from os import PathLike
     from typing import Protocol
 
@@ -122,7 +126,7 @@ if TYPE_CHECKING:
     from tether.project.core import Project
     from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
-    from tether.services.curation import StoredMolecule
+    from tether.services.curation import MoleculeState, StoredMolecule
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
     #: outside its analysis window), or ``None`` when nothing was produced. The
@@ -783,6 +787,8 @@ class TetherShell:
         self._readiness_refresh_timer.setSingleShot(True)
         self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
         self._readiness_refresh_timer.timeout.connect(self.refresh_readiness)
+        self._readiness_refresh_timer.timeout.connect(self._refresh_states_if_due)
+        self._states_refresh_due = False
 
         # Central surface: the pyqtgraph trace dock, behind the start page that shows
         # while no project is open and no molecules are loaded (#629).
@@ -822,6 +828,14 @@ class TetherShell:
         self._movie_switcher.currentIndexChanged.connect(self._on_movie_switched)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
+        # Each row's curation state, the progress counts and the filter (#630).
+        from tether.gui.molecule_list import MoleculeListView
+
+        self._molecule_view = MoleculeListView(
+            self._molecule_list,
+            movie_name=self._movie_name,
+            on_filter_changed=self._on_molecule_filter_changed,
+        )
         self._category_field = QtWidgets.QLineEdit()
         self._category_field.setPlaceholderText("Type a category name")
         self._category_field.setProperty("tetherTextEntry", True)
@@ -878,10 +892,18 @@ class TetherShell:
         vbox.addLayout(lock_actions)
         vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
+        vbox.addWidget(self._molecule_view.header)
+        vbox.addWidget(self._molecule_view.filter_box)
+        self.require(self._molecule_view.filter_box, "traces")
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
         vbox.addWidget(self._category_field)
         vbox.addWidget(self._unreject_button)
+        # The list comes before the filter box in the focus chain, so a window that
+        # takes focus (the browser floated, the app activated) never gives it to the box
+        # first: the box keeps its own keys, and the curation keys must act there at once.
+        # The box is one Tab after the list.
+        QtWidgets.QWidget.setTabOrder(self._molecule_list, self._molecule_view.filter_box)
         self._browser_panel = panel
 
         # The sections (#341, ADR-0116): the central widget of the one QMainWindow is a
@@ -1586,6 +1608,12 @@ class TetherShell:
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
         self._act_reconcile_generation = menu.addAction("Reconcile trace &generations…")
         self._act_reconcile_generation.triggered.connect(self.show_generation_reconcile)
+        # A navigation action (#630): it selects a row and never reorders the list (§7.5).
+        # Its key is the curation key U (the keymap's, so it acts only in this section);
+        # a section menu action carries no shortcut of its own.
+        self._act_next_undecided = menu.addAction("Next &undecided molecule")
+        self._act_next_undecided.triggered.connect(self.select_next_undecided)
+        self.require(self._act_next_undecided, "traces")
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -1811,16 +1839,32 @@ class TetherShell:
 
     # --- molecules -----------------------------------------------------------
 
-    def set_molecules(self, traces: list[TraceView]) -> None:
+    def set_molecules(
+        self, traces: list[TraceView], states: Sequence[MoleculeState] | None = None
+    ) -> None:
         """Populate the molecule list + dock from ``traces`` (select the first).
+
+        ``states`` are the rows' curation states as
+        [`molecule_states`][tether.services.curation.molecule_states] reads them, in the
+        same order; each row shows its own (#630). A state whose ``molecule_key`` is not the
+        trace's is not shown. The filter goes back to all molecules.
 
         With a [`movie_panel`][] shown, this also rebuilds the trace↔movie round-trip over
         the new list (#357), so the first selection already moves the movie to its spot.
         """
+        from tether.gui.molecule_list import FILTER_ALL
+
         self._traces = list(traces)
-        self._molecule_list.clear()
-        for i, trace in enumerate(self._traces):
-            self._molecule_list.addItem(trace.name or f"mol-{i}")
+        given = list(states or ())
+        matched = [
+            given[i] if i < len(given) and given[i].molecule_key == trace.molecule_key else None
+            for i, trace in enumerate(self._traces)
+        ]
+        self._molecule_view.set_filter(FILTER_ALL)
+        self._molecule_view.populate(
+            [self._row_name(i, trace) for i, trace in enumerate(self._traces)], matched
+        )
+        self._molecule_view.sync_header(-1)
         self._wire_roundtrip()
         if self._traces:
             self._molecule_list.setCurrentRow(0)
@@ -1829,14 +1873,122 @@ class TetherShell:
             self._trace_dock.clear()
         self._sync_start_page()
 
+    @staticmethod
+    def _row_name(row: int, trace: TraceView) -> str:
+        """The name a list row shows for ``trace``: its own, else ``mol-<row>``."""
+        return trace.name or f"mol-{row}"
+
+    @property
+    def molecule_view(self) -> Any:
+        """The [`MoleculeListView`][tether.gui.molecule_list.MoleculeListView] (#630)."""
+        return self._molecule_view
+
+    def _movie_name(self, movie_id: str) -> str:
+        """The name of the project movie ``movie_id``; the id when the project has no such row."""
+        names = {movie.movie_id: movie.name for movie in self._project_movies}
+        return str(names.get(movie_id, movie_id))
+
+    def _read_molecule_states(self, path: str | Path) -> tuple[MoleculeState, ...]:
+        """Read the list state of every molecule; a failed read shows the rows without one."""
+        try:
+            return molecule_states(path)
+        except Exception as exc:  # noqa: BLE001 - the list still opens, without its marks
+            from tether.gui.messages import Level
+
+            self._status(f"Molecule states unavailable: {exc}", Level.WARNING)
+            return ()
+
+    def _queue_states_refresh(self) -> None:
+        """Read every row's state again once a burst of writes ends (#630).
+
+        For the writes whose effect on a row's marks only a fresh read can tell: an
+        analysis-window edit can make a fit stale, and a fit or a return leg changes
+        many rows. It rides the readiness timer, so it runs between writes, not per key.
+        """
+        if self._project_path is not None:
+            self._states_refresh_due = True
+            self._readiness_refresh_timer.start()
+
+    def _refresh_states_if_due(self) -> None:
+        if not self._states_refresh_due or self._project_path is None:
+            return
+        self._states_refresh_due = False
+        fresh = self._read_molecule_states(self._project_path)
+        if fresh:
+            self._molecule_view.replace_states(
+                [
+                    fresh[i] if i < len(fresh) and fresh[i].molecule_key == t.molecule_key else None
+                    for i, t in enumerate(self._traces)
+                ]
+            )
+            self._after_states_changed()
+
+    def _after_states_changed(self) -> None:
+        """Count again and move the selection off a row that the filter now hides."""
+        self._ensure_current_shown()
+        self._molecule_view.sync_header(self._molecule_list.currentRow())
+
+    def _on_molecule_filter_changed(self) -> None:
+        """After a new filter: keep a shown selection, and say how many rows it shows."""
+        self._ensure_current_shown()
+        shown = sum(1 for row in range(len(self._traces)) if self._molecule_view.shown(row))
+        self._molecule_view.sync_header(self._molecule_list.currentRow())
+        self._status(f"Filter {self._molecule_view.filter_box.currentText()}: {shown} shown")
+
+    def _ensure_current_shown(self) -> None:
+        """Move the selection to the next shown row, else the previous, when it is hidden.
+
+        When the filter shows no row, nothing stays selected, so no key acts on a
+        molecule the list does not show.
+        """
+        row = self._molecule_list.currentRow()
+        if row < 0 or self._molecule_view.shown(row):
+            return
+        target = self._molecule_view.shown_from(row, 1)
+        if target is None:
+            target = self._molecule_view.shown_from(row, -1)
+        if target is None:
+            self._molecule_list.setCurrentRow(-1)
+            self._current_index = -1
+            self._trace_dock.clear()
+            return
+        self._molecule_list.setCurrentRow(target)
+
+    def select_next_undecided(self) -> int | None:
+        """Select the next undecided molecule in list order; return its row (#630).
+
+        A navigation action: the list order never changes (§7.5). After the last row the
+        search goes on from the top. The status says when no undecided molecule is left,
+        or when the filter hides the ones that are.
+        """
+        row, wrapped = self._molecule_view.next_undecided(self._molecule_list.currentRow())
+        if row is None:
+            hidden = sum(
+                1
+                for i, state in enumerate(self._molecule_view.states)
+                if state is not None
+                and state.curation == UNDECIDED
+                and not self._molecule_view.shown(i)
+            )
+            if hidden:
+                self._status(f"No undecided molecule is shown; the filter hides {hidden}")
+            else:
+                self._status("No undecided molecule is left")
+            return None
+        self._molecule_list.setCurrentRow(row)
+        if wrapped:
+            self._status(f"{self.status_message} (from the top of the list)")
+        return row
+
     def _on_list_row_changed(self, row: int) -> None:
+        self._molecule_view.sync_header(row)
         if 0 <= row < len(self._traces):
             self._current_index = row
             trace = self._traces[row]
             self._trace_dock.set_trace(trace)
             # Navigation (via the ←/→/↑/↓ keys or a click) shows which molecule is
             # active — so the live smoke sees NEXT/PREV firing, not just accept.
-            self._status(f"Molecule {trace.name or f'mol-{row}'} ({row + 1}/{len(self._traces)})")
+            self._status(f"Molecule {self._row_name(row, trace)} ({row + 1}/{len(self._traces)})")
             # Refresh the overlap view last, so a seam failure surfaces (overwriting
             # the navigation status) rather than being clobbered by it; a successful
             # refresh sets no status, leaving the molecule message in place.
@@ -2126,7 +2278,7 @@ class TetherShell:
         if not 0 <= row < len(self._traces):
             self._unavailable(feature, "no molecule is selected")
             return
-        label = self._molecule_list.item(row).text()
+        label = self._row_name(row, self._traces[row])
         if self._roundtrip is None:
             self._unavailable(feature, self._roundtrip_error or "no movie is shown")
             return
@@ -2155,13 +2307,31 @@ class TetherShell:
             self._movie_switcher.blockSignals(False)
 
     def _on_movie_spot_clicked(self, site: int) -> None:
-        """Movie → trace: select the list row of the molecule whose spot was clicked."""
-        row = self._roundtrip_rows[site]
+        """Movie → trace: select the list row of the molecule whose spot was clicked.
+
+        A spot of a molecule the filter hides shows every molecule first (#630), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
         self._selecting_from_movie = True
         try:
-            self._molecule_list.setCurrentRow(row)
+            self._select_shown(self._roundtrip_rows[site])
         finally:
             self._selecting_from_movie = False
+
+    def _select_shown(self, row: int) -> None:
+        """Select list row ``row``; when the filter hides it, show all molecules first (#630).
+
+        For a selection made outside the list (a movie spot, a reconcile row), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
+        from tether.gui.molecule_list import FILTER_ALL
+
+        revealed = not self._molecule_view.shown(row)
+        if revealed:
+            self._molecule_view.set_filter(FILTER_ALL)
+        self._molecule_list.setCurrentRow(row)
+        if revealed:
+            self._status(f"{self.status_message}; the filter now shows all molecules")
 
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
@@ -2708,7 +2878,8 @@ class TetherShell:
         movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
-        self.set_molecules(traces)
+        # The rows' states are read once here; actions then update their own rows (#630).
+        self.set_molecules(traces, self._read_molecule_states(proj_path))
         # Then the molecule selected when this project was last closed here, and the
         # project goes to the top of File -> Open recent (#628).
         self._resume_position()
@@ -3505,6 +3676,7 @@ class TetherShell:
             except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
                 summary = f"{summary}; the trace view could not reread the windows: {exc}"
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # a return leg can change labels, windows and fits
         self._status(summary)
         return applied
 
@@ -3780,6 +3952,7 @@ class TetherShell:
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
+            next_undecided=self.select_next_undecided,
             assign_category=self._assign_category,
             clear_category=self._clear_category,
             window_start=lambda delta: self._nudge_window(0, delta),
@@ -3827,10 +4000,23 @@ class TetherShell:
         target = trace.name or trace.molecule_key
         self._queue_analysis_refresh()
         self._queue_readiness_refresh()
-        if action is CurationAction.UNREJECT or not self._advance_after_curation:
+        # The rows of this key show their new state now, with no read of the store (#630);
+        # the writer set every row that carries the key.
+        state = {
+            CurationAction.ACCEPT: ACCEPTED,
+            CurationAction.REJECT: REJECTED,
+            CurationAction.UNREJECT: UNDECIDED,
+        }[action]
+        self._molecule_view.update_rows(
+            self._molecule_view.rows_of_key(trace.molecule_key), curation=state
+        )
+        stays = action is CurationAction.UNREJECT or not self._advance_after_curation
+        if stays and self._molecule_view.shown(row):
             self._status(f"{completed} {target}")
-            return
-        self._advance_from(row, f"{completed} {target}")
+        else:
+            # Advance on, or the filter now hides the row: show the next shown one.
+            self._advance_from(row, f"{completed} {target}")
+        self._after_states_changed()
 
     def _advance_from(self, row: int, done: str) -> None:
         """Select the next listed molecule after ``row`` once a decision is stored.
@@ -3841,10 +4027,8 @@ class TetherShell:
         The navigation status the move produces is kept after ``done``, so an overlap
         failure on the new molecule is still reported.
         """
-        nxt = row + 1
-        while nxt < len(self._traces) and self._molecule_list.isRowHidden(nxt):
-            nxt += 1
-        if nxt >= len(self._traces):
+        nxt = self._molecule_view.shown_from(row, 1)
+        if nxt is None:
             self._status(f"{done}; end of the list reached")
             return
         self._molecule_list.setCurrentRow(nxt)
@@ -3979,7 +4163,7 @@ class TetherShell:
             if trace.molecule_key == molecule_key:
                 if CURATE_SECTION in self._sections:
                     self.set_section(CURATE_SECTION)
-                self._molecule_list.setCurrentRow(row)
+                self._select_shown(row)
                 return True
         return False
 
@@ -4027,6 +4211,8 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
+        self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=name)
+        self._after_states_changed()
         self._status(f"Category {integer_class} ({name}) set for {trace.name or key}")
 
     def _clear_category(self) -> None:
@@ -4044,6 +4230,8 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
+        self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category="")
+        self._after_states_changed()
         self._status(f"Category cleared for {trace.name or key}")
 
     def _nudge_window(self, bound: int, delta: int) -> None:
@@ -4181,6 +4369,7 @@ class TetherShell:
             return
         self._queue_analysis_refresh()
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # a window edit can make the row's fit stale
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
@@ -4291,7 +4480,7 @@ class TetherShell:
             self._idealizer,
             key,
             context=key,
-            label=f"Idealizing {self._molecule_list.item(row).text()}",
+            label=f"Idealizing {self._row_name(row, trace)}",
             on_finished=self._finish_idealize,
         )
         self._sync_project_write_controls()
@@ -4311,6 +4500,7 @@ class TetherShell:
             return
         idealized = outcome.value
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # the row now has a fit
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -4332,7 +4522,13 @@ class TetherShell:
         if not self._traces:
             self._status("Next trace" if delta > 0 else "Previous trace")
             return
-        new_row = min(max(self._molecule_list.currentRow() + delta, 0), len(self._traces) - 1)
+        # The next row the filter shows; at either end the selection stays (#630).
+        current = self._molecule_list.currentRow()
+        new_row = self._molecule_view.shown_from(current, 1 if delta > 0 else -1)
+        if new_row is None:
+            if current < 0 or not self._molecule_view.shown(current):
+                self._ensure_current_shown()
+            return
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str, level: Any = None) -> None:
@@ -4398,6 +4594,7 @@ class TetherShell:
         self._busy_indicator.stop()
         self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
+        self._molecule_view.close()
         self._start_page.close()
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer

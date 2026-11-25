@@ -49,6 +49,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.messages
 
+::: tether.gui.molecule_list
+
 ::: tether.gui.movie_panel
 
 ::: tether.gui.overlap_dock
