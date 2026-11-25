@@ -57,13 +57,14 @@ _PREFIXES: tuple[str, ...] = (
 
 #: File extensions of the acquisition set (PRD Appendix A/D). Removed wherever
 #: they appear because Deep-LASI glues a source ``.tif`` into ``.tdat`` names
-#: (e.g. ``..._010.tif2025-07-21_00-00.tdat``). ``.nd2`` is here because extraction
-#: reads ND2 (#1388): an ND2 original and its TIFF export must give one condition.
-#: ``.vsi`` is here for the same reason, since extraction reads cellSens VSI (#1398).
+#: (e.g. ``..._010.tif2025-07-21_00-00.tdat``). ``.nd2``, ``.czi`` and ``.vsi`` are here
+#: because extraction reads ND2 (#1388), CZI (#1390) and cellSens VSI (#1398): an original
+#: and its TIFF export must give one condition.
 _EXTENSIONS: tuple[str, ...] = (
     ".tiff",
     ".tif",
     ".nd2",
+    ".czi",
     ".vsi",
     ".tdat",
     ".tmap",

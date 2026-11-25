@@ -111,7 +111,7 @@ def _assert_same_extraction(a: Path, b: Path) -> None:
 
 
 def test_cellsens_vsi_is_an_extracted_container() -> None:
-    assert EXTRACTED_CONTAINERS == ("TIFF", "ND2", "cellSens VSI")
+    assert EXTRACTED_CONTAINERS == ("TIFF", "ND2", "CZI", "cellSens VSI")
 
 
 def test_tether_extract_gives_the_same_traces_for_a_vsi_and_a_tiff(

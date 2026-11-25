@@ -28,15 +28,16 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 | SIRA (MASH-FRET) | `.sira` | Tether ([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)) |
 
-Extraction (the application, `tether extract` and `tether batch`) reads TIFF, ND2 and cellSens VSI
-([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A
-`.vsi` movie needs the optional Bio-Formats stack. Without it, extraction fails with the message
-that says how to install it.
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI, ND2 and
+cellSens VSI ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
+A CZI movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
+that the reader refuses (for example, two channels) fails with the reader's own message. A `.vsi`
+movie needs the optional Bio-Formats stack. Without it, extraction fails with the message that
+says how to install it.
 
-A CZI, SIF or SIRA movie opens through its reader, but extraction refuses it. The message is "this
-CZI movie opens, but extraction does not read CZI yet", or the same for SIF or SIRA. The change
-that lets extraction read CZI is planned (#1390). SIF and SIRA each need a change of their own.
-Until then, export the movie to uncompressed TIFF.
+A SIF or SIRA movie opens through its reader, but extraction refuses it. The message is "this SIF
+movie opens, but extraction does not read SIF yet", or the same for SIRA. SIF and SIRA each need a
+change of their own. Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 

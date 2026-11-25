@@ -157,12 +157,12 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         help=summary,
         description=(
             "Run the native extraction pipeline (split -> detect -> register -> "
-            "colocalize -> integrate) on a dual-channel movie (TIFF, ND2 or cellSens .vsi) "
+            "colocalize -> integrate) on a dual-channel movie (TIFF, CZI, ND2 or cellSens .vsi) "
             "and write a new .tether project."
         ),
     )
     extract.add_argument(
-        "movie", help="path to the dual-channel movie (TIFF, ND2 or cellSens .vsi)"
+        "movie", help="path to the dual-channel movie (TIFF, CZI, ND2 or cellSens .vsi)"
     )
     extract.add_argument(
         "-o", "--output", required=True, help="path to the .tether project to create"
@@ -604,7 +604,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         "movies",
         nargs="+",
         help=(
-            "dual-channel movies (TIFF, ND2 or cellSens .vsi): files, folders (the movies "
+            "dual-channel movies (TIFF, CZI, ND2 or cellSens .vsi): files, folders (the movies "
             "directly inside) or quoted patterns such as 'data/*.tif', which Tether expands "
             "in every shell"
         ),
