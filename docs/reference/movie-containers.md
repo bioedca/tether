@@ -131,6 +131,11 @@ The file begins with a TIFF header, so its extension chooses this reader. A rena
 as a TIFF. Keep the `_<name>_` folder that cellSens writes beside the file, because the frames are
 in its `.ets` files.
 
+The movie's checksum covers the `.ets` files too, so a movie whose `.ets` files changed is a new
+movie to `tether batch --into`
+([ADR-0153](../adr/0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md)). To rename the
+movie, rename the file and the folder together. The checksum stays the same.
+
 Of the series in the file, Tether reads the one with the most time points, at full resolution. It
 refuses the file in these cases:
 

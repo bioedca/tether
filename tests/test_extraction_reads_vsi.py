@@ -16,6 +16,7 @@ the user unchanged. The real runner is the ``bioformats / live`` job
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -202,6 +203,91 @@ def test_tether_batch_refuses_a_vsi_beside_its_tiff_export(
     assert "one name in two containers" in err
     assert f"{_NAME}.vsi" in err and f"{_NAME}.tif" in err
     assert not out.exists() or not any(out.iterdir())
+
+
+# --- the checksum covers the frame files (ADR-0153) -------------------------------------------
+
+
+def _write_ets(vsi: Path, name: str, content: bytes) -> Path:
+    """An ``.ets`` frame file in the ``_<name>_`` folder beside ``vsi``, as cellSens writes it."""
+    ets = vsi.with_name(f"_{vsi.stem}_") / name
+    ets.parent.mkdir(parents=True, exist_ok=True)
+    ets.write_bytes(content)
+    return ets
+
+
+def test_a_changed_frame_file_is_a_new_movie_to_batch_into(
+    pair: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """The frames of a ``.vsi`` are in its ``.ets`` files, so they are part of its checksum.
+
+    The checksum is the identity that ``tether batch --into`` finds a movie by. If it
+    covered only the ``.vsi`` file, a movie whose ``.ets`` files changed would be
+    "already in the project" and keep the traces of its old frames.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.project.batch_inputs import movie_in_project  # noqa: PLC0415
+    from tether.project.sources import file_sha256  # noqa: PLC0415
+
+    vsi, _ = pair
+    ets = _write_ets(vsi, "stack1/frame_t.ets", b"frames, first acquisition")
+    out = tmp_path / "project.tether"
+    assert main(["extract", str(vsi), "-o", str(out), "--window", _WINDOW]) == 0
+    with h5py.File(out, "r") as f:
+        row = f["/movies/table"][0]
+        stored = row["sha256"].decode()
+        movie_id = row["movie_id"].decode()
+    plain = hashlib.sha256(vsi.read_bytes()).hexdigest()
+    assert stored != plain
+    # The source registry's checksum job reads the same identity, so it agrees with /movies.
+    assert file_sha256(vsi).sha256 == stored
+    assert movie_in_project(out, vsi) == movie_id
+
+    ets.write_bytes(b"frames, changed after the extraction")
+    assert hashlib.sha256(vsi.read_bytes()).hexdigest() == plain  # the .vsi did not change
+    assert file_sha256(vsi).sha256 != stored
+    assert movie_in_project(out, vsi) is None
+
+
+def test_the_frame_file_checksum_is_fixed_by_content_and_names(tmp_path: Path) -> None:
+    from tether.io.movie_identity import content_sha256, frame_files  # noqa: PLC0415
+
+    def checksum(vsi: Path) -> str:
+        return content_sha256(vsi, hashlib.sha256(vsi.read_bytes()).hexdigest())
+
+    vsi = _write_vsi(tmp_path / "a.vsi")
+    plain = hashlib.sha256(vsi.read_bytes()).hexdigest()
+    assert frame_files(vsi) == ()
+    assert checksum(vsi) == plain  # no frame folder: the file's own SHA-256
+    _write_ets(vsi, "stack10001/frame_t.ets", b"second")
+    _write_ets(vsi, "stack1/frame_t.ets", b"first")
+    _write_ets(vsi, "stack1/notes.txt", b"not a frame file")
+    folder = tmp_path / "_a_"
+    assert [p.relative_to(folder).as_posix() for p in frame_files(vsi)] == [
+        "stack1/frame_t.ets",
+        "stack10001/frame_t.ets",
+    ]
+    with_frames = checksum(vsi)
+    assert with_frames != plain
+
+    (folder / "stack1" / "notes.txt").write_bytes(b"changed, and still not a frame file")
+    assert checksum(vsi) == with_frames
+    (folder / "stack1" / "frame_t.ets").rename(folder / "stack1" / "frame_u.ets")
+    assert checksum(vsi) != with_frames  # a frame file's name is part of the identity
+    (folder / "stack1" / "frame_u.ets").rename(folder / "stack1" / "frame_t.ets")
+    assert checksum(vsi) == with_frames
+
+    # A .vsi renamed with its folder, as cellSens needs, keeps its checksum, as a TIFF does.
+    vsi.rename(tmp_path / "b.vsi")
+    folder.rename(tmp_path / "_b_")
+    assert checksum(tmp_path / "b.vsi") == with_frames
+
+    # A TIFF never has frame files, so its checksum is the file's own SHA-256.
+    tif = tmp_path / "a.tif"
+    tifffile.imwrite(tif, np.zeros((4, 4), dtype="u1"))
+    _write_ets(tmp_path / "a.vsi", "stack1/frame_t.ets", b"beside a TIFF")
+    assert content_sha256(tif, "AB" * 32) == "ab" * 32
 
 
 # --- the reader's own refusals reach the user ---------------------------------------------------

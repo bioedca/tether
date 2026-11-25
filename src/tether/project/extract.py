@@ -363,14 +363,19 @@ def _hash_movie(path: Path) -> tuple[str, int, float]:
 
     The full SHA-256 feeds [`tether.imaging.extract.molecule_key`][] (the
     cross-file molecule identity, §5.1/§7.10); ``file_size``/``mtime`` populate
-    the relocation-robust fast-signature fields of [`MovieMetadata`][].
+    the relocation-robust fast-signature fields of [`MovieMetadata`][]. For a
+    cellSens ``.vsi`` movie the checksum also covers the ``.ets`` files that hold
+    its frames ([`tether.io.movie_identity.content_sha256`][], #1398, ADR-0153);
+    the size and modification time are the movie file's own.
     """
+    from tether.io.movie_identity import content_sha256  # noqa: PLC0415
+
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
             digest.update(chunk)
     stat = path.stat()
-    return digest.hexdigest(), int(stat.st_size), float(stat.st_mtime)
+    return content_sha256(path, digest.hexdigest()), int(stat.st_size), float(stat.st_mtime)
 
 
 @dataclass(frozen=True)

@@ -319,7 +319,7 @@ relocation and staleness reads no bytes of the movie, so it never hydrates a clo
 |---|---|---|---|---|---|
 | `movie_id` | `str:utf-8` | scalar | — | — | The movie's identity in this store. The CLI writes `mov-<uuid4>` (`src/tether/project/extract.py`). |
 | `uri` | `str:utf-8` | scalar | — | `""` (unknown) | The path of the source movie, as text, relative to the folder of the project file (note 2). |
-| `sha256` | `str:utf-8` | scalar | — | — | The 64-character hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)). It seeds every `molecule_key`. |
+| `sha256` | `str:utf-8` | scalar | — | — | The 64-character hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)). For a cellSens `.vsi` movie it also covers the `.ets` files that hold the frames ([ADR-0153](../adr/0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md)). It seeds every `molecule_key`. |
 | `file_size` | `i8` | scalar | bytes | — | `Path.stat().st_size`. |
 | `mtime` | `f8` | scalar | seconds since the POSIX epoch | — | `Path.stat().st_mtime`. |
 | `offline_flag` | `i1` | scalar | — | `0` | A cloud-placeholder or offline marker. It is reserved, and every shipped writer leaves it `0`. |
