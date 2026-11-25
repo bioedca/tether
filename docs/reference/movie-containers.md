@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, ZEISS CZI, Andor SIF), what each reader refuses, and where the frame time, pixel size and channel name come from."
+description: "The movie containers Tether reads (TIFF, CZI, ND2, SIF, cellSens VSI), what each reader refuses, and where the frame time, pixel size and channels come from."
 ---
 
 <!--
@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Movie containers
 
 **Who this page is for.** Anyone who wants to know whether Tether opens a movie file, why it
-refuses one, and where each metadata value of an opened movie comes from. It assumes you know the
+refuses one, and where each metadata value comes from. It assumes you know the
 container your microscope software writes. It does not assume you know Python.
 
 Tether opens a movie through a reader for its container. The first bytes of the file choose the
@@ -25,14 +25,16 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
 | ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 | SIF (Andor Solis) | `.sif` | Tether ([ADR-0150](../adr/0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md)) |
+| cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI and ND2
 ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
 movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
 that the reader refuses (for example, two channels) fails with the reader's own message. A SIF
-movie opens through the reader, but extraction refuses it with the message "this SIF movie
-opens, but extraction does not read SIF yet". SIF needs a change of its own. Until then, export
-the movie to uncompressed TIFF.
+or cellSens VSI movie opens through its reader, but extraction refuses it. The message is "this
+SIF movie opens, but extraction does not read SIF yet", or the same for cellSens VSI. The change
+for `.vsi` is #1398, and SIF needs a change of its own. Until then, export the movie to
+uncompressed TIFF.
 
 ## TIFF
 
@@ -119,3 +121,27 @@ own ASCII export, value for value. An Andor Zyla image of Dryad
 independent reader sif_parser 0.3.6, bit for bit. Its row order is that of the TIFF that Solis
 exported from it. A 250-frame iXon movie of Zenodo
 [doi:10.5281/zenodo.11185140](https://doi.org/10.5281/zenodo.11185140) (CC-BY-4.0) reads whole.
+
+## cellSens VSI
+
+A `.vsi` file needs the [optional Bio-Formats stack](../install.md#the-optional-bio-formats-stack-cellsens-vsi-movies).
+The file begins with a TIFF header, so its extension chooses this reader. A renamed `.vsi` is read
+as a TIFF. Keep the `_<name>_` folder that cellSens writes beside the file, because the frames are
+in its `.ets` files.
+
+Of the series in the file, Tether reads the one with the most time points, at full resolution. It
+refuses the file in these cases:
+
+- Two series are movies of the same length, so Tether cannot tell which one to read.
+- The movie has more than one channel or focal plane.
+- The pixels are color or palette values, not one intensity.
+- The tiles are stored with JPEG or JPEG 2000, which can be lossy.
+
+| Value | Where it comes from (the Bio-Formats OME metadata) | When it is `unknown` |
+| --- | --- | --- |
+| Frame time (s) | the `TimeIncrement` of the image, or else the mean step of the `DeltaT` of its planes | neither is there, or the step is not a positive number |
+| Pixel size (µm) | `PhysicalSizeX` and `PhysicalSizeY`, when they agree | either is not there, the two differ, or a value is not positive |
+| Channels | the `Name` of the one channel | no name |
+
+Tether has no `.vsi` movie that it may share. So CI checks the reader on OME-TIFF movies through
+Bio-Formats, and a laboratory `.vsi` movie is checked on the maintainer's workstation.

@@ -15,6 +15,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.adapters
 
+::: tether.io.bioformats
+
 ::: tether.io.czi
 
 ::: tether.io.deeplasi

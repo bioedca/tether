@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# bioformats / live — the live Bio-Formats runner (#907, ADR-0147). It restores the base env
+# from conda-lock.yml and, beside it, the FOURTH, ISOLATED optional stack from
+# bioformats/conda-lock.yml (Python, a Java runtime, JPype and Bio-Formats; never in the base
+# lock or installer), then runs the `@pytest.mark.bioformats` suite in the base env with
+# $TETHER_BIOFORMATS_PYTHON naming the stack's Python: the tests start
+# src/tether/io/_bioformats_runner.py through it and read movies through Java.
+#
+# NON-REQUIRED by design, like deep.yml: the stack is optional, so it never gates a merge, and
+# a `paths:` filter is therefore safe. The required `conda-lock-verify` (ci.yml) checks the
+# fourth lock against bioformats/environment.yml on every pull request, as it does the sidecar
+# and deep locks. The base 3-OS matrix deselects the `bioformats` marker;
+# tests/test_marker_contract.py keeps the `tests/test_*_bioformats.py` glob below, the marker
+# and this filter in lockstep.
+name: bioformats
+
+on:
+  pull_request:
+    # Only the paths that can change a live Bio-Formats result (or this job).
+    paths:
+      - "bioformats/**"
+      - "src/tether/io/adapters.py"
+      - "src/tether/io/bioformats.py"
+      - "src/tether/io/_bioformats_runner.py"
+      - "tests/test_*_bioformats.py"
+      - "tests/_bioformats_gate.py"
+      - "conda-lock.yml"
+      - "pyproject.toml"
+      - ".github/workflows/bioformats.yml"
+      - ".github/actions/setup-env/**"
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:47 UTC (off the hour; distinct from the sidecar and deep crons).
+    - cron: "47 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: bioformats / live
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Activate the restored micromamba base env (init-shell: bash).
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore the base env + install tether (no deps)
+        uses: ./.github/actions/setup-env
+      - name: Create the isolated Bio-Formats env from its lock
+        # The micromamba of the step above; a prefix outside the base env, so nothing of the
+        # stack is on the base env's path.
+        run: |
+          "$MAMBA_EXE" create -y -q -p "$RUNNER_TEMP/tether-bioformats" -f bioformats/conda-lock.yml
+          "$RUNNER_TEMP/tether-bioformats/bin/python" -c "import jpype; print('jpype', jpype.__version__)"
+      - name: Install pytest into the base env
+        run: python -m pip install "pytest==9.1.1"
+      - name: Read movies through the live Bio-Formats runner
+        id: pytest
+        env:
+          # Without this, a lost interpreter would skip every live test and pass (see
+          # tests/_bioformats_gate.py).
+          TETHER_REQUIRE_BIOFORMATS: "1"
+        run: |
+          export TETHER_BIOFORMATS_PYTHON="$RUNNER_TEMP/tether-bioformats/bin/python"
+          pytest -m bioformats tests/test_*_bioformats.py -q --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+      # A test that skips leaves pytest at exit 0. This step fails the job when a test skips
+      # that tests/skip_budget.toml does not list for this job, when more tests skip than it
+      # allows, or when fewer tests ran than its committed minimum (#726).
+      - name: Compare the skips with the committed budget
+        if: ${{ !cancelled() && (steps.pytest.outcome == 'success' || steps.pytest.outcome == 'failure') }}
+        env:
+          SKIP_BUDGET_JOB: bioformats / live
+        run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
+
+  report:
+    # A failed nightly run opens or updates one issue, and the next pass says so (#697).
+    needs: live
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: bioformats / live
+      result: ${{ needs.live.result }}

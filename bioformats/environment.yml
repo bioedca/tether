@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Tether Bio-Formats environment — the FOURTH, ISOLATED optional stack (ADR-0147;
+# PRD §4.1, §7.1 FR-EXTRACT, §9.1), isolated in the same way as the tMAVEN sidecar
+# (ADR-0004) and the deep stack (ADR-0047).
+#
+# It reads the movie containers that no base reader covers — first of all the
+# Olympus/Evident cellSens `.vsi` files (#907) — with Bio-Formats on a Java runtime.
+# The base environment never imports Java: it starts
+# `src/tether/io/_bioformats_runner.py` with this environment's Python and talks to
+# it through a pipe (`tether.io.bioformats`). The runner needs only the standard
+# library, JPype and the Bio-Formats jar, so `tether` itself is not installed here.
+#
+# Pin-and-hold (PRD §4.1, §12): this file holds *constraints*; the committed
+# multi-platform `bioformats/conda-lock.yml` pins the exact versions. A re-lock is a
+# deliberate PR, and `conda-lock-verify` checks the lock against this file.
+#
+# The stack is NOT in the base installer. docs/install.md gives the install command.
+#
+# --- Licences (the review is in ADR-0147) ---
+# bftools (Bio-Formats command line tools and bioformats_package.jar): GPL-2.0-or-later
+# openjdk: GPL-2.0 WITH Classpath-exception-2.0
+# jpype1: Apache-2.0
+#
+# bftools is packaged by bioconda, not conda-forge; bioconda builds against
+# conda-forge, which is listed first so that every other package comes from it.
+#
+# NEVER merge these deps into the base `environment.yml`, `sidecar/environment.yml`
+# or `deep/environment.yml`.
+name: tether-bioformats
+channels:
+  - conda-forge
+  - bioconda
+platforms:
+  - linux-64
+  - osx-64
+  - osx-arm64
+  - win-64
+dependencies:
+  # --- interpreter (the base 3.12 pin; the runner uses only the standard library) ---
+  - python=3.12.*
+  # --- the Java runtime and the Python-Java bridge ---
+  - openjdk>=17,<22
+  - jpype1>=1.5,<2
+  # --- Bio-Formats (bioformats_package.jar) ---
+  - bftools>=8.0,<8.1

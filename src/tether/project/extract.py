@@ -166,6 +166,7 @@ from tether.project.core import Project
 from tether.project.correction_states import mark_traces_replaced_in
 from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
+from tether.project.sources import project_movie_uri
 
 if TYPE_CHECKING:
     import numpy as np
@@ -1010,7 +1011,14 @@ def _persist(
     movie_id = f"mov-{uuid4()}"
     calibration_id = f"cal-{uuid4()}"
     movie, settings = _movie_and_settings(
-        extracted, movie_path, movie_id, calibration_id, tmap=tmap, tdat=tdat, map_path=map_path
+        project_path,
+        extracted,
+        movie_path,
+        movie_id,
+        calibration_id,
+        tmap=tmap,
+        tdat=tdat,
+        map_path=map_path,
     )
     write_calibration(project_path, extracted.reg_map, calibration_id=calibration_id)
     molecule_ids = write_extraction(
@@ -1045,6 +1053,7 @@ def _persist(
 
 
 def _movie_and_settings(
+    project_path: Path,
     extracted: _Extracted,
     movie_path: Path,
     movie_id: str,
@@ -1054,7 +1063,12 @@ def _movie_and_settings(
     tdat: str | os.PathLike[str] | None,
     map_path: str | os.PathLike[str] | None,
 ) -> tuple[MovieMetadata, dict]:
-    """Build the ``/movies`` row provenance and the settings profile of one extracted movie."""
+    """Build the ``/movies`` row provenance and the settings profile of one extracted movie.
+
+    ``project_path`` is the project the row goes into, or a staged copy of it beside it in
+    the same folder: the ``uri`` is relative to that folder
+    ([`tether.project.sources.project_movie_uri`][]).
+    """
     reg_map = extracted.reg_map
     movie = MovieMetadata(
         movie_id=movie_id,
@@ -1062,7 +1076,7 @@ def _movie_and_settings(
         n_frames=extracted.n_frames,
         height=extracted.height,
         width=extracted.width,
-        uri=str(movie_path),
+        uri=project_movie_uri(project_path, movie_path),
         pixel_dtype=extracted.pixel_dtype,
         byteorder=extracted.byteorder,
         frame_time=extracted.frame_time,
@@ -1624,6 +1638,7 @@ def reextract_movie(
             if _held_movie_id(stage, extracted.sha256, movie_path) != movie_id:
                 raise ExtractionError(f"{movie_path.name} changed identity in {project_path.name}")
             movie, settings = _movie_and_settings(
+                project_path,
                 extracted,
                 movie_path,
                 movie_id,

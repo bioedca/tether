@@ -57,6 +57,7 @@ __all__ = [
     "SourceRecord",
     "ensure_registry",
     "file_sha256",
+    "project_movie_uri",
     "read_sources",
     "record_movie_pair",
     "register_source",
@@ -137,6 +138,39 @@ def _stored_path(project_path: Path, file_path: str | Path) -> str:
     except ValueError:  # another drive (Windows): no relative path exists
         return file_path.as_posix()
     return rel.replace(os.sep, "/")
+
+
+def project_movie_uri(
+    project_path: str | os.PathLike[str], movie_path: str | os.PathLike[str]
+) -> str:
+    """Return the ``/movies`` ``uri`` of ``movie_path`` in the project at ``project_path``.
+
+    PRD §5.1 records the source movie relative to the project: the ``uri`` is the path from
+    the folder of the project file to the movie, with POSIX separators (``../raw/m.tif``),
+    so a reader finds the movie from any working folder. A relative ``movie_path`` is read
+    from the current folder. Where no relative path exists (the movie is on another Windows
+    drive than the project) the absolute path is recorded instead (#1282). So it is when the
+    relative path leads somewhere else, as it does past a linked folder: ``..`` is taken
+    from where the link points, not from where it sits. That check reads only the files'
+    attributes; a movie that is not there to compare with keeps the relative path.
+
+    Examples
+    --------
+    >>> project_movie_uri("/data/out/m.tether", "/data/raw/m.tif")
+    '../raw/m.tif'
+    """
+    uri = _stored_path(Path(project_path), movie_path)
+    if _is_absolute(uri):
+        return uri
+    try:
+        movie = os.stat(movie_path)
+    except OSError:  # no movie file to compare with
+        return uri
+    try:
+        same = os.path.samestat(os.stat(Path(project_path).absolute().parent / uri), movie)
+    except OSError:  # the relative path leads to no file
+        same = False
+    return uri if same else Path(movie_path).absolute().as_posix()
 
 
 def shareable_path(relative_path: str) -> str:

@@ -40,7 +40,7 @@ TIFF (see [ND2 movies](#nd2-movies)).
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel and a current `.nd2` movie extract too; an Andor `.sif` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
+| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel and a current `.nd2` movie extract too; an Andor `.sif` or cellSens `.vsi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
 | Compression | **none**. The movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
@@ -63,9 +63,21 @@ wrong data quietly, which is worse than failing.
 **The content decides, not the extension.** Every movie opens through the reader registry
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
-message says so. A container that Tether does not read, such as an Olympus `.oir`, is refused
-too. That message lists what Tether reads (today, TIFF, CZI, ND2 and SIF) and names the Bio-Formats route for
-the others.
+message says so. A container that Tether does not read, such as a `.lif`, is refused too.
+That message lists what Tether reads (today, TIFF, CZI, ND2, SIF and cellSens VSI), and it
+names the Bio-Formats route for the others.
+
+**cellSens `.vsi` (the Bio-Formats route).** A `.vsi` file begins with a TIFF header. So the
+extension sends it to the cellSens adapter, not the content. A renamed `.vsi` is read as the
+small TIFF it is. The frames come from the `.ets` files of the `_<name>_` folder beside it.
+Bio-Formats 8.0 reads them in the optional stack of [the install
+guide](install.md#the-optional-bio-formats-stack-cellsens-vsi-movies) (ADR-0147).
+
+Tether reads the image with the most time points, at full resolution. It refuses two movies of
+the same length in one file, and a movie of several channels or focal planes. It also refuses
+color pixels and frames stored with JPEG or JPEG 2000. The pixel size, the frame time and the
+channel name come from the file when Bio-Formats finds them. Otherwise they are *unknown*.
+Extraction does not read a `.vsi` movie yet (#1398).
 
 Extension matching exists only in the Deep-LASI folder-intake wizard. There,
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role. It maps `.tdat`,
