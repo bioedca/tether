@@ -357,6 +357,25 @@ def test_a_focused_filter_box_keeps_its_keys(shell, qtbot, tmp_path) -> None:
 
 @pytest.mark.gui
 @_needs_qt
+def test_a_floated_browser_does_not_give_its_focus_to_the_filter_box(
+    shell, qtbot, tmp_path
+) -> None:
+    """The box keeps its own keys, so it must not take the focus a window hands out first."""
+    from pyqtgraph.Qt import QtWidgets
+
+    project, _keys = _store(tmp_path, n=3)
+    assert shell.load_project(project.path) is not None
+    stale = QtWidgets.QApplication.focusWidget()  # a widget an earlier test focused
+    if stale is not None:
+        stale.clearFocus()
+    shell.browser_dock.setFloating(True)
+    qtbot.waitUntil(lambda: QtWidgets.QApplication.focusWidget() is not None, timeout=2000)
+    assert QtWidgets.QApplication.focusWidget().window() is shell.browser_dock
+    assert QtWidgets.QApplication.focusWidget() is not shell.molecule_view.filter_box
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_a_movie_click_on_a_hidden_molecule_shows_all_first(shell, qtbot, tmp_path) -> None:
     from tether.project.labels import curation_labels
 

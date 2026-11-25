@@ -910,6 +910,11 @@ class TetherShell:
         vbox.addWidget(category_title)
         vbox.addWidget(self._category_field)
         vbox.addWidget(self._unreject_button)
+        # The list comes before the filter box in the focus chain, so a window that
+        # takes focus (the browser floated, the app activated) never gives it to the box
+        # first: the box keeps its own keys, and the curation keys must act there at once.
+        # The box is one Tab after the list.
+        QtWidgets.QWidget.setTabOrder(self._molecule_list, self._molecule_view.filter_box)
         self._browser_panel = panel
 
         # The sections (#341, ADR-0116): the central widget of the one QMainWindow is a
