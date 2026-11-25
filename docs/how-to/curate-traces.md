@@ -190,6 +190,8 @@ where this list shows Ctrl:
 - **File → Open project…**: Ctrl+O.
 - **File → Close project**: Ctrl+W.
 - **File → Quit**: Ctrl+Q.
+- **Edit → Undo**: Ctrl+Z.
+- **Edit → Redo**: Ctrl+Shift+Z. On Windows, Ctrl+Y also works.
 - **Help → Documentation**: F1. It opens the documentation for your version of Tether.
 
 Tether saves each mark when you make it, so **File → Close project** has nothing to save. It
@@ -300,9 +302,36 @@ The digits and letters type into the name field of this window. There they never
   not rejected it reads `Un-reject unavailable: selected molecule is not rejected` and changes
   nothing.
 
-Nothing you do here deletes a molecule or a decision. Every accept, reject and un-reject is
+### Undo a key you pressed by mistake
+
+To take back the last curation action, choose **Edit → Undo** or press **Ctrl+Z** (**Cmd+Z**
+on macOS). To do it again, choose **Edit → Redo** or press **Ctrl+Shift+Z**. On Windows,
+**Ctrl+Y** also works. Undo works for these actions:
+
+- Accept, reject and un-reject.
+- A category key (**1**–**9**, the overflow list) and **0**.
+- The analysis-window keys **-**, **=**, **[**, **]** and **R**, and the photobleach key **P**.
+
+The menu names the action, for example **Undo reject mol-0412**. You can undo several
+actions, one at a time, newest first. After an undo, the list selects the molecule again, so
+you see what changed. The status bar starts with `Undo` or `Redo` and names the action. A new
+action clears the redo list.
+
+An undo gives the molecule back what it had before the action. That includes the reason of a
+reject and the review mark of a label from an earlier
+[extraction](#after-a-movie-is-extracted-again). The undo list belongs to the open project in
+this session. Tether clears it when you close the project, when you open another one, and
+when the project becomes read-only. Tether does not save it in the project file. In a
+read-only project, the status bar reads `Undo unavailable: project is read-only` and the
+reason.
+
+Undo does not take back a correction pass, an idealization, an import or a bulk
+threshold-reject.
+
+Nothing you do here deletes a molecule or a decision. Every accept, reject, un-reject and undo is
 added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
-so the history survives a reversal.
+so the history survives a reversal. An undo adds the rows that restore the earlier state; it
+removes no row.
 
 ## Change a key
 

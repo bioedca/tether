@@ -15,6 +15,9 @@ than registered service commands, and they import the core only when they run (A
 - [`summed_bleach_frame`][] — the first frame of the summed-intensity photobleach, by the
   detector and priors that
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
+- [`curation_snapshot`][] — the accept/reject state of one molecule as an undo restores
+  it (#632): its ``curation_label``, whether a carried label waits for review, and the
+  reason of a reject.
 - [`molecule_states`][] — what the molecule list shows for every row (#630): the curation
   state, the category, and whether an idealization exists and is stale.
 - [`category_names`][], [`category_classes`][], [`category_members`][] and
@@ -39,12 +42,14 @@ __all__ = [
     "CURATION_STATES",
     "REJECTED",
     "UNDECIDED",
+    "CurationSnapshot",
     "MoleculeState",
     "StoredMolecule",
     "category_classes",
     "category_members",
     "category_names",
     "condition_key",
+    "curation_snapshot",
     "curation_state",
     "molecule_states",
     "resolved_frame_range",
@@ -81,6 +86,8 @@ class StoredMolecule:
         ``(start, stop)`` native frames, resolved by [`resolved_frame_range`][].
     window
         The absolute ``(start, stop)`` analysis window, resolved by [`resolved_window`][].
+    category
+        The row's category name; ``""`` when it has none.
     """
 
     row: int
@@ -88,6 +95,7 @@ class StoredMolecule:
     condition_id: str
     frame_range: tuple[int, int]
     window: tuple[int, int]
+    category: str = ""
 
 
 def resolved_frame_range(frame_range: Any, n_frames: int) -> tuple[int, int]:
@@ -147,6 +155,7 @@ def stored_rows(
                 condition_id=_text(record["condition_id"]),
                 frame_range=frame_range,
                 window=resolved_window(record["analysis_window"], frame_range),
+                category=_text(record["category"]),
             )
         )
     return tuple(out)
@@ -218,6 +227,70 @@ def curation_state(label: int) -> str:
     if label < 0:
         return REJECTED
     return UNDECIDED
+
+
+@dataclass(frozen=True)
+class CurationSnapshot:
+    """One molecule's human accept/reject state, as an undo writes it back (#632).
+
+    Attributes
+    ----------
+    label
+        The ``curation_label``: ``+1`` accepted, ``-1`` rejected, ``0`` uncurated.
+    pending
+        Whether a row of the molecule carries a label of an earlier trace generation that
+        waits for review (ADR-0136).
+    reason, note, value
+        The reason row of the current reject
+        ([`reject_record_of`][tether.project.labels.reject_record_of]): its reason code,
+        note and threshold value. ``"unspecified"``, ``""`` and ``None`` when the molecule
+        is not rejected or its reject has no reason row.
+    """
+
+    label: int
+    pending: bool = False
+    reason: str = "unspecified"
+    note: str = ""
+    value: float | None = None
+
+
+def curation_snapshot(project_path: str | Path, molecule_key: str) -> CurationSnapshot:
+    """Read the [`CurationSnapshot`][] of ``molecule_key`` (read-only).
+
+    Raises ``KeyError`` when no row carries the key.
+    """
+    import math  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    from tether.io.generations import pending_label_ids_in  # noqa: PLC0415
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.labels import CurationLabel, reject_record_of  # noqa: PLC0415
+
+    path = Path(project_path)
+    with h5py.File(path, "r") as f:
+        table = f["molecules"][TABLE]
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        rows = [i for i, key in enumerate(keys) if key == molecule_key]
+        if not rows:
+            raise KeyError(f"no molecule with molecule_key {molecule_key!r} in {path.name}")
+        ids = table.fields("molecule_id")[:]
+        label = int(table.fields("curation_label")[rows[0]])
+        waiting = pending_label_ids_in(f)
+        pending = any(_text(ids[i]) in waiting for i in rows)
+    if label != CurationLabel.REJECT:
+        return CurationSnapshot(label=label, pending=pending)
+    record = reject_record_of(path, molecule_key)
+    if record is None:
+        return CurationSnapshot(label=label, pending=pending)
+    value = float(record["value"])
+    return CurationSnapshot(
+        label=label,
+        pending=pending,
+        reason=_text(record["reason"]),
+        note=_text(record["note"]),
+        value=None if math.isnan(value) else value,
+    )
 
 
 def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:

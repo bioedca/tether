@@ -410,6 +410,22 @@ class Project:
         self._assert_writable()
         return labels.unreject(self.path, molecule_key, **provenance)
 
+    def restore_curation(
+        self, molecule_key: str, label: int, **options: object
+    ) -> list[np.ndarray]:
+        """Write ``label`` back as the molecule's curation state, by new events only.
+
+        The writer behind an undo or redo of an accept, reject or un-reject (#632): the
+        ``/labels`` log gains rows and none is deleted. ``pending``, ``reason``, ``note``,
+        ``value``, ``restore_note`` and the provenance keywords pass through to
+        [`labels.restore_curation`][tether.project.labels.restore_curation]. Refuses the
+        canonical write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import labels
+
+        self._assert_writable()
+        return labels.restore_curation(self.path, molecule_key, label, **options)  # type: ignore[arg-type]
+
     def confirm_carried(self, molecule_keys: Iterable[str], **provenance: object) -> ConfirmResult:
         """Confirm carried molecules of a new trace generation (#923).
 
