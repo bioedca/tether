@@ -25,19 +25,20 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-# 25 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
-max_skipped = 25
+# Each of the three legs is three higher since #1013 added three Python-Markdown parity tests.
+# 28 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+max_skipped = 28
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
 # 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
 # 62: main's 61 plus the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py).
-# 64 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
-max_skipped = 64
+# 67 since #1354 added the two cmd.exe round-trip tests that run only on Windows (test_recipe.py).
+max_skipped = 67
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 50
+max_skipped = 53
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -136,6 +137,27 @@ reason = "could not import 'markdown': No module named 'markdown'"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
 docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
+
+[[skip]]
+test = "tests/test_docs_links.py::test_the_model_matches_python_markdown"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
+
+[[skip]]
+test = "tests/test_docs_links.py::test_the_gap_rows_render_as_python_markdown_does"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
+
+[[skip]]
+test = "tests/test_docs_examples.py::test_the_attrs_fence_rows_render_as_python_markdown_does"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#1013)."""
 
 # --- Platform skips: each test runs on the other legs ---------------------------------------
 
