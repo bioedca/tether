@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+# merge-queue (#1267, ADR-0135, docs/maintainers/merge-queue.md): MERGE_QUEUE_MODE off ends the
+# run in `mode`; observe builds the `mq/pr-N` candidates and writes no status, comment, label or
+# merge. The App token writes, because an event GITHUB_TOKEN causes starts no run.
+name: merge-queue
+
+on:
+  workflow_dispatch:
+    inputs:
+      action: {description: "join, leave or reconcile", type: choice, options: [reconcile, join, leave]}
+      pr: {description: "The pull request number (join, leave)", type: string, default: ""}
+      sha: {description: "The 40-hex head the clean review read (join)", type: string, default: ""}
+      message: {description: "The squash commit message (join)", type: string, default: ""}
+  workflow_run:
+    workflows: [CI, sidecar, schema-guard]
+    types: [completed]
+    branches: ["mq/**"]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 * * * *" # a safety net for a dropped event
+
+permissions:
+  contents: read
+
+jobs:
+  mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Read the mode
+        id: mode
+        shell: python
+        env:
+          MODE: ${{ vars.MERGE_QUEUE_MODE }}
+          REF: ${{ github.ref }}
+        # The script checks the inputs of a join or leave before any call that writes.
+        run: |
+          import os, sys
+          from pathlib import Path
+          env = os.environ
+          mode = env.get("MODE", "").strip() or "off"
+          problems = {
+              f"MERGE_QUEUE_MODE is {mode!r}; use off, observe or on": mode not in ("off", "observe", "on"),
+              "MERGE_QUEUE_MODE=on needs part 2 (#1268); use observe until it lands": mode == "on",
+              f"the queue runs only from main, not {env.get('REF')!r}": env.get("REF") != "refs/heads/main",
+          }
+          # Off wins: a run that writes nothing may come from any ref.
+          failed = [] if mode == "off" else [reason for reason, bad in problems.items() if bad]
+          line = f"merge queue: {failed[0]}" if failed else f"merge queue: mode {mode}"
+          with Path(env["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write(line + (", so this run writes nothing" if mode == "off" else "") + "\n")
+          if failed:
+              sys.exit(line)
+          with Path(env["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"mode={mode}\n")
+
+  record:
+    needs: mode
+    if: >-
+      ${{ needs.mode.outputs.mode == 'observe' && github.event_name == 'workflow_dispatch' &&
+      (inputs.action == 'join' || inputs.action == 'leave') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: merge-queue
+    permissions:
+      contents: read
+    concurrency:
+      group: merge-queue-pr-${{ inputs.pr }}
+      cancel-in-progress: false
+      queue: max # keep every waiting join and leave, in order
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Make the App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.MERGE_QUEUE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_QUEUE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: read
+      - name: Join or leave
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ACTION: ${{ inputs.action }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTION" = "join" ]; then
+            printf '%s\n' "$MESSAGE" > "$RUNNER_TEMP/message"
+            python3 scripts/merge_queue.py --repo "$GITHUB_REPOSITORY" join --pr "$PR" --sha "$SHA" --message-file "$RUNNER_TEMP/message"
+          else
+            python3 scripts/merge_queue.py --repo "$GITHUB_REPOSITORY" leave --pr "$PR"
+          fi
+
+  reconcile:
+    needs: [mode, record]
+    # `record` is skipped on every event but a join or leave; a refused join changed nothing.
+    if: >-
+      ${{ !cancelled() && needs.mode.result == 'success' && needs.mode.outputs.mode == 'observe' &&
+      (needs.record.result == 'success' || needs.record.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: merge-queue
+    permissions:
+      contents: read
+    concurrency:
+      group: merge-queue-reconcile
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # merge-tree needs the merge bases, so the history must be whole.
+          fetch-depth: 0
+      - name: Make the App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.MERGE_QUEUE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_QUEUE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: read
+      - name: Build the candidates and print the plan
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Git authenticates as the App through the environment, never through .git/config.
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          python3 scripts/merge_queue.py --repo "$GITHUB_REPOSITORY" build
