@@ -33,8 +33,9 @@ either sub-image sat in the frame, so the movie is shown without spots rather th
 spots on the wrong half ([`ProjectMovie.no_spots`][tether.services.movies.ProjectMovie]).
 
 **Which folder.** PRD §5.1 records the ``uri`` relative to the project, so a relative
-``uri`` is looked up in the project's folder first. The extraction writer records the path
-it was given, which can be relative to the folder the command ran in instead; when the
+``uri`` is looked up in the project's folder first. Every writer records it that way since
+#1282 ([`tether.project.sources.project_movie_uri`][]). A project written before then can
+hold the path the extraction was given, relative to the folder the command ran in; when the
 project-relative file does not exist, the same relative path is tried from the current
 folder, and taken only when it matches the recorded fast signature (size and
 modification time). Every movie file's size and modification time are checked against that

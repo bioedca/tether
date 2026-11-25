@@ -318,7 +318,7 @@ relocation and staleness reads no bytes of the movie, so it never hydrates a clo
 | Field | Type | Shape | Unit | Empty value | Meaning |
 |---|---|---|---|---|---|
 | `movie_id` | `str:utf-8` | scalar | — | — | The movie's identity in this store. The CLI writes `mov-<uuid4>` (`src/tether/project/extract.py`). |
-| `uri` | `str:utf-8` | scalar | — | `""` (unknown) | The path of the source movie, as text. |
+| `uri` | `str:utf-8` | scalar | — | `""` (unknown) | The path of the source movie, as text, relative to the folder of the project file (note 2). |
 | `sha256` | `str:utf-8` | scalar | — | — | The 64-character hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)). It seeds every `molecule_key`. |
 | `file_size` | `i8` | scalar | bytes | — | `Path.stat().st_size`. |
 | `mtime` | `f8` | scalar | seconds since the POSIX epoch | — | `Path.stat().st_mtime`. |
@@ -348,6 +348,18 @@ relocation and staleness reads no bytes of the movie, so it never hydrates a clo
    `tether.project.extract` and the Deep-LASI reconstruction's
    [`_movie_metadata`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_executor.py)
    (`src/tether/gui/deeplasi_executor.py`).
+2. A relative `uri` is relative to the folder that holds the project file. It is not relative
+   to the folder that a command ran in. It uses `/` separators, such as `../raw/m.tif`. So the
+   movie is found from any working folder. The `uri` is absolute when no relative path exists,
+   as for a movie on another Windows drive. It is also absolute when the relative path leads to
+   another file, as past a linked folder. Every writer records the `uri` this way
+   (`project_movie_uri` in `src/tether/project/sources.py`, #1282). These writers are
+   `tether extract`, `tether batch` with and without `--into`, and a new trace generation. The
+   Deep-LASI reconstruction is one too. A project written before #1282 can hold the path that
+   the extraction was given. That path is relative to the folder the command ran in. So a reader
+   looks in the project's folder first. Then it tries the same relative path from the current
+   folder. It takes that file only when its size and modification time match the row
+   (`src/tether/services/movies.py`). Existing projects are not rewritten.
 
 The group also holds an additive child, `/movies/layouts/<movie_id>`. It records the **channel
 layout** that split the movie, and `write_layout_record` in `src/tether/imaging/layout.py` writes
