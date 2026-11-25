@@ -251,17 +251,25 @@ def test_a_download_removes_this_users_old_download_folders_first(tmp_path: Path
     assert other.exists() and plain.exists()
 
 
-@pytest.mark.skipif(os.name != "posix", reason="symbolic links need privileges on Windows")
-def test_a_link_with_the_download_name_is_left_alone(tmp_path: Path) -> None:
+def _link(link: Path, target: Path) -> None:
+    """A symbolic link on macOS and Linux; a junction on Windows, which needs no privilege."""
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def test_a_link_with_the_download_name_is_left_alone(tmp_path: Path, monkeypatch) -> None:
     target = tmp_path / "target"
     target.mkdir()
     (target / "keep").write_bytes(b"x")
     link = tmp_path / "tether-download-link"
-    link.symlink_to(target, target_is_directory=True)
-    when = time.time() - update_download.STALE_AFTER_S - 60
-    os.utime(link, (when, when), follow_symlinks=False)
+    _link(link, target)
+    monkeypatch.setattr(update_download, "STALE_AFTER_S", -3600.0)  # everything counts as old
     _run(tmp_path, _Response(b"abc"))
-    assert link.is_symlink() and (target / "keep").exists()
+    assert os.path.lexists(link) and (target / "keep").exists()
 
 
 def test_a_failed_sweep_does_not_stop_the_download(tmp_path: Path, monkeypatch) -> None:
