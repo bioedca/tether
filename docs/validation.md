@@ -1029,6 +1029,10 @@ and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026
 output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
 200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
 with a `provenance.json` that holds the citation, the script hash and the input hashes.
+MATLAB's `run` executes a P-file of the same name in place of the `.m` file, so the harness and
+the task refuse to run when `FRET_cloud_contours_centroids.p` sits beside the pinned script
+([#1252](https://github.com/bioedca/tether/issues/1252)). The script hash is then the hash of the
+code that ran.
 
 The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
 copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the

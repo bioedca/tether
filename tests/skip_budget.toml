@@ -25,16 +25,16 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 19
+max_skipped = 23
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
 # 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py).
-max_skipped = 56
+max_skipped = 61
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 39
+max_skipped = 50
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -132,6 +132,44 @@ why = """The base lock has no Python-Markdown. The docs-build job installs the M
 docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
 
 # --- Platform skips: each test runs on the other legs ---------------------------------------
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_the_windows_helper_*"
+reason = "update_handoff.ps1 is the Windows helper"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The five tests run the Windows update helper under Windows PowerShell against a fake \
+NSIS installer (#331, ADR-0141); test (windows-latest) runs them. The macOS and Linux helper runs \
+on those two legs in the same module."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_*"
+reason = "update_handoff.sh is the macOS and Linux helper"
+jobs = ["test (windows-latest)"]
+why = """Eight tests run the macOS and Linux update helper with /bin/sh against a fake .sh \
+installer (#331, ADR-0141); test (ubuntu-latest) and test (macos-latest) run them, and Windows \
+runs its own helper's tests in the same module."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_check_launch_surface_on_a_linux_layout"
+reason = "the shims of macOS and Linux are sh scripts"
+jobs = ["test (windows-latest)"]
+why = """The test runs the sh launchers of a fake Linux install (#331); test (ubuntu-latest) and \
+test (macos-latest) run it. The Windows checks run in the Windows helper's success test."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_another_name_for_the_same_folder_is_the_same_install"
+reason = "symbolic links need a privilege on Windows"
+jobs = ["test (windows-latest)"]
+why = """The test gives an install a second name with a symbolic link, which a Windows runner \
+does not let a test create (#331); the two other legs run it. The second name it stands for, \
+~/tether beside ~/Tether, exists only on macOS."""
+
+[[skip]]
+test = "tests/test_update_handoff.py::test_a_symbolic_link_put_in_place_of_the_file_is_refused"
+reason = "symbolic links need a privilege on Windows"
+jobs = ["test (windows-latest)"]
+why = """Creating a symbolic link on Windows needs a privilege the runner does not give a test \
+(#331); the two other legs run it. O_NOFOLLOW, which it checks, is a POSIX flag."""
 
 [[skip]]
 test = "tests/test_gui_identity.py::test_windows_app_id_is_set_on_the_process"
