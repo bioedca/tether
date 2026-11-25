@@ -37,6 +37,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.file_type
 
+::: tether.gui.generation_reconcile
+
 ::: tether.gui.identity
 
 ::: tether.gui.indicators
