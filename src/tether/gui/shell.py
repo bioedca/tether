@@ -392,13 +392,17 @@ def _window_state(rows: Sequence[StoredMolecule], row: int) -> WindowState:
     """The [`WindowState`][tether.gui.undo.WindowState] of a molecule's stored rows (#632).
 
     ``window`` is that of row ``row`` when it is among ``rows``, else of the first row;
-    ``whole`` says whether every row has its whole ``frame_range``. Raises ``KeyError``
-    when ``rows`` is empty.
+    ``whole`` says whether every row has its whole ``frame_range``; ``rows`` holds each
+    row's own window. Raises ``KeyError`` when ``rows`` is empty.
     """
     if not rows:
         raise KeyError("no stored row of the molecule")
     selected = next((m for m in rows if m.row == row), rows[0])
-    return WindowState(window=selected.window, whole=all(m.window == m.frame_range for m in rows))
+    return WindowState(
+        window=selected.window,
+        whole=all(m.window == m.frame_range for m in rows),
+        rows=tuple((m.molecule_id, m.window) for m in rows),
+    )
 
 
 def _movie_panel_unavailable() -> str | None:
@@ -4640,8 +4644,8 @@ class TetherShell:
     ) -> None:
         """Put a stored curation action on the undo list; an action that changed nothing is not.
 
-        ``before`` is ``None`` when the state before the write could not be read: the
-        action is then stored but cannot be undone.
+        ``before`` (or the state after) is ``None`` when it could not be read: the action
+        is then stored but cannot be undone, and the redo list is emptied.
 
         For an accept, reject or un-reject (``project`` given) the state after the write
         is read back from the store, so a redo writes what the action stored.
@@ -4651,8 +4655,14 @@ class TetherShell:
             try:
                 after = curation_snapshot(project.path, key)
             except Exception:  # noqa: BLE001 - the write stands; it only cannot be undone
-                return
-        if before is None or after == before:
+                after = None
+        if before is None or after is None:
+            # A stored action that cannot be undone still ends the redo list: a redo
+            # written over it would undo it unseen.
+            self._undo.clear_redo()
+            self._sync_undo_actions()
+            return
+        if after == before:
             return
         self._undo.push(UndoEntry(kind, key, row, description, before, after))  # type: ignore[arg-type]
         self._sync_undo_actions()
@@ -4706,8 +4716,10 @@ class TetherShell:
             self._write_undo_state(project, entry, state, verb.lower())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             # The store refused this step, so it stays refused: drop it, so the steps
-            # before it can still be taken.
-            self._undo.discard(redo=redo)
+            # before it can still be taken. A lost lock has emptied both lists already.
+            still_there = self._undo.redo_entry if redo else self._undo.undo_entry
+            if still_there is entry:
+                self._undo.discard(redo=redo)
             self._sync_undo_actions()
             self._refresh_undo_rows(project, entry)
             self._status(
@@ -4758,7 +4770,7 @@ class TetherShell:
             if window.whole:
                 project.reset_analysis_window(key, reason=reason, **labeler)
             else:
-                project.set_analysis_window(key, *window.window, reason=reason, **labeler)
+                project.restore_analysis_windows(key, dict(window.rows), reason=reason, **labeler)
 
     def _refresh_undo_rows(self, project: Project, entry: UndoEntry) -> None:
         """Show the stored state of ``entry``'s molecule on its list rows and trace view."""
@@ -5313,6 +5325,7 @@ class TetherShell:
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
+            self._record_undo(WINDOW, key, row, undo_text, None)  # ends the redo list only
             self._status(
                 f"Analysis window saved for {trace.name or key}, "
                 f"but the trace view could not reread it: {exc}"

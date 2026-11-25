@@ -55,10 +55,15 @@ class WindowState:
         Whether every row of the molecule had its whole ``frame_range`` as its window.
         Such a state is written back with a reset, so each row takes its own range and
         a later photobleach pass treats the window as not narrowed again.
+    rows
+        Each row's ``(molecule_id, (start, stop))``. Two rows can share a molecule with
+        different frame ranges and windows, so any other state is written back row by
+        row.
     """
 
     window: tuple[int, int]
     whole: bool
+    rows: tuple[tuple[str, tuple[int, int]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -142,6 +147,10 @@ class UndoStack:
     def discard(self, *, redo: bool = False) -> UndoEntry:
         """Drop the [`undo_entry`][] (or the [`redo_entry`][]) after its write failed."""
         return (self._redo if redo else self._undo).pop()
+
+    def clear_redo(self) -> None:
+        """Empty the redo list: a stored action that cannot be undone came after it."""
+        self._redo.clear()
 
     def clear(self) -> None:
         """Empty both lists: the project closed, another opened, or it became read-only."""

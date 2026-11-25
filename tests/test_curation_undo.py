@@ -432,3 +432,86 @@ def test_an_undone_accept_of_a_carried_label_holds_it_out_of_training_again(
     assert shell.undo(), shell.status_message
 
     assert curation_snapshot(project, key) == waiting
+
+
+@_needs_qt
+@pytest.mark.gui
+@pytest.mark.parametrize("key_name", ["Key_R", "Key_Equal", "Key_P"])
+def test_an_undo_gives_each_row_of_a_shared_key_its_own_window_back(
+    shell, qtbot, tmp_path, key_name
+) -> None:
+    # Two rows share a molecule_key with different frame ranges and windows. A window
+    # key writes one request to both; the undo must give each row its own window back.
+    project, keys = _store(tmp_path, windows=[(0, 30), (20, 45), (0, N_FRAMES)])
+    with h5py.File(project.path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        table["molecule_key"][1] = table["molecule_key"][0]
+        table["frame_range"][0] = (0, 30)
+        table["frame_range"][1] = (20, 50)
+        f["molecules"]["table"][:] = table
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(0)
+    before = _state(project.path, keys[0])
+    assert before[2] == ((0, 30), (20, 45))
+
+    _press(qtbot, shell, key_name)
+    after = _state(project.path, keys[0])
+    assert after != before, shell.status_message
+
+    assert shell.undo(), shell.status_message
+    assert _state(project.path, keys[0]) == before
+    assert shell.redo(), shell.status_message
+    assert _state(project.path, keys[0]) == after
+
+
+@_needs_qt
+@pytest.mark.gui
+def test_an_action_that_cannot_be_undone_still_ends_the_redo_list(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.gui import shell as shell_mod
+
+    project, keys = _loaded(shell, tmp_path)
+    _press(qtbot, shell, "Key_Space")
+    assert shell.undo()
+    assert shell.redo_action.isEnabled()
+
+    def unreadable(*args, **kwargs):
+        raise OSError("snapshot read failed")
+
+    monkeypatch.setattr(shell_mod, "curation_snapshot", unreadable)
+    _press(qtbot, shell, "Key_Backspace")  # stored, but its earlier state is unreadable
+    monkeypatch.undo()
+
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+    assert shell.undo_stack.redo_count == 0 and not shell.redo_action.isEnabled()
+    assert not shell.redo()
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+
+
+@_needs_qt
+@pytest.mark.gui
+def test_a_lock_lost_just_before_the_undo_write_refuses_it_with_a_message(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.project import lock
+
+    project, keys = _loaded(shell, tmp_path)
+    _press(qtbot, shell, "Key_Space")
+    gate = shell._writable_project
+    other = lock.LockIdentity(host="OTHER-HOST", user="other", pid=999)
+
+    def gate_then_lose_the_lock(verb):
+        writable = gate(verb)
+        lock.acquire(project.path, identity=other, steal=True)
+        return writable
+
+    monkeypatch.setattr(shell, "_writable_project", gate_then_lose_the_lock)
+
+    assert not shell.undo()
+
+    assert shell.status_message.startswith("Undo accept ")
+    assert "failed" in shell.status_message
+    assert shell.read_only_reason is not None
+    assert shell.undo_stack.undo_count == 0
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.ACCEPT

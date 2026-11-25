@@ -88,6 +88,8 @@ class StoredMolecule:
         The absolute ``(start, stop)`` analysis window, resolved by [`resolved_window`][].
     category
         The row's category name; ``""`` when it has none.
+    molecule_id
+        The row's unique ``molecule_id``.
     """
 
     row: int
@@ -96,6 +98,7 @@ class StoredMolecule:
     frame_range: tuple[int, int]
     window: tuple[int, int]
     category: str = ""
+    molecule_id: str = ""
 
 
 def resolved_frame_range(frame_range: Any, n_frames: int) -> tuple[int, int]:
@@ -156,6 +159,7 @@ def stored_rows(
                 frame_range=frame_range,
                 window=resolved_window(record["analysis_window"], frame_range),
                 category=_text(record["category"]),
+                molecule_id=_text(record["molecule_id"]),
             )
         )
     return tuple(out)

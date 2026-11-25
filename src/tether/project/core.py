@@ -32,7 +32,7 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
     from contextlib import AbstractContextManager
 
     import numpy as np
@@ -718,6 +718,28 @@ class Project:
         self._assert_writable()
         return molecule_edits.reset_analysis_window(
             self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def restore_analysis_windows(
+        self,
+        molecule_key: str,
+        windows: Mapping[str, tuple[int, int]],
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Give each row of a molecule its own window back, by ``molecule_id``
+        ([`molecule_edits.restore_analysis_windows`][tether.project.molecule_edits.restore_analysis_windows]).
+
+        The writer behind an undo or redo of a window edit (#632). Refuses the write if
+        the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.restore_analysis_windows(
+            self.path, molecule_key, windows, labeler=labeler, reason=reason, timestamp=timestamp
         )
 
     def read_molecule_audit(self) -> np.ndarray:

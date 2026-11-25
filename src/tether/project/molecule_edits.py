@@ -61,6 +61,7 @@ it before they call in.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -74,6 +75,7 @@ __all__ = [
     "clear_category",
     "read_molecule_audit",
     "reset_analysis_window",
+    "restore_analysis_windows",
     "set_analysis_window",
     "set_category",
 ]
@@ -383,7 +385,7 @@ def _clamped_window(frame_range: object, start: int, stop: int, n_frames: int | 
 def _write_window(
     path: str | Path,
     molecule_key: str,
-    window: tuple[int, int] | None,
+    window: tuple[int, int] | Mapping[str, tuple[int, int]] | None,
     *,
     event: str,
     labeler: str | None,
@@ -392,7 +394,9 @@ def _write_window(
 ) -> np.ndarray:
     """Shared body of [`set_analysis_window`][] / [`reset_analysis_window`][].
 
-    ``window=None`` is the reset: each row's target is its own ``frame_range``.
+    ``window=None`` is the reset: each row's target is its own ``frame_range``. A
+    mapping gives each row named by its ``molecule_id`` its own request, and leaves a
+    row it does not name as it is ([`restore_analysis_windows`][]).
     """
     import h5py  # noqa: PLC0415
 
@@ -413,12 +417,18 @@ def _write_window(
             frame_range = table["frame_range"][i]
             if window is None:
                 targets[i] = (int(frame_range[0]), int(frame_range[1]))
+            elif isinstance(window, Mapping):
+                wanted = window.get(_to_str(table["molecule_id"][i]))
+                if wanted is not None:
+                    targets[i] = _clamped_window(frame_range, wanted[0], wanted[1], n_frames)
             else:
                 targets[i] = _clamped_window(frame_range, window[0], window[1], n_frames)
 
         audit = []
         changed = []
         for i in idx:
+            if i not in targets:
+                continue
             old = (int(table["analysis_window"][i][0]), int(table["analysis_window"][i][1]))
             if old == targets[i]:
                 continue
@@ -539,6 +549,46 @@ def reset_analysis_window(
         molecule_key,
         None,
         event=_RESET_WINDOW,
+        labeler=labeler,
+        reason=reason,
+        timestamp=timestamp,
+    )
+
+
+def restore_analysis_windows(
+    path: str | Path,
+    molecule_key: str,
+    windows: Mapping[str, tuple[int, int]],
+    *,
+    labeler: str | None = None,
+    reason: str = "",
+    timestamp: str | None = None,
+) -> np.ndarray:
+    """Give each row of a molecule its own ``[start, stop)`` window back (#632).
+
+    ``windows`` maps a row's ``molecule_id`` to its window; a row it does not name keeps
+    its window. Two rows can share a key with different frame ranges and windows, and
+    [`set_analysis_window`][] gives them one request, so an undo writes each row's own
+    window here. Each window is clamped to its row's frames as [`set_analysis_window`][]
+    does. Same matching, provenance (event ``set_analysis_window``), no-op and
+    feature-cache rule.
+
+    Raises
+    ------
+    ValueError
+        If a window does not have ``start < stop``. Nothing is written.
+    """
+    checked: dict[str, tuple[int, int]] = {}
+    for molecule_id, (start, stop) in windows.items():
+        start, stop = int(start), int(stop)
+        if start >= stop:
+            raise ValueError(f"analysis window must have start < stop, got [{start}, {stop})")
+        checked[str(molecule_id)] = (start, stop)
+    return _write_window(
+        path,
+        molecule_key,
+        checked,
+        event=_SET_WINDOW,
         labeler=labeler,
         reason=reason,
         timestamp=timestamp,
