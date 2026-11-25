@@ -767,8 +767,9 @@ def UpdateNotice(window: Any, **kwargs: Any) -> Any:  # noqa: N802 - a lazy clas
 
     For **Install update**: ``install_prefix`` (the install folder) and ``gh`` (the bundled
     verifier), which the caller reads with [`tether.services.updater.update_site`][] because
-    the GUI does not import the core; without both, the notice offers only the link. ``quit_app`` is what the
-    hand-off calls to quit (default: close the window and quit the application). For tests:
+    the GUI does not import the core; without both, the notice offers only the link.
+    ``quit_app`` is what the hand-off calls to quit (default: close the window and quit the
+    application). For tests:
     ``can_install`` (a callable taking the offered version), ``download``, ``verify`` and
     ``hand_off`` (stand-ins for
     [`download_installer`][tether.gui.update_download.download_installer],
