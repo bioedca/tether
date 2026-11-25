@@ -315,6 +315,17 @@ Andor Solis spectra of ZnO-PVA nanoparticles  (CC-BY-4.0)  — Chukova O, "Data 
     tests/fixtures/sif/ZP1-1.sif
     tests/fixtures/sif/ZP2270-1_reference.tif
 
+MASH-FRET test movie  (GPL-3.0-only)  — Hadzic MCAS (RNA-FRETools), MASH-FRET,
+  https://github.com/RNA-FRETools/MASH-FRET, pinned at commit
+  2877992d246acbe65148ef1c948578f623a518b2 (2026-11-09). Tether bundles the first 16 frames
+  of its test movie MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc/
+  1chan1exc.sira (header line and frame bytes unchanged, the header's frame count set to 16),
+  and a TIFF of those frames as MASH-FRET's readSira.m reads them, as test files of the SIRA
+  adapter (#905). The repository gives the GPL version 3 text with no "or later" statement,
+  so these files are GPL-3.0-only; attribution travels with them:
+    tests/fixtures/sira/1chan1exc_16.sira
+    tests/fixtures/sira/1chan1exc_16_reference.tif
+
 Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
   preferred states of complementary trinucleotide repeat DNA hairpins

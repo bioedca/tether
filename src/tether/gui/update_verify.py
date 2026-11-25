@@ -13,7 +13,9 @@ consumer of.
 when every step before it passed:
 
 1. **Consent.** Unless [`tether.gui.app_settings.update_check_state`][] reads *allowed*,
-   nothing else happens: no request, no ``gh``.
+   nothing else happens: no request, no ``gh``. The consent is read again, and the caller's
+   ``cancelled`` asked, before each of the two network steps of step 3, so a check turned
+   off part way sends nothing more (*unavailable*).
 2. **Local checks.** The version must be a stable ``MAJOR.MINOR.PATCH``, the file's name
    must be this platform's installer for that version, and the bundled ``gh``
    (the caller passes `tether._verifier.bundled_gh`) must report a version at or above
@@ -752,6 +754,7 @@ def verify_update(
     override_file: Path | None = None,
     gh: Path | None,
     tag: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
     fetch: Fetch = _default_fetch,
     runner: Runner = run_gh,
 ) -> VerificationResult:
@@ -767,10 +770,14 @@ def verify_update(
     `tether._verifier.bundled_gh` returns for this installed copy; ``None`` (no
     verifier, as in a development checkout) is *unavailable*. The caller looks it up
     because this GUI module does not import the core (ADR-0100). ``tag`` defaults to
-    [`platform_tag`][]. ``fetch`` and ``runner`` are for tests.
+    [`platform_tag`][]. ``cancelled`` is asked, with the consent read again, before each
+    network step; once it returns true the result is *unavailable* and nothing more is
+    sent. ``fetch`` and ``runner`` are for tests.
     """
     try:
-        return _verify(installer, version, settings_file, override_file, gh, tag, fetch, runner)
+        return _verify(
+            installer, version, settings_file, override_file, gh, tag, cancelled, fetch, runner
+        )
     except VerificationUnavailable as error:
         _LOG.debug("update verification could not run: %s", error)
         return VerificationResult(Outcome.UNAVAILABLE, str(error))
@@ -790,13 +797,19 @@ def _verify(
     override_file: Path | None,
     gh: Path | None,
     tag: str | None,
+    cancelled: Callable[[], bool] | None,
     fetch: Fetch,
     runner: Runner,
 ) -> VerificationResult:
+    def still_allowed() -> None:
+        state = app_settings.update_check_state(settings_file, override_file)
+        if not state.network_allowed:
+            raise VerificationUnavailable(f"update checks are {state.value}")
+        if cancelled is not None and cancelled():
+            raise VerificationUnavailable("the update was cancelled")
+
     # 1. Consent: before anything else, so nothing below can run without it.
-    state = app_settings.update_check_state(settings_file, override_file)
-    if not state.network_allowed:
-        raise VerificationUnavailable(f"update checks are {state.value}")
+    still_allowed()
 
     # 2. Local checks.
     if channel_version(version) is None:
@@ -830,10 +843,13 @@ def _verify(
         except OSError as error:
             raise VerificationRefused("The downloaded update could not be read.") from error
 
-        # 3. Tether fetches (the only network in the sequence).
+        # 3. Tether fetches (the only network in the sequence), each step only while the
+        # check is still allowed and the update not cancelled.
+        still_allowed()
         bundles = fetch_attestation_bundles(digest, fetch=fetch)
         bundle_file = workdir / "bundle.jsonl"
         _write_bundles(bundles, bundle_file)
+        still_allowed()
         root_file = fetch_trusted_root(gh, workdir, runner=runner)
 
         # 4. gh verifies, offline.

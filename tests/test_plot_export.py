@@ -1042,6 +1042,34 @@ def test_the_five_renderers_are_exported():
         assert callable(getattr(pe, name))
 
 
+def test_render_successive_frame_cloud_draws_density_contours_pairs_centroids_diagonal():
+    # #1085: the cloud of E(i) against E(i+1), not the raw cloud of E against time.
+    from tether.analysis.successive import successive_frame_cloud
+
+    rng = np.random.default_rng(5)
+    traces = [np.repeat([0.2, 0.8], 20) + rng.normal(0.0, 0.02, 40) for _ in range(4)]
+    cloud = successive_frame_cloud(traces, grid_points=40, n_centroids=2)
+    fig = pe.render_successive_frame_cloud(cloud)
+    ax = fig.axes[0]
+    assert ax.get_title() == "Successive-frame FRET cloud"
+    assert "frame $i$" in ax.get_xlabel() and "frame $i + 1$" in ax.get_ylabel()
+    (mesh,) = [c for c in ax.collections if isinstance(c, QuadMesh)]
+    np.testing.assert_array_equal(np.asarray(mesh.get_array()).ravel(), cloud.density.T.ravel())
+    from matplotlib.contour import ContourSet
+
+    assert any(isinstance(c, ContourSet) for c in ax.collections)
+    diagonal, centroids = ax.lines
+    np.testing.assert_array_equal(diagonal.get_xdata(), diagonal.get_ydata())
+    np.testing.assert_array_equal(diagonal.get_xdata(), [cloud.grid[0], cloud.grid[-1]])
+    np.testing.assert_array_equal(centroids.get_xdata(), cloud.centroids[:, 0])
+    np.testing.assert_array_equal(centroids.get_ydata(), cloud.centroids[:, 1])
+    (scatter,) = [
+        c for c in ax.collections if isinstance(c, PathCollection) and not isinstance(c, QuadMesh)
+    ]
+    np.testing.assert_array_equal(scatter.get_offsets(), cloud.pairs.pairs)
+    assert f"{cloud.n_pairs} pairs · N = 4 · 2 centroids" in [t.get_text() for t in ax.texts]
+
+
 # ------------------------------------------------- the docstring examples (#1172)
 
 _SECTIONS = ("Parameters", "Returns", "Raises", "Examples")
@@ -1054,7 +1082,7 @@ def _public_functions() -> list[str]:
 def test_every_public_function_documents_its_sections_in_order():
     """#1172: Rule 3 of the docstring standard, for each function a script calls."""
     names = _public_functions()
-    assert len(names) == 15  # export_figure, series_style and the thirteen render_* functions
+    assert len(names) == 16  # export_figure, series_style and the fourteen render_* functions
     for name in names:
         doc = inspect.getdoc(getattr(pe, name))
         at = {s: doc.find(f"\n{s}\n{'-' * len(s)}\n") for s in _SECTIONS}
