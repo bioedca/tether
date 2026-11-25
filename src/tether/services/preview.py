@@ -93,7 +93,7 @@ FORM_FIELDS: tuple[FormField, ...] = (
     FormField("channel_layout_donor", "choice", ("left", "right", "top", "bottom"), True),
     FormField("channel_layout_donor_rect", "rect", optional=True),
     FormField("channel_layout_acceptor_rect", "rect", optional=True),
-    FormField("detection_mode", "choice", ("wavelet", "intensity", "bandpass"), True),
+    FormField("detection_mode", "choice", ("wavelet", "intensity", "bandpass", "zmw"), True),
     FormField("detection_threshold", "float", optional=True),
     FormField("detection_block", "int"),
     FormField("min_separation", "float", optional=True),

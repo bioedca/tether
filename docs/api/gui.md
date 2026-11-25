@@ -37,6 +37,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.file_type
 
+::: tether.gui.generation_reconcile
+
 ::: tether.gui.histogram_dock
 
 ::: tether.gui.identity
@@ -57,6 +59,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.reconcile
 
+::: tether.gui.requirements
+
 ::: tether.gui.roundtrip
 
 ::: tether.gui.sections
@@ -76,6 +80,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.trace_dock
 
 ::: tether.gui.update_check
+
+::: tether.gui.update_handoff
 
 ::: tether.gui.update_notice
 

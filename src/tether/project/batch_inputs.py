@@ -71,15 +71,20 @@ def movie_suffixes() -> tuple[str, ...]:
     """Return the file suffixes a folder or a pattern contributes as movies.
 
     They are the extensions of the registered movie readers
-    ([`tether.io.adapters.registered_adapters`][]), lower case and in registration order,
-    so a reader added to the registry is found in folders with no change here. Suffixes
-    are compared without regard to case. A file named as an argument of its own is used
-    whatever its suffix, and the registry then decides by its content.
+    ([`tether.io.adapters.registered_adapters`][]) whose movies extraction reads
+    ([`tether.io.movie.EXTRACTED_CONTAINERS`][]), lower case and in registration order.
+    A reader that opens a movie extraction refuses (today, ND2) contributes nothing, so
+    a folder that holds an ND2 original beside its TIFF export gives the TIFF only.
+    Suffixes are compared without regard to case. A file named as an argument of its own
+    is used whatever its suffix, and the registry then decides by its content.
     """
-    from tether.io.adapters import registered_adapters  # noqa: PLC0415 - imports the readers
+    from tether.io import movie  # noqa: PLC0415 - imports the readers
+    from tether.io.adapters import registered_adapters  # noqa: PLC0415
 
     suffixes: list[str] = []
     for adapter in registered_adapters():
+        if adapter.name not in movie.EXTRACTED_CONTAINERS:
+            continue
         suffixes.extend(ext for ext in adapter.extensions if ext not in suffixes)
     return tuple(suffixes)
 
