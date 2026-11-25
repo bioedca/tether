@@ -2332,17 +2332,24 @@ class TetherShell:
         A spot of a molecule the filter hides shows every molecule first (#630), so the
         selected molecule is always one the list shows and no key acts on a hidden row.
         """
+        self._selecting_from_movie = True
+        try:
+            self._select_shown(self._roundtrip_rows[site])
+        finally:
+            self._selecting_from_movie = False
+
+    def _select_shown(self, row: int) -> None:
+        """Select list row ``row``; when the filter hides it, show all molecules first (#630).
+
+        For a selection made outside the list (a movie spot, a reconcile row), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
         from tether.gui.molecule_list import FILTER_ALL
 
-        row = self._roundtrip_rows[site]
         revealed = not self._molecule_view.shown(row)
         if revealed:
             self._molecule_view.set_filter(FILTER_ALL)
-        self._selecting_from_movie = True
-        try:
-            self._molecule_list.setCurrentRow(row)
-        finally:
-            self._selecting_from_movie = False
+        self._molecule_list.setCurrentRow(row)
         if revealed:
             self._status(f"{self.status_message}; the filter now shows all molecules")
 
@@ -4251,7 +4258,7 @@ class TetherShell:
             if trace.molecule_key == molecule_key:
                 if CURATE_SECTION in self._sections:
                     self.set_section(CURATE_SECTION)
-                self._molecule_list.setCurrentRow(row)
+                self._select_shown(row)
                 return True
         return False
 

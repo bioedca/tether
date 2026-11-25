@@ -350,6 +350,21 @@ def test_a_movie_click_on_a_hidden_molecule_shows_all_first(shell, qtbot, tmp_pa
 
 @pytest.mark.gui
 @_needs_qt
+def test_selecting_a_hidden_molecule_by_key_shows_all_first(shell, tmp_path) -> None:
+    project, keys = _store(tmp_path, n=3)
+    project.reject(keys[1])
+    assert shell.load_project(project.path) is not None
+    shell.molecule_view.set_filter("rejected")
+
+    assert shell.select_molecule(keys[2])  # the reconcile page's route to a row (#923)
+
+    assert shell.molecule_view.filter_key == "all"
+    assert shell.molecule_list.currentRow() == 2
+    assert not shell.molecule_list.isRowHidden(2)
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_a_new_category_adds_its_filter(shell, qtbot, tmp_path) -> None:
     project, keys = _store(tmp_path, n=3)
     project.sync_conditions()
