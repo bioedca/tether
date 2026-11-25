@@ -53,7 +53,7 @@ class ExtractRequest(ExtractionFields, Request):
     Attributes
     ----------
     movie
-        Path to the dual-channel movie (TIFF or ND2).
+        Path to the dual-channel movie (TIFF, CZI or ND2).
     output
         Path to the ``.tether`` project to create.
     overwrite

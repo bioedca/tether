@@ -99,7 +99,7 @@ def _assert_same_extraction(a: Path, b: Path) -> None:
 
 
 def test_nd2_is_an_extracted_container() -> None:
-    assert EXTRACTED_CONTAINERS == ("TIFF", "ND2")
+    assert EXTRACTED_CONTAINERS == ("TIFF", "ND2", "CZI")
 
 
 def test_tether_extract_gives_the_same_traces_for_nd2_and_its_tiff_export(
