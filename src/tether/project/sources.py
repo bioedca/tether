@@ -58,6 +58,7 @@ __all__ = [
     "ensure_registry",
     "file_sha256",
     "read_sources",
+    "record_movie_pair",
     "register_source",
     "relink_source",
     "same_file",
@@ -401,6 +402,62 @@ def register_source(
         if made is not None:
             record = replace(record, source_id=made.source_id)
     return _store(project, record)
+
+
+def record_movie_pair(
+    project_path: str | Path,
+    movie_id: str,
+    files: Mapping[str, tuple[str | Path, int, str]],
+) -> list[SourceRecord]:
+    """Store the two files of a movie pair as the sources of ``movie_id`` (#909).
+
+    ``files`` maps each role of [`PAIR_ROLES`][tether.io.pair.PAIR_ROLES] to the file's
+    ``(path, size, sha256)`` as the extraction read it. Each file gets a stored record
+    with role ``movie``, ``movie_id``, its checksum and the acquisition
+    ``{"pair_role": role}``, so ``read_sources`` gives both files of the pair and makes
+    no record from the ``/movies`` row. This is a write into the project an extraction
+    is building (the staged copy of an append): the caller holds the writer lock and
+    publishes the file, so no lock is checked here. A store stamped before 3 gains the
+    table first ([`upgrade_skeleton`][tether.io.schema.upgrade_skeleton]); the publish
+    keeps the file as it was beside it.
+
+    Raises
+    ------
+    ValueError
+        If ``files`` does not give exactly the two roles.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.pair import PAIR_ROLE_KEY, PAIR_ROLES  # noqa: PLC0415
+    from tether.io.schema import upgrade_skeleton  # noqa: PLC0415
+
+    if set(files) != set(PAIR_ROLES):
+        raise ValueError(f"a movie pair needs the roles {PAIR_ROLES}, got {sorted(files)}")
+    project_path = Path(project_path)
+    now = _now()
+    records = [
+        SourceRecord(
+            source_id=f"src-{uuid4().hex}",
+            relative_path=_stored_path(project_path, files[role][0]),
+            original_name=Path(files[role][0]).name,
+            file_size=int(files[role][1]),
+            sha256=str(files[role][2]).lower(),
+            adapter="",
+            adapter_version="",
+            role="movie",
+            acquisition={PAIR_ROLE_KEY: role},
+            movie_id=movie_id,
+            derived_from="",
+            recipe="",
+            created_utc=now,
+        )
+        for role in PAIR_ROLES
+    ]
+    with h5py.File(project_path, "r+") as f:
+        upgrade_skeleton(f)
+        for record in records:
+            _append(f[_GROUP][_TABLE], record)
+    return records
 
 
 def file_sha256(
