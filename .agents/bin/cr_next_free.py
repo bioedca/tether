@@ -12,8 +12,9 @@ The behaviour is the project-folder copy's, with two changes: the state folder i
 than fixed beside the script, and the docs-only route, off since 2026-11-14, is gone.
 
 CodeRabbit gives the whole account an allowance of reviews each hour, set from its 7-day count of
-attempts, and every lane shares it. The script paces at half of the allowance that CodeRabbit named
-last. A request that is refused still counts as an attempt, so a lane asks only when it is its turn.
+attempts, and every lane shares it. The script paces at one review an hour (ADR-0142), never faster
+than half of the allowance that CodeRabbit named last. A request that is refused still counts as an
+attempt, so a lane asks only when it is its turn.
 
     <py> .agents/bin/cr_next_free.py --join 682 --title "Add the brand kit"
     <py> .agents/bin/cr_next_free.py --pr 682
@@ -73,12 +74,14 @@ RANKED = re.compile(r"^#(\d+)\b")
 #: "... set your current allowance at 10 reviews per hour." (2026-11-12 06:37Z, #777).
 ALLOWANCE = re.compile(r"set your current allowance at (\d+) reviews? per hour", re.I)
 #: The pace is half the allowance that CodeRabbit named last, and never more than MAX_PER_HOUR.
+#: MAX_PER_HOUR is 1 since ADR-0142 (the maintainer, 2026-11-23: "queue stays, one coderabbit review
+#: per hour"), so the pace is one review an hour; it was 5 from 2026-11-12.
 #: The allowance is adaptive: each attempt raises the 7-day count and can lower it again, so the
 #: newest reading always wins. With no reading in the last 3 hours, or with a refusal newer than the
 #: last reading, the pace falls back to SLOW. The pace is an estimate for the wake-up time and never
 #: a reason to ask: the answer comes from what GitHub shows. Before 2026-11-12 it was a fixed 60
 #: minutes (1 review an hour, the allowance on 2026-11-10).
-MAX_PER_HOUR = 5
+MAX_PER_HOUR = 1
 #: The pace reads the allowance and refusals of the last 3 hours only.
 PACE_LOOKBACK = timedelta(hours=3)
 #: Comments are read this far back, so that a refusal whose named wait is longer than the pace's 3
