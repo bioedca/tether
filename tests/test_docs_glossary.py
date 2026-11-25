@@ -96,10 +96,10 @@ ANCHORS_BEFORE_595 = (
 #: A phrase of each passage that #595 moved, and the page that now holds it. The last five
 #: passages were already on their page, so the glossary only dropped its copy and links there.
 MOVED = (
-    ("hiding it would be a silent distortion", "pipeline.md"),
+    ("Hiding it would be a silent distortion", "pipeline.md"),
     ("Raw traces keep a large offset and never look bleached", "pipeline.md"),
     ("Deep-LASI offers only a visual check of the registration", "pipeline.md"),
-    ("The movie is never resampled", "pipeline.md"),
+    ("Tether never resamples the movie", "pipeline.md"),
     ("α is project-wide in Tether", "reference/parameters.md"),
     ("it is a curator-editable field", "reference/parameters.md"),
     ("its frame gate is stricter and two-sided", "reference/parameters.md"),
@@ -120,7 +120,7 @@ MOVED = (
     ("it raises no error", "cli.md"),
     ("whenever the control points exactly determine the fit", "troubleshooting.md"),
     ("called out per plot as re-derivations", "analysis/parity-gallery.md"),
-    ("expect Tether's to run about (1 + α) higher", "pipeline.md"),
+    ("expect a higher γ from Tether, by a factor of about (1 + α)", "pipeline.md"),
 )
 
 _GREEK = {"α": "alpha", "γ": "gamma", "δ": "delta"}
