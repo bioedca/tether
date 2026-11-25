@@ -1112,6 +1112,12 @@ def extract_movie(
         (a low-confidence registration), and raise instead. ``tether batch --policy
         fail --into`` uses it so that a rejected movie never enters the project
         (#1151). By default such a movie is written and flagged.
+    map_optics:
+        With ``map_path``: the optics text of this movie (objective, filters, camera),
+        compared with the map's own. ``None`` compares no optics.
+    confirm_optics:
+        With ``map_path``: use the map although its optics text differs from
+        ``map_optics``. The confirmation is recorded with the map.
 
     Returns
     -------
@@ -1136,12 +1142,6 @@ def extract_movie(
         gate under ``refuse_over_gate``, a map file the reuse check refuses (a
         different pixel size, or a different optics text without ``confirm_optics``),
         or a write failure. Never a raw primitive traceback.
-    map_optics:
-        With ``map_path``: the optics text of this movie (objective, filters, camera),
-        compared with the map's own. ``None`` compares no optics.
-    confirm_optics:
-        With ``map_path``: use the map although its optics text differs from
-        ``map_optics``. The confirmation is recorded with the map.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
@@ -1323,7 +1323,7 @@ def add_movie_to_project(
         ([`create_project`][tether.io.schema.create_project] or [`extract_movie`][]).
     movie_path:
         The movie to append; see [`extract_movie`][].
-    options, tmap, tdat, map_path:
+    options, tmap, tdat, map_path, map_optics, confirm_optics:
         As for [`extract_movie`][], with the same precedence. The aperture parameters
         (``window``, the radii and ``bg_window``) must equal the ones the project's first
         extraction recorded.
@@ -1476,7 +1476,7 @@ def reextract_movie(
         An existing, compatible ``.tether`` project that holds the movie.
     movie_path:
         The movie file; its bytes must be the ones the project recorded.
-    options, tmap, tdat, map_path, refuse_over_gate:
+    options, tmap, tdat, map_path, map_optics, confirm_optics, refuse_over_gate:
         As for [`add_movie_to_project`][]; the aperture parameters must equal the
         project's.
     publish_guard:
