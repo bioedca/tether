@@ -98,7 +98,6 @@ version (ink) and a dark version (chalk), and the icons change with the theme.
 | Hand-off → Hand to tMAVEN | hand-off |
 | Hand-off → Import return leg | import |
 | Import → Deep-LASI bundle | import |
-| Analysis → Population histogram | analyze |
 | Conditions → Validate conditions | conditions |
 
 An icon is never the only sign of a function. Each menu item keeps its text.
@@ -110,7 +109,7 @@ its own section:
 |---|---|
 | Prepare | Import |
 | Curate and correct | Curation, Hand-off, Conditions |
-| Analyze | Analysis |
+| Analyze | none: the page is the plot builder |
 
 **Busy indicator.** When a task runs and does not give a percentage, the right end of the
 status bar shows the busy indicator and the name of the task. Today this task is the
