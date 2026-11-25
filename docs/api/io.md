@@ -35,8 +35,12 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.nd2
 
+::: tether.io.pair
+
 ::: tether.io.recover
 
 ::: tether.io.schema
+
+::: tether.io.sif
 
 ::: tether.io.tdat

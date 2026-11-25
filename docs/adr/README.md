@@ -199,6 +199,8 @@ else would make it a worse historical record in exchange for a working link.
 | [0146](0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md) | The map file is a separate asset, and its reuse checks the optics, not the date | accepted | §7.1 (FR-EXTRACT), Appendix E stage 10, §5 (data model) |
 | [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
+| [0150](0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md) | Tether reads SIF with its own reader, and only movies of raw counts | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0151](0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md) | A movie pair is one /movies row named by the checksum of both files | accepted | §5 (data model), §7.1 FR-EXTRACT, Appendix E stage 1 |
 
 <!-- gen:adr-index end -->
 

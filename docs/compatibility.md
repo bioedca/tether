@@ -30,8 +30,8 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 [What Tether does not do](#what-tether-does-not-do).
 
 If your movies are in a vendor container (`.czi`, `.sif`), export them to uncompressed TIFF
-first, and Tether reads them. Tether opens a ZEISS `.czi` movie of one channel (see
-[Movie containers](reference/movie-containers.md)), but extraction does not read CZI yet.
+first, and Tether reads them. Tether opens a ZEISS `.czi` movie of one channel and an Andor `.sif` movie of raw counts (see
+[Movie containers](reference/movie-containers.md)). Extraction does not read CZI or SIF yet.
 Tether reads a current ND2 movie with its own reader, and it extracts the movie as it extracts a
 TIFF (see [ND2 movies](#nd2-movies)).
 
@@ -39,7 +39,7 @@ TIFF (see [ND2 movies](#nd2-movies)).
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF; a ZEISS `.czi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
+| Container | multi-page TIFF; a ZEISS `.czi` or Andor `.sif` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
 | Compression | **none**. The movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
@@ -150,8 +150,25 @@ make the channels equal.
 
 Tether stores the layout of each movie, with its recipes, as `/movies/layouts/<movie_id>` in the
 project. There is no command-line option for a layout or a recipe yet. An extraction profile
-cannot hold a recipe yet. A movie whose two channels are separate files is not supported yet
-either.
+cannot hold a recipe yet.
+
+A setup with two cameras writes the donor and the acceptor to two files. From Python,
+`extract_movie(donor_movie, output, acceptor_movie=acceptor_movie)` reads the two files as one
+acquisition (#909, `tether.io.pair`). Each file is one whole channel. Thus no layout applies,
+and Tether does not use `--donor-side`.
+
+The two movies must have the same frame count, frame time, pixel type and frame size. If not,
+Tether refuses the pair and names each difference. Tether does not align two movies in time.
+
+`add_movie_to_project` and `reextract_movie` also take `acceptor_movie`. The project keeps one
+`/movies` row for the pair. Its source registry keeps both files with their roles, `donor` and
+`acceptor`. A map between the two cameras comes from a bead file pair, through
+`tether.imaging.beadmap.bead_map_pair_from_files`.
+
+Tether refuses a `.tmap` or a map of one camera frame for a pair. It also refuses a pair map for
+one movie. There is no command-line option for a pair yet.
+[ADR-0151](adr/0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md)
+records these rules.
 
 Tether refuses a movie whose frames cannot hold the channel geometry of its `--tmap` or `--map`,
 before it splits the movie. The message names the frame size of the movie and the geometry of
