@@ -2768,3 +2768,76 @@ size = 495616
 sha256 = "bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae"
 tier = "git"
 citation = "Chiaruttini N. nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511. Zenodo (2026). doi:10.5281/zenodo.24363428"
+
+# --- Andor Solis SIF files for the SIF adapter (#904, ADR-0150) ------------------------------
+# Two spectra that Solis wrote (Chukova O, Zenodo 18293266, CC-BY-4.0), committed unchanged, with
+# Solis's own ASCII export of one and its reference TIFF export by sif_parser 0.3.6; and an Andor
+# Zyla image (Wu Y, Dryad/Zenodo, CC0-1.0) with the 8-bit TIFF that Solis exported from it.
+
+[[dataset]]
+id = "chukova-zno-zp2270-1-sif"
+source = "doi:10.5281/zenodo.18293266"
+record_url = "https://zenodo.org/records/18293266"
+license = "CC-BY-4.0"
+file = "tests/fixtures/sif/ZP2270-1.sif"
+size = 8514
+sha256 = "1120e508c7f4f7b2d9c384b9010c1762c35b713fcf3a046712caddb0729fd28b"
+tier = "git"
+citation = "Chukova O. Data on Luminescence properties of ZnO-PVA nanoparticles. Zenodo (2026). doi:10.5281/zenodo.18293266"
+
+[[dataset]]
+id = "chukova-zno-zp2270-1-asc"
+source = "doi:10.5281/zenodo.18293266"
+record_url = "https://zenodo.org/records/18293266"
+license = "CC-BY-4.0"
+file = "tests/fixtures/sif/ZP2270-1.asc"
+size = 17281
+sha256 = "78bbf9c699762f6945db12ad0ed13e2a60ca077498d2f65dbbee2d97788a3d48"
+tier = "git"
+citation = "Chukova O. Data on Luminescence properties of ZnO-PVA nanoparticles. Zenodo (2026). doi:10.5281/zenodo.18293266"
+
+[[dataset]]
+id = "chukova-zno-zp1-1-sif"
+source = "doi:10.5281/zenodo.18293266"
+record_url = "https://zenodo.org/records/18293266"
+license = "CC-BY-4.0"
+file = "tests/fixtures/sif/ZP1-1.sif"
+size = 16894
+sha256 = "58feb756603df669a872819799d01b034d8e492686cc57acdc1031898d204638"
+tier = "git"
+citation = "Chukova O. Data on Luminescence properties of ZnO-PVA nanoparticles. Zenodo (2026). doi:10.5281/zenodo.18293266"
+
+[[dataset]]
+id = "chukova-zno-zp2270-1-reference"
+source = "doi:10.5281/zenodo.18293266"
+record_url = "https://zenodo.org/records/18293266"
+license = "CC-BY-4.0"
+file = "tests/fixtures/sif/ZP2270-1_reference.tif"
+size = 4368
+sha256 = "fddcd1dab834f90cfcf8001bfb5ed5f95711211b6e4bbc0a3c9b183f987b8aca"
+tier = "git"
+citation = "Chukova O. Data on Luminescence properties of ZnO-PVA nanoparticles. Zenodo (2026). doi:10.5281/zenodo.18293266"
+
+[[dataset]]
+id = "wu-magfret-c739-sif"
+source = "doi:10.5061/dryad.80gb5mkpx"
+record_url = "https://zenodo.org/records/4904806"
+license = "CC0-1.0"
+file = "c739xMagFRET_1.sif"
+size = 16781286
+sha256 = "7022eff33764fcf5e954025d1f932ff91a59d62fd52b35815e761f1d21cb01e2"
+tier = "download"
+download_url = "https://zenodo.org/records/4904806/files/c739xMagFRET_1.sif?download=1"
+citation = "Wu Y. Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and diet-enhanced long-term memory. Dryad (2021). doi:10.5061/dryad.80gb5mkpx"
+
+[[dataset]]
+id = "wu-magfret-c739-solis-tiff"
+source = "doi:10.5061/dryad.80gb5mkpx"
+record_url = "https://zenodo.org/records/4904806"
+license = "CC0-1.0"
+file = "c739xMagFRET_1.tif"
+size = 4213274
+sha256 = "807cd682ea532dcb135b77a046721b1489f60b2a99b62814e49db4681e4b94e9"
+tier = "download"
+download_url = "https://zenodo.org/records/4904806/files/c739xMagFRET_1.tif?download=1"
+citation = "Wu Y. Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and diet-enhanced long-term memory. Dryad (2021). doi:10.5061/dryad.80gb5mkpx"

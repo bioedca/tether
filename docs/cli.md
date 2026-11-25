@@ -477,9 +477,9 @@ command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
   extraction reads, in any case. Today these are `.tif`, `.tiff` and `.nd2`. With `--recursive`
-  it also gives the movies in its sub-folders. Tether opens `.czi` movies too, but extraction
-  does not read them yet (#1390), so a folder or a pattern leaves them out. A `.czi` file that
-  you name on its own fails its extraction stage with a message that says so
+  it also gives the movies in its sub-folders. Tether opens `.czi` and `.sif` movies too, but
+  extraction does not read them yet, so a folder or a pattern leaves them out. A `.czi` or `.sif`
+  file that you name on its own fails its extraction stage with a message that says so
   ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
   folder (`x.nd2` and `x.tif`) is one movie, so the run stops before anything is written and the
   message names both files. Move or rename one.
