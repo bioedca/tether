@@ -146,7 +146,8 @@ hold a recipe yet.
 
 A setup with two cameras writes the donor and the acceptor to two files. From Python,
 `extract_movie(donor_movie, output, acceptor_movie=acceptor_movie)` reads the two files as one
-acquisition (#909, `tether.io.pair`). Each file is one whole channel, so no layout applies and
+acquisition (#909, `tether.io.pair`,
+[ADR-0151](adr/0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md)). Each file is one whole channel, so no layout applies and
 `--donor-side` is not used. The two movies must have the same frame count, frame time, pixel type
 and frame size, or the pair is refused with a message that names each difference. Tether does
 not align two movies in time.

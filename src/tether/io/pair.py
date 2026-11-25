@@ -20,7 +20,7 @@ two files' checksums, so the row names both files' bytes and the molecule keys o
 pair never equal those of either file read alone. The two files are stored in the
 source registry (``/sources``, #912) with role ``movie``, the pair's ``movie_id`` and
 the acquisition ``{"pair_role": "donor"}`` or ``{"pair_role": "acceptor"}``
-([`tether.project.sources`][]).
+([`tether.project.sources`][]). ADR-0151 records these conventions.
 """
 
 from __future__ import annotations
