@@ -4283,31 +4283,22 @@ class TetherShell:
         as the number keys and the overflow picker use it. ``None`` while no project
         molecule with a condition is selected, or when the list cannot be read.
         """
-        from tether.project.conditions import read_class_lookup
+        from tether.services.curation import category_classes
 
         condition_id = self._selected_condition_id()
         if condition_id is None or self._project_path is None:
             return None
         try:
-            return dict(read_class_lookup(self._project_path, condition_id).classes)
+            return category_classes(self._project_path, condition_id)
         except Exception:  # noqa: BLE001 - the keys then show only their numbers
             return None
 
-    def _category_members(self, condition_id: str, name: str) -> list[str]:
+    def _category_members(self, condition_id: str, name: str) -> tuple[str, ...]:
         """The keys of the molecules of ``condition_id`` whose stored category is ``name``."""
-        from tether.imaging.extract import read_molecules
+        from tether.services.curation import category_members
 
         assert self._project_path is not None
-        table = read_molecules(self._project_path)
-
-        def text(value: object) -> str:
-            return value.decode() if isinstance(value, bytes) else str(value)
-
-        keys: dict[str, None] = {}
-        for record in table:
-            if text(record["condition_id"]) == condition_id and text(record["category"]) == name:
-                keys[text(record["molecule_key"])] = None
-        return list(keys)
+        return category_members(self._project_path, condition_id, name)
 
     def category_usage(self, name: str) -> int:
         """How many molecules of the selected molecule's condition have category ``name``."""
@@ -4340,10 +4331,10 @@ class TetherShell:
         condition_id = self._selected_condition_id()
         if condition_id is None or self._project_path is None:
             return ()
-        from tether.project.conditions import read_category_list
+        from tether.services.curation import category_names
 
         try:
-            return read_category_list(self._project_path, condition_id).categories
+            return category_names(self._project_path, condition_id)
         except Exception:  # noqa: BLE001 - show an empty list rather than guess
             return ()
 
@@ -4466,10 +4457,10 @@ class TetherShell:
         if target is None:
             return self._category_failed(self.status_message, post=False)
         project, condition_id, nonce = target
-        from tether.project.conditions import read_category_list
+        from tether.services.curation import category_names
 
         try:
-            names = list(read_category_list(project.path, condition_id).categories)
+            names = list(category_names(project.path, condition_id))
             index = names.index(name)
         except ValueError:
             return self._category_failed(f"{verb} failed: “{name}” is not in the list")
@@ -4519,19 +4510,14 @@ class TetherShell:
     def _condition_text(self, condition_id: str) -> str:
         """The condition's identity fields in one line, else its ``condition_id``."""
         from tether.gui.conditions import _key_summary
+        from tether.services.curation import condition_key
 
+        assert self._project_path is not None
         try:
-            key = self._condition_keys().get(condition_id)
+            key = condition_key(self._project_path, condition_id)
         except Exception:  # noqa: BLE001 - the id alone still names it
             key = None
         return f"{_key_summary(key)} ({condition_id})" if key is not None else condition_id
-
-    def _condition_keys(self) -> dict[str, Any]:
-        """Every ``/conditions`` key of the open project, by ``condition_id``."""
-        from tether.project.conditions import read_condition_keys
-
-        assert self._project_path is not None
-        return read_condition_keys(self._project_path)
 
     @property
     def category_editor(self) -> CategoryEditor | None:

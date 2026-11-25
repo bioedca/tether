@@ -277,12 +277,12 @@ list.
 - **Rename**: click a name, change it in the field and click **Rename**. The name keeps its
   number key. Each molecule that had the old name gets the new name. The molecule edit log
   records each one, with the reason `category renamed from` the old name `to` the new name.
-- **Move up** and **Move down**: the name moves one place in the list, so the number keys of
-  the two names change places. Each molecule keeps its category.
+- **Move up** and **Move down**: the name moves one place in the list. The two names then
+  change number keys. Each molecule keeps its category.
 - **Remove…**: click a name and click **Remove…**. When molecules have that name, Tether
-  first says how many and asks. Those molecules keep the name as their category, but it is no
-  longer in the list, so no number key gives it again. To change it, select the molecule and
-  press **0** or a number key. The names after the removed one move up by one number key.
+  first says how many and asks. Those molecules keep the name as their category. But the name
+  is no longer in the list, so no number key gives it again. To change it, select the molecule
+  and press **0** or a number key. The names after the removed one move up by one number key.
 
 Two names in one list cannot be the same. A name that is already in the list is refused,
 and the window says why. The changes save to the project at once. They are not available
