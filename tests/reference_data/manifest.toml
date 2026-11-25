@@ -2652,3 +2652,119 @@ tier = "git"
 extract_of = ["weninger-hairpin-traces"]
 extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
 citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
+
+[[dataset]]
+id = "deeplasi-findpart-public-image"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "tests/fixtures/deep_lasi_findpart_images/public.csv"
+size = 98472
+sha256 = "2b88841dd45d06a175de8cb7cd8f8c74d6e19402be3e93aaf1e376f798136ca4"
+tier = "git"
+extract_of = ["deeplasi-zenodo-fig2"]
+extract_script = "scripts/make_deeplasi_findpart_images.py"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9. Data: Zenodo record 7561162, Figure_2.zip"
+
+# --- Deep-LASI's own findPart mode 5 on that crop, frozen from MATLAB (#924, ADR-0143) ---------
+# Spot positions computed from the CC-BY-4.0 image above, so CC-BY-4.0. provenance.json is the
+# harness record; the synthetic-image outputs carry the repository's licence.
+
+[[dataset]]
+id = "deeplasi-findpart-public-t1"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/deep-lasi/findpart-zmw/public_t1.csv"
+size = 567
+sha256 = "c443975e7772873c35272b3733982fed5a2dbff554cd0d59406a174739320b5a"
+tier = "git"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9. Data: Zenodo record 7561162, Figure_2.zip; spots found by Deep-LASI findPart mode 5 (gitlab.com/simon71/deeplasi d2d348c) in MATLAB R2023b"
+
+[[dataset]]
+id = "deeplasi-findpart-public-t2"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/deep-lasi/findpart-zmw/public_t2.csv"
+size = 252
+sha256 = "acb44facca8ddeac161099c7171938e4c8aa5e8f10383e2cd328e42ef9dd3b51"
+tier = "git"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9. Data: Zenodo record 7561162, Figure_2.zip; spots found by Deep-LASI findPart mode 5 (gitlab.com/simon71/deeplasi d2d348c) in MATLAB R2023b"
+
+[[dataset]]
+id = "deeplasi-findpart-public-t3"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/deep-lasi/findpart-zmw/public_t3.csv"
+size = 30
+sha256 = "9e1a053b3d77399c6c01e6e5659fe868ddb3ec9d8df5419b2aa5b2e9809e7239"
+tier = "git"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9. Data: Zenodo record 7561162, Figure_2.zip; spots found by Deep-LASI findPart mode 5 (gitlab.com/simon71/deeplasi d2d348c) in MATLAB R2023b"
+
+# --- ZEN test movies of ZEISS, for the CZI adapter (#903, ADR-0144), CC-BY-4.0 ---------------
+# Artificial camera images written by ZEN with a simulated microscope (Rhode S, ZEISS). The
+# one-channel movie is read and compared bit for bit with its reference export (the git entry
+# below, made by ZEISS pylibCZIrw 6.1.0); the two-channel movie is refused.
+
+[[dataset]]
+id = "zeiss-czi-t2-ch1"
+source = "doi:10.5281/zenodo.7015307"
+record_url = "https://zenodo.org/records/7015307"
+license = "CC-BY-4.0"
+file = "T=2_CH=1.czi"
+size = 1566976
+sha256 = "3a182cd9818fa9d8543ffee717226177ca2df3f9ff91e4d4c3175a613876e0ef"
+tier = "download"
+download_url = "https://zenodo.org/records/7015307/files/T%3D2_CH%3D1.czi?download=1"
+citation = "Rhode S. CZI (Carl Zeiss Image) dataset with artificial test camera images with various dimension for testing libraries reading. Zenodo (2022). doi:10.5281/zenodo.7015307"
+
+[[dataset]]
+id = "zeiss-czi-t3-ch2"
+source = "doi:10.5281/zenodo.7015307"
+record_url = "https://zenodo.org/records/7015307"
+license = "CC-BY-4.0"
+file = "T=3_CH=2.czi"
+size = 2110368
+sha256 = "abcaaaa3e44440e463383cb697e11ac180df510f4dd0d81a30feaaf6f2895a67"
+tier = "download"
+download_url = "https://zenodo.org/records/7015307/files/T%3D3_CH%3D2.czi?download=1"
+citation = "Rhode S. CZI (Carl Zeiss Image) dataset with artificial test camera images with various dimension for testing libraries reading. Zenodo (2022). doi:10.5281/zenodo.7015307"
+
+[[dataset]]
+id = "zeiss-czi-t2-ch1-reference"
+source = "doi:10.5281/zenodo.7015307"
+record_url = "https://zenodo.org/records/7015307"
+license = "CC-BY-4.0"
+file = "tests/fixtures/czi/zeiss_t2_ch1_reference.tif"
+size = 262518
+sha256 = "e06060e4b4141531445545c5f077c0f11579289d74285e9bf9c8025b8be57f68"
+tier = "git"
+extract_of = ["zeiss-czi-t2-ch1"]
+extract_script = "scripts/make_czi_fixtures.py"
+citation = "Rhode S. CZI (Carl Zeiss Image) dataset with artificial test camera images with various dimension for testing libraries reading. Zenodo (2022). doi:10.5281/zenodo.7015307"
+
+# --- public ND2 files (#902, ADR-0148): Zenodo, CC-BY-4.0, verbatim copies ---------------------
+
+[[dataset]]
+id = "nd2-glyco-paint-bf-frame"
+source = "doi:10.5281/zenodo.17487086"
+record_url = "https://zenodo.org/records/17487086"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2"
+size = 708608
+sha256 = "b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d"
+tier = "git"
+citation = "Bakker H. Glyco-PAINT reference. Zenodo (2025). doi:10.5281/zenodo.17487086"
+
+[[dataset]]
+id = "nd2-bioformats-pr4511-zc"
+source = "doi:10.5281/zenodo.24363428"
+record_url = "https://zenodo.org/records/24363428"
+license = "CC-BY-4.0"
+file = "tests/fixtures/nd2/ZC.nd2"
+size = 495616
+sha256 = "bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae"
+tier = "git"
+citation = "Chiaruttini N. nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511. Zenodo (2026). doi:10.5281/zenodo.24363428"

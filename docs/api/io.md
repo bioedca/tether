@@ -15,6 +15,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.adapters
 
+::: tether.io.czi
+
 ::: tether.io.deeplasi
 
 ::: tether.io.filename
@@ -28,6 +30,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.io.mcos
 
 ::: tether.io.movie
+
+::: tether.io.nd2
 
 ::: tether.io.recover
 

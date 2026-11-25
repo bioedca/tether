@@ -406,11 +406,16 @@ survives on a row with no valid native frames, which the detector skips.) On a r
 40-frame store, one bleaching and two non-bleaching molecules read
 `[[30, 20], [40, 40], [40, 40]]` against `frame_range` `[[0, 40], [0, 40], [0, 40]]`.
 
-**`alpha` and `gamma` NaN.** A NaN factor means the min-qualifying-traces gate withheld it.
-The NaN **stays in `/molecules.alpha` / `.gamma`**: absent a manual override,
-`compute_corrected_fret` only stamps `correction_method` / `correction_confidence`. So NaN
-factors next to `apparent-E (corrections unavailable)` are the *expected* signature of a
-withhold, not corruption. A missing factor never becomes a NaN in E (ADR-0003).
+**`alpha` and `gamma` NaN.** A NaN factor means that no factor was applied. One cause is the
+min-qualifying-traces gate, which withheld it. Another is an analysis-only import, which seeds
+every row at NaN (`src/tether/project/analysis_import.py`). The NaN **stays in
+`/molecules.alpha` / `.gamma`**: absent a manual override, `compute_corrected_fret` only stamps
+`correction_method` / `correction_confidence`.
+
+NaN factors next to `apparent-E (corrections unavailable)` are therefore an *expected*
+signature, not corruption. An import carries `/settings/analysis_only`. An α withhold is
+recorded in `/settings/leakage` (`withheld`) and a γ withhold in `/settings/gamma` (`withheld`).
+A missing factor never becomes a NaN in E (ADR-0003).
 
 E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
 there. For apparent E that is a frame with zero total intensity. For corrected E it is a frame
@@ -658,10 +663,18 @@ approved again
 
 `/generations/label_reviews` is an optional append-only dataset. Each row stores the
 current `molecule_id` (UTF-8) and `label_event` (signed 64-bit integer), the zero-based
-row index of a human accept or reject in `/labels/table`. A value of `-1` marks a
-carried label that is pending review after a clear or in an exported subset. The
-last review row for a molecule applies. A carry-over in `carried_keys` starts pending
-and stays out of supervised training until confirmed on the current extraction.
+row index of a human accept or reject in `/labels/table`, or of a confirmation. A value
+of `-1` marks a carried label that is pending review after a clear or in an exported
+subset. The last review row for a molecule applies. A carry-over in `carried_keys` starts
+pending and stays out of supervised training until confirmed on the current extraction.
+
+A confirmation (`tether.project.generation_reconcile.confirm_carried`, the reconciliation
+page, #923) is one human row of `/labels/table` with the molecule's current label, who
+confirmed and when. It does not change the label, and the earlier rows keep the original
+curator and time. A confirmed reject that has a reason also gets a copy of its
+`/labels/reject_log` row, with who confirmed and when, so the reason stays joined. The
+reconciliation of a later generation passes over a confirmation that kept the label, so
+the curator shown is still the person who set it.
 
 ## `/sources` — the source registry
 
