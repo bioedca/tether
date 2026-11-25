@@ -85,7 +85,7 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 23.1
+long_share = 20.4
 semicolons = 9
 long_paragraphs = 0
 retired = 6
@@ -106,7 +106,7 @@ retired = 0
 
 [pages."docs/packaging.md"]
 kind = "descriptive"
-long_share = 9.8
+long_share = 7.4
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -215,6 +215,13 @@ long_share = 18.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6
+
+[pages."docs/reference/movie-containers.md"]
+kind = "descriptive"
+long_share = 12.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"

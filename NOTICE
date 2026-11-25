@@ -294,6 +294,15 @@ FRET_cloud script output on the smfret-analysis2 test data  (GPL-3.0-only)  —
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv
   tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv
 
+ZEN test movie of ZEISS  (CC-BY-4.0)  — Rhode S, "CZI (Carl Zeiss Image)
+  dataset with artificial test camera images with various dimension for testing
+  libraries reading," Zenodo (2022), doi:10.5281/zenodo.7015307 (CC-BY-4.0).
+  Tether bundles the two frames of its movie T=2_CH=1.czi, exported to TIFF by
+  ZEISS pylibCZIrw 6.1.0, as the reference of the CZI adapter's bit-for-bit test
+  (#903). The file is licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the author travels with it:
+    tests/fixtures/czi/zeiss_t2_ch1_reference.tif
+
 Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
   preferred states of complementary trinucleotide repeat DNA hairpins
@@ -306,6 +315,17 @@ Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   dedicated to the public domain under CC0-1.0 (see LICENSES/CC0-1.0.txt and the
   REUSE.toml annotation), NOT GPL-3.0; Tether names the authors as a courtesy:
     tests/fixtures/weninger_hairpin/cascade110.traces
+
+Public ND2 files  (CC-BY-4.0)  — Bakker H, "Glyco-PAINT reference," Zenodo
+  doi:10.5281/zenodo.17487086 (2025), Leiden University; and Chiaruttini N,
+  "nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511,"
+  Zenodo doi:10.5281/zenodo.24363428 (2026), EPFL. Both CC-BY-4.0.
+  Tether bundles verbatim copies of one file of each record, used only as test
+  files of the ND2 reader (#902, ADR-0148). These files are licensed CC-BY-4.0
+  (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0;
+  attribution to the authors travels with them:
+    tests/fixtures/nd2/221012-Exp-1-A1-1-BF.nd2
+    tests/fixtures/nd2/ZC.nd2
 
 PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for the
   PySMACKS tutorial" (v1.0.0), Zenodo doi:10.5281/zenodo.21793247 (CC0-1.0).

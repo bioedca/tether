@@ -90,3 +90,24 @@ published release, never against an advisory build.
 
 The OS warning itself, and how to get past it per platform, is in
 [the installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).
+
+## How the in-app updater checks a download
+
+In this release, the in-app update notice downloads nothing and installs nothing. It names the
+newer release and links to the Releases page. You download, check and install the new release
+yourself, as [Update Tether](install.md#update-tether) tells you.
+
+The check that the updater will run on a downloaded installer is already part of Tether
+(`tether.gui.update_verify`, [ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)).
+It runs only when you allowed the update check. It accepts a file only when all of these are true:
+
+- The version is a stable `MAJOR.MINOR.PATCH` release, and the file name is this computer's
+  installer for that version.
+- GitHub holds a build-provenance attestation for the file's SHA-256 digest.
+- The bundled `gh` verifies that attestation offline. The attestation must come from the release workflow of
+  `bioedca/tether`, built for the tag of that same version, on a GitHub-hosted runner.
+
+The updater refuses a file that fails any check, and no setting turns the checks off. Tether does
+not yet show this check or its result to you, so there is no failure message to look for.
+Installing from inside Tether is still to come
+([#331](https://github.com/bioedca/tether/issues/331)), and its failure message comes with it.
