@@ -31,8 +31,9 @@ max_skipped = 23
 min_collected = 4011
 # 56 since #357 added eight shell round-trip tests behind needs_gl (test_shell_movie_panel.py);
 # 61 with the five Windows-helper tests of #331 (test_update_handoff.py);
-# 69 since #366 added eight frame-link tests behind needs_gl (two panel, six shell).
-max_skipped = 69
+# 62 with the ND2 movie-panel test of #1388 behind the same gate (test_movie_panel.py);
+# 70 since #366 added eight frame-link tests behind needs_gl (two panel, six shell).
+max_skipped = 70
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
