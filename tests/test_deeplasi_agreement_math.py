@@ -242,6 +242,58 @@ def test_a_window_role_that_is_not_the_export_fails(tmp_path, monkeypatch) -> No
         agree.window_export(mapping, "lab-90")
 
 
+def _window_with_movie(tmp_path, movie_bytes: bytes):
+    """A frozen ``window`` record whose ``movie`` input is a synthetic movie (#1115)."""
+    movie = tmp_path / "movies" / "acquisition.tif"
+    movie.parent.mkdir()
+    movie.write_bytes(movie_bytes)
+    export = tmp_path / "saved" / "acquisition-export.mat"
+    export.parent.mkdir()
+    export.write_bytes(b"not a real export")
+    out = tmp_path / "deeplasi-window" / "01"
+    agree.harness().freeze(
+        "deep-lasi",
+        saved=[export],
+        out=out,
+        tool_version="window, commit not recorded",
+        matlab_release="2023b",
+        inputs={"movie": movie},
+    )
+    return movie, agree.harness().verify(out)
+
+
+def test_the_movie_of_the_window_record_passes(tmp_path) -> None:
+    movie, record = _window_with_movie(tmp_path, b"the frames the export was made from")
+    assert agree.check_movie(movie, record, "lab-90") == movie
+
+
+@pytest.mark.parametrize(
+    "replace",
+    [
+        pytest.param(
+            lambda p: p.write_bytes(b"THE FRAMES THE EXPORT WAS MADE FROM"), id="replaced"
+        ),
+        pytest.param(lambda p: p.write_bytes(b"the frames"), id="shortened"),
+    ],
+)
+def test_a_movie_that_is_not_the_one_of_the_window_record_fails(tmp_path, replace) -> None:
+    movie, record = _window_with_movie(tmp_path, b"the frames the export was made from")
+    replace(movie)
+    with pytest.raises(AssertionError, match=r"^lab-90/movie: the movie is not the one") as err:
+        agree.check_movie(movie, record, "lab-90")
+    assert movie.name not in str(err.value)  # the id and the role, never a file
+
+
+def test_a_window_record_with_no_movie_input_fails(tmp_path, monkeypatch) -> None:
+    root = _frozen_window(tmp_path, monkeypatch)
+    rel = "deeplasi-window/01/acquisition-export.mat"
+    _, record = agree.window_record(_Mapping(root, {"lab-90": {"window": rel}}), "lab-90")
+    movie = tmp_path / "acquisition.tif"
+    movie.write_bytes(b"any frames")
+    with pytest.raises(AssertionError, match=r"^lab-90/movie: the window record names no movie"):
+        agree.check_movie(movie, record, "lab-90")
+
+
 def test_agreement_file_hashes_the_current_bytes_on_each_call(tmp_path, monkeypatch) -> None:
     # A digest cached by path passed a file that changed content but not size (#1193).
     data = tmp_path / "data"
