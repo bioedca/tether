@@ -191,6 +191,16 @@ def test_a_file_that_shrinks_after_it_opened_is_refused_not_read_in_part(tmp_pat
             movie.read_frames(0, 3)
 
 
+def test_a_frame_read_after_the_file_shrank_does_not_come_from_a_buffer(tmp_path: Path) -> None:
+    """Greptile on PR #1422: one small read must not leave the next frames in a buffer."""
+    path = write_sira(tmp_path / "m.sira", _frames())
+    with SiraMovie(path) as movie:
+        movie.read_frames(0, 1)
+        path.write_bytes(path.read_bytes()[:-200])
+        with pytest.raises(UnsupportedContainerError, match="ended inside frame 1"):
+            movie.read_frames(1, 3)
+
+
 def test_the_repr_names_the_file_and_its_shape(tmp_path: Path) -> None:
     with SiraMovie(write_sira(tmp_path / "m.sira", _frames())) as movie:
         assert repr(movie) == "SiraMovie('m.sira', frames=3, height=4, width=7, dtype='<f4')"

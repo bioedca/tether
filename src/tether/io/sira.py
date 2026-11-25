@@ -178,7 +178,9 @@ class SiraMovie:
         self._path = Path(path)
         self._lock = threading.Lock()
         self._closed = False
-        self._fh = self._path.open("rb")
+        # Unbuffered: a buffer filled by an earlier read could otherwise give back bytes
+        # that a file cut short after the open no longer holds.
+        self._fh = self._path.open("rb", buffering=0)
         try:
             size = self._fh.seek(0, 2)
             self._fh.seek(0)
@@ -240,7 +242,7 @@ class SiraMovie:
         want = stored.nbytes
         with self._lock:
             self._fh.seek(self._layout.offset + start * stored.shape[1] * _DTYPE.itemsize)
-            got = self._fh.readinto(memoryview(stored).cast("B")) if want else 0
+            got = _read_into(self._fh, memoryview(stored).cast("B")) if want else 0
         if got != want:
             raise _refuse(self._path, f"ended inside frame {start + got // stored[0].nbytes}")
         # Each frame is stored column by column (MATLAB order), so a (width, height) array
@@ -274,6 +276,17 @@ class SiraMovie:
             f"{type(self).__name__}({self._path.name!r}, frames={n}, "
             f"height={h}, width={w}, dtype={_DTYPE.str!r})"
         )
+
+
+def _read_into(fh: BinaryIO, view: memoryview) -> int:
+    """Fill ``view`` from ``fh``; return the bytes read, fewer only at the end of the file."""
+    got = 0
+    while got < len(view):
+        n = fh.readinto(view[got:])
+        if not n:
+            break
+        got += n
+    return got
 
 
 def _is_sira(head: bytes) -> bool:
