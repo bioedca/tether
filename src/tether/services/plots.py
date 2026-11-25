@@ -7,7 +7,7 @@ ordered list of named series, each a selection of molecules
 ([ADR-0124](../adr/0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md)).
 This module holds the part of that which is not a widget:
 
-* [`PLOTS`][] — one [`PlotSpec`][] for each of the fifteen population plot functions of
+* [`PLOTS`][] — one [`PlotSpec`][] for each of the sixteen population plot functions of
   [`tether.analysis`][], keyed by the function's own name, in the order the section lists
   them;
 * [`compose_plot`][] — run the entry's population function once for each series and draw the
@@ -212,7 +212,7 @@ def _spec(
     return PlotSpec(name, title, model, compute, _render(renderer), states)
 
 
-#: The fifteen population plots, in the order the section lists them: the trace views
+#: The sixteen population plots, in the order the section lists them: the trace views
 #: first, then the plots that read an ``/idealization`` model.
 PLOTS: tuple[PlotSpec, ...] = (
     _spec(
@@ -255,6 +255,11 @@ PLOTS: tuple[PlotSpec, ...] = (
         "population_fret_cloud_state_number_elbow",
         "State-number hint (k-vs-RMSE elbow)",
         "render_state_number_elbow",
+    ),
+    _spec(
+        "population_successive_frame_cloud",
+        "Successive-frame FRET cloud (E at frame i vs i + 1)",
+        "render_successive_frame_cloud",
     ),
     PlotSpec(
         "population_model_gaussian_overlay",
