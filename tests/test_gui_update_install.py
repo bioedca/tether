@@ -104,6 +104,8 @@ class _Steps:
         self.folder: Path | None = None
         self.gate: threading.Event | None = None
         self.ignore_cancel = False
+        self.verify_gate: threading.Event | None = None
+        self.verify_cancelled = None
 
     def download(self, version, *, progress, cancelled):
         from tether.gui.update_download import DownloadOutcome, DownloadResult
@@ -121,10 +123,21 @@ class _Steps:
         progress(4, 4)
         return DownloadResult(DownloadOutcome.DOWNLOADED, path=path)
 
-    def verify(self, path, version, *, settings_file, override_file, gh):
+    def verify(self, path, version, *, settings_file, override_file, gh, cancelled):
         from tether.gui.update_verify import Outcome
 
         self.log.append(("verify", threading.current_thread().name))
+        self.verify_cancelled = cancelled
+        if self.verify_gate is not None:
+            self.verify_gate.wait(5)
+            # As on Windows: the file was open here, so the first removal left it behind.
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b"abcd")
+            return SimpleNamespace(
+                outcome=Outcome("unavailable" if cancelled() else self.verdict),
+                reason=self.reason,
+                installer=None,
+            )
         assert path.read_bytes() == b"abcd"
         installer = self.installer if self.verdict == "verified" else None
         return SimpleNamespace(
@@ -533,6 +546,43 @@ def test_the_notice_shuts_down_when_the_application_quits(qtbot, window, store) 
     assert app.aboutToQuit.disconnect(notice.shutdown)
 
 
+def test_cancel_during_verification_stops_it_and_removes_the_file(
+    qtbot, window, store, tmp_path
+) -> None:
+    _allow(store)
+    steps = _Steps(tmp_path)
+    steps.verify_gate = threading.Event()
+    notice = _notice(window, store, steps)
+    _shown(qtbot, notice)
+    notice.install()
+    qtbot.waitUntil(lambda: notice.mode == "verifying", timeout=3000)
+    qtbot.waitUntil(lambda: steps.verify_cancelled is not None, timeout=3000)
+    assert steps.verify_cancelled() is False
+    _click(qtbot, window, "tetherUpdateCancel")
+    assert steps.verify_cancelled() is True  # the verifier sends nothing more
+    steps.verify_gate.set()
+    _settle_job(qtbot, notice)
+    assert notice.mode == "notice"
+    assert steps.folder is not None and not steps.folder.exists()  # removed again, by the job
+
+
+def test_turning_the_check_off_during_verification_stops_it(qtbot, window, store, tmp_path) -> None:
+    _allow(store)
+    steps = _Steps(tmp_path)
+    steps.verify_gate = threading.Event()
+    notice = _notice(window, store, steps)
+    _shown(qtbot, notice)
+    notice.install()
+    qtbot.waitUntil(lambda: steps.verify_cancelled is not None, timeout=3000)
+    notice.action.trigger()  # untick Help -> Check for new releases at startup
+    assert steps.verify_cancelled() is True
+    steps.verify_gate.set()
+    _settle_job(qtbot, notice)
+    assert [step for step, _ in steps.log] == ["download", "verify"]
+    assert steps.quits == []
+    assert steps.folder is not None and not steps.folder.exists()
+
+
 def test_turning_the_check_off_during_the_download_stops_the_update(
     qtbot, window, store, tmp_path
 ) -> None:
@@ -599,6 +649,21 @@ def test_the_question_waits_for_the_report(qtbot, window, store, tmp_path) -> No
     assert notice.mode == "report"
     _click(qtbot, window, "tetherUpdateDismiss")
     assert notice.asking
+
+
+def test_a_question_answered_from_help_during_the_report_is_not_asked_again(
+    qtbot, window, store, tmp_path
+) -> None:
+    result = store[0].parent / "update-result.txt"
+    result.parent.mkdir(parents=True)
+    result.write_text("updated 1.0.1\n", encoding="utf-8")
+    notice = _notice(window, store, check=lambda: None)  # no newer release
+    notice.start()
+    assert notice.mode == "report"
+    notice.action.trigger()  # tick Help -> Check for new releases at startup
+    _click(qtbot, window, "tetherUpdateDismiss")
+    assert not notice.asking
+    assert notice.mode is None
 
 
 def test_a_malformed_result_is_removed_and_shows_nothing(qtbot, window, store, tmp_path) -> None:

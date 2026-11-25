@@ -645,6 +645,8 @@ def _make_notice_class() -> type:
                 action.setVisible(action in visible)
 
         def _show_question(self) -> None:
+            if not self.state().prompt_pending:
+                return  # answered (Help menu) while the report of the last update was shown
             self._mode = "question"
             self._label.setText(QUESTION_TEXT)
             self._buttons(self._allow_action, self._decline_action)
@@ -794,15 +796,26 @@ def _make_notice_class() -> type:
             job = self._job
             emit = self._verified.emit
             settings, override, gh = self._settings_file, self._override_file, self._gh
+            cancel, folders, folder = self._cancel, self._folders, path.parent
 
             def run() -> None:
                 try:
                     result = verify(
-                        path, version, settings_file=settings, override_file=override, gh=gh
+                        path,
+                        version,
+                        settings_file=settings,
+                        override_file=override,
+                        gh=gh,
+                        cancelled=cancel.is_set,
                     )
                 except Exception:  # noqa: BLE001 - verify_update never raises; refuse if so
                     _LOG.debug("update verification raised", exc_info=True)
                     result = None
+                if cancel.is_set():
+                    # Cancelled (or quitting) while the file was being verified: remove the
+                    # folder again now that the verifier has let go of the file, whatever
+                    # the result, since a first removal can fail on a file held open.
+                    folders.remove(folder)
                 with contextlib.suppress(RuntimeError):
                     emit(job, result)
 
