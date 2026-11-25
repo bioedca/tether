@@ -133,7 +133,21 @@ recipe, two `rectangles` of different size are allowed when the recipes make the
 
 Each movie's layout, with its recipes, is stored as `/movies/layouts/<movie_id>` in the project.
 There is no command-line option for a layout or a recipe yet, and an extraction profile cannot
-hold a recipe yet; a movie whose two channels are separate files is not supported yet either.
+hold a recipe yet.
+
+A setup with two cameras writes the donor and the acceptor to two files. From Python,
+`extract_movie(donor_movie, output, acceptor_movie=acceptor_movie)` reads the two files as one
+acquisition (#909, `tether.io.pair`). Each file is one whole channel, so no layout applies and
+`--donor-side` is not used. The two movies must have the same frame count, frame time, pixel type
+and frame size, or the pair is refused with a message that names each difference. Tether does
+not align two movies in time.
+
+`add_movie_to_project` and `reextract_movie` take `acceptor_movie` too. The project keeps one
+`/movies` row for the pair, and its source registry keeps both files with their roles (`donor`
+and `acceptor`). A map between the two cameras comes from a bead file pair, through
+`tether.imaging.beadmap.bead_map_pair_from_files`. A `.tmap` or a map of one camera frame is
+refused for a pair, and a pair map is refused for one movie. There is no command-line option for
+a pair yet.
 
 A movie whose frames cannot hold the channel geometry of its `--tmap` or `--map` is refused
 before it is split, and the message names the movie's frame size and the geometry of both
