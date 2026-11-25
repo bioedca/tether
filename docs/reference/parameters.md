@@ -413,7 +413,8 @@ needs `≥ 20`. Tether drops a trace that fails as `short-pre` or `short-post`.
 
 γ is **per-molecule with a population-median fallback**. A qualifying molecule keeps its own γ,
 and a non-qualifying one silently takes the dataset median. Tether counts those in
-`/settings/gamma.attrs["n_fallback"]`. No marker on a row tells the two apart.
+`/settings/gamma.attrs["n_fallback"]`. No marker on a row tells the two apart. A molecule with
+the median γ is still stamped `corrected`, with confidence `1.0`.
 
 ## Idealization
 
