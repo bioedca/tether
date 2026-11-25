@@ -27,6 +27,12 @@ overlays, with a movie switcher for multi-movie experiments").
   half of the trace↔movie round-trip (PRD §7.3, §5.2; the shell wires it in #357):
   centre the camera on a spot (trace → movie) and receive a canvas click (movie → trace).
   The resolver that drives them lives in [`tether.gui.roundtrip`][].
+* [`current_frame`][tether.gui.movie_panel.NapariMoviePanel.current_frame],
+  [`set_frame`][tether.gui.movie_panel.NapariMoviePanel.set_frame] and
+  [`connect_frame_changed`][tether.gui.movie_panel.NapariMoviePanel.connect_frame_changed]
+  are the napari half of the synchronized scrubbing between the trace dock's frame cursor
+  and the movie's time slider (#366; [`FrameLink`][tether.gui.roundtrip.FrameLink]). A movie
+  switch keeps the frame shown.
 
 **Overlays.** Molecule spot positions are frame-independent, so a plain **2-D**
 Points layer (``[row, col]``) rides over every frame of the ``(T, H, W)`` movie as
@@ -276,6 +282,14 @@ class NapariMoviePanel:
         # Viewer-level mouse-drag callbacks registered by connect_spot_click, kept
         # so they can be detached on close (the pytest-qt QApplication is shared).
         self._spot_click_callbacks: list = []
+        # The frame link (#366): callbacks told the displayed frame each time it
+        # changes, the (movie index, frame) last told (``None``: none), and whether a
+        # movie switch or a clear is under way (its layer swap passes through frames
+        # nobody chose).
+        self._frame_callbacks: list[Callable[[int], object]] = []
+        self._told: tuple[int, int] | None = None
+        self._swapping = False
+        self._viewer.dims.events.current_step.connect(self._on_dims_step)
         self.apply_theme(self._theme)
         theme.subscribe(self.apply_theme)
 
@@ -348,6 +362,20 @@ class NapariMoviePanel:
     def active_index(self) -> int:
         """Index of the movie currently shown, or ``-1`` when none is set."""
         return self._active_index
+
+    @property
+    def n_frames(self) -> int:
+        """Number of frames of the movie shown, or ``0`` when none is shown."""
+        if self._movie_layer is None:
+            return 0
+        return int(self._movie_layer.data.shape[0])
+
+    @property
+    def current_frame(self) -> int:
+        """The frame shown (napari's time slider, axis 0 of ``(T, H, W)``), or ``-1``."""
+        if self._movie_layer is None:
+            return -1
+        return int(self._viewer.dims.current_step[0])
 
     @property
     def movie_names(self) -> list[str]:
@@ -457,16 +485,27 @@ class NapariMoviePanel:
         shape_changed = self._movie_layer is None or tuple(self._movie_layer.data.shape) != tuple(
             entry.display.shape
         )
-        self._set_image(entry.display, entry.contrast)
-        self._render_overlay(entry.overlay)
-        self._active_index = index
-        if self._switcher is not None and self._switcher.currentIndex() != index:
-            self._switcher.blockSignals(True)
-            self._switcher.setCurrentIndex(index)
-            self._switcher.blockSignals(False)
-        if shape_changed:
-            # Re-fit the camera so a differently-sized movie is fully framed.
-            self._viewer.reset_view()
+        # A switch keeps the frame shown (#366): napari resets its slider when the image
+        # layer is swapped, so the frame is put back, moved to the new movie's last frame
+        # if it is shorter. The frame callbacks hear only the frame the switch ends on.
+        frame = self.current_frame
+        self._swapping = True
+        try:
+            self._set_image(entry.display, entry.contrast)
+            self._render_overlay(entry.overlay)
+            self._active_index = index
+            if self._switcher is not None and self._switcher.currentIndex() != index:
+                self._switcher.blockSignals(True)
+                self._switcher.setCurrentIndex(index)
+                self._switcher.blockSignals(False)
+            if shape_changed:
+                # Re-fit the camera so a differently-sized movie is fully framed.
+                self._viewer.reset_view()
+            if frame >= 0:
+                self._viewer.dims.set_current_step(0, min(frame, self.n_frames - 1))
+        finally:
+            self._swapping = False
+        self._tell_frame()
         return self._movie_layer
 
     def clear_movies(self) -> None:
@@ -483,15 +522,20 @@ class NapariMoviePanel:
             self._switcher.blockSignals(True)
             self._switcher.clear()
             self._switcher.blockSignals(False)
-        for layer in (
-            self._movie_layer,
-            self._donor_layer,
-            self._acceptor_layer,
-            self._donor_aperture_layer,
-            self._acceptor_aperture_layer,
-        ):
-            if layer is not None and layer in self._viewer.layers:
-                self._viewer.layers.remove(layer)
+        self._swapping = True
+        try:
+            for layer in (
+                self._movie_layer,
+                self._donor_layer,
+                self._acceptor_layer,
+                self._donor_aperture_layer,
+                self._acceptor_aperture_layer,
+            ):
+                if layer is not None and layer in self._viewer.layers:
+                    self._viewer.layers.remove(layer)
+        finally:
+            self._swapping = False
+        self._told = None
         self._movie_layer = None
         self._donor_layer = None
         self._acceptor_layer = None
@@ -659,6 +703,57 @@ class NapariMoviePanel:
                 self._viewer.mouse_drag_callbacks.remove(cb)
         self._spot_click_callbacks.clear()
 
+    # --- the trace↔movie frame link (#366, PRD §7.3) ---------------------------
+
+    def set_frame(self, frame: int) -> None:
+        """Show frame ``frame`` of the active movie (moves napari's time slider).
+
+        Raises ``RuntimeError`` when no movie is shown and ``IndexError`` when ``frame``
+        is not a frame of it. The frame callbacks hear the new frame, as they do when
+        the user moves the slider.
+        """
+        if self._movie_layer is None:
+            raise RuntimeError("no movie is shown")
+        if isinstance(frame, bool) or not isinstance(frame, int | np.integer):
+            raise TypeError(f"frame must be an integer, got {frame!r}")
+        if not 0 <= int(frame) < self.n_frames:
+            raise IndexError(f"frame {frame} out of range (the movie has {self.n_frames})")
+        self._viewer.dims.set_current_step(0, int(frame))
+
+    def connect_frame_changed(self, callback: Callable[[int], object]) -> None:
+        """Call ``callback(frame)`` each time the frame shown changes.
+
+        That is a move of napari's time slider by the user or by [`set_frame`][], and
+        the end of each switch to another movie, even one that keeps the frame number:
+        another movie on screen is another frame shown. A switch calls it once, with the
+        frame it ends on.
+        """
+        self._frame_callbacks.append(callback)
+
+    def disconnect_frame_changed(self) -> None:
+        """Detach every callback registered by [`connect_frame_changed`][]."""
+        self._frame_callbacks.clear()
+
+    def _on_dims_step(self, _event: object = None) -> None:
+        if not self._swapping:
+            self._tell_frame()
+
+    def _tell_frame(self) -> None:
+        """Tell the frame callbacks the frame shown, unless they were last told this one.
+
+        A frame is a frame **of a movie**: the same frame number of another movie is told
+        again, so a follower that ignored the other movie gets back in step (#366).
+        """
+        frame = self.current_frame
+        told = (self._active_index, frame)
+        if told == self._told:
+            return
+        self._told = told
+        if frame < 0:
+            return
+        for callback in list(self._frame_callbacks):
+            callback(frame)
+
     # --- lifecycle -----------------------------------------------------------
 
     def show(self) -> None:
@@ -673,6 +768,8 @@ class NapariMoviePanel:
         """Close the viewer and release its window (and the switcher, if built)."""
         theme.unsubscribe(self.apply_theme)
         self.disconnect_spot_clicks()
+        self.disconnect_frame_changed()
+        self._viewer.dims.events.current_step.disconnect(self._on_dims_step)
         if self._switcher is not None:
             self._switcher.deleteLater()
             self._switcher = None
