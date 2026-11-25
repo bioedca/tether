@@ -23,7 +23,6 @@ All ``@pytest.mark.gui`` tests run headless over real round-trip ``.tether`` sto
 from __future__ import annotations
 
 import importlib.util
-import time
 
 import numpy as np
 import pytest
@@ -449,12 +448,12 @@ def test_five_thousand_molecules_fill_and_step_within_the_budget(shell) -> None:
     shell.window.show()
     shell.set_molecules(traces[:2], states[:2])  # warm up the first render of the trace dock
 
-    started = time.perf_counter()
-    shell.set_molecules(traces, states)
-    filled = time.perf_counter() - started
-    assert shell.molecule_list.count() == n
     # The fill is once per opening; the PRD budget is for one render + navigate, so the
-    # fill of a whole condition is held to ten of those.
+    # fill of a whole condition is held to ten of those. Timed as the best of three, the
+    # repository's reduction for a latency on a shared CI runner (``min_runtime``): one
+    # slow sample on a busy macOS runner took 2 s where the same fill takes 0.04 s.
+    filled = min_runtime(lambda: shell.set_molecules(traces, states), repeats=3)
+    assert shell.molecule_list.count() == n
     assert filled < 10 * PER_TRACE_LATENCY_BUDGET_S, f"filling {n} rows took {filled:.3f} s"
 
     cursor = {"row": 0}
@@ -467,9 +466,9 @@ def test_five_thousand_molecules_fill_and_step_within_the_budget(shell) -> None:
     per_step = min_runtime(step, repeats=12)
     assert per_step < PER_TRACE_LATENCY_BUDGET_S, f"one step took {per_step * 1000:.1f} ms"
     # A filter over the whole condition is one pass too.
-    started = time.perf_counter()
-    shell.molecule_view.set_filter("rejected")
-    assert time.perf_counter() - started < 10 * PER_TRACE_LATENCY_BUDGET_S
+    keys = iter(["rejected", "all"] * 3)
+    filtered = min_runtime(lambda: shell.molecule_view.set_filter(next(keys)), repeats=6)
+    assert filtered < 10 * PER_TRACE_LATENCY_BUDGET_S, f"a filter took {filtered:.3f} s"
 
 
 # --- 8. the missing step -------------------------------------------------------------------
