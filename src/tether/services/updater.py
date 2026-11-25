@@ -5,7 +5,7 @@
 **Install update** on the update notice ([`tether.gui.update_notice`][]) needs two facts
 about the running copy: its install folder, which the hand-off replaces, and its bundled
 update verifier, which checks the download. Both come from
-[`tether._verifier`][], which the GUI does not import directly (ADR-0100). Like
+`tether._verifier`, which the GUI does not import directly (ADR-0100). Like
 [`tether.services.status`][], this is a read that writes nothing, so it is a plain function
 and not a registered service command.
 """
