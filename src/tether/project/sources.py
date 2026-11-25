@@ -20,9 +20,10 @@ another one) names its original in ``derived_from`` and the recipe between them 
   read. It returns a [`FileDigest`][]: the checksum, the bytes read, and the device, inode
   and modification time of the file it read. A write that stores the checksum first checks
   that the path still names that file, unchanged, so a file replaced or written during the
-  read is never stored
-  ([`SourceReplaced`][], #1356). A large file is read by the checksum job of
-  [`tether.services.sources`][], which runs on a worker thread, never in the window thread.
+  read is not stored ([`SourceReplaced`][], #1356). On a filesystem that gives no inode
+  number, only the size and modification time are compared (#1419). A large file is read
+  by the checksum job of [`tether.services.sources`][], which runs on a worker thread,
+  never in the window thread.
 * **Link again.** A source that moved is linked to its new path with [`relink_source`][].
   The checksum decides: the new file must have the checksum the registry holds (or, for a
   movie whose record has none, the one ``/movies`` recorded at extraction). The same rule,
