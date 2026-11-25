@@ -87,6 +87,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.trace_dock
 
+::: tether.gui.undo
+
 ::: tether.gui.update_check
 
 ::: tether.gui.update_download

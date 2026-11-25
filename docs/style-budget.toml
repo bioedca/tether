@@ -358,8 +358,8 @@ retired = 0
 
 [pages."docs/stability.md"]
 kind = "descriptive"
-long_share = 29.6
-semicolons = 7
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 

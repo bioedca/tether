@@ -15,7 +15,9 @@ the movie switcher from ``/movies``, and the embedded napari movie panel
 donor and acceptor spots as a dock of Curate and correct (#356). The round-trip between a
 trace and its spot ([`tether.gui.roundtrip`][], #357) links the two: selecting a molecule,
 or pressing ``Enter``, shows its own movie centred on its donor spot, and clicking a spot
-selects its molecule.
+selects its molecule. The trace dock's frame cursor and the movie's displayed frame move
+together ([`frame_link`][tether.gui.shell.TetherShell.frame_link], #366) unless the user turns
+that off in the Curation menu.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -45,7 +47,8 @@ names the missing step, and it offers **Go to this step** ([`tether.gui.requirem
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
-the section is current, between the window's own File menu and its View and Help menus.
+the section is current, between the window's own File and Edit menus and its View and Help
+menus.
 The curation keys act only in a section whose ``keymap_scope`` is
 [`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
 event filter lets them through to the native widgets, and the cheat-sheet lists no key.
@@ -100,10 +103,13 @@ from tether.gui.sections import (
     guided_step,
 )
 from tether.gui.task_service import TaskService
+from tether.gui.undo import CATEGORY, CURATION, WINDOW, UndoEntry, UndoStack, WindowState
 from tether.services.curation import (
     ACCEPTED,
     REJECTED,
     UNDECIDED,
+    curation_snapshot,
+    curation_state,
     molecule_states,
     resolved_frame_range,
     resolved_window,
@@ -130,7 +136,7 @@ if TYPE_CHECKING:
     from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.services.corrections import CorrectionPassResult
-    from tether.services.curation import MoleculeState, StoredMolecule
+    from tether.services.curation import CurationSnapshot, MoleculeState, StoredMolecule
 
     #: Runs one whole-project fit, ``idealizer(fit, cancel=token, progress=report)``, on
     #: the worker thread and returns the command's
@@ -358,6 +364,57 @@ def _set_standard_shortcuts(action: Any, standard_key: Any, fallback: str) -> No
     if all(key.toString() != extra.toString() for key in keys):
         keys.append(extra)
     action.setShortcuts(keys)
+
+
+def _redo_keys(platform: str | None = None) -> tuple[str, ...]:
+    """The chords of **Edit → Redo** (#632): ``Ctrl+Shift+Z``, and ``Ctrl+Y`` on Windows.
+
+    ``Ctrl`` is ``Cmd`` on macOS, as Qt maps it. ``platform`` defaults to ``sys.platform``.
+    """
+    import sys
+
+    platform = sys.platform if platform is None else platform
+    return ("Ctrl+Shift+Z", "Ctrl+Y") if platform == "win32" else ("Ctrl+Shift+Z",)
+
+
+def _read_or_none(read: Callable[[], Any]) -> Any:
+    """Return ``read()``, or ``None`` when it fails (#632).
+
+    An unreadable state before an action only means the action cannot be undone, never
+    that it is refused.
+    """
+    try:
+        return read()
+    except Exception:  # noqa: BLE001 - the action itself still runs and reports
+        return None
+
+
+def _window_state(rows: Sequence[StoredMolecule], row: int) -> WindowState:
+    """The [`WindowState`][tether.gui.undo.WindowState] of a molecule's stored rows (#632).
+
+    ``window`` is that of row ``row`` when it is among ``rows``, else of the first row;
+    ``whole`` says whether every row has its whole ``frame_range``; ``rows`` holds each
+    row's own window. Raises ``KeyError`` when ``rows`` is empty.
+    """
+    if not rows:
+        raise KeyError("no stored row of the molecule")
+    selected = next((m for m in rows if m.row == row), rows[0])
+    return WindowState(
+        window=selected.window,
+        whole=all(m.window == m.frame_range for m in rows),
+        rows=tuple((m.molecule_id, m.window) for m in rows),
+    )
+
+
+def _category_state(rows: Sequence[StoredMolecule]) -> tuple[tuple[str, str], ...]:
+    """Each stored row's ``(molecule_id, category)``, the category state an undo writes back.
+
+    Two rows can share a molecule key with different categories, so the state is kept
+    row by row (#632). Raises ``KeyError`` when ``rows`` is empty.
+    """
+    if not rows:
+        raise KeyError("no stored row of the molecule")
+    return tuple((m.molecule_id, m.category) for m in rows)
 
 
 def _movie_panel_unavailable() -> str | None:
@@ -755,6 +812,10 @@ class TetherShell:
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
         self._curation_read_only_reason: str | None = None
+        # The undo and redo lists of this session's curation actions (#632). They belong
+        # to the open project and are emptied when it closes, another opens, or it
+        # becomes read-only; they are never written to the project file.
+        self._undo = UndoStack()
         # What the read-only banner may offer for a lock the open could not take
         # (#626): one-click Recover, typed Take over, or nothing yet.
         self._lock_recovery: Any | None = None
@@ -813,6 +874,12 @@ class TetherShell:
         self._roundtrip_site_of_row: dict[int, int] = {}
         self._roundtrip_error: str | None = None
         self._selecting_from_movie = False
+        # Synchronized scrubbing (#366): a FrameLink between the trace dock's frame
+        # cursor and the movie panel's frame, built with the round-trip. Whether it is
+        # on is Curate and correct's own state (its Curation menu toggles it), kept for
+        # this window only: it is not a preference and does not outlive the shell.
+        self._frame_link: Any | None = None
+        self._frame_link_enabled = True
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -1152,6 +1219,18 @@ class TetherShell:
         self._act_quit.setMenuRole(QtGui.QAction.MenuRole.QuitRole)
         self._act_quit.triggered.connect(self.quit)
 
+        # Edit menu (#632): undo and redo of the curation actions of this session. Each
+        # chord has a modifier, so neither shadows a bare curation key (§7.3). A focused
+        # text field keeps Ctrl+Z for its own text, as Qt gives it the shortcut first.
+        self._edit_menu = self._window.menuBar().addMenu("&Edit")
+        self._act_undo = self._edit_menu.addAction("&Undo")
+        self._act_undo.setShortcuts([QtGui.QKeySequence("Ctrl+Z")])
+        self._act_undo.triggered.connect(self.undo)
+        self._act_redo = self._edit_menu.addAction("&Redo")
+        self._act_redo.setShortcuts([QtGui.QKeySequence(key) for key in _redo_keys()])
+        self._act_redo.triggered.connect(self.redo)
+        self._sync_undo_actions()
+
         # The shipped cheat-sheet: it lists the keys that act in the current section (#342).
         self._cheatsheet = CheatSheetOverlay(
             self._keymap,
@@ -1168,7 +1247,7 @@ class TetherShell:
         )
 
         # The menus of the sections (#342): built from each section's MenuSpec, in the
-        # order of the registry, between the window's own File menu and its View and Help
+        # order of the registry, between the window's own File and Edit menus and its View and Help
         # menus. A section's menus show only while that section is current.
         menu_bar = self._window.menuBar()
         for spec in self._shown_sections:
@@ -1730,6 +1809,15 @@ class TetherShell:
         self._act_next_undecided = menu.addAction("Next &undecided molecule")
         self._act_next_undecided.triggered.connect(self.select_next_undecided)
         self.require(self._act_next_undecided, "traces")
+        menu.addSeparator()
+        # Synchronized scrubbing (#366): on unless the user turns it off here.
+        self._act_link_frames = menu.addAction("&Link trace and movie frames")
+        self._act_link_frames.setCheckable(True)
+        self._act_link_frames.setChecked(self._frame_link_enabled)
+        self._act_link_frames.setStatusTip(
+            "Move the movie with the trace's frame cursor, and the cursor with the movie"
+        )
+        self._act_link_frames.toggled.connect(self.set_frame_link_enabled)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -2124,6 +2212,12 @@ class TetherShell:
 
     def _on_list_row_changed(self, row: int) -> None:
         self._molecule_view.sync_header(row)
+        # The frame link still names the previous molecule: drop it before the dock shows
+        # the new trace and the jump below switches movies, so a frame the panel tells on
+        # the way is not mapped onto the new trace with the old one's length. With no row
+        # selected (a filter that shows none, #630) it stays dropped: the dock is empty.
+        if self._frame_link is not None:
+            self._frame_link.clear_target()
         if 0 <= row < len(self._traces):
             self._current_index = row
             trace = self._traces[row]
@@ -2144,6 +2238,10 @@ class TetherShell:
             # status, so the molecule message stays.
             if not self._selecting_from_movie:
                 self._focus_movie(row)
+            # Synchronized scrubbing (#366): link the cursor to this molecule's movie. A
+            # list selection shows the cursor frame in the movie; a click on a spot keeps
+            # the frame the user was looking at, and moves the cursor there.
+            self._retarget_frame_link(row, lead="movie" if self._selecting_from_movie else "trace")
 
     @property
     def overlap_dock(self) -> Any | None:
@@ -2380,6 +2478,7 @@ class TetherShell:
         disconnect = getattr(panel, "disconnect_spot_clicks", None)
         if disconnect is not None:
             disconnect()  # a re-listed project must not fire the old navigator too
+        self._unwire_frame_link()
         shown = [
             self._project_movies[row]
             for row, _ in sorted(self._movie_rows.items(), key=lambda item: item[1])
@@ -2402,6 +2501,7 @@ class TetherShell:
         self._roundtrip = navigator
         self._roundtrip_rows = rows
         self._roundtrip_site_of_row = {row: site for site, row in enumerate(rows)}
+        self._wire_frame_link(panel)
 
     def _focus_movie(self, row: int) -> bool:
         """Show list row ``row``'s molecule in the movie panel; ``False`` if it has no spot."""
@@ -2463,6 +2563,85 @@ class TetherShell:
         finally:
             self._selecting_from_movie = False
 
+    # --- synchronized scrubbing (#366, PRD §7.3) -------------------------------
+
+    @property
+    def frame_link(self) -> Any | None:
+        """The [`FrameLink`][tether.gui.roundtrip.FrameLink] of the trace dock and the movie panel.
+
+        Built with the [`roundtrip`][], so ``None`` exactly when that is ``None``. While it
+        is on and the panel shows the selected molecule's own movie, dragging the trace
+        dock's frame cursor moves the movie to that frame, and moving the movie's time
+        slider moves the cursor.
+        """
+        return self._frame_link
+
+    @property
+    def frame_link_enabled(self) -> bool:
+        """Whether synchronized scrubbing is on in Curate and correct (on by default)."""
+        return self._frame_link_enabled
+
+    def set_frame_link_enabled(self, enabled: bool) -> None:
+        """Turn synchronized scrubbing on or off (Curation → Link trace and movie frames).
+
+        The state belongs to Curate and correct and to this window: it is kept across
+        projects opened here, and it is not stored as a preference.
+        """
+        self._frame_link_enabled = bool(enabled)
+        action = getattr(self, "_act_link_frames", None)
+        if action is not None and action.isChecked() != self._frame_link_enabled:
+            action.blockSignals(True)
+            action.setChecked(self._frame_link_enabled)
+            action.blockSignals(False)
+        if self._frame_link is not None:
+            self._frame_link.set_enabled(self._frame_link_enabled)
+        self._status(
+            "Trace and movie frames linked"
+            if self._frame_link_enabled
+            else "Trace and movie frames not linked"
+        )
+
+    def _wire_frame_link(self, panel: Any) -> None:
+        """Build the frame link over ``panel`` and the trace dock (a failure is reported)."""
+        from tether.gui.roundtrip import FrameLink
+
+        try:
+            link = FrameLink(panel, self._trace_dock, enabled=self._frame_link_enabled)
+            link.connect()
+        except Exception as exc:  # noqa: BLE001 - no frame link is not a failed open
+            self._unwire_frame_link()
+            self._status(f"Frame link unavailable: {exc}")
+            return
+        self._frame_link = link
+
+    def _unwire_frame_link(self) -> None:
+        """Drop the frame link and the listeners it added to the panel and the dock."""
+        self._frame_link = None
+        panel = self._movie_panel
+        disconnect = getattr(panel, "disconnect_frame_changed", None)
+        if disconnect is not None:
+            disconnect()
+        self._trace_dock.disconnect_frame_cursor()
+
+    def _retarget_frame_link(self, row: int, *, lead: str) -> None:
+        """Link the cursor of list row ``row``'s trace to that molecule's own movie."""
+        link, navigator = self._frame_link, self._roundtrip
+        if link is None:
+            return
+        site = self._roundtrip_site_of_row.get(row)
+        if navigator is None or site is None or not 0 <= row < len(self._traces):
+            link.clear_target()
+            return
+        trace = self._traces[row]
+        try:
+            movie_index = navigator.movie_ids.index(navigator.index.site(site).movie_id)
+            link.set_target(
+                movie_index, frame_offset=trace.frame_offset, n_frames=trace.n_frames, lead=lead
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            link.clear_target()
+            self._status(f"Frame link failed: {exc}")
+
     def _select_shown(self, row: int) -> None:
         """Select list row ``row``; when the filter hides it, show all molecules first (#630).
 
@@ -2480,6 +2659,7 @@ class TetherShell:
 
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
+        self._unwire_frame_link()
         panel, dock_widget = self._movie_panel, self._movie_dock_widget
         self._movie_panel = None
         self._movie_dock_widget = None
@@ -2810,8 +2990,14 @@ class TetherShell:
         return self._file_menu
 
     def _set_read_only_reason(self, reason: str | None) -> None:
-        """Keep browse-only state visible and disable the exposed source-write controls."""
+        """Keep browse-only state visible and disable the exposed source-write controls.
+
+        It is called when a project opens, when it closes and when the session lock is
+        lost, so it also empties the undo and redo lists (#632): they belong to one
+        open, writable project.
+        """
         self._curation_read_only_reason = reason
+        self._clear_undo()
         if reason is None:
             self._read_only_banner.clear()
             self._read_only_banner.hide()
@@ -2869,7 +3055,8 @@ class TetherShell:
         browsing: the project opens read-only, write seams stay disabled, and the
         status banner records why. Replacing a project releases the prior session
         lock; [`close`][] releases the current one (after any in-flight idealizer
-        write settles).
+        write settles). Replacing a project also closes the summary of the last
+        correction pass, so [`correction_summary`][] is ``None`` until the next pass.
 
         Every [`TraceView`][tether.gui.trace_dock.TraceView] carries its ``molecule_key`` so
         the idealize / overlap seams resolve the store row. An **analysis-only** import
@@ -3088,6 +3275,7 @@ class TetherShell:
         # new store (no stale overlap view leaking across a re-open).
         self._reset_store_docks()
         self._close_generation_page()
+        self._close_correction_summary()
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
@@ -3574,7 +3762,8 @@ class TetherShell:
         Refused (returns ``False`` with a status message) while idealization owns the
         store, as [`load_project`][] is. The lock release takes the same nonce-safe
         route as a lock-loss fallback: a transient failure keeps the handle and the
-        release timer retries it.
+        release timer retries it. It also closes the summary of the last correction
+        pass, so [`correction_summary`][] is ``None`` afterwards (#1393).
         """
         if self._project_path is None:
             self._status("Close project: no project is open")
@@ -3595,6 +3784,7 @@ class TetherShell:
         self._overlap_seam = None
         self._conditions = None
         self._reset_store_docks()
+        self._close_correction_summary()
         self._project_path = None
         self._analysis_section.set_project(None)
         self._readiness = None
@@ -4091,8 +4281,22 @@ class TetherShell:
         """The [`CorrectionSummaryDialog`][tether.gui.corrections.CorrectionSummaryDialog].
 
         It is the summary of the last correction pass, or ``None`` before the first one.
+        Closing the project or opening another one closes the summary and resets this to
+        ``None`` until the next pass (#1393).
         """
         return self._correction_summary
+
+    def _close_correction_summary(self) -> None:
+        """Close the summary of the last pass when the project it describes goes (#1393).
+
+        The summary shows no project name or path, so a summary left open after the
+        project is closed, or after another one is opened, reads as the new project's.
+        """
+        summary = self._correction_summary
+        self._correction_summary = None
+        if summary is not None:
+            with suppress(RuntimeError):  # the window already deleted the dialog
+                summary.close()
 
     def _correction_pass_unavailable(self) -> str | None:
         """Why the correction pass cannot start now, or ``None`` when it can.
@@ -4378,15 +4582,21 @@ class TetherShell:
             return
         project, row, trace, nonce = selection
 
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        writers = {
+            CurationAction.ACCEPT: project.accept,
+            CurationAction.REJECT: project.reject,
+            CurationAction.UNREJECT: project.unreject,
+        }
+        before = _read_or_none(lambda: curation_snapshot(project.path, key))
         try:
-            writers = {
-                CurationAction.ACCEPT: project.accept,
-                CurationAction.REJECT: project.reject,
-                CurationAction.UNREJECT: project.unreject,
-            }
             self._guard_session_write(project, nonce)
-            result = writers[action](trace.molecule_key, **self._labeler_kwargs())
+            result = writers[action](key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._keep_history_if_unchanged(
+                key, before, lambda: curation_snapshot(project.path, key)
+            )
             self._status(f"{verb} failed: {exc}")
             return
         if action is CurationAction.UNREJECT and result is None:
@@ -4394,6 +4604,7 @@ class TetherShell:
             return
 
         target = trace.name or trace.molecule_key
+        self._record_undo(CURATION, key, row, f"{verb.lower()} {target}", before, project=project)
         self._queue_analysis_refresh()
         self._queue_readiness_refresh()
         # The rows of this key show their new state now, with no read of the store (#630);
@@ -4576,6 +4787,253 @@ class TetherShell:
             self._refresh_project_lock()
             raise
 
+    # --- undo and redo of the curation actions (#632) ------------------------------
+
+    @property
+    def undo_stack(self) -> UndoStack:
+        """The undo and redo lists of this session's curation actions (#632)."""
+        return self._undo
+
+    @property
+    def edit_menu(self) -> QtWidgets.QMenu:
+        """The ``&Edit`` menu: **Undo** and **Redo** of the curation actions (#632)."""
+        return self._edit_menu
+
+    @property
+    def undo_action(self) -> Any:
+        """The **Edit → Undo** action (``Ctrl+Z``)."""
+        return self._act_undo
+
+    @property
+    def redo_action(self) -> Any:
+        """The **Edit → Redo** action (``Ctrl+Shift+Z``; also ``Ctrl+Y`` on Windows)."""
+        return self._act_redo
+
+    def _record_undo(
+        self,
+        kind: str,
+        key: str,
+        row: int,
+        description: str,
+        before: object,
+        *,
+        after: object = None,
+        project: Project | None = None,
+    ) -> None:
+        """Put a stored curation action on the undo list; an action that changed nothing is not.
+
+        ``before`` (or the state after) is ``None`` when it could not be read: the action
+        is then stored but cannot be undone, and the molecule's entries leave both lists.
+
+        For an accept, reject or un-reject (``project`` given) the state after the write
+        is read back from the store, so a redo writes what the action stored.
+        """
+        if kind == CURATION:
+            assert project is not None
+            try:
+                after = curation_snapshot(project.path, key)
+            except Exception:  # noqa: BLE001 - the write stands; it only cannot be undone
+                after = None
+        if before is None or after is None:
+            # A stored action that cannot be undone drops the molecule's entries: an undo
+            # or a redo of an earlier action written over it would take it back unseen.
+            # A redo of another molecule's action must not follow a new action either.
+            self._forget_undo(key)
+            self._undo.clear_redo()
+            self._sync_undo_actions()
+            return
+        if after == before:
+            return
+        self._undo.push(UndoEntry(kind, key, row, description, before, after))  # type: ignore[arg-type]
+        self._sync_undo_actions()
+
+    def _clear_undo(self) -> None:
+        """Empty the undo and redo lists: they belong to one open, writable project."""
+        self._undo.clear()
+        self._sync_undo_actions()
+
+    def _keep_history_if_unchanged(
+        self, key: str, before: object, read: Callable[[], object]
+    ) -> None:
+        """Keep molecule ``key``'s entries after a failed write only if its state is unchanged.
+
+        A writer can fail part way, after it changed the stored state: a reject can store
+        its label and then fail on its reject-log row. An undo or a redo written over such
+        a state would take it back unseen, so the molecule's entries leave both lists
+        unless its state can be read and still equals ``before``.
+        """
+        if before is not None and _read_or_none(read) == before:
+            return
+        self._forget_undo(key)
+
+    def _forget_undo(self, key: str) -> None:
+        """Drop molecule ``key``'s entries from both lists (see [`UndoStack.forget`][])."""
+        self._undo.forget(key)
+        self._sync_undo_actions()
+
+    def _sync_undo_actions(self) -> None:
+        """Name the action each Edit entry acts on, and enable it only when there is one."""
+        undo, redo = self._undo.undo_entry, self._undo.redo_entry
+        self._act_undo.setText(f"&Undo {undo.description}" if undo else "&Undo")
+        self._act_undo.setEnabled(undo is not None)
+        self._act_redo.setText(f"&Redo {redo.description}" if redo else "&Redo")
+        self._act_redo.setEnabled(redo is not None)
+
+    def undo(self) -> bool:
+        """Take back the last curation action of this session (**Edit → Undo**, ``Ctrl+Z``).
+
+        The molecule gets its stored state from before the action again, by new writes:
+        the curation log and the molecule edit log gain rows and lose none (PRD §5.1).
+        The list then selects that molecule. Refused, with a status message, while the
+        project is read-only, while idealization runs, and when there is nothing to undo.
+        Returns whether a state was written back.
+        """
+        return self._step_history(redo=False)
+
+    def redo(self) -> bool:
+        """Do the last undone action again (**Edit → Redo**).
+
+        The keys are ``Ctrl+Shift+Z``, and also ``Ctrl+Y`` on Windows. It writes the state
+        the action stored, by new writes, as [`undo`][] does, and is refused in the same
+        cases. A new curation action empties the redo list.
+        """
+        return self._step_history(redo=True)
+
+    def _step_history(self, *, redo: bool) -> bool:
+        verb = "Redo" if redo else "Undo"
+        writable = self._writable_project(verb)
+        if writable is None:
+            return False
+        entry = self._undo.redo_entry if redo else self._undo.undo_entry
+        if entry is None:
+            self._status(f"{verb} unavailable: no curation action to {verb.lower()}")
+            return False
+        project, nonce = writable
+        state = entry.after if redo else entry.before
+        expected = entry.before if redo else entry.after
+        if _read_or_none(lambda: self._read_entry_state(project, entry)) != expected:
+            # Something the lists do not hold changed the molecule since (a return-leg
+            # import, a bulk reject, a step the store refused): writing this step would
+            # take that back unseen, so the molecule's entries leave both lists.
+            self._forget_undo(entry.molecule_key)
+            self._status(
+                f"{verb} unavailable: {entry.description} was changed since by an edit "
+                "that cannot be undone, so its steps are no longer on the lists"
+            )
+            return False
+        try:
+            self._guard_session_write(project, nonce)
+            self._write_undo_state(project, entry, state, verb.lower())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            # The store refused this step, so it stays refused: drop it, so the steps
+            # before it can still be taken. A lost lock has emptied both lists already,
+            # and a write that failed part way drops the molecule's entries here.
+            self._keep_history_if_unchanged(
+                entry.molecule_key,
+                entry.before if redo else entry.after,
+                lambda: self._read_entry_state(project, entry),
+            )
+            still_there = self._undo.redo_entry if redo else self._undo.undo_entry
+            if still_there is entry:
+                self._undo.discard(redo=redo)
+            self._sync_undo_actions()
+            self._refresh_undo_rows(project, entry)
+            self._status(
+                f"{verb} {entry.description} failed: {exc}; it is no longer on the {verb} list"
+            )
+            return False
+        if redo:
+            self._undo.redone()
+        else:
+            self._undo.undone()
+        self._sync_undo_actions()
+        self._refresh_undo_rows(project, entry)
+        self._select_undo_row(entry)
+        self._after_states_changed()
+        self._status(f"{verb} {entry.description}")
+        return True
+
+    def _read_entry_state(self, project: Project, entry: UndoEntry) -> object:
+        """Read the stored state of ``entry``'s molecule, in the form its ``kind`` names."""
+        key = entry.molecule_key
+        if entry.kind == CURATION:
+            return curation_snapshot(project.path, key)
+        if entry.kind == CATEGORY:
+            return _category_state(stored_rows(project.path, (key,)))
+        return _window_state(stored_rows(project.path, (key,)), entry.row)
+
+    def _write_undo_state(
+        self, project: Project, entry: UndoEntry, state: Any, reason: str
+    ) -> None:
+        """Write ``state`` back for ``entry``'s molecule by the action's own setters.
+
+        Each write appends to its log: ``/labels`` (and ``/labels/reject_log``) for an
+        accept or reject, ``/settings/molecule_audit`` for a category or a window, whose
+        ``reason`` column then reads ``undo`` or ``redo``.
+        """
+        key = entry.molecule_key
+        labeler = self._labeler_kwargs()
+        if entry.kind == CURATION:
+            snap: CurationSnapshot = state
+            project.restore_curation(
+                key,
+                snap.label,
+                pending=snap.pending,
+                reason=snap.reason,
+                note=snap.note,
+                value=snap.value,
+                restore_note=reason,
+                **labeler,
+            )
+        elif entry.kind == CATEGORY:
+            project.restore_categories(key, dict(state), reason=reason, **labeler)
+        else:
+            window: WindowState = state
+            if window.whole:
+                project.reset_analysis_window(key, reason=reason, **labeler)
+            else:
+                project.restore_analysis_windows(key, dict(window.rows), reason=reason, **labeler)
+
+    def _refresh_undo_rows(self, project: Project, entry: UndoEntry) -> None:
+        """Show the stored state of ``entry``'s molecule on its list rows and trace view."""
+        key = entry.molecule_key
+        rows = self._molecule_view.rows_of_key(key)
+        try:
+            if entry.kind == CURATION:
+                label = curation_snapshot(project.path, key).label
+                self._molecule_view.update_rows(rows, curation=curation_state(label))
+                self._queue_analysis_refresh()
+                self._queue_readiness_refresh()
+            elif entry.kind == CATEGORY:
+                # Each list row shows its own stored category; a listed row the store
+                # does not hold shows its key's first.
+                by_row = {m.row: m for m in stored_rows(project.path, (key,))}
+                first = next(iter(by_row.values()))
+                for i in rows:
+                    self._molecule_view.update_rows([i], category=by_row.get(i, first).category)
+            else:
+                self._queue_analysis_refresh()
+                self._queue_readiness_refresh()
+                self._queue_states_refresh()
+                self._show_stored_windows(project.path, (key,))
+        except Exception:  # noqa: BLE001 - the next full read shows it; the write stands
+            self._queue_states_refresh()
+
+    def _select_undo_row(self, entry: UndoEntry) -> None:
+        """Select the molecule an undo or redo changed, so the curator sees it (#632).
+
+        The row the action was made on when it still carries the molecule, else the
+        first row that does. A row the filter hides is shown first.
+        """
+        rows = [i for i, t in enumerate(self._traces) if t.molecule_key == entry.molecule_key]
+        if not rows:
+            return
+        row = entry.row if entry.row in rows else rows[0]
+        if CURATE_SECTION in self._sections and self._section != CURATE_SECTION:
+            self.set_section(CURATE_SECTION)
+        if row != self._molecule_list.currentRow() or not self._molecule_view.shown(row):
+            self._select_shown(row)
+
     def _assign_category(self, integer_class: int) -> None:
         """Store class ``integer_class`` of the molecule's condition list as its category.
 
@@ -4601,15 +5059,30 @@ class TetherShell:
             count = f"{len(classes)} " + ("category" if len(classes) == 1 else "categories")
             self._status(f"{verb} unavailable: its condition has {count}")
             return
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
+        target = trace.name or key
+        self._record_undo(
+            CATEGORY,
+            key,
+            row,
+            f"category {integer_class} ({name}) for {target}",
+            before,
+            after=_read_or_none(read),
+        )
         self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=name)
         self._after_states_changed()
-        self._status(f"Category {integer_class} ({name}) set for {trace.name or key}")
+        self._status(f"Category {integer_class} ({name}) set for {target}")
 
     def _clear_category(self) -> None:
         """Clear the selected molecule's category to *uncategorized* (``0``, §7.3)."""
@@ -4617,15 +5090,29 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, _row, trace, nonce = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.clear_category(key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
+        self._record_undo(
+            CATEGORY,
+            key,
+            row,
+            f"category clearing for {trace.name or key}",
+            before,
+            after=_read_or_none(read),
+        )
         self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category="")
         self._after_states_changed()
         self._status(f"Category cleared for {trace.name or key}")
@@ -4976,6 +5463,7 @@ class TetherShell:
             lambda: project.set_analysis_window(key, *wanted, **self._labeler_kwargs()),
             verb,
             "Analysis window",
+            f"analysis-window {name}",
         )
 
     def _reset_window(self) -> None:
@@ -4995,6 +5483,7 @@ class TetherShell:
             lambda: project.reset_analysis_window(key, **self._labeler_kwargs()),
             verb,
             "Analysis window reset to",
+            "window reset",
         )
 
     def _photobleach(self) -> None:
@@ -5043,6 +5532,7 @@ class TetherShell:
             lambda: project.set_analysis_window(key, start, bleach, **self._labeler_kwargs()),
             verb,
             f"{found} analysis window",
+            "photobleach edit",
         )
 
     def _write_window(
@@ -5054,18 +5544,26 @@ class TetherShell:
         write: Callable[[], object],
         verb: str,
         done: str,
+        undo_text: str,
     ) -> None:
         """Run one analysis-window write, then show the window the project now stores.
 
         The window is read back from the project rather than assumed from the request,
         so the dock's bounds and overlay always agree with ``/molecules.analysis_window``.
+        The windows before and after go on the undo list as ``undo_text`` (#632).
         """
         key = trace.molecule_key
         assert key is not None  # every caller passed _writable_selection
+
+        def read() -> WindowState:
+            return _window_state(stored_rows(project.path, (key,)), row)
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             write()
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_analysis_refresh()
@@ -5074,11 +5572,15 @@ class TetherShell:
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
+            self._record_undo(WINDOW, key, row, undo_text, None)  # cannot be undone
             self._status(
                 f"Analysis window saved for {trace.name or key}, "
                 f"but the trace view could not reread it: {exc}"
             )
             return
+        after = _window_state(tuple(by_row.values()), row)
+        description = f"{undo_text} for {trace.name or key}"
+        self._record_undo(WINDOW, key, row, description, before, after=after)
         selected = by_row.get(row) or next(iter(by_row.values()))
         start, stop = selected.window
         self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
@@ -5727,6 +6229,7 @@ def traces_from_store(
                 frame_time=frame_times.get(_decode(movie_col[i])),
                 molecule_key=_decode(key_col[i]),
                 analysis_window=_relative_window(lo, int(donor.size), window),
+                frame_offset=lo,
             )
         )
     return views

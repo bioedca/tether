@@ -146,6 +146,29 @@ A molecule whose movie is not shown has no spot to go to. For such a molecule, *
 gives the reason, for example
 `Jump to movie spot unavailable: mol-4 has no spot in a movie shown here`.
 
+### Move through the trace and the movie together
+
+The trace plots have a **frame cursor**: a vertical line on the intensity plot and on the
+FRET plot. The movie panel follows the cursor, and the cursor follows the movie.
+
+- To see a frame of the trace in the movie, drag the cursor. It stops on whole frames, and
+  the panel shows the same frame of the molecule's movie.
+- To see where a movie frame is on the trace, move the time slider under the movie. The
+  cursor moves to that frame. Before the trace starts or after it ends, the cursor stops at
+  the first or last frame of the trace.
+- When you select another molecule in the list, the cursor stays on its frame and the movie
+  shows that frame.
+- When you click a spot to select its molecule, the movie stays on its frame. The cursor
+  moves to that frame.
+
+The link works only while the panel shows the selected molecule's own movie. If you choose
+another movie in the **Movie** box, the cursor and that movie do not move each other. When
+you choose the molecule's movie again, the cursor moves to the frame that the movie shows.
+
+To turn the link off, clear **Curation → Link trace and movie frames**. The setting is for
+Curate and correct in this window only. It stays as you set it while the window is open, also
+when you open another project. When you start Tether again, the link is on.
+
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 The keys on this page are the ones Tether starts with. To move one, see
 [Change a key](#change-a-key).
@@ -190,6 +213,8 @@ where this list shows Ctrl:
 - **File → Open project…**: Ctrl+O.
 - **File → Close project**: Ctrl+W.
 - **File → Quit**: Ctrl+Q.
+- **Edit → Undo**: Ctrl+Z.
+- **Edit → Redo**: Ctrl+Shift+Z. On Windows, Ctrl+Y also works.
 - **Help → Documentation**: F1. It opens the documentation for your version of Tether.
 
 Tether saves each mark when you make it, so **File → Close project** has nothing to save. It
@@ -300,9 +325,46 @@ The digits and letters type into the name field of this window. There they never
   not rejected it reads `Un-reject unavailable: selected molecule is not rejected` and changes
   nothing.
 
-Nothing you do here deletes a molecule or a decision. Every accept, reject and un-reject is
-added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
-so the history survives a reversal.
+### Undo a key you pressed by mistake
+
+To take back the last curation action, choose **Edit → Undo** or press **Ctrl+Z** (**Cmd+Z**
+on macOS). To do it again, choose **Edit → Redo** or press **Ctrl+Shift+Z**. On Windows,
+**Ctrl+Y** also works. Undo works for these actions:
+
+- Accept, reject and un-reject.
+- A category key (**1**–**9**, the overflow list) and **0**.
+- The analysis-window keys **-**, **=**, **[**, **]** and **R**, and the photobleach key **P**.
+
+The menu names the action, for example **Undo reject mol-0412**. You can undo several
+actions, one at a time, newest first. After an undo, the list selects the molecule again, so
+you see what changed. The status bar starts with `Undo` or `Redo` and names the action. A new
+action clears the redo list.
+
+An undo gives the molecule back what it had before the action. That includes the reason of a
+reject and the review mark of a label from an earlier
+[extraction](#after-a-movie-is-extracted-again). The undo list belongs to the open project in
+this session. Tether clears it when you close the project, when you open another one, and
+when the project becomes read-only. Tether does not save it in the project file. In a
+read-only project, the status bar reads `Undo unavailable: project is read-only` and the
+reason.
+
+Undo does not take back a correction pass, an idealization, an import or a bulk
+threshold-reject.
+
+Sometimes Tether cannot read a molecule's state around an action, or a write fails part way.
+Then Tether keeps what was stored and removes that molecule's actions from both lists.
+
+An import or a bulk reject can also change a molecule after an action on the list. Then the
+undo of that action does not run. The status bar says so, and the molecule's actions leave
+the lists. So an undo never takes back a change that is not on the list.
+
+Nothing you do here deletes a molecule or a decision. An undo adds the rows that restore the
+earlier state. It removes no row, so the history survives a reversal.
+
+Each accept, reject and un-reject goes to the project's
+[curation log](../reference/tether-format.md#labels-the-append-only-curation-log). So does its
+undo or redo. A category or window edit, and its undo or redo, goes to the molecule edit log
+`/settings/molecule_audit`.
 
 ## Change a key
 
