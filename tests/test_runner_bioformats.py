@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 _N, _H, _W = 24, 32, 40
 
 
-def _ome_movie(tmp_path: Path, dtype: str, name: str = "movie.ome.tif") -> tuple[Path, np.ndarray]:
+def _ome_movie(
+    tmp_path: Path, dtype: str, name: str = "movie.ome.tif", size_y: float = 0.16
+) -> tuple[Path, np.ndarray]:
     rng = np.random.default_rng(907)
     frames = rng.integers(0, 4000, size=(_N, _H, _W)).astype(dtype)
     path = tmp_path / name
@@ -53,7 +55,7 @@ def _ome_movie(tmp_path: Path, dtype: str, name: str = "movie.ome.tif") -> tuple
             "axes": "TYX",
             "PhysicalSizeX": 0.16,
             "PhysicalSizeXUnit": "µm",
-            "PhysicalSizeY": 0.16,
+            "PhysicalSizeY": size_y,
             "PhysicalSizeYUnit": "µm",
             "TimeIncrement": 0.1,
             "TimeIncrementUnit": "s",
@@ -101,6 +103,16 @@ def test_the_metadata_comes_from_the_file(tmp_path: Path) -> None:
     assert meta.channels.value == ("Cy3",)
     for name in ("frame_time", "pixel_size", "channels"):
         assert getattr(meta, name).origin in ORIGINS
+
+
+@requires_bioformats
+def test_a_pixel_size_that_differs_between_x_and_y_is_unknown(tmp_path: Path) -> None:
+    path, _ = _ome_movie(tmp_path, "<u2", size_y=0.32)
+    with open_bioformats_source(path) as source:
+        meta = source.metadata
+    assert meta.pixel_size.origin == "unknown"
+    assert meta.pixel_size.value is None
+    assert meta.frame_time.value == pytest.approx(0.1)
 
 
 @requires_bioformats
