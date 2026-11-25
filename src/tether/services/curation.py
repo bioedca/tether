@@ -17,6 +17,10 @@ than registered service commands, and they import the core only when they run (A
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
 - [`molecule_states`][] — what the molecule list shows for every row (#630): the curation
   state, the category, and whether an idealization exists and is stale.
+- [`category_names`][], [`category_classes`][], [`category_members`][] and
+  [`condition_key`][] — what the category editor and the number keys show for one
+  condition (#633): its ordered list, the class each key gives, the molecules that have a
+  name, and the key that names the condition.
 """
 
 from __future__ import annotations
@@ -28,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from tether.io.filename import ConditionKey
+
 __all__ = [
     "ACCEPTED",
     "CURATION_STATES",
@@ -35,6 +41,10 @@ __all__ = [
     "UNDECIDED",
     "MoleculeState",
     "StoredMolecule",
+    "category_classes",
+    "category_members",
+    "category_names",
+    "condition_key",
     "curation_state",
     "molecule_states",
     "resolved_frame_range",
@@ -283,3 +293,63 @@ def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> i
         donor = np.asarray(traces[donor_layer][molecule.row, lo:hi], dtype=np.float64)
         acceptor = np.asarray(traces[acceptor_layer][molecule.row, lo:hi], dtype=np.float64)
     return lo + int(detect_photobleach(donor, acceptor).sum_pb)
+
+
+# --- one condition's category list, for the editor and the keys (#633) ------------
+
+
+def category_names(project_path: str | Path, condition_id: str) -> tuple[str, ...]:
+    """Read the ordered category list of ``condition_id`` (``()`` when it has none).
+
+    Read-only, through
+    [`read_category_list`][tether.project.conditions.read_category_list].
+    """
+    from tether.project.conditions import read_category_list  # noqa: PLC0415
+
+    return read_category_list(project_path, condition_id).categories
+
+
+def category_classes(project_path: str | Path, condition_id: str) -> dict[int, str]:
+    """Read the class each number key gives in ``condition_id``, as ``{class: name}``.
+
+    The classes are ``>= 1``; class 0 is always *uncategorized* and is not listed.
+    Read-only, through the persisted lookup of
+    [`read_class_lookup`][tether.project.conditions.read_class_lookup] (ADR-0125).
+    Raises `ValueError` when that lookup disagrees with the list beside it.
+    """
+    from tether.project.conditions import read_class_lookup  # noqa: PLC0415
+
+    return dict(read_class_lookup(project_path, condition_id).classes)
+
+
+def category_members(project_path: str | Path, condition_id: str, category: str) -> tuple[str, ...]:
+    """Read the keys of the molecules of ``condition_id`` whose stored category is ``category``.
+
+    In row order, each key once (two rows can share a key). Read-only.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        table = f["molecules"][TABLE]
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        conditions = [_text(k) for k in table.fields("condition_id")[:]]
+        categories = [_text(k) for k in table.fields("category")[:]]
+    members = (
+        key
+        for key, cid, name in zip(keys, conditions, categories, strict=True)
+        if cid == condition_id and name == category
+    )
+    return tuple(dict.fromkeys(members))
+
+
+def condition_key(project_path: str | Path, condition_id: str) -> ConditionKey | None:
+    """Read the ``/conditions`` key of ``condition_id``, or ``None`` when it has no row.
+
+    Read-only, through
+    [`read_condition_keys`][tether.project.conditions.read_condition_keys].
+    """
+    from tether.project.conditions import read_condition_keys  # noqa: PLC0415
+
+    return read_condition_keys(project_path).get(condition_id)

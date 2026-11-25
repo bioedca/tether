@@ -8,6 +8,8 @@ Headless (no Qt). Each test reads the project file back, so it checks what is st
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 import threading
 from pathlib import Path
 
@@ -29,7 +31,7 @@ from tether.project import jobs  # noqa: E402
 from tether.project import sources as S  # noqa: E402
 from tether.project.core import Project  # noqa: E402
 from tether.project.export import export_subset_tether  # noqa: E402
-from tether.project.lock import LockedError, LockIdentity  # noqa: E402
+from tether.project.lock import LockedError, LockIdentity, file_identity  # noqa: E402
 from tether.services.sources import run_checksum_job, submit_checksum_job  # noqa: E402
 
 #: Bigger than two 1 MiB blocks, so a checksum reports progress more than once.
@@ -463,3 +465,170 @@ def test_a_map_image_that_names_a_movie_is_not_checked_against_the_movie(tmp_pat
         # With no checksum of its own, the movie file is not accepted in its place.
         with pytest.raises(S.RelinkRefused):
             S.relink_source(project, record.source_id, movie)
+
+
+#: Windows refuses to replace a file that is open, so the file cannot change during the read.
+_POSIX_ONLY = pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not replace a file that is open"
+)
+
+
+def _replace_once(path: Path, data: bytes) -> object:
+    """Return a progress callback that replaces the file at ``path`` (a new file) once."""
+    done: list[bool] = []
+
+    def replace_file(*_: object) -> None:
+        if not done:
+            done.append(True)
+            staged = path.with_name(path.name + ".new")
+            staged.write_bytes(data)
+            os.replace(staged, path)
+
+    return replace_file
+
+
+def test_a_folder_cannot_be_registered_and_writes_nothing(tmp_path) -> None:
+    project, _ = _project(tmp_path)
+    folder = tmp_path / "beads"
+    folder.mkdir()
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.tif"
+    outside.write_bytes(b"outside")
+    with project.write_lock():
+        before = project.path.read_bytes()
+        with pytest.raises(ValueError, match="not a file"):
+            S.register_source(project, folder, role="bead_video")
+        assert project.path.read_bytes() == before
+        # A regular file outside the project's folder is still a valid source.
+        record = S.register_source(project, outside, role="map_image")
+    assert record.relative_path == f"../{outside.name}"
+    assert [r.source_id for r in S.read_sources(project.path) if r.stored] == [record.source_id]
+
+
+def test_the_checksum_names_the_file_it_read() -> None:
+    path = Path(__file__)
+    digest = S.file_sha256(path)
+    assert digest.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert digest.size == os.stat(path).st_size
+    assert digest.identity == file_identity(path)
+    assert digest.mtime_ns == os.stat(path).st_mtime_ns
+
+
+def test_a_relink_stores_the_size_of_the_file_it_hashed(tmp_path) -> None:
+    project, movie = _project(tmp_path, movie_sha=hashlib.sha256(_MOVIE_BYTES).hexdigest())
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    with project.write_lock():
+        record = S.relink_source(project, "movie:mov-1", moved)
+    assert record.file_size == len(_MOVIE_BYTES)
+    (stored,) = S.read_sources(project.path)
+    assert stored.file_size == len(_MOVIE_BYTES)
+
+
+@_POSIX_ONLY
+def test_a_file_replaced_during_a_relink_is_not_stored(tmp_path) -> None:
+    project, movie = _project(tmp_path, movie_sha=hashlib.sha256(_MOVIE_BYTES).hexdigest())
+    moved = tmp_path / "moved.tif"
+    movie.rename(moved)
+    with project.write_lock():
+        before = project.path.read_bytes()
+        with pytest.raises(S.SourceReplaced):
+            S.relink_source(
+                project, "movie:mov-1", moved, progress=_replace_once(moved, b"another file")
+            )
+        assert project.path.read_bytes() == before
+    assert not S.read_sources(project.path)[0].stored
+
+
+@_POSIX_ONLY
+def test_a_file_replaced_during_the_checksum_job_is_not_stored(tmp_path) -> None:
+    project, movie = _project(tmp_path)
+    project.acquire_lock()
+    try:
+        job = submit_checksum_job(project)
+        replace_file = _replace_once(movie, b"another file")
+        out = run_checksum_job(project, job.job_id, file_progress=lambda *a: replace_file())
+    finally:
+        project.release_lock()
+    assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_file_replaced_after_the_read_is_not_stored(tmp_path, monkeypatch, writer) -> None:
+    """Replaced between the hash and the write: refused on every OS, Windows included."""
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha if writer == "relink" else "")
+    read = S.file_sha256
+
+    def read_then_replace(path, **kwargs):
+        digest = read(path, **kwargs)  # the handle is closed again here
+        _replace_once(Path(path), b"another file")()
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_replace)
+    project.acquire_lock()
+    try:
+        before = project.path.read_bytes()
+        if writer == "relink":
+            with pytest.raises(S.SourceReplaced):
+                S.relink_source(project, "movie:mov-1", movie)
+            assert project.path.read_bytes() == before
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    finally:
+        project.release_lock()
+    assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_same_size_write_into_the_file_after_the_read_is_not_stored(
+    tmp_path, monkeypatch, writer
+) -> None:
+    """Same file, same size, other bytes: the modification time shows the change."""
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha if writer == "relink" else "")
+    read = S.file_sha256
+
+    def read_then_overwrite(path, **kwargs):
+        digest = read(path, **kwargs)
+        with open(path, "r+b") as handle:  # in place: same inode, same size
+            handle.write(b"!")
+        later = digest.mtime_ns + 2_000_000_000  # past any filesystem's time resolution
+        os.utime(path, ns=(later, later))
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_overwrite)
+    project.acquire_lock()
+    try:
+        if writer == "relink":
+            with pytest.raises(S.SourceReplaced):
+                S.relink_source(project, "movie:mov-1", movie)
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    finally:
+        project.release_lock()
+    assert movie.stat().st_size == len(_MOVIE_BYTES)
+    assert not S.read_sources(project.path)[0].checksum_calculated
+
+
+def test_the_check_never_opens_the_path(tmp_path, monkeypatch) -> None:
+    """A path that became a FIFO would block an open, so the check only stats it."""
+    import builtins  # noqa: PLC0415
+
+    path = tmp_path / "movie.tif"
+    path.write_bytes(b"movie")
+    digest = S.file_sha256(path)
+
+    def no_open(*_: object, **__: object) -> None:
+        raise AssertionError("the check opened the path")
+
+    monkeypatch.setattr(builtins, "open", no_open)
+    digest.check_path(path)  # unchanged: accepted without an open
+    monkeypatch.undo()
+    path.unlink()
+    path.mkdir()  # not the file that was read
+    monkeypatch.setattr(builtins, "open", no_open)
+    with pytest.raises(S.SourceReplaced):
+        digest.check_path(path)

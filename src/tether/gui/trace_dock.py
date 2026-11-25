@@ -19,7 +19,7 @@ on a lag axis in the same seconds or frames.
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
 ``A / (D + A)`` (see [`tether.fret.apparent_fret`][]); leakage/gamma
 corrections land at M3. The idealization **step overlay** is populated by
-one-click vbFRET (M2 S6) through [`TraceDock.set_idealization`][]; it stays
+the whole-project fit (#625) through [`TraceDock.set_idealization`][]; it stays
 empty/hidden until a molecule is idealized, and is cleared when a new trace is
 shown so a stale path never bleeds onto the next molecule. tMAVEN visual-parity
 of this plot is verified with the M6 seven-plot gallery (§10), not in this PR.
@@ -95,8 +95,8 @@ class TraceView:
         Optional display label for the dock title / legend.
     molecule_key
         Optional ``/molecules`` identity (§5.1) of the molecule this trace came
-        from. Carried so the shell's accept/reject and one-click idealize (``I``)
-        handlers can resolve the selected trace back to its store row; ``None``
+        from. Carried so the shell's accept/reject handlers and the step line of a
+        fit can resolve the selected trace back to its store row; ``None``
         for a synthetic trace with no backing store.
     analysis_window
         Optional stored analysis window as ``(start, stop)`` frame indices **into
@@ -570,7 +570,7 @@ class TraceDock:
             raise TypeError(f"set_trace expects a TraceView, got {type(trace).__name__}")
         self._trace = trace
         # A new molecule invalidates any prior idealization overlay (_render below
-        # hides it via _render_idealization); one-click idealize repopulates it.
+        # hides it via _render_idealization); a finished project fit repopulates it.
         self._idealized = None
         self._window = trace.analysis_window
         # The cross-correlation depends only on the trace, so it is computed once
@@ -868,7 +868,7 @@ def trace_from_smd(
     ``raw`` is the ``(n_molecules, n_frames, 2)`` array from
     [`tether.idealize.smd.read_smd`][] (``[..., 0]`` donor, ``[..., 1]``
     acceptor). A convenience for wiring a stored/handed-off trace into the dock;
-    pass ``molecule_key`` to keep the trace's store identity for one-click idealize.
+    pass ``molecule_key`` to keep the trace's store identity for curation and fits.
     """
     donor = np.asarray(raw)[index, :, 0]
     acceptor = np.asarray(raw)[index, :, 1]

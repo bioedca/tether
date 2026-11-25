@@ -25,6 +25,7 @@ files to the same values (``tests/fixtures/PROVENANCE.md``).
 
 from __future__ import annotations
 
+import io
 import math
 import struct
 import threading
@@ -176,6 +177,17 @@ def _read_chunk(fh: Any, offset: int, path: Path) -> tuple[bytes, int, int]:
     return name, offset + _HEADER.size + name_len, data_len
 
 
+def _read_into(fh: Any, view: memoryview) -> int:
+    """Fill ``view`` from ``fh``; return the bytes read, fewer only at the end of the file."""
+    got = 0
+    while got < len(view):
+        n = fh.readinto(view[got:])
+        if not n:
+            break
+        got += n
+    return got
+
+
 def _chunk_map(fh: Any, path: Path) -> dict[bytes, int]:
     """Read the chunk map at the end of the file: chunk name to header offset."""
     size = fh.seek(0, 2)
@@ -244,12 +256,17 @@ class Nd2Movie:
         self._path = Path(path)
         self._closed = False
         self._lock = threading.Lock()
-        fh = self._path.open("rb")
+        # The frames are read without a buffer, so no read returns bytes that an earlier read
+        # buffered and the file no longer holds (#1424). The header and metadata go through a
+        # buffer that is detached before the first frame read.
+        fh = self._path.open("rb", buffering=0)
+        header = io.BufferedReader(fh)
         try:
-            self._open(fh)
+            self._open(header)
         except BaseException:
-            fh.close()
+            header.close()
             raise
+        header.detach()
         self._fh = fh
 
     def _open(self, fh: Any) -> None:
@@ -410,7 +427,7 @@ class Nd2Movie:
         with self._lock:
             for k, i in enumerate(range(start, stop)):
                 self._fh.seek(self._offsets[i])
-                if self._fh.readinto(memoryview(out[k]).cast("B")) != out[k].nbytes:
+                if _read_into(self._fh, memoryview(out[k]).cast("B")) != out[k].nbytes:
                     raise _CorruptError(f"{self._path}: frame {i} is cut short")
         return out
 

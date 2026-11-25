@@ -23,6 +23,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.calibration
 
+::: tether.gui.category_editor
+
 ::: tether.gui.conditions
 
 ::: tether.gui.corrections
@@ -40,6 +42,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.file_type
 
 ::: tether.gui.generation_reconcile
+
+::: tether.gui.idealize_project
 
 ::: tether.gui.identity
 
@@ -82,6 +86,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.trace_dock
 
 ::: tether.gui.update_check
+
+::: tether.gui.update_download
 
 ::: tether.gui.update_handoff
 
