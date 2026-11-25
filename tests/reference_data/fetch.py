@@ -33,9 +33,10 @@ checksum matched. A download that does not arrive (HTTP 404, a moved record, no 
 
 A failure that another try can fix -- a read that times out, a reset connection, a response cut
 before its declared length, an HTTP 5xx, 408 or 429 -- is tried again after the waits of
-:data:`RETRY_WAITS`, each time from an empty file (#1229). A 4xx answer and a wrong checksum are never tried again: they are findings about the
-upstream file. Once one set has used all its attempts on a host, later sets from that host in the
-same process get one attempt, so an outage of the whole host stays inside the job's time limit.
+:data:`RETRY_WAITS`, each time from an empty file (#1229). A 4xx answer and a wrong checksum are
+never tried again: they are findings about the upstream file. Once one set has used all its
+attempts on a host, later sets from that host in the same process get one attempt, so an outage
+of the whole host stays inside the job's time limit.
 
 ``python tests/reference_data/fetch.py cache-key`` prints the manifest part of the weekly job's
 cache key. It depends only on the ids and checksums of the ``download`` entries, so an edit to a
