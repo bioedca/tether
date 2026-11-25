@@ -79,6 +79,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.update_check
 
+::: tether.gui.update_download
+
 ::: tether.gui.update_handoff
 
 ::: tether.gui.update_notice
