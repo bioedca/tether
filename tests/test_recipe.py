@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import ClassVar
@@ -469,8 +470,11 @@ def test_the_printed_commands_run_as_printed_with_spaces_in_a_path_or_subject(
         (("--subject", "condition 1"), True, '--subject "condition 1"'),
         (("C:\\My runs\\r.json",), True, '"C:\\My runs\\r.json"'),
         (("C:\\runs\\r.json",), True, "C:\\runs\\r.json"),
-        (("a&b", "", 'say "hi"', "end\\"), True, '"a&b" "" "say \\"hi\\"" end\\'),
+        (("a&b", "", 'say "hi"', "end\\"), True, '"a&b" "" "say ""hi""" end\\'),
         (("a b\\",), True, '"a b\\\\"'),
+        (('a"&b&"c',), True, '"a""&b&""c"'),
+        (("%USERNAME%",), True, '""^%"USERNAME"^%""'),
+        (('C:\\a\\"b',), True, '"C:\\a\\\\""b"'),
         (("it's",), False, "'it'\"'\"'s'"),
     ],
 )
@@ -478,6 +482,54 @@ def test_a_printed_command_quotes_only_the_words_that_need_it(words, windows, li
     from tether.cli import _command_line  # noqa: PLC0415, PLC2701 - the quoting rule
 
     assert _command_line(*words, windows=windows) == line
+
+
+#: Values that ``cmd.exe`` reads before the program gets them, unless they are quoted well (#1354).
+_CMD_EXE_VALUES = [
+    'a"&b&"c',
+    'x"|y"<z>"^w',
+    "%TETHER_1354%",
+    "a%TETHER_1354%b%",
+    '"%TETHER_1354%"&',
+    "100% & more",
+    'C:\\My runs\\"q"\\',
+    "",
+    "plain",
+]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="cmd.exe is the console of the Windows install guide")
+@pytest.mark.parametrize("through_launcher", [False, True], ids=["program", "tether.bat"])
+def test_a_printed_windows_command_passes_each_value_unchanged_through_cmd_exe(
+    tmp_path, through_launcher
+) -> None:
+    # #1354: a value with a quote and a sign of the console, or with a %NAME% of the
+    # environment, gets to the program as it was. In the Tether Command Prompt ``tether`` is
+    # the installer's tether.bat, which gives the words to tether.exe again with %*, so
+    # cmd.exe reads them twice; the launcher case does the same with a copy of that line.
+    from tether.cli import _command_line  # noqa: PLC0415, PLC2701 - the quoting rule
+
+    script = tmp_path / "words.py"
+    script.write_text("import json, sys\nprint(json.dumps(sys.argv[1:]))\n", encoding="utf-8")
+    program = [sys.executable, str(script)]
+    assert not any(sign in word for word in program for sign in '"%')
+    if through_launcher:
+        launcher = tmp_path / "tether.bat"
+        launcher.write_text(
+            f'@echo off\r\nsetlocal\r\n"{program[0]}" "{program[1]}" %*\r\n', encoding="ascii"
+        )
+        program = [str(launcher)]
+    line = _command_line(*program, *_CMD_EXE_VALUES, windows=True)
+    environment = {**os.environ, "TETHER_1354": "expanded"}
+    done = subprocess.run(  # noqa: S603 - a fixed cmd.exe and a line this test built
+        f'cmd.exe /d /s /c "{line}"',
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == _CMD_EXE_VALUES
 
 
 def test_with_a_policy_the_store_records_approved_by_policy_and_the_policy_text(
