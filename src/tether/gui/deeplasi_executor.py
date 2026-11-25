@@ -66,7 +66,6 @@ from tether.project.analysis_import import (
 )
 from tether.project.lock import publish_lock
 from tether.project.reconstruct import ReconstructionSummary, reconstruct_project
-from tether.project.sources import project_movie_uri
 
 __all__ = [
     "ExecutedAcquisition",
@@ -172,7 +171,7 @@ def _hash_file(path: Path) -> tuple[str, int, float]:
     return digest.hexdigest(), int(stat.st_size), float(stat.st_mtime)
 
 
-def _movie_metadata(path: Path, out: Path) -> MovieMetadata:
+def _movie_metadata(path: Path) -> MovieMetadata:
     """Build a [`MovieMetadata`][tether.imaging.extract.MovieMetadata] from a raw ``.tif``.
 
     Reconstruction imports the Deep-LASI *pre-integrated* traces and never re-opens the
@@ -181,8 +180,7 @@ def _movie_metadata(path: Path, out: Path) -> MovieMetadata:
     This replicates the ``MovieMetadata`` assembly in
     [`tether.project.extract.extract_movie`][] without running the extraction, and
     leaves the channel geometry / calibration unset (reconstruction reuses the legacy
-    traces, so no split calibration is needed). The ``uri`` is recorded relative to the
-    folder of the project ``out`` (PRD §5.1, [`tether.project.sources.project_movie_uri`][]).
+    traces, so no split calibration is needed).
     """
     sha256, file_size, mtime = _hash_file(path)
     with open_movie(path) as reader:
@@ -198,7 +196,7 @@ def _movie_metadata(path: Path, out: Path) -> MovieMetadata:
         n_frames=n_frames,
         height=height,
         width=width,
-        uri=project_movie_uri(out, path),
+        uri=str(path),
         pixel_dtype=pixel_dtype,
         byteorder=byteorder,
         frame_time=float(frame_time),
@@ -334,7 +332,7 @@ def _run_reconstruct(
     recovered, coord_warnings = _resolve_coordinates(plan, export, tdat)
     warnings = tdat_warnings + coord_warnings
     curated = _curated_match(fileset, export, recovered) if fileset.smd is not None else None
-    movie = _movie_metadata(fileset.movie, out)
+    movie = _movie_metadata(fileset.movie)
     with _destination_lock(out, overwrite=overwrite) as guard:
         summary = reconstruct_project(
             out,

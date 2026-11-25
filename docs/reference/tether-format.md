@@ -279,7 +279,7 @@ of the movie and therefore never hydrates a cloud placeholder.
 
 **Where the movie file is.** A relative `uri` is relative to the folder that holds the
 project file, never to the folder a command ran in, so the movie is found from any working
-folder (PRD §5.1). Every writer records it that way: `tether extract`, `tether batch` with
+folder. Every writer records it that way: `tether extract`, `tether batch` with
 and without `--into`, a new trace generation and the Deep-LASI reconstruction
 (`project_movie_uri` in `src/tether/project/sources.py`, #1282). A project written before
 then can hold the path the extraction was given, relative to the folder the command ran in.
