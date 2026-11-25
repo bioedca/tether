@@ -21,6 +21,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MATLAB_DIR = ROOT / "scripts" / "reference" / "matlab"
+TASKS_DIR = MATLAB_DIR / "m"
 STANDIN = str(Path(__file__).with_name("_matlab_standin.py"))
 REFERENCE_FIXTURES = ROOT / "tests" / "fixtures" / "reference"
 
@@ -155,6 +156,37 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
     (scripts / "cloud.m").write_text("function cloud\ndisp(1)\nend\n", encoding="utf-8")
     with pytest.raises(harness.HarnessError, match="cloud.m has SHA-256"):
         harness.verify_clone("lab", scripts, pins)
+
+
+def test_a_files_pin_refuses_a_same_name_p_code_file(tmp_path) -> None:
+    # MATLAB's `run` executes cloud.p in place of cloud.m, so the hash would name code that did
+    # not run (#1252).
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "cloud.m").write_text("function cloud\nend\n", encoding="utf-8")
+    pins = {
+        "lab": {
+            "kind": "files",
+            "citation": "A",
+            "files": {"cloud.m": harness.sha256(scripts / "cloud.m")},
+        }
+    }
+    (scripts / "cloud.p").write_bytes(b"v01.00v00.00\n")
+    with pytest.raises(harness.HarnessError, match=r"cloud\.p .*cloud\.m"):
+        harness.verify_clone("lab", scripts, pins)
+
+
+def test_the_fret_cloud_task_refuses_a_p_code_file_before_it_runs_the_script() -> None:
+    # CI has no MATLAB, so this reads the task: the .p check must come before the run (#1252).
+    task = TASKS_DIR / "fret_cloud" / "tether_fret_cloud.m"
+    code = task.read_text(encoding="utf-8")
+    check = re.search(
+        r"if isfile\(fullfile\(job\.tool_dir, 'FRET_cloud_contours_centroids\.p'\)\)"
+        r"\s*\n\s*error\(",
+        code,
+    )
+    assert check, "tether_fret_cloud.m does not refuse FRET_cloud_contours_centroids.p"
+    assert check.start() < code.index("tether_fret_cloud_exec(script)")
 
 
 def test_a_launcher_that_returns_before_the_job_writes_no_record(tmp_path, clone) -> None:
