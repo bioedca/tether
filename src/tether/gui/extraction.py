@@ -249,7 +249,9 @@ class ExtractionSection:
         self._donor_side_label.setAccessibleName("Donor-side check")
         right_layout.addWidget(self._donor_side_label)
         self._open_button = QtWidgets.QPushButton("&Open the new project")
-        self._open_button.setEnabled(False)
+        # Shown only once an extraction has made a project: hidden, not disabled, since no
+        # readiness stage is missing for it to name (#898).
+        self._open_button.setHidden(True)
         self._open_button.clicked.connect(self.open_result)
         right_layout.addWidget(self._open_button)
         self._view_combo = QtWidgets.QComboBox()
@@ -489,7 +491,7 @@ class ExtractionSection:
             **inputs.profile.extraction_values(),
         )
         self._result = None
-        self._open_button.setEnabled(False)
+        self._open_button.setHidden(True)
         self._result_label.setText("")
         self._donor_side_label.setText("")
         self._status(f"Extracting {Path(inputs.movie).name}…")
@@ -530,7 +532,7 @@ class ExtractionSection:
             level, sentence = note
             prefix = "Warning: " if level == "warning" else "Donor side: "
             self._donor_side_label.setText(f"{prefix}{sentence}.")
-        self._open_button.setEnabled(self._open_project is not None)
+        self._open_button.setHidden(self._open_project is None)
         self._status(text)
 
     def open_result(self) -> object:

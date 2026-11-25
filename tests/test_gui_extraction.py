@@ -445,9 +445,12 @@ def test_a_map_file_preview_skips_the_fit(page, qtbot, tmp_path) -> None:
 def test_an_extraction_shows_its_summary_and_donor_side_note(page, qtbot, tmp_path) -> None:
     page.set_movie(_write_movie(tmp_path / "movie.tif"))
     output = tmp_path / "new.tether"
+    # No disabled control without a reason (#898): the button is hidden until there is a project.
+    assert page._open_button.isHidden()
     assert page.extract(output) is True
     _wait(qtbot, page)
     assert output.is_file()
+    assert not page._open_button.isHidden()
     assert page.last_result.summary.n_molecules == 3
     assert page.result_label.text().startswith("Extracted 3 molecule(s) into new.tether")
     # Twelve flat frames have no bleach event: the check says so, as a note.
@@ -458,6 +461,7 @@ def test_an_extraction_shows_its_summary_and_donor_side_note(page, qtbot, tmp_pa
     assert page.extract(output) is True
     _wait(qtbot, page)
     assert page.last_result is None
+    assert page._open_button.isHidden()
     assert page.result_label.text().startswith("Extraction failed:")
 
 
