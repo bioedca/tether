@@ -53,11 +53,11 @@ def shell(qapp, qtbot):
 
 
 def test_shell_hosts_surfaces_and_installs_filter(shell) -> None:
-    # The shell hosts the three non-text surfaces + the exempt category field,
+    # The shell hosts the non-text surfaces + the category editor's entry point (#633),
     # and the curation event filter is installed on the application.
     assert shell.molecule_list is not None
     assert shell.movie_switcher is not None
-    assert bool(shell.category_field.property("tetherTextEntry")) is True
+    assert shell.categories_button.text() == "Categories…"
     assert shell.event_filter.qobject is not None
 
 
@@ -102,8 +102,15 @@ def test_enter_with_no_movie_shown_says_why(shell, qtbot, key_name) -> None:
 def test_category_field_keeps_text_semantics(shell) -> None:
     from pyqtgraph.Qt import QtCore
 
+    from tether.gui.category_editor import CategoryEditor
+
+    # The category name field lives in the category editor (#633); it stays a text entry.
+    field = CategoryEditor(
+        "c", [], usage=len, add=None, rename=None, remove=None, move=None, parent=shell.window
+    ).name_field
+    assert bool(field.property("tetherTextEntry")) is True
     k = QtCore.Qt.Key
-    consumed = shell.event_filter.filter_event(shell.category_field, _key_event(k.Key_Space))
+    consumed = shell.event_filter.filter_event(field, _key_event(k.Key_Space), focus_widget=field)
     assert consumed is False
     assert shell.controller.history == []
 

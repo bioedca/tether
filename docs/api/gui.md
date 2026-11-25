@@ -23,6 +23,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.calibration
 
+::: tether.gui.category_editor
+
 ::: tether.gui.conditions
 
 ::: tether.gui.corrections

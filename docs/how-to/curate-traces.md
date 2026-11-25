@@ -234,9 +234,11 @@ selection.
 
 - **1** to **9** give the selected molecule a category from the list of its condition.
   **1** is the first name in the list, **2** the second, and so on. The status bar reads, for
-  example, `Category 2 (bound) set for` and the ID. For a category after the ninth, choose
-  **Curation → Assign category (overflow)…** and pick it from the list. A number past the end
-  of the list changes nothing. The status bar then says how many categories the condition has.
+  example, `Category 2 (bound) set for` and the ID. **Curation → Keyboard shortcuts…** shows
+  the name each number key gives, for example `Assign category 2 (bound)`. For a category
+  after the ninth, choose **Curation → Assign category (overflow)…** and pick it from the
+  list. A number past the end of the list changes nothing. The status bar then says how many
+  categories the condition has.
 - **0** clears the category. The molecule is then *uncategorized*, which is not the same as
   any named category.
 - **-** and **=** move the start of the
@@ -260,6 +262,33 @@ project's molecule edit log, with your curator name.
 
 A window you set by hand is kept when photobleach detection runs again over the whole project.
 After **R**, that detection may set the window of the molecule automatically again.
+
+### Edit the categories of a condition
+
+Each condition has its own list of categories. Tether gives no categories of its own: you
+make the list. To change it, select a molecule of that condition. Then click
+**Categories…** in the panel on the left, or choose **Curation → Categories…**. The window
+shows the list of the selected molecule's condition, with the number key of each name. When
+the project has several conditions, select a molecule of the other condition to edit its
+list.
+
+- **Add**: type a name in the field and click **Add**. The new name goes at the end of the
+  list and takes the next number key.
+- **Rename**: click a name, change it in the field and click **Rename**. The name keeps its
+  number key. Each molecule that had the old name gets the new name. The molecule edit log
+  records each one, with the reason `category renamed from` the old name `to` the new name.
+- **Move up** and **Move down**: the name moves one place in the list. The two names then
+  change number keys. Each molecule keeps its category.
+- **Remove…**: click a name and click **Remove…**. When molecules have that name, Tether
+  first says how many and asks. Those molecules keep the name as their category. But the name
+  is no longer in the list, so no number key gives it again. To change it, select the molecule
+  and press **0** or a number key. The names after the removed one move up by one number key.
+
+Two names in one list cannot be the same. A name that is already in the list is refused,
+and the window says why. The changes save to the project at once. They are not available
+when the project is read-only.
+
+The digits and letters type into the name field of this window. There they never curate.
 
 ## 5. Change your mind
 
@@ -297,8 +326,8 @@ The window tells you when it cannot use a key, and **Assign** stays off:
 - A key a menu command already uses, such as Ctrl+O for **File → Open project…**.
 - **Tab**, **Shift+Tab** and **Esc**. They move between the fields and close the window.
 
-A letter or digit you assign still types into the **Category name** field. There it never
-curates.
+A letter or digit you assign still types into the name field of the **Categories…** window.
+There it never curates.
 
 An action you give a new key loses its old keys. **Reject trace**, for example, then has
 only the new key. To get an action's first keys back, click it and then **Restore default**.

@@ -5,8 +5,10 @@
 [`TetherShell`][] is the minimal ``QMainWindow`` that wires the M2 S2 focus
 contract: it hosts the pyqtgraph trace dock ([`tether.gui.trace_dock`][]) plus
 the focus surfaces the curation keys must reach past — a molecule list, a movie
-switcher, and the **editable category field** (a text-entry that is exempt from
-the keymap, §7.6) — and installs the application-level
+switcher, and the **Categories…** button that opens the
+[`CategoryEditor`][tether.gui.category_editor.CategoryEditor] of the selected molecule's
+condition (§7.6, #633; its name field is a text entry exempt from the keymap) — and
+installs the application-level
 [`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
 the movie switcher from ``/movies``, and the embedded napari movie panel
 ([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
@@ -21,7 +23,8 @@ Two companion dialogs complete the §7.3 contract:
   (the ``1``–``9`` hotkeys cover only the first nine of the per-condition list),
   returning the chosen integer class.
 * [`CheatSheetOverlay`][] renders the shipped, always-current keyboard
-  cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap].
+  cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap], with the name of
+  the category each number key gives the selected molecule (#633).
 
 The window hosts its **sections** (#341, ADR-0116): the central widget is a
 ``QStackedWidget`` with one page per section of the
@@ -110,13 +113,14 @@ from tether.services.curation import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from os import PathLike
     from typing import Protocol
 
     from pyqtgraph.Qt import QtWidgets
 
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.category_editor import CategoryEdit, CategoryEditor
     from tether.gui.generation_reconcile import GenerationReconcilePage
     from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
@@ -428,7 +432,8 @@ class OverflowCategoryPicker:
     whose integer class exceeds [`CATEGORY_SLOTS`][tether.gui.curation.CATEGORY_SLOTS]
     (index ``>= 9``) and returns the chosen **integer class** (1-based) — the
     correct integer↔category mapping the ``/labels`` writer stores (§7.3). The
-    full ``> 9`` path is re-exercised once the M4 editable list lands.
+    list is the selected molecule's condition's own, as the category editor keeps it
+    (#633).
     """
 
     def __init__(self, categories: list[str], *, parent: QtWidgets.QWidget | None = None) -> None:
@@ -501,6 +506,11 @@ class CheatSheetOverlay:
     keymap is not active, so the table has no rows and ``inactive_text`` shows in their
     place. The shell passes the same predicate as its event filter, so the sheet lists
     exactly the keys that act in the current section. ``None`` keeps every row.
+
+    ``category_names`` is asked on each refresh for the category each number key
+    assigns (#633): the shell passes the list of the selected molecule's condition, so
+    the sheet shows ``Assign category 2 (bound)``. ``None``, or a call that returns
+    ``None``, keeps the bare class numbers.
     """
 
     def __init__(
@@ -512,10 +522,12 @@ class CheatSheetOverlay:
         note: str | None = None,
         live: Callable[[], bool] | None = None,
         inactive_text: str = "No keyboard shortcuts act in this section.",
+        category_names: Callable[[], Mapping[int, str] | None] | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
+        self._category_names = category_names
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
         self._note = note
@@ -571,7 +583,12 @@ class CheatSheetOverlay:
         from pyqtgraph.Qt import QtWidgets
 
         live = self.live
-        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable) if live else []
+        names = self._category_names() if live and self._category_names is not None else None
+        self._rows = (
+            self._keymap.cheatsheet(unavailable=self._unavailable, category_names=names)
+            if live
+            else []
+        )
         # The advance note (#631) is about curation, so it shows only with the rows.
         self._inactive_label.setHidden(live)
         if self._note_label is not None:
@@ -703,9 +720,11 @@ class TetherShell:
         # application, following the OS light/dark scheme (#675). Idempotent.
         theme.install()
 
-        self._categories = (
-            list(categories) if categories else [f"category {i}" for i in range(1, 13)]
-        )
+        # The overflow picker's list while no project molecule is selected. There is no
+        # placeholder list: an open project's own list is read for the molecule (#633).
+        self._categories = list(categories) if categories else []
+        # The last category editor opened (#633), kept for tests and inspection.
+        self._category_editor: CategoryEditor | None = None
         self._traces: list[TraceView] = []
         self._current_index = -1
         # "Advance after accept or reject" (#631): a stored accept or reject selects
@@ -874,8 +893,8 @@ class TetherShell:
         # A .tether file dropped anywhere on the window opens it (#629).
         self._window.setAcceptDrops(True)
 
-        # Left browser panel: movie switcher + molecule list + editable category
-        # field. The category field is the text-entry exempt from the keymap.
+        # Left browser panel: movie switcher + molecule list + the entry point of the
+        # category editor (#633), whose name field is the text entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
         # No invented movie id: the box lists the open project's /movies rows (#356),
@@ -894,9 +913,13 @@ class TetherShell:
             movie_name=self._movie_name,
             on_filter_changed=self._on_molecule_filter_changed,
         )
-        self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("Type a category name")
-        self._category_field.setProperty("tetherTextEntry", True)
+        self._categories_button = QtWidgets.QPushButton("Categories…")
+        self._categories_button.setAccessibleName("Edit the categories")
+        self._categories_button.setToolTip(
+            "Add, rename, remove or reorder the categories of the selected molecule's "
+            "condition. Keys 1 to 9 give its first nine categories."
+        )
+        self._categories_button.clicked.connect(lambda: self.show_category_editor())
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
             "Reverse a rejected trace to uncurated and append the reversal to /labels"
@@ -934,9 +957,7 @@ class TetherShell:
         self._take_over_button.clicked.connect(lambda: self.take_over_project_lock())
         self._take_over_button.hide()
         # Section titles use the heading font (Red Hat Display, else the system font).
-        self._section_titles = [
-            QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
-        ]
+        self._section_titles = [QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Categories")]
         for title in self._section_titles:
             title.setFont(theme.heading_font())
         movie_title, molecules_title, category_title = self._section_titles
@@ -955,7 +976,8 @@ class TetherShell:
         self.require(self._molecule_view.filter_box, "traces")
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
-        vbox.addWidget(self._category_field)
+        vbox.addWidget(self._categories_button)
+        self.require(self._categories_button, "traces")
         vbox.addWidget(self._unreject_button)
         # The list comes before the filter box in the focus chain, so a window that
         # takes focus (the browser floated, the app activated) never gives it to the box
@@ -1137,6 +1159,7 @@ class TetherShell:
             unavailable=DEFERRED_ACTIONS,
             note=self._advance_note(),
             live=self._curation_keys_active,
+            category_names=self.category_names,
             inactive_text=(
                 "The curation keys act only in the "
                 f"{self._sections.get(CURATE_SECTION).title} section. To use them, choose "
@@ -1683,6 +1706,9 @@ class TetherShell:
         self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
+        self._act_edit_categories = menu.addAction("&Categories…")
+        self._act_edit_categories.triggered.connect(lambda: self.show_category_editor())
+        self.require(self._act_edit_categories, "traces")
         self._act_reconcile_generation = menu.addAction("Reconcile trace &generations…")
         self._act_reconcile_generation.triggered.connect(self.show_generation_reconcile)
         # A navigation action (#630): it selects a row and never reorders the list (§7.5).
@@ -1779,11 +1805,6 @@ class TetherShell:
     def browser_dock(self) -> QtWidgets.QDockWidget:
         """The Browser dock, including when the curator floats it."""
         return self._browser_dock
-
-    @property
-    def category_field(self) -> QtWidgets.QLineEdit:
-        """The browser-panel category-name ``QLineEdit`` — the text-entry exempt from the keymap."""
-        return self._category_field
 
     @property
     def unreject_button(self) -> QtWidgets.QPushButton:
@@ -2101,6 +2122,9 @@ class TetherShell:
             # the navigation status) rather than being clobbered by it; a successful
             # refresh sets no status, leaving the molecule message in place.
             self._refresh_overlap(trace)
+            # An open cheat-sheet names the categories of this molecule's condition (#633).
+            if self._cheatsheet.dialog.isVisible():
+                self._cheatsheet.refresh()
             # Trace → movie (#357): a list selection shows the molecule's own movie,
             # centred on its donor spot. A selection made by clicking that spot leaves
             # the camera where the user clicked. A failure is reported; success sets no
@@ -4592,6 +4616,311 @@ class TetherShell:
         self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category="")
         self._after_states_changed()
         self._status(f"Category cleared for {trace.name or key}")
+
+    # --- the category list of the selected molecule's condition (#633) ----------
+
+    def _selected_condition_id(self) -> str | None:
+        """The ``condition_id`` of the selected project molecule, or ``None``.
+
+        ``None`` while no project is open, nothing is selected, the molecule has no
+        condition, or its row cannot be read.
+        """
+        path = self._project_path
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if path is None or trace is None or trace.molecule_key is None:
+            return None
+        try:
+            return stored_molecule(path, trace.molecule_key, row=row).condition_id or None
+        except Exception:  # noqa: BLE001 - an unreadable row names no condition
+            return None
+
+    def category_names(self) -> dict[int, str] | None:
+        """The category each number key assigns to the selected molecule, by class (#633).
+
+        Class ``k`` is the ``k``-th name of the list of the selected molecule's condition,
+        as the number keys and the overflow picker use it. ``None`` while no project
+        molecule with a condition is selected, or when the list cannot be read.
+        """
+        from tether.services.curation import category_classes
+
+        condition_id = self._selected_condition_id()
+        if condition_id is None or self._project_path is None:
+            return None
+        try:
+            return category_classes(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - the keys then show only their numbers
+            return None
+
+    def _category_members(self, condition_id: str, name: str) -> tuple[str, ...]:
+        """The keys of the molecules of ``condition_id`` whose stored category is ``name``."""
+        from tether.services.curation import category_members
+
+        assert self._project_path is not None
+        return category_members(self._project_path, condition_id, name)
+
+    def category_usage(self, name: str, *, condition_id: str | None = None) -> int:
+        """How many molecules of a condition have category ``name``.
+
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's.
+        """
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
+        if condition_id is None:
+            return 0
+        try:
+            return len(self._category_members(condition_id, name))
+        except Exception:  # noqa: BLE001 - nothing read, so nothing to count
+            return 0
+
+    def _category_target(
+        self, verb: str, condition_id: str | None
+    ) -> tuple[Project, str, str] | None:
+        """The writable project, the condition and the lock nonce of a list change.
+
+        A given ``condition_id`` is used as it is: the editor binds the condition it was
+        opened on, so a later change of the selection cannot redirect an edit (#633).
+        ``None`` takes the selected molecule's condition. Says why on the status bar and
+        returns ``None`` when the project is read-only, or with no ``condition_id`` when
+        nothing is selected or the selected molecule has no condition.
+        """
+        if condition_id is not None:
+            writable = self._writable_project(verb)
+            if writable is None:
+                return None
+            project, nonce = writable
+            return project, condition_id, nonce
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return None
+        project, _row, _trace, nonce = selection
+        condition_id = self._selected_condition_id()
+        if condition_id is None:
+            self._status(f"{verb} unavailable: the selected molecule has no condition")
+            return None
+        return project, condition_id, nonce
+
+    def _current_category_names(self, condition_id: str | None = None) -> tuple[str, ...]:
+        """The list of ``condition_id`` (default: the selected molecule's), or ``()``."""
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
+        if condition_id is None or self._project_path is None:
+            return ()
+        from tether.services.curation import category_names
+
+        try:
+            return category_names(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - show an empty list rather than guess
+            return ()
+
+    def _category_failed(
+        self, message: str, condition_id: str | None, *, post: bool = True
+    ) -> CategoryEdit:
+        """Report ``message`` and return a failed edit that shows the list as stored.
+
+        ``post=False`` when the status bar already says it.
+        """
+        from tether.gui.category_editor import CategoryEdit
+
+        if post:
+            self._status(message)
+        names = self._current_category_names(condition_id)
+        return CategoryEdit(ok=False, names=names, message=message)
+
+    def _category_done(self, names: Sequence[str], message: str) -> CategoryEdit:
+        """Report ``message``, show the new names on the keys, and return the edit."""
+        from tether.gui.category_editor import CategoryEdit
+
+        self._status(message)
+        self._cheatsheet.refresh()
+        return CategoryEdit(ok=True, names=tuple(names), message=message)
+
+    def add_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Add ``name`` at the end of the list of a condition.
+
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's, as
+        it does for each of the list changes below. It calls
+        [`Project.add_category`][tether.project.core.Project.add_category] under the
+        session's lock. The new name takes the next number key.
+        """
+        verb = "Add category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.add_category(condition_id, name)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        names = result.categories
+        return self._category_done(names, f"Category {len(names)} ({names[-1]}) added")
+
+    def rename_category(
+        self, old: str, new: str, *, condition_id: str | None = None
+    ) -> CategoryEdit:
+        """Rename ``old`` to ``new`` and keep the category of every molecule that has it.
+
+        The list keeps the position, so the number key stays the same
+        ([`Project.rename_category`][tether.project.core.Project.rename_category]).
+        Molecules store their category by name, so each molecule of the condition that
+        has ``old`` is then given ``new``
+        ([`Project.set_category`][tether.project.core.Project.set_category]), with one
+        molecule edit log row each that names the rename. All under the session's lock.
+        """
+        verb = "Rename category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            members = self._category_members(condition_id, old)
+            self._guard_session_write(project, nonce)
+            result = project.rename_category(condition_id, old, new)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        renamed = result.categories[result.code_of(new.strip())]
+        reason = f"category renamed from {old!r} to {renamed!r}"
+        moved = 0
+        for key in members:
+            try:
+                self._guard_session_write(project, nonce)
+                project.set_category(key, renamed, reason=reason, **self._labeler_kwargs())
+            except Exception as exc:  # noqa: BLE001 - say what is left, never hide it
+                left = len(members) - moved
+                self._after_states_changed()
+                return self._category_failed(
+                    f"{verb}: “{old}” is now “{renamed}” in the list, but {left} of "
+                    f"{len(members)} molecules still have “{old}”: {exc}",
+                    condition_id,
+                )
+            self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=renamed)
+            moved += 1
+        self._after_states_changed()
+        noun = "molecule keeps" if moved == 1 else "molecules keep"
+        return self._category_done(
+            result.categories, f"Category “{old}” renamed to “{renamed}”; {moved} {noun} it"
+        )
+
+    def remove_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Remove ``name`` from the list of a condition.
+
+        It calls [`Project.remove_category`][tether.project.core.Project.remove_category]
+        under the session's lock. The library's rule applies: a molecule that has
+        ``name`` keeps it as its stored category, and the categories after it move up
+        one number key. The editor asks before it calls this for a used name.
+        """
+        verb = "Remove category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            used = len(self._category_members(condition_id, name))
+            self._guard_session_write(project, nonce)
+            result = project.remove_category(condition_id, name)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        message = f"Category “{name}” removed"
+        if used:
+            noun = "molecule keeps" if used == 1 else "molecules keep"
+            message += f"; {used} {noun} it as a name that is not in the list"
+        return self._category_done(result.categories, message)
+
+    def move_category(
+        self, name: str, offset: int, *, condition_id: str | None = None
+    ) -> CategoryEdit:
+        """Move ``name`` ``offset`` places in the list (``-1`` up, ``+1`` down).
+
+        The new order is written with
+        [`Project.set_category_list`][tether.project.core.Project.set_category_list]
+        under the session's lock. Molecules keep their categories; the number keys follow
+        the new order.
+        """
+        verb = "Move category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        from tether.services.curation import category_names
+
+        try:
+            names = list(category_names(project.path, condition_id))
+            index = names.index(name)
+        except ValueError:
+            return self._category_failed(
+                f"{verb} failed: “{name}” is not in the list", condition_id
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        target_index = index + offset
+        if not 0 <= target_index < len(names):
+            return self._category_failed(
+                f"{verb} unavailable: “{name}” is at the end of the list", condition_id
+            )
+        names.insert(target_index, names.pop(index))
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.set_category_list(condition_id, names)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        return self._category_done(
+            result.categories, f"Category “{name}” is now category {target_index + 1}"
+        )
+
+    def show_category_editor(self) -> CategoryEditor | None:
+        """Open the editor of the list of the selected molecule's condition (#633).
+
+        **Curation → Categories…** and the **Categories…** button of the browser panel.
+        Returns the editor after it closes, or ``None`` (with a status message) when no
+        project molecule with a condition is selected. A read-only project shows the list,
+        and each change then says why it is unavailable.
+        """
+        from tether.gui.category_editor import CategoryEditor
+
+        condition_id = self._selected_condition_id()
+        if condition_id is None:
+            self._status("Categories: select a molecule of a condition in an open project first")
+            return None
+        # Every read and write of the editor is bound to the condition it opens on: a
+        # rename the filter hides, or a click, can move the selection to a molecule of
+        # another condition while the editor is open (#633).
+        cid = condition_id
+        editor = CategoryEditor(
+            self._condition_text(cid),
+            self._current_category_names(cid),
+            usage=lambda name: self.category_usage(name, condition_id=cid),
+            add=lambda name: self.add_category(name, condition_id=cid),
+            rename=lambda old, new: self.rename_category(old, new, condition_id=cid),
+            remove=lambda name: self.remove_category(name, condition_id=cid),
+            move=lambda name, offset: self.move_category(name, offset, condition_id=cid),
+            parent=self._window,
+        )
+        self._category_editor = editor
+        editor.exec()
+        return editor
+
+    def _condition_text(self, condition_id: str) -> str:
+        """The condition's identity fields in one line, else its ``condition_id``."""
+        from tether.gui.conditions import _key_summary
+        from tether.services.curation import condition_key
+
+        assert self._project_path is not None
+        try:
+            key = condition_key(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - the id alone still names it
+            key = None
+        return f"{_key_summary(key)} ({condition_id})" if key is not None else condition_id
+
+    @property
+    def category_editor(self) -> CategoryEditor | None:
+        """The last category editor opened, or ``None`` before the first."""
+        return self._category_editor
+
+    @property
+    def categories_button(self) -> QtWidgets.QPushButton:
+        """The browser panel's **Categories…** button, which opens the editor."""
+        return self._categories_button
 
     def _nudge_window(self, bound: int, delta: int) -> None:
         """Move the analysis window's start (``bound`` 0) or end (``bound`` 1) by ``delta``.
