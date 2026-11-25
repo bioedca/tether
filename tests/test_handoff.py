@@ -1014,6 +1014,20 @@ def test_import_model_empty_means_raises(tmp_path):
         apply_reconcile(proj, ret, model_path=bad, model_name="x", import_idealization=True)
 
 
+def test_import_model_with_no_finite_mean_raises(tmp_path):
+    """A per-trace model (NaN ensemble means) is refused, not imported as all-state-0."""
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor)
+    bad = tmp_path / "pertrace.hdf5"
+    with h5py.File(bad, "w") as f:
+        g = f.create_group("model")
+        g.create_dataset("mean", data=np.full(4, np.nan))
+        g.create_dataset("idealized", data=np.full((2, 20), 0.5))
+    with pytest.raises(ValueError, match="no finite state mean"):
+        apply_reconcile(proj, ret, model_path=bad, model_name="x", import_idealization=True)
+
+
 def test_import_model_from_another_session_raises(tmp_path):
     """A model with more rows than the returning SMD is refused, not attached by index.
 

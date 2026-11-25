@@ -1114,6 +1114,15 @@ class TetherShell:
         # user on a shared computer sees whose labels they are writing.
         self._act_curator_name = self._file_menu.addAction("Curator &name…")
         self._act_curator_name.triggered.connect(self._curator_name_dialog)
+        # Whether a launch reopens the last project, in the section of its next step
+        # (#1159). The answer lives in the preferences file, never in a project.
+        self._act_reopen_last = self._file_menu.addAction("Reopen &last project at start")
+        self._act_reopen_last.setCheckable(True)
+        self._act_reopen_last.setChecked(
+            preferences_file is not None and preferences.reopen_last_project(preferences_file)
+        )
+        self._act_reopen_last.setEnabled(preferences_file is not None)
+        self._act_reopen_last.toggled.connect(self.set_reopen_last_project)
         self._file_menu.addSeparator()
         self._act_quit = self._file_menu.addAction("&Quit")
         _set_standard_shortcuts(self._act_quit, std.Quit, "Ctrl+Q")
@@ -2521,6 +2530,86 @@ class TetherShell:
         )
         if ok:
             self.set_curator_name(text)
+
+    @property
+    def reopen_last_action(self) -> Any:
+        """The checkable **File → Reopen last project at start** action (#1159)."""
+        return self._act_reopen_last
+
+    def set_reopen_last_project(self, on: bool) -> bool:
+        """Turn on or off the reopening of the last project at launch; return if it was saved.
+
+        When the preferences file cannot be written, the action shows the stored answer
+        again, so the menu never shows a setting the next launch will not use.
+        """
+        on = bool(on)
+        # The menu click has checked the action already; a call from code checks it here,
+        # without the toggled signal calling this method a second time.
+        self._check_reopen_last(on)
+        saved = self._remember(
+            lambda: preferences.set_reopen_last_project(on, self._preferences_file)
+        )
+        if not saved:
+            self._check_reopen_last(
+                self._preferences_file is not None
+                and preferences.reopen_last_project(self._preferences_file)
+            )
+        else:
+            self._status(
+                "The last project opens again at the next start"
+                if on
+                else "The next start shows the start page"
+            )
+        return saved
+
+    def _check_reopen_last(self, on: bool) -> None:
+        """Check or clear **Reopen last project at start** without its toggled signal."""
+        blocked = self._act_reopen_last.blockSignals(True)
+        try:
+            self._act_reopen_last.setChecked(on)
+        finally:
+            self._act_reopen_last.blockSignals(blocked)
+
+    def reopen_last_project(self) -> str | None:
+        """At launch, open the newest recent project in the section of its next step (#1159).
+
+        It does nothing when this shell remembers nothing, when **File → Reopen last project
+        at start** is off, or when **File → Open recent** is empty. The section comes from
+        the readiness record of the project ([`refresh_readiness`][]), the next step that
+        ``tether status`` prints, and never from the preferences file. A step with no section
+        the shell shows keeps the section the open chose.
+
+        When the file is missing, the open fails, or the readiness cannot be read, the start
+        page stays (or shows again) and the status bar says why. Return the id of the section
+        that shows after a reopen, or ``None`` when nothing was opened.
+        """
+        if self._preferences_file is None or not preferences.reopen_last_project(
+            self._preferences_file
+        ):
+            return None
+        recent = preferences.recent_projects(self._preferences_file)
+        if not recent:
+            return None
+        from tether.gui.messages import Level
+
+        path = recent[0]
+        if not path.is_file():
+            self._status(f"Last project not reopened: {path} was not found", Level.WARNING)
+            return None
+        if self.load_project(path) is None:
+            # load_project said why on the status bar, and the start page still shows.
+            return None
+        if self._readiness is None:
+            self.close_project()
+            self._status(
+                f"Last project not reopened: the next step of {path.name} could not be read",
+                Level.WARNING,
+            )
+            return None
+        step = guided_step(self._readiness, self._sections)
+        if step is not None and step.section is not None:
+            self.set_section(step.section)
+        return self._section
 
     @property
     def recent_menu(self) -> QtWidgets.QMenu:

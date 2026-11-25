@@ -1002,9 +1002,13 @@ space in quotes. It uses double quotes for the Tether Command Prompt on Windows,
 on macOS and Linux, for example `--subject 'condition 1'`. The command that `tether run` prints
 when a step fails has the same quotes.
 
-> **On Windows, type some values by hand.** The Tether Command Prompt reads two kinds of value
-> before Tether gets them. One is a value that holds a `"` together with `&`, `|`, `<`, `>` or
-> `^`. The other is a value that holds a `%NAME%` of the environment.
+> **On Windows, run the printed commands in the Tether Command Prompt.** PowerShell reads quotes
+> in a different way.
+
+On Windows, Tether writes a `"` in a value as `""`, and a `%` as `^%` outside the quotes. For
+example, it writes the subject `%USERNAME%` as `--subject ""^%"USERNAME"^%""`. The Tether Command
+Prompt then gives Tether the value as it is, also when the value holds `&`, `|`, `<`, `>` or `^`.
+It does not expand a `%NAME%` of the environment in the value.
 
 ## `tether approve`
 

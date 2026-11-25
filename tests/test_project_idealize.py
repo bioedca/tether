@@ -1142,3 +1142,27 @@ def test_model_without_population_members_reads_none(tmp_path) -> None:
 # The raw fit's §11.2 parity is already gated by `test_parity_sidecar` at the
 # `run_vbfret` layer, and the store-integration is fully covered above (faked
 # sidecar). See ADR-0024.
+
+
+def test_per_trace_vbfret_is_refused_before_any_fit(tmp_path) -> None:
+    """``/idealization`` stores one set of means, so per-trace vbFRET is refused (ADR-0110)."""
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(1, 12), _step_trace(1, 12))
+    calls: list = []
+    with pytest.raises(ValueError, match="per-trace vbFRET"):
+        idealize_molecules(
+            proj, model_type="vbfret", nstates=4, _runner=_make_runner({4: 0.0}, calls)
+        )
+    assert calls == []
+
+
+def test_a_model_with_no_finite_mean_is_not_persisted(tmp_path) -> None:
+    """A per-trace result (NaN ensemble means) never becomes all-state-0 stored paths."""
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(1, 12), _step_trace(1, 12))
+
+    def runner(smd_path, **kwargs):
+        result = _fake_result(smd_path, nstates=2, elbo=-1.0, model_type="vb HMM_model selection")
+        result.model.means = np.full(2, np.nan)
+        return result
+
+    with pytest.raises(ValueError, match="no finite state mean"):
+        idealize_molecules(proj, nstates=2, _runner=runner)
