@@ -127,6 +127,32 @@ def test_the_pass_stamps_each_molecule_and_shows_the_summary_field_by_field(
     assert shell.messages.latest.text.startswith("Correction pass: 2 of 4 molecules corrected")
 
 
+def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
+    # #1393: the summary names no project, so it must not outlive the one it describes.
+    _loaded(shell, tmp_path)
+    summary = _run(shell, qtbot)
+    assert summary is not None and summary.dialog.isVisible()
+
+    assert shell.close_project()
+
+    assert not summary.dialog.isVisible()
+    assert shell.correction_summary is None
+
+
+def test_opening_another_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
+    _loaded(shell, tmp_path)
+    summary = _run(shell, qtbot)
+    assert summary is not None and summary.dialog.isVisible()
+
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    other = _store(other_dir)
+    assert shell.load_project(other.path) is not None
+
+    assert not summary.dialog.isVisible()
+    assert shell.correction_summary is None
+
+
 def test_a_nan_factor_and_a_nan_corrected_e_are_never_written(shell, qtbot, tmp_path) -> None:
     from tether.fret import apparent_fret, corrected_fret
     from tether.imaging.extract import read_traces
@@ -513,27 +539,24 @@ def test_closing_the_window_closes_the_summary(shell, qtbot, tmp_path) -> None:
     assert shell.correction_summary is None
 
 
-def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
-    # #1393: the summary names no project, so it must not outlive the one it describes.
-    _loaded(shell, tmp_path)
-    summary = _run(shell, qtbot)
-    assert summary is not None and summary.dialog.isVisible()
+def test_a_claim_reads_the_file_identity_under_the_registry_lock(monkeypatch, tmp_path) -> None:
+    # A pass that replaces the file and moves its claim takes the same lock, so a claim
+    # cannot read the old identity, wait, and then take it after the claim has moved.
+    from tether.gui import shell as shell_mod
 
-    assert shell.close_project()
+    real = shell_mod._project_owner_key
+    held: list[bool] = []
 
-    assert not summary.dialog.isVisible()
-    assert shell.correction_summary is None
+    def spy(path):
+        held.append(shell_mod._GUI_PROJECT_OWNERS_LOCK.locked())
+        return real(path)
 
-
-def test_opening_another_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
-    _loaded(shell, tmp_path)
-    summary = _run(shell, qtbot)
-    assert summary is not None and summary.dialog.isVisible()
-
-    other_dir = tmp_path / "other"
-    other_dir.mkdir()
-    other = _store(other_dir)
-    assert shell.load_project(other.path) is not None
-
-    assert not summary.dialog.isVisible()
-    assert shell.correction_summary is None
+    monkeypatch.setattr(shell_mod, "_project_owner_key", spy)
+    token = object()
+    path = tmp_path / "p.tether"
+    path.write_bytes(b"")
+    key = shell_mod._claim_gui_project(path, token)
+    try:
+        assert held == [True]
+    finally:
+        shell_mod._release_gui_project(key, token)
