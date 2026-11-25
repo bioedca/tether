@@ -38,7 +38,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -145,11 +145,21 @@ class Command:
             raise ValueError(f"{self.action.value} takes no arg, got {self.arg!r}")
 
 
-def action_description(command: Command) -> str:
-    """A human-readable description of ``command`` for the cheat-sheet."""
+def action_description(command: Command, category_names: Mapping[int, str] | None = None) -> str:
+    """A human-readable description of ``command`` for the cheat-sheet.
+
+    ``category_names`` maps an integer class to the category name it assigns in the
+    selected molecule's condition (#633). With it, a category key names its category,
+    for example ``"Assign category 2 (bound)"``, or says that the list has no such entry.
+    Without it the key gives only its class number.
+    """
     a = command.action
     if a is CurationAction.ASSIGN_CATEGORY:
-        return f"Assign category {command.arg}"
+        text = f"Assign category {command.arg}"
+        if category_names is None:
+            return text
+        name = category_names.get(int(command.arg))
+        return f"{text} ({name})" if name else f"{text} (not in the list)"
     return _ACTION_TEXT[a]
 
 
@@ -570,7 +580,10 @@ class Keymap:
     # --- cheat-sheet ---------------------------------------------------------
 
     def cheatsheet(
-        self, *, unavailable: frozenset[CurationAction] = frozenset()
+        self,
+        *,
+        unavailable: frozenset[CurationAction] = frozenset(),
+        category_names: Mapping[int, str] | None = None,
     ) -> list[tuple[str, str]]:
         """Ordered ``(key_label, description)`` rows describing the current map.
 
@@ -578,6 +591,8 @@ class Keymap:
         reflected here. Key labels come from ``QKeySequence`` (native text). A row
         whose action is in ``unavailable`` gets ``" (unavailable)"`` appended, so a
         host that has not implemented a command does not advertise it (#345).
+        ``category_names`` names the category each number key assigns
+        ([`action_description`][], #633).
         """
         from pyqtgraph.Qt import QtGui
 
@@ -586,7 +601,7 @@ class Keymap:
         for (key, mods), cmd in self.bindings.items():
             label = QtGui.QKeySequence(key | mods).toString(native)
             priority = _ACTION_ORDER.get(cmd.action, len(_ACTION_ORDER))
-            description = action_description(cmd)
+            description = action_description(cmd, category_names)
             if cmd.action in unavailable:
                 description += " (unavailable)"
             rows.append((priority, mods, key, label, description))
