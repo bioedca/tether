@@ -128,6 +128,11 @@ def test_a_relative_path_past_a_linked_folder_is_recorded_absolute(tmp_path) -> 
         pytest.skip("cannot make a folder link here")
     project = tmp_path / "data" / "out" / "m.tether"
 
-    # ``../raw/m.tif`` from the linked folder leads to elsewhere/raw, where no movie is.
-    assert project_movie_uri(project, movie) == movie.as_posix()
+    uri = project_movie_uri(project, movie)
+    # Whatever is recorded, read against the project's folder, is the movie.
+    assert os.path.samefile(project.parent / uri, movie)
+    if os.name != "nt":
+        # POSIX reads ``..`` from where the link points (elsewhere/), where no movie is;
+        # Windows drops ``..`` from the name first, so ``../raw/m.tif`` is right there.
+        assert uri == movie.as_posix()
     assert project_movie_uri(tmp_path / "data" / "m.tether", movie) == "raw/m.tif"
