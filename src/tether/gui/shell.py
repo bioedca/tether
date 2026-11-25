@@ -242,6 +242,14 @@ _DEFAULT_SECTION = CURATE_SECTION
 _ProjectOwnerKey = tuple[str, int, int] | tuple[str, str]
 _GUI_PROJECT_OWNERS: dict[_ProjectOwnerKey, object] = {}
 _GUI_PROJECT_OWNERS_LOCK = Lock()
+# A shell whose pass publishes a replacement of its project file holds the canonical path
+# here until its claim has moved to the new file (`_rebind_gui_project`). Between the
+# replace and that move the new file has no owner key, so a claim of the path must wait.
+_GUI_PUBLISHING_PATHS: dict[str, object] = {}
+
+
+def _canonical_project_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
@@ -252,7 +260,7 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
     """
     from tether.project.lock import file_identity
 
-    resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
+    resolved = _canonical_project_path(path)
     identity = file_identity(resolved)
     if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
@@ -264,12 +272,31 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
     """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
     key = _project_owner_key(path)
+    canonical = _canonical_project_path(path)
     with _GUI_PROJECT_OWNERS_LOCK:
         owner = _GUI_PROJECT_OWNERS.get(key)
         if owner is not None and owner is not token:
             return None
+        publisher = _GUI_PUBLISHING_PATHS.get(canonical)
+        if publisher is not None and publisher is not token:
+            return None
         _GUI_PROJECT_OWNERS[key] = token
     return key
+
+
+def _hold_publishing_path(path: str | Path, token: object) -> str:
+    """Mark ``path`` as being replaced by ``token``'s shell; return the canonical path."""
+    canonical = _canonical_project_path(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        _GUI_PUBLISHING_PATHS[canonical] = token
+    return canonical
+
+
+def _drop_publishing_path(canonical: str, token: object) -> None:
+    """End the mark of `_hold_publishing_path` when ``token`` still holds it."""
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if _GUI_PUBLISHING_PATHS.get(canonical) is token:
+            del _GUI_PUBLISHING_PATHS[canonical]
 
 
 def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
@@ -1661,6 +1688,8 @@ class TetherShell:
         The action is enabled from the project's correction state (G03), read each time
         the menu opens; a disabled action says why in its tooltip.
         """
+        # A QMenu shows no action tooltip unless asked to, and the tooltip holds the reason.
+        menu.setToolTipsVisible(True)
         self._corrections_menu = menu
         self._act_correction_pass = menu.addAction("Run &correction pass…")
         self._act_correction_pass.triggered.connect(self._correction_pass_dialog)
@@ -3812,13 +3841,16 @@ class TetherShell:
         claimed = self._claimed_project_key
         token = self._project_owner_token
 
+        # The publish replaces the file, and the new file has no owner key until the claim
+        # moves to it after the pass. The path is held from now until then, so another
+        # window in this process cannot claim the new file in between.
+        publishing = _hold_publishing_path(project.path, token)
+
         def task() -> CorrectionPassResult:
-            # The publish replaces the file, so the claim moves to the new file at once,
-            # before another window in this process can claim it. The window's key moves
-            # here too, before the task settles: a window closed while the pass ran
-            # abandons the task, and its release after the task then frees the new key.
-            # Open and close project are refused while a task runs, so nothing else
-            # changes the key meanwhile.
+            # The window's key moves here too, before the task settles: a window closed
+            # while the pass ran abandons the task, and its release after the task then
+            # frees the new key. Open and close project are refused while a task runs, so
+            # nothing else changes the key meanwhile.
             try:
                 return run_correction_pass(
                     project.path, apparent_e_only=apparent_e_only, write_guard=guard
@@ -3827,6 +3859,7 @@ class TetherShell:
                 rebound = _rebind_gui_project(claimed, project.path, token)
                 if rebound != claimed:
                     self._claimed_project_key = rebound
+                _drop_publishing_path(publishing, token)
 
         self._status("Running the correction pass…")
         started = self._tasks.start(
@@ -3835,6 +3868,8 @@ class TetherShell:
             label="Correction pass",
             on_finished=self._finish_correction_pass,
         )
+        if started is None:
+            _drop_publishing_path(publishing, token)
         self._sync_project_write_controls()
         return started is not None
 
