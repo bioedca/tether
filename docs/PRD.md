@@ -2502,12 +2502,12 @@ Each result type is in the catalogue because N3 makes it a plot to draw. The fiv
 | Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | `render_alpha_shape` |
 | Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | `render_state_number_elbow` |
 | Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | `render_population_anticorrelation` |
-| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | none yet ([#1085](https://github.com/bioedca/tether/issues/1085)) |
+| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | `render_successive_frame_cloud` ([#1085](https://github.com/bioedca/tether/issues/1085)) |
 
 A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
 and so belongs to the first part; it is the fifth result type that #370 gave a renderer,
-`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, has no renderer yet: #1085
-carries it. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
+`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, got its renderer and its entry in
+the Analyze section's plot list in #1085. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
 condition query (`query`) selects molecules, and the kinSoftChallenge kinetics check (`kinetics`) is a validation
 oracle (§9.5).
 
