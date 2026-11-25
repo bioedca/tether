@@ -921,9 +921,10 @@ and modification time of the file it read, and the bytes read. Just before the w
 checksum job and `relink_source` check that the path still names that file, with that size
 and modification time. If another process replaced the file or wrote into it, the write is
 refused (`SourceReplaced`) and nothing is stored. A write that keeps the size and lands
-within the filesystem's time resolution is not seen. On a filesystem that gives no inode
-number, only the size and modification time are compared, so a replacement with the same
-size and modification time is not seen there either.
+within the filesystem's time resolution is not seen.
+
+On a filesystem that gives no inode number, only the size and modification time are compared.
+A replacement with the same size and modification time is then not seen either (#1419).
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It
 keeps only the file name of a path that is absolute or that steps out of the folder (`..`). A
