@@ -124,7 +124,6 @@ from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
     fit_registration_map,
-    load_map,
     registration_map_from_tmap,
     write_calibration,
 )
@@ -142,6 +141,13 @@ from tether.imaging.layout import (
     LAYOUT_SIDE_BY_SIDE,
     ChannelLayout,
     ChannelLayoutError,
+)
+from tether.imaging.map_asset import (
+    MapFacts,
+    MapReuseError,
+    OpticsConfirmationNeeded,
+    load_map_asset,
+    require_map_reuse,
 )
 from tether.imaging.recipe import ChannelRecipeError, check_frame_fits
 from tether.imaging.register import (
@@ -561,8 +567,10 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     Wraps [`load_map`][] and translates a bad file into a clean, map-centric
     [`ExtractionError`][]. The map is used as saved: its coefficients, geometry,
     residual and over-gate verdict are not changed. Its provenance gains a
-    ``map_file`` record (the file name and the sha256 of its bytes), so the
-    ``/calibration`` group says which file produced the map. [`_resolve_sources`][]
+    ``map_file`` record (the file name, the sha256 of its bytes, and the map asset's
+    record: map id, origin, source ids, layout, optics text and pixel size; #916), so
+    the ``/calibration`` group says which file produced the map and a project names
+    the id and the checksum of each map it used. [`_resolve_sources`][]
     then records the map's own ``gate_px`` as the run's ``rms_gate``. The file is read once
     and the map decoded from those bytes, so a file replaced during the call cannot
     pair one file's digest with another's coefficients. A map without channel
@@ -572,16 +580,65 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     try:
         content = path.read_bytes()  # one read: the digest names the bytes decoded
         digest = hashlib.sha256(content).hexdigest()
-        reg_map = load_map(path, content=content)
+        asset = load_map_asset(path, content=content)
     except Exception as exc:  # unreadable, not a map file, newer version, pickled data
         raise ExtractionError(f"could not use --map {path.name}: {exc}") from exc
+    reg_map = asset.registration_map
     if reg_map.reference_geometry is None or reg_map.moving_geometry is None:
         raise ExtractionError(
             f"could not use --map {path.name}: the map has no channel geometry for both "
             "halves, so the movie cannot be split with it"
         )
     provenance = dict(reg_map.provenance)
-    provenance["map_file"] = {"name": path.name, "sha256": digest}
+    provenance["map_file"] = {"name": path.name, "sha256": digest, **asset.record()}
+    if asset.quality is not None:  # the file's record, so a saved copy keeps it
+        provenance["map_quality"] = asset.quality
+    return replace(reg_map, provenance=provenance)
+
+
+def _check_map_reuse(
+    reg_map: RegistrationMap,
+    movie_path: Path,
+    pixel_size_um: float | None,
+    *,
+    map_optics: str | None,
+    confirm_optics: bool,
+) -> RegistrationMap:
+    """Run the reuse check of a map file against this movie and record it (#916).
+
+    The movie's pixel size comes from its file, its optics text from ``map_optics``. A
+    different pixel size is refused; a different optics text is refused unless
+    ``confirm_optics``. The check's result is added to the ``map_file`` record. A map
+    that came from no map file is returned unchanged.
+    """
+    record = reg_map.provenance.get("map_file")
+    if not isinstance(record, dict):
+        return reg_map
+    layout = record.get("channel_layout")
+    map_facts = MapFacts(
+        channel_layout=None if layout is None else ChannelLayout.from_dict(layout),
+        geometry=(reg_map.reference_geometry, reg_map.moving_geometry),  # type: ignore[arg-type]
+        pixel_size_um=record.get("pixel_size_um"),
+        optics=str(record.get("optics") or ""),
+    )
+    movie = MapFacts(pixel_size_um=pixel_size_um, optics=map_optics or "")
+    try:
+        check = require_map_reuse(map_facts, movie, confirm_optics=confirm_optics)
+    except OpticsConfirmationNeeded as exc:
+        raise ExtractionError(
+            f"{movie_path.name}: could not use --map {record.get('name')}: {exc} "
+            "(--confirm-optics, or confirm_optics=True)"
+        ) from exc
+    except MapReuseError as exc:
+        raise ExtractionError(
+            f"{movie_path.name}: could not use --map {record.get('name')}: {exc}"
+        ) from exc
+    provenance = dict(reg_map.provenance)
+    provenance["map_file"] = {
+        **record,
+        "movie_optics": map_optics or "",
+        "reuse": check.to_dict(optics_confirmed=bool(check.warnings) and confirm_optics),
+    }
     return replace(reg_map, provenance=provenance)
 
 
@@ -781,6 +838,8 @@ def _run_pipeline(
     *,
     identity: tuple[_FileRead, ...] | None = None,
     acceptor_path: Path | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> _Extracted:
     """Run stages 1-15 on one movie, or on a movie pair, and return the unpersisted result.
 
@@ -858,6 +917,15 @@ def _run_pipeline(
                     check_frame_fits(height, width, donor_geom, acceptor_geom)
                 except ChannelRecipeError as exc:
                     raise ExtractionError(f"{movie_path.name}: {exc}") from exc
+                # A map file is checked against what is known of this movie: its pixel
+                # size and the optics text the user gives; never its date (#916).
+                reg_map = _check_map_reuse(
+                    reg_map,
+                    movie_path,
+                    pixel_size_um,
+                    map_optics=map_optics,
+                    confirm_optics=confirm_optics,
+                )
                 donor_stack, acceptor_stack = _split_stacks(
                     reader, acceptor_reader, donor_geom, acceptor_geom
                 )
@@ -1151,6 +1219,8 @@ def extract_movie(
     publish_guard: Callable[[], None] | None = None,
     refuse_over_gate: bool = False,
     acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -1190,7 +1260,10 @@ def extract_movie(
         refused; the map keeps the residual and the
         over-gate verdict it was saved with. The file name is recorded as
         ``map_source`` in ``/settings/extraction`` and the ``/calibration``
-        provenance gains ``map_file`` (name + sha256).
+        provenance gains ``map_file`` (name, sha256, the map id and the map's record,
+        and the result of the reuse check; #916). The reuse check refuses a map whose
+        pixel size differs from the movie's
+        ([`tether.imaging.map_asset.check_map_reuse`][]); it never reads the map's date.
 
         **Precedence:** one registration source per run. The native fit runs when
         neither ``tmap`` nor ``map_path`` is given; either file replaces it; passing
@@ -1221,6 +1294,12 @@ def extract_movie(
         The ``/movies`` row names the pair ([`tether.io.pair.pair_sha256`][]), and the
         source registry stores both files with their roles. ``None`` (default) reads one
         movie with both channels in each frame.
+    map_optics:
+        With ``map_path``: the optics text of this movie (objective, filters, camera),
+        compared with the map's own. ``None`` compares no optics.
+    confirm_optics:
+        With ``map_path``: use the map although its optics text differs from
+        ``map_optics``. The confirmation is recorded with the map.
 
     Returns
     -------
@@ -1242,8 +1321,9 @@ def extract_movie(
         frame, or a frame too small to cut in two), a channel layout given together
         with a ``.tmap``, too few
         matched control points to register (native path), a registration over the
-        gate under ``refuse_over_gate``, or a write failure. Never a raw primitive
-        traceback.
+        gate under ``refuse_over_gate``, a map file the reuse check refuses (a
+        different pixel size, or a different optics text without ``confirm_optics``),
+        or a write failure. Never a raw primitive traceback.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
@@ -1261,7 +1341,14 @@ def extract_movie(
     options, imported_map = _resolve_sources(
         options, tmap, tdat, map_path, pair=acceptor_path is not None
     )
-    extracted = _run_pipeline(movie_path, options, imported_map, acceptor_path=acceptor_path)
+    extracted = _run_pipeline(
+        movie_path,
+        options,
+        imported_map,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
+    )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     # --- Persist atomically (movie memmap is now closed) -----------------------
@@ -1399,6 +1486,8 @@ def add_movie_to_project(
     publish_guard: Callable[[], None] | None,
     refuse_over_gate: bool = False,
     acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> ExtractionSummary:
     """Extract ``movie_path`` and append it to the existing project ``project_path``.
 
@@ -1429,7 +1518,7 @@ def add_movie_to_project(
         The acceptor movie when ``movie_path`` is the donor of a movie pair (#909); see
         [`extract_movie`][]. A pair already in the project (the same two files in the
         same roles) is refused as a duplicate.
-    options, tmap, tdat, map_path:
+    options, tmap, tdat, map_path, map_optics, confirm_optics:
         As for [`extract_movie`][], with the same precedence. The aperture parameters
         (``window``, the radii and ``bg_window``) must equal the ones the project's first
         extraction recorded.
@@ -1487,7 +1576,13 @@ def add_movie_to_project(
     _refuse_duplicate_movie(project_path, _row_sha256(identity), movie_path)
 
     extracted = _run_pipeline(
-        movie_path, options, imported_map, identity=identity, acceptor_path=acceptor_path
+        movie_path,
+        options,
+        imported_map,
+        identity=identity,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
     )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
@@ -1548,6 +1643,8 @@ def reextract_movie(
     refuse_over_gate: bool = False,
     match_px: float | None = None,
     acceptor_movie: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> GenerationSummary:
     """Extract a movie the project already holds again, as a new trace generation.
 
@@ -1579,7 +1676,7 @@ def reextract_movie(
         An existing, compatible ``.tether`` project that holds the movie.
     movie_path:
         The movie file; its bytes must be the ones the project recorded.
-    options, tmap, tdat, map_path, refuse_over_gate:
+    options, tmap, tdat, map_path, map_optics, confirm_optics, refuse_over_gate:
         As for [`add_movie_to_project`][]; the aperture parameters must equal the
         project's.
     publish_guard:
@@ -1630,7 +1727,13 @@ def reextract_movie(
     movie_id = _held_movie_id(project_path, _row_sha256(identity), movie_path)
 
     extracted = _run_pipeline(
-        movie_path, options, imported_map, identity=identity, acceptor_path=acceptor_path
+        movie_path,
+        options,
+        imported_map,
+        identity=identity,
+        acceptor_path=acceptor_path,
+        map_optics=map_optics,
+        confirm_optics=confirm_optics,
     )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 

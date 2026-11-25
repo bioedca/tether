@@ -132,7 +132,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--coloc-distance COLOC_DISTANCE]
                [--colocalization {partner-in-both,donor-anchored}]
                [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
-               [--map PATH] [--tdat PATH] [--profile PATH]
+               [--map PATH] [--optics TEXT] [--confirm-optics]
+               [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -159,6 +160,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--rms-gate RMS_GATE` | `0.5` | The gate on the RMS residual of the registration, in pixels. |
 | `--tmap PATH` | none | Apply an imported Deep-LASI `.tmap` in place of a native fit. You cannot give it with `--map` (note 4). |
 | `--map PATH` | none | Apply a saved Tether `.npz` map file from [`tether map create`](#tether-map-create) in place of a native fit. You cannot give it with `--tmap` (note 4). |
+| `--optics TEXT` | none | With `--map`: the optics text of this movie, such as the objective, the filters and the camera (note 7). |
+| `--confirm-optics` | off | With `--map`: use the map although its optics text differs from `--optics`. The project records the confirmation. |
 | `--tdat PATH` | none | Apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`). It sets only the detection mode and the detection threshold (note 5). |
 | `--profile PATH` | none | Read every extraction option from an [extraction profile](#extraction-profiles). An option that the file leaves out keeps its default (note 6). |
 
@@ -178,6 +181,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
    `--detection-threshold` or a `--profile` that sets either. See
    [the rule](#detection-settings-pick-one-source).
 6. You cannot give `--profile` with an option flag, from `--donor-side` to `--rms-gate`.
+7. Tether refuses a map whose own optics text differs, unless you give `--confirm-optics`. See
+   [Reuse a map file](#reuse-a-map-file).
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -296,7 +301,39 @@ The project records which source made the map. In `/settings/extraction`,
 `registration_source` is `native`, `imported` (a `.tmap`) or `map-file`. `tmap_source` or
 `map_source` holds the file name. The `/calibration` group of a map-file run also stores a
 `map_file` record in its provenance, beside the origin of the map. The record holds the name and
-the sha256 of the file.
+the sha256 of the file, the map id and the record of the map. It also holds the result of the
+reuse check.
+
+### Reuse a map file
+
+A map file is an asset of its own. One bead map can register the movies of many projects. Each
+project records the **map id** and the **sha256** of the map file that it used. So two projects
+that used the same map name the same file.
+
+Before a map registers a movie, Tether checks that the map fits the movie. The check compares the
+optics, never the date. An old map with the same optics is as good as a new one
+([ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)).
+
+| The map and the movie differ in | Result |
+|---|---|
+| The pixel size: the map's `--pixel-size`, and the movie's from its file. | Refused. The message gives both values. |
+| The optics text: the map's `--optics`, and the movie's `--optics`. | Refused, unless you confirm with `--confirm-optics`. |
+| A value that one side does not know. | Not compared. The project records it as *not compared*. |
+
+```console
+$ tether map create beads.tif -o beads.npz --optics "60x TIRF, Cy3/Cy5, EMCCD 1x1" --pixel-size 0.267
+$ tether extract movie.tif -o movie.tether --map beads.npz --optics "100x TIRF, Cy3/Cy5"
+tether extract: movie.tif: could not use --map beads.npz: the map's optics differ from the movie's (optics: the map says '60x TIRF, Cy3/Cy5, EMCCD 1x1'; the movie says '100x TIRF, Cy3/Cy5'); confirm that the map applies to use it (--confirm-optics, or confirm_optics=True)
+```
+
+The library check is
+[`check_map_reuse`](api/imaging.md#tether.imaging.map_asset.check_map_reuse). It also compares
+the channel layout and the channel geometry when the caller gives those of the movie, and it
+refuses a difference in either.
+[`save_project_map`](api/imaging.md#tether.imaging.map_asset.save_project_map) saves the map
+that a project holds as a separate map file.
+[`map_asset_from_tmap`](api/imaging.md#tether.imaging.map_asset.map_asset_from_tmap) makes a map
+file from a `.tmap`, with the origin `tmap` and no quality record.
 
 ### Extraction profiles
 
@@ -879,7 +916,8 @@ same command.
 ```text
 tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
                   [--projection {max,mean}] [--donor-side {left,right}]
-                  [--rms-gate RMS_GATE] source
+                  [--rms-gate RMS_GATE] [--optics TEXT] [--pixel-size UM]
+                  source
 ```
 
 | Argument | Default | Meaning |
@@ -891,10 +929,13 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 | `--projection {max,mean}` | `max` | For a video: how Tether reduces the frames to one image. |
 | `--donor-side {left,right}` | `left` | Which half of the frame is the donor channel. |
 | `--rms-gate RMS_GATE` | `0.5` | The gate on the RMS residual of the registration, in pixels. |
+| `--optics TEXT` | none | A text for the optics, such as the objective, the filters, the camera and the binning. The map keeps it, and [the reuse check](#reuse-a-map-file) compares it with the `--optics` of a later movie. |
+| `--pixel-size UM` | not known | The camera pixel size in micrometres. The map keeps it, and Tether refuses a later movie with another pixel size. |
 
 ```console
 $ tether map create beads.tif -o beads.npz
 Map -> beads.npz: RMS 0.214 px over 38 bead pair(s), 71% of the field covered
+  map id: map:3f2a9c0d6e1b47a8b5c4d3e2f1a0b9c8
 $ tether extract movie.tif -o movie.tether --map beads.npz
 ```
 
@@ -919,8 +960,18 @@ network shares. There, Tether copies the map instead, under the writer lock of t
 only its own file. Whenever Tether takes the writer lock, it leaves a `<file>.lock.guard` file
 beside the map, as it does beside a project.
 
-The map file has a `format_version`, now `1`. Tether reads a map file of its own version or
-older, and refuses one that a newer version wrote. The file holds only plain arrays and text.
+The map file has a `format_version`, now `2`. Tether reads a map file of its own version or
+older, and refuses one that a newer version wrote.
+
+Version 2 makes the map a separate asset
+([ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)).
+Besides the transform and the channel geometry, it holds the map id and its origin: `beads`,
+`tmap` or `native-fit`. It also holds the source ids of the files that made it and the channel
+layout. Then come the quality record, the optics text, the pixel size, the time of the save and
+the Tether version. A file of version 0 or 1 still reads. Its id is the sha256 of its bytes, and
+it has no layout, optics text, pixel size or time.
+
+The file holds only plain arrays and text.
 Tether reads it with pickling switched off, so no stored Python object can run when a map loads.
 [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
 records this version rule.
@@ -1731,8 +1782,8 @@ A break between two parts of JSON does not change it:
 {"command":"extract","fields":{"bg_window":10,"channel_layout":null,
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
 "channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
-"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
-"disk_radius":3.0,"donor_side":"left","map_path":null,
+"confirm_optics":false,"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
+"disk_radius":3.0,"donor_side":"left","map_optics":null,"map_path":null,
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
