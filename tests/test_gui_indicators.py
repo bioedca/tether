@@ -18,7 +18,6 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -105,7 +104,8 @@ def test_each_menu_item_shows_its_icon_and_its_text(qapp, qtbot, scheme) -> None
     with TetherShell() as shell:
         qtbot.addWidget(shell.window)
         names = {name for _action, name in shell.menu_icons}
-        assert names == {"project", "curate", "hand-off", "import", "analyze", "conditions"}
+        # The analyze icon left with the one-action Analysis menu (#374): Analyze has no menu.
+        assert names == {"project", "curate", "hand-off", "import", "conditions"}
         for action, name in shell.menu_icons:
             assert action.text().strip("&"), name  # the text stays
             assert theme.icon_renders(action.icon()), name
@@ -235,75 +235,6 @@ def test_the_busy_mark_is_drawn_in_the_ink_of_the_theme(qapp, qtbot, scheme) -> 
     assert darkest_and_lightest()[0] < 0.2  # ink marks on a light ground
     theme.set_mode("dark")
     assert darkest_and_lightest()[1] > 0.8  # chalk marks on a dark ground
-
-
-def test_the_one_click_idealize_shows_the_busy_indicator(qapp, qtbot, monkeypatch) -> None:
-    from tether.gui.shell import TetherShell
-    from tether.gui.trace_dock import TraceView
-
-    monkeypatch.setattr(indicators, "prefers_reduced_motion", lambda: False)
-    rng = np.random.default_rng(0)
-    # The list name differs from the content-hash key, as it does for extracted molecules.
-    traces = [
-        TraceView(rng.random(20), rng.random(20), name=f"spot {i}", molecule_key=f"{i:064x}")
-        for i in range(2)
-    ]
-    release = threading.Event()
-    received: list[str] = []
-
-    def slow_idealizer(key: str):
-        received.append(key)
-        release.wait(10)
-        return np.full(20, 0.5)
-
-    with TetherShell(idealizer=slow_idealizer) as shell:
-        qtbot.addWidget(shell.window)
-        shell.set_molecules(traces)
-        busy = shell.busy_indicator
-        assert not busy.is_running()
-        shell._idealize_current()
-        try:
-            assert busy.is_running()
-            assert busy.task_name == "Idealizing spot 0"
-            assert busy.label.text() == "Idealizing spot 0"
-            assert busy.mark.is_animating()
-        finally:
-            release.set()
-        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
-        assert received == [f"{0:064x}"]  # the idealizer still receives the key
-        assert not busy.is_running() and busy.isHidden()
-        assert not busy.mark.is_animating()
-
-
-def test_the_busy_indicator_names_an_unnamed_molecule_by_its_row_text(
-    qapp, qtbot, monkeypatch
-) -> None:
-    from tether.gui.shell import TetherShell
-    from tether.gui.trace_dock import TraceView
-
-    monkeypatch.setattr(indicators, "prefers_reduced_motion", lambda: False)
-    rng = np.random.default_rng(1)
-    traces = [TraceView(rng.random(20), rng.random(20), molecule_key=f"{i:064x}") for i in range(2)]
-    release = threading.Event()
-    received: list[str] = []
-
-    def slow_idealizer(key: str):
-        received.append(key)
-        release.wait(10)
-        return np.full(20, 0.5)
-
-    with TetherShell(idealizer=slow_idealizer) as shell:
-        qtbot.addWidget(shell.window)
-        shell.set_molecules(traces)
-        shell.molecule_list.setCurrentRow(1)
-        busy = shell.busy_indicator
-        shell._idealize_current()
-        try:
-            assert busy.task_name == "Idealizing mol-1"
-        finally:
-            release.set()
-        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
-        assert received == [f"{1:064x}"]
 
 
 # --- the progress row --------------------------------------------------------------

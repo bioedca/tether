@@ -35,6 +35,22 @@ def shell(section_shell):
     return section_shell(project=False)
 
 
+def _project_fit(**choices):
+    """A whole-project fit choice (#625), the default unless *choices* say otherwise."""
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit(**choices)
+
+
+def _no_model():
+    """What a fake whole-project fit returns: a result that wrote no model."""
+    from pathlib import Path as _Path
+
+    from tether.services.idealize import IdealizeResult
+
+    return IdealizeResult(project=_Path("fake.tether"))
+
+
 def _store(tmp_path, *, n=3, t=12, name="sections.tether"):
     from _analysis_store import build_store_with_channels
 
@@ -144,10 +160,10 @@ def _dock_menu_titles(shell) -> list[str]:
 def test_the_dock_menu_offers_only_the_current_sections_docks(shell, tmp_path) -> None:
     project = _store(tmp_path)
     assert shell.load_project(project.path) is not None
-    assert shell.show_histogram() is not None
-    assert shell.section == "analyze"
+    shell.set_section("analyze")
     # In Analyze, the dock menu cannot bring the Browser or the Overlap dock over the page.
-    assert _dock_menu_titles(shell) == ["Population histogram"]
+    # Analyze has no dock of its own: its plots are its page (#374).
+    assert _dock_menu_titles(shell) == []
     assert not shell.browser_dock.toggleViewAction().isVisible()
     shell.set_section("curate")
     assert sorted(_dock_menu_titles(shell)) == ["Browser", "Overlap"]
@@ -176,20 +192,16 @@ def test_lazy_docks_attach_to_their_section(shell, tmp_path) -> None:
     assert overlap in shell.section_docks("curate")
     assert not overlap.isHidden()
 
-    # The histogram is a dock of Analyze, so showing it shows that section.
-    assert shell.show_histogram() is not None
-    histogram = shell._histogram_dock_widget
-    assert shell.section == "analyze"
-    assert shell.section_docks("analyze") == [histogram]
-    assert not histogram.isHidden()
+    # Analyze holds no dock (its plots are its page, #374), so the Curate docks hide there.
+    shell.set_section("analyze")
+    assert shell.section_docks("analyze") == []
     assert overlap.isHidden()
     assert shell.browser_dock.isHidden()
 
     shell.set_section("curate")
-    assert histogram.isHidden()
     assert not overlap.isHidden()
 
-    # Closing the project discards both lazy docks and shows the start page.
+    # Closing the project discards the lazy dock and shows the start page.
     shell.set_section("analyze")
     assert shell.close_project()
     assert shell.section == "curate"
@@ -270,14 +282,14 @@ def test_every_write_seam_stays_disabled_while_idealizing_across_a_switch(
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(12, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer
     try:
-        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
         assert shell.is_idealizing
         for section_id in (*_SECTIONS, "curate"):

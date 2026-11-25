@@ -8,11 +8,19 @@ into a temporary folder and returns its path together with the frames it holds.
 Every test below then runs against it — the registry chooses it by content, it
 gives the right geometry and values, a frame-range read does not load the full
 movie, every metadata value has an origin, and the source closes cleanly.
+
+The cellSens VSI adapter (#907, ADR-0147) runs here against the Java-free stand-in of its
+runner (``tests/_fake_bioformats_runner.py``), so the base side of the Bio-Formats route
+conforms in every environment; the live runner is tested in ``tests/test_*_bioformats.py`` and
+a real ``.vsi`` movie in the workstation check ``tests/test_vsi_direct_read.py``. A ``.vsi``
+file is a TIFF by its first bytes, so its extension and not its content chooses its adapter
+(``by_content=False``).
 """
 
 from __future__ import annotations
 
 import shutil
+import sys
 import tracemalloc
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,12 +90,54 @@ def _czi_zstd(tmp: Path) -> tuple[Path, np.ndarray]:
     return path, _frames("<u2")
 
 
+def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIF movie of ``tests/_sif_synth.py`` (#904): Solis stores 32-bit float counts."""
+    from _sif_synth import write_sif
+
+    frames = _frames("<f4")
+    return write_sif(tmp / "movie.sif", frames), frames
+
+
+def _sira_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIRA movie of ``tests/_sira_synth.py`` (#905): MASH-FRET stores 32-bit floats."""
+    from _sira_synth import write_sira
+
+    frames = _frames("<f4")
+    return write_sira(tmp / "movie.sira", frames), frames
+
+
+_FAKE_RUNNER = Path(__file__).resolve().with_name("_fake_bioformats_runner.py")
+
+
+def _vsi_fake_runner(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A ``.vsi`` (a small TIFF, like the real one) whose frames the stand-in runner serves."""
+    frames = _frames("<u2")
+    path = tmp / "movie.vsi"
+    tifffile.imwrite(path, np.zeros((4, 4), dtype="u1"))
+    np.save(path.with_name(path.name + ".frames.npy"), frames)
+    return path, frames
+
+
+def _use_fake_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tether.io import bioformats
+
+    monkeypatch.setenv(bioformats.BIOFORMATS_PYTHON_ENV, sys.executable)
+    monkeypatch.setattr(bioformats, "RUNNER_SCRIPT", _FAKE_RUNNER)
+
+
 @dataclass(frozen=True)
 class Case:
-    """One adapter under test: its registry name and a factory for a movie it reads."""
+    """One adapter under test: its registry name and a factory for a movie it reads.
+
+    ``setup`` prepares the environment the adapter needs (the stand-in runner), and
+    ``by_content`` is ``False`` for a container whose first bytes are another container's,
+    whose extension therefore chooses it.
+    """
 
     adapter: str
     make: Callable[[Path], tuple[Path, np.ndarray]]
+    setup: Callable[[pytest.MonkeyPatch], None] | None = None
+    by_content: bool = True
 
 
 CASES = [
@@ -95,12 +145,22 @@ CASES = [
     pytest.param(Case("TIFF", _tiff_little_endian), id="tiff-little-endian"),
     pytest.param(Case("CZI", _czi_zstd), id="czi-zstd"),
     pytest.param(Case("ND2", _nd2_time_series), id="nd2-time-series"),
+    pytest.param(Case("SIF", _sif_synthetic), id="sif-synthetic"),
+    pytest.param(
+        Case("cellSens VSI", _vsi_fake_runner, setup=_use_fake_runner, by_content=False),
+        id="vsi-fake-runner",
+    ),
+    pytest.param(Case("SIRA", _sira_synthetic), id="sira-synthetic"),
 ]
 
 
 @pytest.fixture(params=CASES)
-def case(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[Case, Path, np.ndarray]:
+def case(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Case, Path, np.ndarray]:
     c: Case = request.param
+    if c.setup is not None:
+        c.setup(monkeypatch)
     path, frames = c.make(tmp_path)
     return c, path, frames
 
@@ -112,6 +172,14 @@ def test_registry_selects_the_adapter(case: tuple[Case, Path, np.ndarray]) -> No
 
 def test_content_decides_not_the_extension(case: tuple[Case, Path, np.ndarray]) -> None:
     c, path, frames = case
+    if not c.by_content:
+        # The first bytes are a TIFF's: under another name the TIFF adapter takes the file,
+        # so only the extension sends it to its own adapter.
+        renamed = path.with_name("renamed.dat")
+        shutil.copyfile(path, renamed)
+        assert select_adapter(renamed).name == "TIFF"
+        assert select_adapter(path).name == c.adapter
+        return
     renamed = path.with_name("renamed.dat")
     shutil.copyfile(path, renamed)
     assert select_adapter(renamed).name == c.adapter

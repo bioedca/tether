@@ -16,11 +16,11 @@ cross-platform suite for the Mondragón Lab (Northwestern University).
 
 Today the desktop application opens a project and curates its traces. It idealizes one trace
 at a time, and it hands traces to tMAVEN and back. It also imports Deep-LASI files and draws a
-population histogram. Extraction runs from the command line. There, `tether batch` also applies
+population plots. Extraction runs from the command line. There, `tether batch` also applies
 the corrections and idealizes every molecule.
 
 From Python, you can run the corrections and the whole-project idealization with your own
-settings. You can also make the other plots and the exports. [What it does](#what-it-does) says
+settings. You can also make the exports. [What it does](#what-it-does) says
 where each feature runs today. The [documentation site](https://bioedca.github.io/tether/) is
 the user manual.
 
@@ -55,18 +55,23 @@ to the application.
   ([how-to](docs/how-to/curate-traces.md#4-set-a-category-and-the-analysis-window)).
 - **Neighbor view.** The view shows the cached image patch of the selected molecule and the
   distance to its nearest neighbor. It warns you when the apertures overlap.
-- **One-trace idealization.** The **I** key fits the selected molecule in the **isolated
-  tMAVEN sidecar**. Then it draws the fitted steps on the trace. Use it to check a trace visually.
-  The status bar calls it vbFRET, but it runs the consensus VB-HMM
-  ([#554](https://github.com/bioedca/tether/issues/554)).
+- **Whole-project idealization.** **Idealize → Idealize project…**, or the **I** key, fits the
+  accepted molecules with the consensus VB-HMM or ebFRET in the **isolated tMAVEN sidecar**. It
+  runs in the background with progress and **Cancel**, and it can refit only a stale model
+  ([how-to](docs/how-to/idealize.md)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip. Save molecules as a file that the
   tMAVEN application window opens. Then import its result back through a reconcile prompt for
   each trace.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
-- **Population histogram.** The apparent-FRET histogram of the project, with rejected
-  molecules left out.
+- **Analysis plots.** The **Analyze** section draws each population plot of Tether. They
+  include the FRET histograms, the heatmaps and the FRET clouds. They also include the TDP,
+  dwell-time, transition-probability and state-number plots, the cross-correlation and the
+  anticorrelation events. One plot holds one or more named sets of molecules, such as one
+  condition. Rejected molecules are left out ([how-to](docs/how-to/analyze.md)). The figure
+  shown is the one an export writes. Saving it from the application comes with
+  [#377](https://github.com/bioedca/tether/issues/377).
 - **Movie panel.** A **napari** movie panel in the application window shows the project's
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
   missing or changed movie file is listed but not shown. A movie with no recorded geometry has
@@ -74,7 +79,10 @@ to the application.
 - **Trace ⇄ movie round trip.** Select a trace, or press Enter, and the movie panel shows its
   own movie centered on its spot. Click a donor or acceptor spot and the list selects its trace,
   across all the movies of the project
-  ([how-to](docs/how-to/curate-traces.md#go-between-a-trace-and-its-movie-spot)).
+  ([how-to](docs/how-to/curate-traces.md#go-between-a-trace-and-its-movie-spot)). Drag the
+  trace's frame cursor and the movie shows that frame. Move the movie's time slider and the
+  cursor follows
+  ([how-to](docs/how-to/curate-traces.md#move-through-the-trace-and-the-movie-together)).
 
 ### From the command line today
 
@@ -99,16 +107,10 @@ links a how-to guide, that guide shows the script. The quality ranker has no how
   ratio is not defined there. For apparent E, that is a frame with zero total intensity
   ([how-to](docs/how-to/apply-corrections.md)). The application gets it with the
   [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
-- **Whole-project idealization.** The consensus VB-HMM or ebFRET over every molecule, in the
-  isolated tMAVEN sidecar ([how-to](docs/how-to/idealize.md)). An **Idealize project…** action
-  is planned ([#625](https://github.com/bioedca/tether/issues/625), M16).
 - **Quality ranker.** A ranker for each condition learns from your accepts and rejects, and it
   orders traces for review. It retrains incrementally. It only sorts and ranks traces, and it
   never drops a trace by itself. The application gets it with [#639](https://github.com/bioedca/tether/issues/639) and
   [#640](https://github.com/bioedca/tether/issues/640) (M16).
-- **Analysis plots.** Histograms with confidence intervals, transition-density and dwell-time
-  plots, and the raw FRET cloud ([how-to](docs/how-to/analyze.md)). The application gets them
-  with [analysis and plot composition (M17)](https://github.com/bioedca/tether/milestone/19).
 - **Exports.** Provenance-stamped tables and figures
   ([how-to](docs/how-to/export-results.md)). The application gets them with
   [#621](https://github.com/bioedca/tether/issues/621) and

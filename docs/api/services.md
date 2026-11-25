@@ -19,6 +19,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.batch
 
+::: tether.services.corrections
+
 ::: tether.services.curation
 
 ::: tether.services.extract
@@ -30,6 +32,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.services.movies
 
 ::: tether.services.notices
+
+::: tether.services.plots
 
 ::: tether.services.profile
 
@@ -44,3 +48,5 @@ It needs no write access to `bioedca/tether`.
 ::: tether.services.sources
 
 ::: tether.services.status
+
+::: tether.services.updater

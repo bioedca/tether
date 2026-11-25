@@ -1119,6 +1119,138 @@ Bio-Formats 7.3.1 exported the unpadded two to the written frames. For the padde
 readers disagree (Bio-Formats reads the padding as pixels), which is why the reader refuses padded
 rows.
 
+## Andor Solis SIF files for the SIF adapter (#904, ADR-0150)
+
+Tether reads SIF with its own reader (`src/tether/io/sif.py`), so each check below compares it
+with files that **Andor Solis** wrote and with an independent reader, **sif_parser 0.3.6**
+(BSD-3-Clause, PyPI; not in any Tether lock), installed in a scratch environment with numpy
+2.5.5 and tifffile 2026.11.16. sif_parser returns the stored row order (bottom row first); every
+reference below reverses the rows, as Tether and Solis's own TIFF export do.
+
+### ZnO-PVA spectra of Chukova O — **CC-BY-4.0**
+
+External third-party data under a different licence: **Chukova O**, *Data on Luminescence
+properties of ZnO-PVA nanoparticles*, Zenodo **doi:10.5281/zenodo.18293266** (published
+2026-01-18), **CC-BY-4.0**: spectra that Solis wrote from an Andor DU920P camera (format version
+65567, one 1 x 1024 frame each, full vertical binning), with the ASCII export that Solis made of
+each. It is annotated CC-BY-4.0 in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+| Fixture | What it is | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `tests/fixtures/sif/ZP2270-1.sif` | a spectrum of data type `Counts`, unchanged | 8,514 B | `904b370c1b60bc11be559fc85841e781` | `1120e508c7f4f7b2d9c384b9010c1762c35b713fcf3a046712caddb0729fd28b` |
+| `tests/fixtures/sif/ZP2270-1.asc` | Solis's ASCII export of it (wavelength and counts, tab-separated, decimal comma), unchanged | 17,281 B | `7e97e21d25b224f20c0e26925572345a` | `78bbf9c699762f6945db12ad0ed13e2a60ca077498d2f65dbbee2d97788a3d48` |
+| `tests/fixtures/sif/ZP1-1.sif` | a spectrum of data type `Counts (Bg Corrected)` with a background block, unchanged: the refusal case | 16,894 B | `4222a3e5b4e8d3741ece7ac737c3ab79` | `58feb756603df669a872819799d01b034d8e492686cc57acdc1031898d204638` |
+| `tests/fixtures/sif/ZP2270-1_reference.tif` | the frame of `ZP2270-1.sif` as sif_parser 0.3.6 reads it, saved by tifffile 2026.11.16 as an uncompressed `float32` TIFF (`python scripts/make_sif_reference.py ZP2270-1.sif ZP2270-1_reference.tif`) | 4,368 B | — | `fddcd1dab834f90cfcf8001bfb5ed5f95711211b6e4bbc0a3c9b183f987b8aca` |
+
+On 2026-11-24 all 106 SIF files of this record and of its companion record
+(doi:10.5281/zenodo.24287163, same author and licence) were read: the 9 of data type `Counts`
+equal sif_parser 0.3.6 bit for bit, the 97 of data type `Counts (Bg Corrected)` are refused, and
+all 90 that have a Solis ASCII export equal it value for value (sif_parser). **Accessed:**
+2026-11-24. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+### Andor Zyla image of Wu Y — **CC0-1.0**
+
+**Wu Y**, *Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and
+diet-enhanced long-term memory*, Dryad **doi:10.5061/dryad.80gb5mkpx**, mirrored on Zenodo
+record 4904806 (published 2021-06-08), **CC0-1.0**. Two of its files are `download` entries of
+the manifest, so the weekly `reference-data` job reads them; neither is committed:
+
+| Manifest id | File | Size | MD5 (as the record states) | SHA-256 |
+|---|---|---|---|---|
+| `wu-magfret-c739-sif` | `c739xMagFRET_1.sif`: one 2048 x 2048 frame of an Andor Zyla 4.2P, format version 65567, data type `Counts` | 16,781,286 B | `ac3039b7e6dd28f56e75e69c59f387fd` | `7022eff33764fcf5e954025d1f932ff91a59d62fd52b35815e761f1d21cb01e2` |
+| `wu-magfret-c739-solis-tiff` | `c739xMagFRET_1.tif`: the 8-bit TIFF that Solis exported from it (software tag `Andor Technology`, description `Andor SOLIS`) | 4,213,274 B | `43937be9f462e7b105329092ab6e7af9` | `807cd682ea532dcb135b77a046721b1489f60b2a99b62814e49db4681e4b94e9` |
+
+The pixel SHA-256 of the frame as sif_parser 0.3.6 reads it (rows reversed, C-order
+little-endian `float32`), `e7819391c89d539458d3d9690c08a2b0baad8771b3a612880bc407c7a1922b9d`, is in
+`tests/fixtures/sif/reference.json` (`python scripts/make_sif_reference.py c739xMagFRET_1.sif
+--digest`). The Solis TIFF is a linear 8-bit scale of the counts: after a least-squares fit, the
+frame in Tether's row order maps onto it within one grey level (correlation 0.99998), and the
+stored row order does not (correlation 0.64). That fixes the row order. **Accessed:** 2026-11-24.
+
+### Andor iXon movie of Chazot-Franguiadakis L (checked once, not a fixture)
+
+The SIF movie `L_110424_Au_50z_HIV_GFP_MM24_10%_FSB_dil100_200nm_0.0mbar_1.sif` of **Chazot-
+Franguiadakis L**, *Movies of HIV (VLP) particles through 200 nm nanopores*, Zenodo
+**doi:10.5281/zenodo.11185140**, **CC-BY-4.0** (262,149,548 B, MD5
+`628b99552d9ec967197da318447430f3`, SHA-256
+`a9f34089086125a64e0933c4ac2471f9aabebf66fc0fda77add9873dc14ecd01`) is a 250-frame kinetic series
+of an Andor iXon 897 (512 x 512, format version 65566). It is over the 200 MB download limit, so
+no test reads it. On 2026-11-24 Tether read its 250 frames, every value a whole number of counts
+from 173 to 16,460 (pixel SHA-256 `e6364eaa2114aec9dc323efdde2e97a917f5e4fc765a97fd8872e65718e4978e`),
+with the frame time 0.03035 s; the header's time stamps step by 30,350 µs. sif_parser 0.3.6 cannot
+open this file (`UnicodeDecodeError` in its header parser), so it gave no reference here. The
+`SIFReader` of Bio-Formats (read from its source, `ome/bioformats` `develop`, 2026-11-24; not run)
+places the frames 8 bytes before the end of the file; on this file that is the offset Tether finds,
+5,540, since the frames are followed only by the four block flags `0\n0\n0\n0\n`.
+
+### The synthetic SIF files
+
+`tests/_sif_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. On 2026-11-24 sif_parser 0.3.6 read four of its files (64 x 64 x 64; 5 x 8 x 12 with a
+0.1 s kinetic cycle; 3 x 4 x 6 with 2 x 4 binning; a flag line of `0`) to the written frames and
+kinetic cycle times. **License:** `GPL-3.0-or-later` (REUSE blanket).
+
+## MASH-FRET SIRA movies for the SIRA adapter (#905, ADR-0152)
+
+Tether reads SIRA with its own reader (`src/tether/io/sira.py`), so each check below compares it
+with files in the MASH-FRET repository and with **MASH-FRET's own code**:
+**RNA-FRETools/MASH-FRET** at commit `2877992d246acbe65148ef1c948578f623a518b2` (2026-11-09),
+GPL-3.0 (the repository gives the version 3 text with no "or later" statement, so
+`GPL-3.0-only`). Its format description is `docs/output-files/sira-mash-video.md`; its reader is
+`MASH-FRET/source/mod-video-processing/graphic-files/readSira.m` (with `getSiraDat.m`) and its
+writer `writeSiraFile.m`. `scripts/make_sira_reference.py` runs them under **GNU Octave 8.4.0**
+(Ubuntu `octave` 8.4.0-1build5, `gnuplot-nox` for the invisible figure), headless in MASH-FRET's
+own `mute_actions` mode; it gives Octave a MATLAB-equivalent `contains`, which Octave 8 lacks and
+`getSiraDat.m` calls. The frames were saved with NumPy 2.1.3 and tifffile 2026.6.1. **Accessed:**
+2026-11-25.
+
+### The test movies of MASH-FRET — **GPL-3.0-only**
+
+Two `download` entries of the manifest, so the weekly `reference-data` job reads them; neither is
+committed whole:
+
+| Manifest id | File in the repository | Size | SHA-256 |
+|---|---|---|---|
+| `mash-fret-1chan1exc-sira` | `MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc/1chan1exc.sira`: 200 frames of 64 x 64, frame time 0.1 s, header version `dummy` | 3,277,670 B | `86b94e36d00d3df70552a68b5e7b051ebb8e7647c63a304e7158e1b1196f38df` |
+| `mash-fret-2020-sira` | `MASH-FRET/source/routines/mod_video_processing/assets/2020.sira`: 20 frames of 256 x 256, frame time 0.10107 s, header version `1.1.2 (prev. commit: 352a251)` | 5,243,053 B | `41a99340abc891812600aba7936830f43ed91eb248505c53dc61968d73a889ea` |
+
+Every offset in both is 0 and every pixel a whole number. The pixel SHA-256 of each movie as
+`readSira.m` reads it (C-order little-endian `float32`), from `python
+scripts/make_sira_reference.py reference FILE --mash MASH-FRET/source --digest`, is in
+`tests/fixtures/sira/reference.json`:
+`406ce9c74477870ea42827601b471ce6af006a0fbae85dd2d1ecf9d2c5709b5c` and
+`15173c65fd0e72cde473872ee3d755552976298047a3216ea3dda583362676ff`.
+
+The committed files:
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/sira/1chan1exc_16.sira` | the first 16 frames of `1chan1exc.sira`: header line and frame bytes unchanged, the header's frame count set to 16 (`python scripts/make_sira_reference.py extract 1chan1exc.sira 1chan1exc_16.sira --frames 16`) | 262,278 B | `5b89c03b209b1e2866099d163b96d00ac4818815038c5d6630d1f499e1f95b24` |
+| `tests/fixtures/sira/1chan1exc_16_reference.tif` | its 16 frames as `readSira.m` reads them, an uncompressed `float32` TYX TIFF (`python scripts/make_sira_reference.py reference 1chan1exc_16.sira 1chan1exc_16_reference.tif --mash MASH-FRET/source`) | 265,086 B | `086993a1a37fb6572683245f67a45331fb52f0480b724ab002588b8926dd281b` |
+
+**License:** GPL-3.0-only — annotated in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+### The offsets that MASH-FRET's writer stores — Tether's own frames
+
+`tests/fixtures/sira/mash_offsets.sira` (326 B, SHA-256
+`7c4ad070b6c6030b0c17a643caa8fcfb494a4d89de28b8417614aa8cfd2ba68b`) is three 4 x 5 frames in halves that Tether chose
+(`offset_frames()` of the script), two with negative values, written by MASH-FRET's
+`writeSiraFile.m` (`python scripts/make_sira_reference.py offsets mash_offsets.sira --mash
+MASH-FRET/source`). The writer stored the offsets 3.5, 4.5 and 0. Read one frame at a time
+(`readSira(file, n, …)`), MASH-FRET gives back the written frames: it takes the offset off. Read
+whole (`readSira(file, 'all', …)`), it gives the written frames plus twice the offset: that path
+adds the offset to the stored values (its line `fread(…) + fread(f,1,…)`), where the one-frame path
+and the writer subtract it. Tether takes the offset off, as the writer means and as the one-frame
+read does (ADR-0152); on a file whose offsets are all 0, as in both test movies above, the two
+paths agree. The frames are Tether's, so the file keeps the REUSE blanket licence
+(`GPL-3.0-or-later`).
+
+### The synthetic SIRA files
+
+`tests/_sira_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. It writes the layout of `writeSiraFile.m`, offsets included. **License:**
+`GPL-3.0-or-later` (REUSE blanket).
+
 ## Update-verifier attestation answer and `gh` report (#333)
 
 Two JSON files the update verifier's tests (`tests/test_update_verify.py`) replay byte for byte, so

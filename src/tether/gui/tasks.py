@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The background tasks of the window: a core that imports no Qt module (#343).
 
-A long action of the window, such as the one-click idealize, runs on one worker thread so the
+A long action of the window, such as the whole-project fit, runs on one worker thread so the
 window stays live. This module holds the state of that work. The Qt adapter
 [`TaskService`][tether.gui.task_service.TaskService] polls it from a main-thread timer and
 applies each result on the main thread.
@@ -13,7 +13,7 @@ applies each result on the main thread.
   ``Future`` each time, so the core stores no second copy of it.
 * Cancellation is part of the core. A task submitted as cancellable gets a [`CancelToken`][];
   its work stops by raising [`TaskCancelled`][]. A task that is not cancellable refuses a
-  cancel, and the one-click idealize is not cancellable.
+  cancel; the whole-project fit is cancellable (#625).
 * Progress is optional. A task submitted with ``reports_progress`` gets a [`ProgressReport`][]
   and tells it how far it is; the window reads the fraction and shows it (#627).
 

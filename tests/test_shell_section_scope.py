@@ -23,7 +23,7 @@ pytestmark = [
 ]
 
 #: The window's own menus: they show in every section.
-_WINDOW_MENUS_BEFORE = ["File"]
+_WINDOW_MENUS_BEFORE = ["File", "Edit"]  # Edit: undo and redo of the curation actions (#632)
 _WINDOW_MENUS_AFTER = ["View", "Help"]
 
 #: The sections whose central page has no curation keys.
@@ -80,8 +80,11 @@ def test_each_section_has_the_menus_its_specs_declare(shell) -> None:
         "Curation",
         "Hand-off",
         "Conditions",
+        "Corrections",
+        "Idealize",
     ]
-    assert [_plain(m.title()) for m in shell.section_menus("analyze")] == ["Analysis"]
+    # The Analyze section's plots live on its page, so it has no menu of its own (#374).
+    assert shell.section_menus("analyze") == []
     with pytest.raises(KeyError):
         shell.section_menus("deposit")
 
@@ -121,11 +124,11 @@ def test_a_menu_added_to_the_registry_appears_on_the_menu_bar(qapp, qtbot, monke
     s = TetherShell()
     qtbot.addWidget(s.window)
     try:
-        assert [_plain(m.title()) for m in s.section_menus("analyze")] == ["Analysis", "Extra"]
+        assert [_plain(m.title()) for m in s.section_menus("analyze")] == ["Extra"]
         (host, action), *rest = populated
         assert not rest
         assert host is s
-        assert [a.text() for a in s.section_menus("analyze")[1].actions()] == [action.text()]
+        assert [a.text() for a in s.section_menus("analyze")[0].actions()] == [action.text()]
         assert "Extra" not in _bar_titles(s, visible_only=True)
         s.set_section("analyze")
         assert "Extra" in _bar_titles(s, visible_only=True)
@@ -146,9 +149,12 @@ def test_the_shell_opens_with_the_curate_menus(shell) -> None:
     assert shell.section == "curate"
     assert _bar_titles(shell, visible_only=True) == [
         "File",
+        "Edit",
         "Curation",
         "Hand-off",
         "Conditions",
+        "Corrections",
+        "Idealize",
         "View",
         "Help",
     ]
@@ -239,7 +245,11 @@ def test_a_release_after_a_switch_is_consumed_with_its_press(shell) -> None:
 def test_the_text_entry_exemption_is_unchanged_in_curate(shell) -> None:
     from pyqtgraph.Qt import QtCore
 
-    field = shell.category_field
+    from tether.gui.category_editor import CategoryEditor
+
+    field = CategoryEditor(
+        "c", [], usage=len, add=None, rename=None, remove=None, move=None, parent=shell.window
+    ).name_field
     assert shell.section == "curate"
     consumed = shell.event_filter.filter_event(
         field, _key_event(QtCore.Qt.Key.Key_Space), focus_widget=field

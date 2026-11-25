@@ -275,15 +275,17 @@ def test_close_project_releases_the_lock_and_shows_the_start_page(shell, tmp_pat
 
 def test_the_empty_browser_panel_shows_no_stub_text(shell, tmp_path) -> None:
     # #1031: with no project open the movie box holds no invented movie id and is
-    # disabled, and the category hint uses user words, not focus-contract terms.
+    # disabled, and the category hint uses user words, not focus-contract terms. The
+    # category editor's button (#633) waits for traces like the other curation controls.
     switcher = shell.movie_switcher
     assert switcher.count() == 0
     assert not switcher.isEnabled()
-    hint = shell.category_field.placeholderText()
+    button = shell.categories_button
+    assert not button.isEnabled()
+    hint = button.toolTip()
     assert hint
-    for term in ("keymap", "exempt", "text-entry"):
+    for term in ("keymap", "exempt", "text-entry", "placeholder"):
         assert term not in hint.lower()
-    assert bool(shell.category_field.property("tetherTextEntry")) is True
 
     # Opening a project enables the box and fills it from /movies (#356), never with an
     # invented id; closing the project empties and disables it again. This store records

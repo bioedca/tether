@@ -537,6 +537,161 @@ def test_closing_the_project_drops_the_round_trip(section_shell, tmp_path, qtbot
     assert "Jump to movie spot unavailable" in shell.status_message
 
 
+# --- synchronized scrubbing between the trace dock and the movie panel (#366) ----------
+
+
+def _drag_cursor(shell, frame: int) -> None:
+    """Drag the trace dock's frame cursor to trace frame ``frame`` (what a mouse drag sets)."""
+    dock = shell.trace_dock
+    dock.set_time_mode("frames")
+    dock.cursor_lines[1].setValue(float(frame))
+
+
+@needs_napari
+@needs_gl
+def test_the_trace_cursor_and_the_movie_frame_move_together(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    assert shell.frame_link is not None and shell.frame_link.linked
+    # The open's first selection already shows the cursor frame in the movie.
+    assert dock.frame_cursor == panel.current_frame == 0
+
+    _drag_cursor(shell, 7)
+    assert panel.current_frame == 7
+    panel.viewer.dims.set_current_step(0, 3)  # the user moves napari's time slider
+    assert dock.frame_cursor == 3
+    panel.viewer.dims.set_current_step(0, 40)  # past the 12-frame trace: its last frame
+    assert dock.frame_cursor == 11
+
+    # Another molecule of the same movie keeps the frame.
+    _drag_cursor(shell, 6)
+    shell.molecule_list.setCurrentRow(1)
+    assert dock.frame_cursor == 6 and panel.current_frame == 6
+    # A molecule of the 5-frame second movie: its own movie shows, at that movie's last frame.
+    shell.molecule_list.setCurrentRow(4)
+    assert panel.active_index == 1
+    assert panel.current_frame == 4
+    panel.viewer.dims.set_current_step(0, 2)
+    assert dock.frame_cursor == 2
+
+
+@needs_napari
+@needs_gl
+def test_another_movie_on_screen_is_not_moved_by_the_cursor(section_shell, tmp_path) -> None:
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    shell = _open(section_shell, path)
+    panel, dock = shell.movie_panel, shell.trace_dock
+    shell.movie_switcher.setCurrentIndex(1)  # molecule 0 is in mov-1; mov-2 is shown
+    panel.viewer.dims.set_current_step(0, 3)
+
+    _drag_cursor(shell, 9)
+    assert panel.current_frame == 3
+    panel.viewer.dims.set_current_step(0, 1)
+    assert dock.frame_cursor == 9
+
+    # A click on molecule 4's spot selects it; the frame the user was looking at stays,
+    # and the cursor moves to it.
+    donor2, _ = _molecules(path, "mov-2")
+    _click(panel, _rowcol(donor2)[1])
+    assert shell.molecule_list.currentRow() == 4
+    assert panel.current_frame == 1 and dock.frame_cursor == 1
+    _drag_cursor(shell, 3)
+    assert panel.current_frame == 3
+
+
+@needs_napari
+@needs_gl
+def test_back_on_the_molecules_movie_the_cursor_follows_it_again(section_shell, tmp_path) -> None:
+    # Away on the other movie, a drag moves only the cursor. Back on the molecule's movie at
+    # the same frame number, the cursor gets back in step with the movie (#1368 review).
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    _drag_cursor(shell, 3)
+    shell.movie_switcher.setCurrentIndex(1)
+    _drag_cursor(shell, 9)
+    assert panel.current_frame == 3
+
+    shell.movie_switcher.setCurrentIndex(0)
+
+    assert panel.current_frame == 3 and dock.frame_cursor == 3
+    _drag_cursor(shell, 8)
+    assert panel.current_frame == 8
+
+
+@needs_napari
+@needs_gl
+def test_a_shorter_trace_of_the_previous_movie_still_jumps(section_shell, tmp_path) -> None:
+    # Molecule 4 (mov-2, 5 frames) has three frames, molecule 3 of the same movie twelve.
+    # From molecule 3, the user shows mov-1 at frame 40, then selects molecule 4: the jump
+    # switches back to mov-2, which tells frame 4 (40 kept, clamped) on the way. That frame
+    # must not be mapped onto the new 3-frame trace with the old trace's length, which raised
+    # inside the jump and left the switcher on the wrong movie (#1368 review).
+    path = _store(tmp_path, second=_second_movie(tmp_path))
+    with h5py.File(path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        table["frame_range"][4] = (0, 3)
+        handle["molecules"]["table"][:] = table
+    shell = _open(section_shell, path)
+    panel, dock = shell.movie_panel, shell.trace_dock
+    donor2, _ = _molecules(path, "mov-2")
+    shell.molecule_list.setCurrentRow(3)
+    shell.movie_switcher.setCurrentIndex(0)
+    panel.viewer.dims.set_current_step(0, 40)
+
+    shell.molecule_list.setCurrentRow(4)
+
+    assert shell.status_message == "Molecule mol-4 (5/6)"
+    assert panel.active_index == 1 and shell.movie_switcher.currentIndex() == 1
+    assert _centre(panel) == tuple(_rowcol(donor2)[1])
+    assert dock.trace.n_frames == 3
+    assert dock.frame_cursor == panel.current_frame == 0
+
+
+@needs_napari
+@needs_gl
+def test_the_frame_link_is_opt_out_in_curate_and_not_a_preference(section_shell, tmp_path) -> None:
+    from tether.gui.shell import CURATE_SECTION
+
+    path = _store(tmp_path)
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+    action = shell._act_link_frames
+    curation = [m for m in shell.section_menus(CURATE_SECTION) if m.title() == "&Curation"]
+    assert curation and action in curation[0].actions()  # Curate and correct's own menu
+    assert action.isCheckable() and action.isChecked() and shell.frame_link_enabled
+
+    action.trigger()  # off
+    assert not shell.frame_link_enabled and not shell.frame_link.enabled
+    assert shell.status_message == "Trace and movie frames not linked"
+    _drag_cursor(shell, 5)
+    assert panel.current_frame == 0
+    panel.viewer.dims.set_current_step(0, 9)
+    assert shell.trace_dock.frame_cursor == 5
+
+    # Off stays off when a project is opened again in this window.
+    assert shell.close_project()
+    assert shell.load_project(path) is not None, shell.status_message
+    assert not shell.frame_link.enabled and not action.isChecked()
+
+    shell.set_frame_link_enabled(True)  # on again: the movie shows the cursor frame
+    assert action.isChecked()
+    assert shell.movie_panel.current_frame == shell.trace_dock.frame_cursor
+
+    # It is the section's state in this window, not a preference: a new shell starts on.
+    assert section_shell(project=False).frame_link_enabled
+
+
+@needs_napari
+@needs_gl
+def test_closing_the_project_drops_the_frame_link(section_shell, tmp_path) -> None:
+    shell = _open(section_shell, _store(tmp_path))
+    assert shell.frame_link is not None
+    assert shell.close_project()
+    assert shell.frame_link is None
+    shell.set_frame_link_enabled(False)  # no panel: only the state changes
+    assert not shell.frame_link_enabled
+
+
 # --- when no panel is built -------------------------------------------------------------
 
 
@@ -692,3 +847,27 @@ def test_the_macos_offscreen_platform_is_refused_up_front(qapp, monkeypatch) -> 
     )
     monkeypatch.setattr(QtGui.QGuiApplication, "platformName", staticmethod(lambda: "cocoa"))
     assert shell_mod._movie_panel_unavailable() is None
+
+
+@needs_napari
+@needs_gl
+def test_a_filter_that_shows_no_molecule_unlinks_the_frames(section_shell, tmp_path) -> None:
+    # A filter that hides every molecule leaves nothing selected and clears the trace dock
+    # (#630). The link must drop its target too, so the movie's slider moves no cursor.
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+    panel, dock = shell.movie_panel, shell.trace_dock
+    assert shell.frame_link is not None and shell.frame_link.linked
+
+    shell.molecule_view.set_filter("accepted")  # no molecule is accepted yet
+    assert shell.molecule_list.currentRow() == -1
+    assert shell.frame_link.target is None and not shell.frame_link.linked
+    panel.viewer.dims.set_current_step(0, 3)  # must not reach the empty dock
+    assert dock.frame_cursor is None
+    assert panel.current_frame == 3
+
+    # Back to all molecules and a selection: the link follows the new molecule again.
+    shell.molecule_view.set_filter("all")
+    shell.molecule_list.setCurrentRow(0)
+    assert shell.frame_link.linked
+    _drag_cursor(shell, 5)
+    assert panel.current_frame == 5

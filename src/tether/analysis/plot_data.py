@@ -56,6 +56,7 @@ from tether.analysis.histogram import (
     TransitionSyncHistogram2D,
 )
 from tether.analysis.state_number import StateNumberCounts
+from tether.analysis.successive import SuccessiveFrameCloud
 from tether.analysis.tdp import SmoothedTransitionDensity, TransitionDensityPlot
 from tether.analysis.transition_prob import TransitionProbHistogram
 
@@ -105,7 +106,7 @@ class DataTable:
     ----------
     name
         `MAIN_TABLE` for the marks of the figure, otherwise the table's own name
-        (``model``, ``fit``, ``density``, ``levels``, ``points``).
+        (``model``, ``fit``, ``density``, ``levels``, ``points``, ``centroids``).
     columns
         The column names, in order.
     units
@@ -452,6 +453,54 @@ def _anticorrelation(population: PopulationAnticorrelation) -> dict[str, _Spec]:
     return {MAIN_TABLE: (units, rows)}
 
 
+def _successive(cloud: SuccessiveFrameCloud) -> dict[str, _Spec]:
+    """Tabulate a successive-frame cloud: its pairs, density, HDR levels and centroids."""
+    pairs = cloud.pairs
+    units = {"molecule": "", "frame": "frames", "e_i": _E, "e_next": _E}
+    rows: list[dict[str, object]] = [
+        {"molecule": int(m), "frame": int(t), "e_i": float(a), "e_next": float(b)}
+        for m, t, (a, b) in zip(
+            np.asarray(pairs.molecule_index, dtype="int64"),
+            np.asarray(pairs.frame_index, dtype="int64"),
+            np.asarray(pairs.pairs, dtype="float64").reshape(-1, 2),
+            strict=True,
+        )
+    ]
+    tables: dict[str, _Spec] = {MAIN_TABLE: (units, rows)}
+    if cloud.density is not None:
+        grid = np.asarray(cloud.grid, dtype="float64")
+        density = np.asarray(cloud.density, dtype="float64")
+        tables["density"] = (
+            {"x": _E, "y": _E, "value": "KDE density"},
+            [
+                {"x": float(x), "y": float(y), "value": float(density[i, j])}
+                for i, x in enumerate(grid)
+                for j, y in enumerate(grid)
+            ],
+        )
+        if cloud.hdr_levels is not None:
+            tables["levels"] = (
+                {"coverage": "fraction", "level": "KDE density"},
+                [
+                    {"coverage": float(c), "level": float(v)}
+                    for c, v in zip(
+                        np.asarray(cloud.hdr_coverages, dtype="float64"),
+                        np.asarray(cloud.hdr_levels, dtype="float64"),
+                        strict=True,
+                    )
+                ],
+            )
+    if cloud.centroids is not None:
+        tables["centroids"] = (
+            {"centroid": "", "e_i": _E, "e_next": _E},
+            [
+                {"centroid": k + 1, "e_i": float(a), "e_next": float(b)}
+                for k, (a, b) in enumerate(np.asarray(cloud.centroids, dtype="float64"))
+            ],
+        )
+    return tables
+
+
 def _one(plotted: PlottedData, k: int, result: object, n_series: int) -> dict[str, _Spec]:
     """Build the tables of the ``k``-th of ``n_series`` series of a figure."""
     companions = plotted.companions
@@ -485,6 +534,7 @@ def _one(plotted: PlottedData, k: int, result: object, n_series: int) -> dict[st
         (TransitionSyncHistogram2D, _transition_sync),
         (StateNumberElbow, _elbow),
         (PopulationAnticorrelation, _anticorrelation),
+        (SuccessiveFrameCloud, _successive),
     )
     for kind, build in builders:
         if isinstance(result, kind):

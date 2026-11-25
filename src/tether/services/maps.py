@@ -5,7 +5,8 @@
 [`MapCreateRequest`][] holds what ``tether map create`` takes on its command line, with
 the same defaults; [`run`][] makes the map with
 [`tether.imaging.beadmap.bead_map_from_file`][] and saves it with
-[`tether.imaging.calibrate.save_map`][]. The saved ``.npz`` is the file that
+[`tether.imaging.map_asset.save_map_asset`][], with the channel layout, the optics text
+and the pixel size the request gives (#916). The saved ``.npz`` is the file that
 ``tether extract --map`` applies to a later movie (#353). The application's
 calibration action runs this same command, so the two cannot drift (ADR-0100).
 
@@ -34,7 +35,10 @@ class MapCreateRequest(Request):
     ``argparse`` destination names, with the same defaults. ``frame_start`` and
     ``frame_stop`` are the 0-based half-open frame range of a video, given together or
     not at all (``None`` = every frame); with an image both stay ``None`` and
-    ``projection`` stays ``"max"``.
+    ``projection`` stays ``"max"``. ``optics`` is the user's text for the optics
+    (objective, filters, camera, binning) and ``pixel_size_um`` the camera pixel size in
+    micrometres (``None`` = not known); both go into the map file, and the reuse check
+    compares them with a later movie's (#916).
     """
 
     COMMAND: ClassVar[str] = "map"
@@ -49,6 +53,8 @@ class MapCreateRequest(Request):
     projection: str = "max"
     donor_side: str = "left"
     rms_gate: float = 0.5
+    optics: str = ""
+    pixel_size_um: float | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,6 +67,7 @@ class MapCreateResult:
     coverage: float
     low_confidence: bool
     source_id: str
+    map_id: str = ""
 
 
 def run(request: MapCreateRequest) -> MapCreateResult:
@@ -82,7 +89,9 @@ def run(request: MapCreateRequest) -> MapCreateResult:
 
     import tether
     from tether.imaging.beadmap import BeadMapError, bead_map_from_file
-    from tether.imaging.calibrate import OverGateRegistrationWarning, save_map
+    from tether.imaging.calibrate import OverGateRegistrationWarning
+    from tether.imaging.layout import LAYOUT_SIDE_BY_SIDE, ChannelLayout
+    from tether.imaging.map_asset import MapAsset, save_map_asset
     from tether.project.lock import LockError
 
     output = Path(request.output)
@@ -92,6 +101,8 @@ def run(request: MapCreateRequest) -> MapCreateResult:
         raise CommandFailed(f"output exists: {output} (use --overwrite)")
     if (request.frame_start is None) != (request.frame_stop is None):
         raise CommandFailed("--frames takes a start and a stop; pass both or neither")
+    if request.pixel_size_um is not None and not request.pixel_size_um > 0:
+        raise CommandFailed(f"--pixel-size must be > 0, got {request.pixel_size_um}")
     frames = None if request.frame_start is None else (request.frame_start, request.frame_stop)
     tmp = output.with_name(f"{output.stem}.{uuid4().hex}.tmp.npz")
     try:
@@ -107,7 +118,15 @@ def run(request: MapCreateRequest) -> MapCreateResult:
                 on_over_gate="warn",
                 app_version=tether.__version__,
             )
-        written = save_map(result.registration_map, tmp)
+        # The bead map splits the frame side by side (#915); the layout goes with it.
+        asset = MapAsset.from_registration_map(
+            result.registration_map,
+            channel_layout=ChannelLayout(kind=LAYOUT_SIDE_BY_SIDE, donor=request.donor_side),
+            optics=request.optics,
+            pixel_size_um=request.pixel_size_um,
+            app_version=tether.__version__,
+        )
+        written = save_map_asset(asset, tmp)
         _publish(written, output, overwrite=request.overwrite)
     except FileExistsError as exc:  # another session made the file while this one fitted
         raise CommandFailed(f"output exists: {output} (use --overwrite)") from exc
@@ -123,6 +142,7 @@ def run(request: MapCreateRequest) -> MapCreateResult:
         coverage=float(result.quality.coverage),
         low_confidence=bool(reg_map.low_confidence),
         source_id=result.source.source_id,
+        map_id=asset.map_id,
     )
 
 

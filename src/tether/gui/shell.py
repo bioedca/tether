@@ -5,15 +5,19 @@
 [`TetherShell`][] is the minimal ``QMainWindow`` that wires the M2 S2 focus
 contract: it hosts the pyqtgraph trace dock ([`tether.gui.trace_dock`][]) plus
 the focus surfaces the curation keys must reach past — a molecule list, a movie
-switcher, and the **editable category field** (a text-entry that is exempt from
-the keymap, §7.6) — and installs the application-level
+switcher, and the **Categories…** button that opens the
+[`CategoryEditor`][tether.gui.category_editor.CategoryEditor] of the selected molecule's
+condition (§7.6, #633; its name field is a text entry exempt from the keymap) — and
+installs the application-level
 [`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
 the movie switcher from ``/movies``, and the embedded napari movie panel
 ([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
 donor and acceptor spots as a dock of Curate and correct (#356). The round-trip between a
 trace and its spot ([`tether.gui.roundtrip`][], #357) links the two: selecting a molecule,
 or pressing ``Enter``, shows its own movie centred on its donor spot, and clicking a spot
-selects its molecule.
+selects its molecule. The trace dock's frame cursor and the movie's displayed frame move
+together ([`frame_link`][tether.gui.shell.TetherShell.frame_link], #366) unless the user turns
+that off in the Curation menu.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -21,7 +25,8 @@ Two companion dialogs complete the §7.3 contract:
   (the ``1``–``9`` hotkeys cover only the first nine of the per-condition list),
   returning the chosen integer class.
 * [`CheatSheetOverlay`][] renders the shipped, always-current keyboard
-  cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap].
+  cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap], with the name of
+  the category each number key gives the selected molecule (#633).
 
 The window hosts its **sections** (#341, ADR-0116): the central widget is a
 ``QStackedWidget`` with one page per section of the
@@ -42,7 +47,8 @@ names the missing step, and it offers **Go to this step** ([`tether.gui.requirem
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
-the section is current, between the window's own File menu and its View and Help menus.
+the section is current, between the window's own File and Edit menus and its View and Help
+menus.
 The curation keys act only in a section whose ``keymap_scope`` is
 [`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
 event filter lets them through to the native widgets, and the cheat-sheet lists no key.
@@ -97,7 +103,14 @@ from tether.gui.sections import (
     guided_step,
 )
 from tether.gui.task_service import TaskService
+from tether.gui.undo import CATEGORY, CURATION, WINDOW, UndoEntry, UndoStack, WindowState
 from tether.services.curation import (
+    ACCEPTED,
+    REJECTED,
+    UNDECIDED,
+    curation_snapshot,
+    curation_state,
+    molecule_states,
     resolved_frame_range,
     resolved_window,
     stored_molecule,
@@ -106,15 +119,14 @@ from tether.services.curation import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from os import PathLike
     from typing import Protocol
 
-    import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
-    from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.category_editor import CategoryEdit, CategoryEditor
     from tether.gui.generation_reconcile import GenerationReconcilePage
     from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
@@ -123,20 +135,14 @@ if TYPE_CHECKING:
     from tether.project.core import Project
     from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
-    from tether.services.curation import StoredMolecule
+    from tether.services.corrections import CorrectionPassResult
+    from tether.services.curation import CurationSnapshot, MoleculeState, StoredMolecule
 
-    #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
-    #: outside its analysis window), or ``None`` when nothing was produced. The
-    #: shell's ``I`` handler draws the result on the dock; `make_store_idealizer`
-    #: is the store-backed default that runs the real one-click vbFRET pipeline.
-    Idealizer = Callable[[str], np.ndarray | None]
-
-    #: Recompute + return the pooled population apparent-E `Histogram1D` the
-    #: shell's ``&Analysis`` menu draws, or ``None`` when there is nothing to show.
-    #: `make_store_histogram` is the store-backed default that runs the real
-    #: `tether.analysis.histogram.population_apparent_e_histogram` each call,
-    #: so the histogram reflects the current curation state (§7.5/§7.7).
-    HistogramSeam = Callable[[], Histogram1D | None]
+    #: Runs one whole-project fit, ``idealizer(fit, cancel=token, progress=report)``, on
+    #: the worker thread and returns the command's
+    #: [`IdealizeResult`][tether.services.idealize.IdealizeResult] (#625). The shell's
+    #: "Idealize project…" starts it; `make_store_idealizer` is the store-backed default.
+    Idealizer = Callable[..., Any]
 
     #: Resolve a molecule_key to its static-overlap-view payload — the cached patch
     #: + nearest-neighbour distance + apertures-overlap flag — or ``None`` for an
@@ -178,7 +184,6 @@ __all__ = [
     "TetherShell",
     "launch",
     "make_store_handoff",
-    "make_store_histogram",
     "make_store_idealizer",
     "make_store_overlap",
 ]
@@ -204,7 +209,7 @@ _LOCK_RELEASE_RETRY_MS = 1000
 #: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
-#: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
+#: Coalesce rapid curation keystrokes before the Analyze section draws its plot again (#374).
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
 #: After a write that can change a stage (a curation decision, a fit, a return leg), the
@@ -243,6 +248,14 @@ _DEFAULT_SECTION = CURATE_SECTION
 _ProjectOwnerKey = tuple[str, int, int] | tuple[str, str]
 _GUI_PROJECT_OWNERS: dict[_ProjectOwnerKey, object] = {}
 _GUI_PROJECT_OWNERS_LOCK = Lock()
+# A shell whose pass publishes a replacement of its project file holds the canonical path
+# here until its claim has moved to the new file (`_rebind_gui_project`). Between the
+# replace and that move the new file has no owner key, so a claim of the path must wait.
+_GUI_PUBLISHING_PATHS: dict[str, object] = {}
+
+
+def _canonical_project_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
@@ -253,7 +266,7 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
     """
     from tether.project.lock import file_identity
 
-    resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
+    resolved = _canonical_project_path(path)
     identity = file_identity(resolved)
     if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
@@ -264,13 +277,34 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
     """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
-    key = _project_owner_key(path)
+    canonical = _canonical_project_path(path)
     with _GUI_PROJECT_OWNERS_LOCK:
+        # Read the identity under the lock: a pass that replaces the file and moves its
+        # claim between this read and the check would leave the old identity free.
+        key = _project_owner_key(path)
         owner = _GUI_PROJECT_OWNERS.get(key)
         if owner is not None and owner is not token:
             return None
+        publisher = _GUI_PUBLISHING_PATHS.get(canonical)
+        if publisher is not None and publisher is not token:
+            return None
         _GUI_PROJECT_OWNERS[key] = token
     return key
+
+
+def _hold_publishing_path(path: str | Path, token: object) -> str:
+    """Mark ``path`` as being replaced by ``token``'s shell; return the canonical path."""
+    canonical = _canonical_project_path(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        _GUI_PUBLISHING_PATHS[canonical] = token
+    return canonical
+
+
+def _drop_publishing_path(canonical: str, token: object) -> None:
+    """End the mark of `_hold_publishing_path` when ``token`` still holds it."""
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if _GUI_PUBLISHING_PATHS.get(canonical) is token:
+            del _GUI_PUBLISHING_PATHS[canonical]
 
 
 def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
@@ -280,6 +314,31 @@ def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
     with _GUI_PROJECT_OWNERS_LOCK:
         if _GUI_PROJECT_OWNERS.get(key) is token:
             del _GUI_PROJECT_OWNERS[key]
+
+
+def _rebind_gui_project(
+    key: _ProjectOwnerKey | None, path: str | Path, token: object
+) -> _ProjectOwnerKey | None:
+    """Move ``token``'s claim from ``key`` to the file now at ``path``; return the key it holds.
+
+    A guarded publish replaces the project file with one atomic ``os.replace``, so the
+    file at ``path`` has a new identity and ``key`` names a file that is gone. The lock
+    moves its identity record across that replace (ADR-0112); this moves the
+    process-local claim the same way. If ``token`` does not hold ``key``, or another
+    token holds the new file, the claim stays as it was.
+    """
+    if key is None:
+        return None
+    new = _project_owner_key(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if new == key or _GUI_PROJECT_OWNERS.get(key) is not token:
+            return key
+        owner = _GUI_PROJECT_OWNERS.get(new)
+        if owner is not None and owner is not token:
+            return key
+        del _GUI_PROJECT_OWNERS[key]
+        _GUI_PROJECT_OWNERS[new] = token
+    return new
 
 
 def _probe_project_writable(path: str | Path) -> None:
@@ -305,6 +364,57 @@ def _set_standard_shortcuts(action: Any, standard_key: Any, fallback: str) -> No
     if all(key.toString() != extra.toString() for key in keys):
         keys.append(extra)
     action.setShortcuts(keys)
+
+
+def _redo_keys(platform: str | None = None) -> tuple[str, ...]:
+    """The chords of **Edit → Redo** (#632): ``Ctrl+Shift+Z``, and ``Ctrl+Y`` on Windows.
+
+    ``Ctrl`` is ``Cmd`` on macOS, as Qt maps it. ``platform`` defaults to ``sys.platform``.
+    """
+    import sys
+
+    platform = sys.platform if platform is None else platform
+    return ("Ctrl+Shift+Z", "Ctrl+Y") if platform == "win32" else ("Ctrl+Shift+Z",)
+
+
+def _read_or_none(read: Callable[[], Any]) -> Any:
+    """Return ``read()``, or ``None`` when it fails (#632).
+
+    An unreadable state before an action only means the action cannot be undone, never
+    that it is refused.
+    """
+    try:
+        return read()
+    except Exception:  # noqa: BLE001 - the action itself still runs and reports
+        return None
+
+
+def _window_state(rows: Sequence[StoredMolecule], row: int) -> WindowState:
+    """The [`WindowState`][tether.gui.undo.WindowState] of a molecule's stored rows (#632).
+
+    ``window`` is that of row ``row`` when it is among ``rows``, else of the first row;
+    ``whole`` says whether every row has its whole ``frame_range``; ``rows`` holds each
+    row's own window. Raises ``KeyError`` when ``rows`` is empty.
+    """
+    if not rows:
+        raise KeyError("no stored row of the molecule")
+    selected = next((m for m in rows if m.row == row), rows[0])
+    return WindowState(
+        window=selected.window,
+        whole=all(m.window == m.frame_range for m in rows),
+        rows=tuple((m.molecule_id, m.window) for m in rows),
+    )
+
+
+def _category_state(rows: Sequence[StoredMolecule]) -> tuple[tuple[str, str], ...]:
+    """Each stored row's ``(molecule_id, category)``, the category state an undo writes back.
+
+    Two rows can share a molecule key with different categories, so the state is kept
+    row by row (#632). Raises ``KeyError`` when ``rows`` is empty.
+    """
+    if not rows:
+        raise KeyError("no stored row of the molecule")
+    return tuple((m.molecule_id, m.category) for m in rows)
 
 
 def _movie_panel_unavailable() -> str | None:
@@ -379,7 +489,8 @@ class OverflowCategoryPicker:
     whose integer class exceeds [`CATEGORY_SLOTS`][tether.gui.curation.CATEGORY_SLOTS]
     (index ``>= 9``) and returns the chosen **integer class** (1-based) — the
     correct integer↔category mapping the ``/labels`` writer stores (§7.3). The
-    full ``> 9`` path is re-exercised once the M4 editable list lands.
+    list is the selected molecule's condition's own, as the category editor keeps it
+    (#633).
     """
 
     def __init__(self, categories: list[str], *, parent: QtWidgets.QWidget | None = None) -> None:
@@ -452,6 +563,11 @@ class CheatSheetOverlay:
     keymap is not active, so the table has no rows and ``inactive_text`` shows in their
     place. The shell passes the same predicate as its event filter, so the sheet lists
     exactly the keys that act in the current section. ``None`` keeps every row.
+
+    ``category_names`` is asked on each refresh for the category each number key
+    assigns (#633): the shell passes the list of the selected molecule's condition, so
+    the sheet shows ``Assign category 2 (bound)``. ``None``, or a call that returns
+    ``None``, keeps the bare class numbers.
     """
 
     def __init__(
@@ -463,10 +579,12 @@ class CheatSheetOverlay:
         note: str | None = None,
         live: Callable[[], bool] | None = None,
         inactive_text: str = "No keyboard shortcuts act in this section.",
+        category_names: Callable[[], Mapping[int, str] | None] | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
+        self._category_names = category_names
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
         self._note = note
@@ -522,7 +640,12 @@ class CheatSheetOverlay:
         from pyqtgraph.Qt import QtWidgets
 
         live = self.live
-        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable) if live else []
+        names = self._category_names() if live and self._category_names is not None else None
+        self._rows = (
+            self._keymap.cheatsheet(unavailable=self._unavailable, category_names=names)
+            if live
+            else []
+        )
         # The advance note (#631) is about curation, so it shows only with the rows.
         self._inactive_label.setHidden(live)
         if self._note_label is not None:
@@ -616,11 +739,11 @@ class TetherShell:
     ``-``/``=``/``[``/``]``, ``R``, ``P``, #359) for the selected molecule when that
     lock is available,
     falls back to read-only browsing otherwise, reports deferred commands explicitly
-    unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
-    the selected molecule through
-    the injected ``idealizer`` seam
-    ([`make_store_idealizer`][] wires the real store-backed vbFRET pipeline) and
-    draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
+    unavailable, and exposes the dialogs. The ``I`` key and **Idealize → Idealize
+    project…** open the whole-project fit ([`show_idealize_dialog`][], #625); the fit
+    runs through the injected ``idealizer`` seam ([`make_store_idealizer`][] wires the
+    store-backed ``idealize`` command) with progress and cancel, and the step line of the
+    selected molecule is drawn on the dock when it ends. When an ``overlap`` seam is wired
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
     (§7.3). The trace dock and the Browser belong to the Curate and correct section,
@@ -639,7 +762,6 @@ class TetherShell:
         categories: list[str] | None = None,
         idealizer: Idealizer | None = None,
         handoff: HandoffSeam | None = None,
-        histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
         advance_after_curation: bool = True,
@@ -655,9 +777,11 @@ class TetherShell:
         # application, following the OS light/dark scheme (#675). Idempotent.
         theme.install()
 
-        self._categories = (
-            list(categories) if categories else [f"category {i}" for i in range(1, 13)]
-        )
+        # The overflow picker's list while no project molecule is selected. There is no
+        # placeholder list: an open project's own list is read for the molecule (#633).
+        self._categories = list(categories) if categories else []
+        # The last category editor opened (#633), kept for tests and inspection.
+        self._category_editor: CategoryEditor | None = None
         self._traces: list[TraceView] = []
         self._current_index = -1
         # "Advance after accept or reject" (#631): a stored accept or reject selects
@@ -688,6 +812,10 @@ class TetherShell:
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
         self._curation_read_only_reason: str | None = None
+        # The undo and redo lists of this session's curation actions (#632). They belong
+        # to the open project and are emptied when it closes, another opens, or it
+        # becomes read-only; they are never written to the project file.
+        self._undo = UndoStack()
         # What the read-only banner may offer for a lock the open could not take
         # (#626): one-click Recover, typed Take over, or nothing yet.
         self._lock_recovery: Any | None = None
@@ -697,21 +825,22 @@ class TetherShell:
         # yet succeeded: ``(project path, taken LockInfo)``. The release-retry timer
         # keeps trying its exact nonce, as it does for a rollback session.
         self._recovered_lock: tuple[Path, Any] | None = None
-        # The one-click-idealize seam: a molecule_key -> idealized-path callable.
-        # None (the synthetic/no-project default) makes ``I`` report that a project
-        # must be loaded; make_store_idealizer(project) wires the real pipeline.
+        # The whole-project fit seam (#625): idealizer(fit, cancel=, progress=) -> result.
+        # None (the synthetic/no-project default) makes "Idealize project…" report that
+        # a project must be loaded; make_store_idealizer(project) wires the real command.
         self._idealizer = idealizer
+        # The open "Idealize project…" dialog, retained while it shows, or None.
+        self._idealize_dialog: Any | None = None
         # The standalone-tMAVEN hand-off seam (export + return-leg import). None (no
         # project) makes the &Hand-off menu report that a project must be loaded;
         # make_store_handoff(project) wires the real tether.project.handoff pipeline.
         self._handoff = handoff
-        # The population-histogram seam. None (no project) makes the &Analysis menu
-        # report that a project must be loaded; make_store_histogram(project) wires
-        # the real population_apparent_e_histogram. The dock is built lazily on the
-        # first show_histogram so the default shell stays light.
-        self._histogram_seam = histogram
-        self._histogram_dock: Any | None = None
-        self._histogram_dock_widget: Any | None = None
+        # The page of the Analyze section (#374): the plot registry, the layer list and
+        # the Matplotlib preview. load_project points it at the open project; it imports
+        # Matplotlib only when it first draws a figure, so the default shell stays light.
+        from tether.gui.analysis_section import AnalysisSection
+
+        self._analysis_section = AnalysisSection(status=lambda text: self._status(text))
         # The static overlap-view seam: molecule_key -> patch + NN distance. None (no
         # project) leaves the dock unbuilt; make_store_overlap(project) wires the real
         # per-molecule neighbour report. The dock is built lazily on the first
@@ -745,6 +874,12 @@ class TetherShell:
         self._roundtrip_site_of_row: dict[int, int] = {}
         self._roundtrip_error: str | None = None
         self._selecting_from_movie = False
+        # Synchronized scrubbing (#366): a FrameLink between the trace dock's frame
+        # cursor and the movie panel's frame, built with the round-trip. Whether it is
+        # on is Curate and correct's own state (its Curation menu toggles it), kept for
+        # this window only: it is not a preference and does not outlive the shell.
+        self._frame_link: Any | None = None
+        self._frame_link_enabled = True
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -753,6 +888,8 @@ class TetherShell:
         # The currently open modal wrapper, retained so timer-detected lock loss can
         # reject it before its stale Project handle reaches another write action.
         self._active_conditions_dialog: Any | None = None
+        # The summary of the last correction pass (#360), shown non-modal, or None.
+        self._correction_summary: Any | None = None
         # A fit abandoned by shell close remains a writer until its Future settles.
         # Keep that Future separate from the visible idealization state so the
         # nonce-safe release timer waits for the writer and retries teardown errors.
@@ -786,14 +923,16 @@ class TetherShell:
         self._lock_recovery_timer = QtCore.QTimer()
         self._lock_recovery_timer.setSingleShot(True)
         self._lock_recovery_timer.timeout.connect(self._recheck_lock_recovery)
-        self._histogram_refresh_timer = QtCore.QTimer()
-        self._histogram_refresh_timer.setSingleShot(True)
-        self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
-        self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
+        self._analysis_refresh_timer = QtCore.QTimer()
+        self._analysis_refresh_timer.setSingleShot(True)
+        self._analysis_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
+        self._analysis_refresh_timer.timeout.connect(self._run_queued_analysis_refresh)
         self._readiness_refresh_timer = QtCore.QTimer()
         self._readiness_refresh_timer.setSingleShot(True)
         self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
         self._readiness_refresh_timer.timeout.connect(self.refresh_readiness)
+        self._readiness_refresh_timer.timeout.connect(self._refresh_states_if_due)
+        self._states_refresh_due = False
 
         # Central surface: the pyqtgraph trace dock, behind the start page that shows
         # while no project is open and no molecules are loaded (#629).
@@ -821,8 +960,8 @@ class TetherShell:
         # A .tether file dropped anywhere on the window opens it (#629).
         self._window.setAcceptDrops(True)
 
-        # Left browser panel: movie switcher + molecule list + editable category
-        # field. The category field is the text-entry exempt from the keymap.
+        # Left browser panel: movie switcher + molecule list + the entry point of the
+        # category editor (#633), whose name field is the text entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
         # No invented movie id: the box lists the open project's /movies rows (#356),
@@ -833,9 +972,21 @@ class TetherShell:
         self._movie_switcher.currentIndexChanged.connect(self._on_movie_switched)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
-        self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("Type a category name")
-        self._category_field.setProperty("tetherTextEntry", True)
+        # Each row's curation state, the progress counts and the filter (#630).
+        from tether.gui.molecule_list import MoleculeListView
+
+        self._molecule_view = MoleculeListView(
+            self._molecule_list,
+            movie_name=self._movie_name,
+            on_filter_changed=self._on_molecule_filter_changed,
+        )
+        self._categories_button = QtWidgets.QPushButton("Categories…")
+        self._categories_button.setAccessibleName("Edit the categories")
+        self._categories_button.setToolTip(
+            "Add, rename, remove or reorder the categories of the selected molecule's "
+            "condition. Keys 1 to 9 give its first nine categories."
+        )
+        self._categories_button.clicked.connect(lambda: self.show_category_editor())
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
             "Reverse a rejected trace to uncurated and append the reversal to /labels"
@@ -873,9 +1024,7 @@ class TetherShell:
         self._take_over_button.clicked.connect(lambda: self.take_over_project_lock())
         self._take_over_button.hide()
         # Section titles use the heading font (Red Hat Display, else the system font).
-        self._section_titles = [
-            QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
-        ]
+        self._section_titles = [QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Categories")]
         for title in self._section_titles:
             title.setFont(theme.heading_font())
         movie_title, molecules_title, category_title = self._section_titles
@@ -889,10 +1038,19 @@ class TetherShell:
         vbox.addLayout(lock_actions)
         vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
+        vbox.addWidget(self._molecule_view.header)
+        vbox.addWidget(self._molecule_view.filter_box)
+        self.require(self._molecule_view.filter_box, "traces")
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
-        vbox.addWidget(self._category_field)
+        vbox.addWidget(self._categories_button)
+        self.require(self._categories_button, "traces")
         vbox.addWidget(self._unreject_button)
+        # The list comes before the filter box in the focus chain, so a window that
+        # takes focus (the browser floated, the app activated) never gives it to the box
+        # first: the box keeps its own keys, and the curation keys must act there at once.
+        # The box is one Tab after the list.
+        QtWidgets.QWidget.setTabOrder(self._molecule_list, self._molecule_view.filter_box)
         self._browser_panel = panel
 
         # The sections (#341, ADR-0116): the central widget of the one QMainWindow is a
@@ -1017,7 +1175,7 @@ class TetherShell:
         self._app.aboutToQuit.connect(self.close)
 
         # File menu: open a produced/extracted .tether live in this shell for
-        # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
+        # curation + the project fit — the store<->shell hookup (§7.8, FR-LEGACY;
         # the general capability the M7 Deep-LASI wizard hands off into).
         # Open / Close project / Quit carry the platform's standard keys (#629); every
         # one has a modifier, so none shadows a bare curation key (§7.3).
@@ -1046,11 +1204,32 @@ class TetherShell:
         # user on a shared computer sees whose labels they are writing.
         self._act_curator_name = self._file_menu.addAction("Curator &name…")
         self._act_curator_name.triggered.connect(self._curator_name_dialog)
+        # Whether a launch reopens the last project, in the section of its next step
+        # (#1159). The answer lives in the preferences file, never in a project.
+        self._act_reopen_last = self._file_menu.addAction("Reopen &last project at start")
+        self._act_reopen_last.setCheckable(True)
+        self._act_reopen_last.setChecked(
+            preferences_file is not None and preferences.reopen_last_project(preferences_file)
+        )
+        self._act_reopen_last.setEnabled(preferences_file is not None)
+        self._act_reopen_last.toggled.connect(self.set_reopen_last_project)
         self._file_menu.addSeparator()
         self._act_quit = self._file_menu.addAction("&Quit")
         _set_standard_shortcuts(self._act_quit, std.Quit, "Ctrl+Q")
         self._act_quit.setMenuRole(QtGui.QAction.MenuRole.QuitRole)
         self._act_quit.triggered.connect(self.quit)
+
+        # Edit menu (#632): undo and redo of the curation actions of this session. Each
+        # chord has a modifier, so neither shadows a bare curation key (§7.3). A focused
+        # text field keeps Ctrl+Z for its own text, as Qt gives it the shortcut first.
+        self._edit_menu = self._window.menuBar().addMenu("&Edit")
+        self._act_undo = self._edit_menu.addAction("&Undo")
+        self._act_undo.setShortcuts([QtGui.QKeySequence("Ctrl+Z")])
+        self._act_undo.triggered.connect(self.undo)
+        self._act_redo = self._edit_menu.addAction("&Redo")
+        self._act_redo.setShortcuts([QtGui.QKeySequence(key) for key in _redo_keys()])
+        self._act_redo.triggered.connect(self.redo)
+        self._sync_undo_actions()
 
         # The shipped cheat-sheet: it lists the keys that act in the current section (#342).
         self._cheatsheet = CheatSheetOverlay(
@@ -1059,6 +1238,7 @@ class TetherShell:
             unavailable=DEFERRED_ACTIONS,
             note=self._advance_note(),
             live=self._curation_keys_active,
+            category_names=self.category_names,
             inactive_text=(
                 "The curation keys act only in the "
                 f"{self._sections.get(CURATE_SECTION).title} section. To use them, choose "
@@ -1067,7 +1247,7 @@ class TetherShell:
         )
 
         # The menus of the sections (#342): built from each section's MenuSpec, in the
-        # order of the registry, between the window's own File menu and its View and Help
+        # order of the registry, between the window's own File and Edit menus and its View and Help
         # menus. A section's menus show only while that section is current.
         menu_bar = self._window.menuBar()
         for spec in self._shown_sections:
@@ -1176,15 +1356,14 @@ class TetherShell:
             (self._act_hand_off, "hand-off"),
             (self._act_import, "import"),
             (self._act_import_deeplasi, "import"),
-            (self._act_histogram, "analyze"),
             (self._act_validate_conditions, "conditions"),
         ]
         self._apply_menu_icons(theme.current())
         theme.subscribe(self._apply_menu_icons)
 
         # Busy indicator (#677): the wavefront mark and the task name, at the right
-        # of the status bar, while a task runs that gives no percentage (today the
-        # one-click idealize; the task service #343 connects the other tasks).
+        # of the status bar, while a background task runs (the task service, #343);
+        # a task that reports progress, such as the project fit, shows its percentage.
         from tether.gui.indicators import BusyIndicator
 
         self._busy_indicator = BusyIndicator()
@@ -1409,6 +1588,9 @@ class TetherShell:
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
         self._section = section_id
         self._sync_section_menus()
+        if section_id == "analyze":
+            # A fit made in another section may have added a model: read the choices again.
+            self._analysis_section.refresh()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea
@@ -1465,9 +1647,10 @@ class TetherShell:
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
 
         Each section also declares its menus (#342): Import and Calibration (#353) in
-        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
-        Analyze. Only Curate and correct declares the curation keymap scope, so the
-        curation keys act only there.
+        Prepare; Curation, Hand-off and Conditions in Curate and correct. Analyze has no
+        menu: its page is the plot builder (#374), which replaced the one-action Analysis
+        menu. Only Curate and correct declares the curation keymap scope, so the curation
+        keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1525,6 +1708,16 @@ class TetherShell:
                             title="&Conditions",
                             populate=lambda _host, menu: self._populate_conditions_menu(menu),
                         ),
+                        MenuSpec(
+                            id="corrections",
+                            title="Co&rrections",
+                            populate=lambda _host, menu: self._populate_corrections_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="idealize",
+                            title="I&dealize",
+                            populate=lambda _host, menu: self._populate_idealize_menu(menu),
+                        ),
                     ),
                     keymap_scope=CURATION_SCOPE,
                 ),
@@ -1532,19 +1725,8 @@ class TetherShell:
                     id=ANALYZE_SECTION,
                     title="Analyze",
                     order=3,
-                    central=lambda _host: _guide_page(
-                        "Analyze",
-                        "To see the population histogram of the open project, choose "
-                        "Analysis → Population histogram…. It shows below this text.",
-                    ),
+                    central=lambda _host: self._analysis_section.widget,
                     writes_project=True,
-                    menus=(
-                        MenuSpec(
-                            id="analysis",
-                            title="&Analysis",
-                            populate=lambda _host, menu: self._populate_analysis_menu(menu),
-                        ),
-                    ),
                 ),
                 SectionSpec(
                     id=DEPOSIT_SECTION,
@@ -1603,8 +1785,26 @@ class TetherShell:
         self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
+        self._act_edit_categories = menu.addAction("&Categories…")
+        self._act_edit_categories.triggered.connect(lambda: self.show_category_editor())
+        self.require(self._act_edit_categories, "traces")
         self._act_reconcile_generation = menu.addAction("Reconcile trace &generations…")
         self._act_reconcile_generation.triggered.connect(self.show_generation_reconcile)
+        # A navigation action (#630): it selects a row and never reorders the list (§7.5).
+        # Its key is the curation key U (the keymap's, so it acts only in this section);
+        # a section menu action carries no shortcut of its own.
+        self._act_next_undecided = menu.addAction("Next &undecided molecule")
+        self._act_next_undecided.triggered.connect(self.select_next_undecided)
+        self.require(self._act_next_undecided, "traces")
+        menu.addSeparator()
+        # Synchronized scrubbing (#366): on unless the user turns it off here.
+        self._act_link_frames = menu.addAction("&Link trace and movie frames")
+        self._act_link_frames.setCheckable(True)
+        self._act_link_frames.setChecked(self._frame_link_enabled)
+        self._act_link_frames.setStatusTip(
+            "Move the movie with the trace's frame cursor, and the cursor with the movie"
+        )
+        self._act_link_frames.toggled.connect(self.set_frame_link_enabled)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -1628,11 +1828,36 @@ class TetherShell:
         self._act_validate_conditions = menu.addAction("Validate &conditions…")
         self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
 
-    def _populate_analysis_menu(self, menu: Any) -> None:
-        """Analyze's Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1)."""
-        self._analysis_menu = menu
-        self._act_histogram = menu.addAction("Population &histogram…")
-        self._act_histogram.triggered.connect(self.show_histogram)
+    def _populate_corrections_menu(self, menu: Any) -> None:
+        """Curate and correct's Corrections menu: run the correction pass (#360, §7.2).
+
+        The action is enabled from the project's correction state (G03), read each time
+        the menu opens; a disabled action says why in its tooltip.
+        """
+        # A QMenu shows no action tooltip unless asked to, and the tooltip holds the reason.
+        menu.setToolTipsVisible(True)
+        self._corrections_menu = menu
+        self._act_correction_pass = menu.addAction("Run &correction pass…")
+        self._act_correction_pass.triggered.connect(self._correction_pass_dialog)
+        menu.aboutToShow.connect(self.sync_correction_controls)
+
+    def _populate_idealize_menu(self, menu: Any) -> None:
+        """Curate and correct's Idealize menu: the whole-project fit (#625, §7.4).
+
+        Its one action opens the "Idealize project…" dialog, as the ``I`` key does; the
+        key is the curation keymap's, so the action carries no shortcut of its own.
+        """
+        self._idealize_menu = menu
+        self._act_idealize_project = menu.addAction("Idealize &project…")
+        self._act_idealize_project.triggered.connect(self.show_idealize_dialog)
+        # A fit needs extracted traces; a busy or read-only window says why on the status
+        # line when the action is chosen, as the I key does.
+        self.require(self._act_idealize_project, "traces")
+
+    @property
+    def idealize_project_action(self) -> Any:
+        """The **Idealize → Idealize project…** action."""
+        return self._act_idealize_project
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -1668,11 +1893,6 @@ class TetherShell:
     def browser_dock(self) -> QtWidgets.QDockWidget:
         """The Browser dock, including when the curator floats it."""
         return self._browser_dock
-
-    @property
-    def category_field(self) -> QtWidgets.QLineEdit:
-        """The browser-panel category-name ``QLineEdit`` — the text-entry exempt from the keymap."""
-        return self._category_field
 
     @property
     def unreject_button(self) -> QtWidgets.QPushButton:
@@ -1836,16 +2056,32 @@ class TetherShell:
 
     # --- molecules -----------------------------------------------------------
 
-    def set_molecules(self, traces: list[TraceView]) -> None:
+    def set_molecules(
+        self, traces: list[TraceView], states: Sequence[MoleculeState] | None = None
+    ) -> None:
         """Populate the molecule list + dock from ``traces`` (select the first).
+
+        ``states`` are the rows' curation states as
+        [`molecule_states`][tether.services.curation.molecule_states] reads them, in the
+        same order; each row shows its own (#630). A state whose ``molecule_key`` is not the
+        trace's is not shown. The filter goes back to all molecules.
 
         With a [`movie_panel`][] shown, this also rebuilds the trace↔movie round-trip over
         the new list (#357), so the first selection already moves the movie to its spot.
         """
+        from tether.gui.molecule_list import FILTER_ALL
+
         self._traces = list(traces)
-        self._molecule_list.clear()
-        for i, trace in enumerate(self._traces):
-            self._molecule_list.addItem(trace.name or f"mol-{i}")
+        given = list(states or ())
+        matched = [
+            given[i] if i < len(given) and given[i].molecule_key == trace.molecule_key else None
+            for i, trace in enumerate(self._traces)
+        ]
+        self._molecule_view.set_filter(FILTER_ALL)
+        self._molecule_view.populate(
+            [self._row_name(i, trace) for i, trace in enumerate(self._traces)], matched
+        )
+        self._molecule_view.sync_header(-1)
         self._wire_roundtrip()
         if self._traces:
             self._molecule_list.setCurrentRow(0)
@@ -1854,24 +2090,145 @@ class TetherShell:
             self._trace_dock.clear()
         self._sync_start_page()
 
+    @staticmethod
+    def _row_name(row: int, trace: TraceView) -> str:
+        """The name a list row shows for ``trace``: its own, else ``mol-<row>``."""
+        return trace.name or f"mol-{row}"
+
+    @property
+    def molecule_view(self) -> Any:
+        """The [`MoleculeListView`][tether.gui.molecule_list.MoleculeListView] (#630)."""
+        return self._molecule_view
+
+    def _movie_name(self, movie_id: str) -> str:
+        """The name of the project movie ``movie_id``; the id when the project has no such row."""
+        names = {movie.movie_id: movie.name for movie in self._project_movies}
+        return str(names.get(movie_id, movie_id))
+
+    def _read_molecule_states(self, path: str | Path) -> tuple[MoleculeState, ...]:
+        """Read the list state of every molecule; a failed read shows the rows without one."""
+        try:
+            return molecule_states(path)
+        except Exception as exc:  # noqa: BLE001 - the list still opens, without its marks
+            from tether.gui.messages import Level
+
+            self._status(f"Molecule states unavailable: {exc}", Level.WARNING)
+            return ()
+
+    def _queue_states_refresh(self) -> None:
+        """Read every row's state again once a burst of writes ends (#630).
+
+        For the writes whose effect on a row's marks only a fresh read can tell: an
+        analysis-window edit can make a fit stale, and a fit or a return leg changes
+        many rows. It rides the readiness timer, so it runs between writes, not per key.
+        """
+        if self._project_path is not None:
+            self._states_refresh_due = True
+            self._readiness_refresh_timer.start()
+
+    def _refresh_states_if_due(self) -> None:
+        if not self._states_refresh_due or self._project_path is None:
+            return
+        self._states_refresh_due = False
+        fresh = self._read_molecule_states(self._project_path)
+        if fresh:
+            self._molecule_view.replace_states(
+                [
+                    fresh[i] if i < len(fresh) and fresh[i].molecule_key == t.molecule_key else None
+                    for i, t in enumerate(self._traces)
+                ]
+            )
+            self._after_states_changed()
+
+    def _after_states_changed(self) -> None:
+        """Count again and move the selection off a row that the filter now hides."""
+        self._ensure_current_shown()
+        self._molecule_view.sync_header(self._molecule_list.currentRow())
+
+    def _on_molecule_filter_changed(self) -> None:
+        """After a new filter: keep a shown selection, and say how many rows it shows."""
+        self._ensure_current_shown()
+        shown = sum(1 for row in range(len(self._traces)) if self._molecule_view.shown(row))
+        self._molecule_view.sync_header(self._molecule_list.currentRow())
+        self._status(f"Filter {self._molecule_view.filter_box.currentText()}: {shown} shown")
+
+    def _ensure_current_shown(self) -> None:
+        """Move the selection to the next shown row, else the previous, when it is hidden.
+
+        When the filter shows no row, nothing stays selected, so no key acts on a
+        molecule the list does not show.
+        """
+        row = self._molecule_list.currentRow()
+        if row < 0 or self._molecule_view.shown(row):
+            return
+        target = self._molecule_view.shown_from(row, 1)
+        if target is None:
+            target = self._molecule_view.shown_from(row, -1)
+        if target is None:
+            self._molecule_list.setCurrentRow(-1)
+            self._current_index = -1
+            self._trace_dock.clear()
+            return
+        self._molecule_list.setCurrentRow(target)
+
+    def select_next_undecided(self) -> int | None:
+        """Select the next undecided molecule in list order; return its row (#630).
+
+        A navigation action: the list order never changes (§7.5). After the last row the
+        search goes on from the top. The status says when no undecided molecule is left,
+        or when the filter hides the ones that are.
+        """
+        row, wrapped = self._molecule_view.next_undecided(self._molecule_list.currentRow())
+        if row is None:
+            hidden = sum(
+                1
+                for i, state in enumerate(self._molecule_view.states)
+                if state is not None
+                and state.curation == UNDECIDED
+                and not self._molecule_view.shown(i)
+            )
+            if hidden:
+                self._status(f"No undecided molecule is shown; the filter hides {hidden}")
+            else:
+                self._status("No undecided molecule is left")
+            return None
+        self._molecule_list.setCurrentRow(row)
+        if wrapped:
+            self._status(f"{self.status_message} (from the top of the list)")
+        return row
+
     def _on_list_row_changed(self, row: int) -> None:
+        self._molecule_view.sync_header(row)
+        # The frame link still names the previous molecule: drop it before the dock shows
+        # the new trace and the jump below switches movies, so a frame the panel tells on
+        # the way is not mapped onto the new trace with the old one's length. With no row
+        # selected (a filter that shows none, #630) it stays dropped: the dock is empty.
+        if self._frame_link is not None:
+            self._frame_link.clear_target()
         if 0 <= row < len(self._traces):
             self._current_index = row
             trace = self._traces[row]
             self._trace_dock.set_trace(trace)
             # Navigation (via the ←/→/↑/↓ keys or a click) shows which molecule is
             # active — so the live smoke sees NEXT/PREV firing, not just accept.
-            self._status(f"Molecule {trace.name or f'mol-{row}'} ({row + 1}/{len(self._traces)})")
+            self._status(f"Molecule {self._row_name(row, trace)} ({row + 1}/{len(self._traces)})")
             # Refresh the overlap view last, so a seam failure surfaces (overwriting
             # the navigation status) rather than being clobbered by it; a successful
             # refresh sets no status, leaving the molecule message in place.
             self._refresh_overlap(trace)
+            # An open cheat-sheet names the categories of this molecule's condition (#633).
+            if self._cheatsheet.dialog.isVisible():
+                self._cheatsheet.refresh()
             # Trace → movie (#357): a list selection shows the molecule's own movie,
             # centred on its donor spot. A selection made by clicking that spot leaves
             # the camera where the user clicked. A failure is reported; success sets no
             # status, so the molecule message stays.
             if not self._selecting_from_movie:
                 self._focus_movie(row)
+            # Synchronized scrubbing (#366): link the cursor to this molecule's movie. A
+            # list selection shows the cursor frame in the movie; a click on a spot keeps
+            # the frame the user was looking at, and moves the cursor there.
+            self._retarget_frame_link(row, lead="movie" if self._selecting_from_movie else "trace")
 
     @property
     def overlap_dock(self) -> Any | None:
@@ -1903,7 +2260,7 @@ class TetherShell:
         try:
             dock.set_molecule(info)
         except Exception as exc:  # noqa: BLE001 - a malformed payload must not crash
-            # Mirror show_histogram: a seam that resolves but returns a shape-invalid
+            # A seam that resolves but returns a shape-invalid
             # patch surfaces as a status message, never an uncaught exception out of
             # a selection change. A dock that fails its very first draw is discarded
             # so no blank dock is ever attached; an already-shown dock is kept.
@@ -2108,6 +2465,7 @@ class TetherShell:
         disconnect = getattr(panel, "disconnect_spot_clicks", None)
         if disconnect is not None:
             disconnect()  # a re-listed project must not fire the old navigator too
+        self._unwire_frame_link()
         shown = [
             self._project_movies[row]
             for row, _ in sorted(self._movie_rows.items(), key=lambda item: item[1])
@@ -2130,6 +2488,7 @@ class TetherShell:
         self._roundtrip = navigator
         self._roundtrip_rows = rows
         self._roundtrip_site_of_row = {row: site for site, row in enumerate(rows)}
+        self._wire_frame_link(panel)
 
     def _focus_movie(self, row: int) -> bool:
         """Show list row ``row``'s molecule in the movie panel; ``False`` if it has no spot."""
@@ -2151,7 +2510,7 @@ class TetherShell:
         if not 0 <= row < len(self._traces):
             self._unavailable(feature, "no molecule is selected")
             return
-        label = self._molecule_list.item(row).text()
+        label = self._row_name(row, self._traces[row])
         if self._roundtrip is None:
             self._unavailable(feature, self._roundtrip_error or "no movie is shown")
             return
@@ -2180,16 +2539,114 @@ class TetherShell:
             self._movie_switcher.blockSignals(False)
 
     def _on_movie_spot_clicked(self, site: int) -> None:
-        """Movie → trace: select the list row of the molecule whose spot was clicked."""
-        row = self._roundtrip_rows[site]
+        """Movie → trace: select the list row of the molecule whose spot was clicked.
+
+        A spot of a molecule the filter hides shows every molecule first (#630), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
         self._selecting_from_movie = True
         try:
-            self._molecule_list.setCurrentRow(row)
+            self._select_shown(self._roundtrip_rows[site])
         finally:
             self._selecting_from_movie = False
 
+    # --- synchronized scrubbing (#366, PRD §7.3) -------------------------------
+
+    @property
+    def frame_link(self) -> Any | None:
+        """The [`FrameLink`][tether.gui.roundtrip.FrameLink] of the trace dock and the movie panel.
+
+        Built with the [`roundtrip`][], so ``None`` exactly when that is ``None``. While it
+        is on and the panel shows the selected molecule's own movie, dragging the trace
+        dock's frame cursor moves the movie to that frame, and moving the movie's time
+        slider moves the cursor.
+        """
+        return self._frame_link
+
+    @property
+    def frame_link_enabled(self) -> bool:
+        """Whether synchronized scrubbing is on in Curate and correct (on by default)."""
+        return self._frame_link_enabled
+
+    def set_frame_link_enabled(self, enabled: bool) -> None:
+        """Turn synchronized scrubbing on or off (Curation → Link trace and movie frames).
+
+        The state belongs to Curate and correct and to this window: it is kept across
+        projects opened here, and it is not stored as a preference.
+        """
+        self._frame_link_enabled = bool(enabled)
+        action = getattr(self, "_act_link_frames", None)
+        if action is not None and action.isChecked() != self._frame_link_enabled:
+            action.blockSignals(True)
+            action.setChecked(self._frame_link_enabled)
+            action.blockSignals(False)
+        if self._frame_link is not None:
+            self._frame_link.set_enabled(self._frame_link_enabled)
+        self._status(
+            "Trace and movie frames linked"
+            if self._frame_link_enabled
+            else "Trace and movie frames not linked"
+        )
+
+    def _wire_frame_link(self, panel: Any) -> None:
+        """Build the frame link over ``panel`` and the trace dock (a failure is reported)."""
+        from tether.gui.roundtrip import FrameLink
+
+        try:
+            link = FrameLink(panel, self._trace_dock, enabled=self._frame_link_enabled)
+            link.connect()
+        except Exception as exc:  # noqa: BLE001 - no frame link is not a failed open
+            self._unwire_frame_link()
+            self._status(f"Frame link unavailable: {exc}")
+            return
+        self._frame_link = link
+
+    def _unwire_frame_link(self) -> None:
+        """Drop the frame link and the listeners it added to the panel and the dock."""
+        self._frame_link = None
+        panel = self._movie_panel
+        disconnect = getattr(panel, "disconnect_frame_changed", None)
+        if disconnect is not None:
+            disconnect()
+        self._trace_dock.disconnect_frame_cursor()
+
+    def _retarget_frame_link(self, row: int, *, lead: str) -> None:
+        """Link the cursor of list row ``row``'s trace to that molecule's own movie."""
+        link, navigator = self._frame_link, self._roundtrip
+        if link is None:
+            return
+        site = self._roundtrip_site_of_row.get(row)
+        if navigator is None or site is None or not 0 <= row < len(self._traces):
+            link.clear_target()
+            return
+        trace = self._traces[row]
+        try:
+            movie_index = navigator.movie_ids.index(navigator.index.site(site).movie_id)
+            link.set_target(
+                movie_index, frame_offset=trace.frame_offset, n_frames=trace.n_frames, lead=lead
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            link.clear_target()
+            self._status(f"Frame link failed: {exc}")
+
+    def _select_shown(self, row: int) -> None:
+        """Select list row ``row``; when the filter hides it, show all molecules first (#630).
+
+        For a selection made outside the list (a movie spot, a reconcile row), so the
+        selected molecule is always one the list shows and no key acts on a hidden row.
+        """
+        from tether.gui.molecule_list import FILTER_ALL
+
+        revealed = not self._molecule_view.shown(row)
+        if revealed:
+            self._molecule_view.set_filter(FILTER_ALL)
+        self._molecule_list.setCurrentRow(row)
+        if revealed:
+            self._status(f"{self.status_message}; the filter now shows all molecules")
+
     def _reset_movie_panel(self) -> None:
         """Close the movie panel and its readers, remove its dock, and empty the switcher."""
+        self._unwire_frame_link()
         panel, dock_widget = self._movie_panel, self._movie_dock_widget
         self._movie_panel = None
         self._movie_dock_widget = None
@@ -2303,6 +2760,86 @@ class TetherShell:
             self.set_curator_name(text)
 
     @property
+    def reopen_last_action(self) -> Any:
+        """The checkable **File → Reopen last project at start** action (#1159)."""
+        return self._act_reopen_last
+
+    def set_reopen_last_project(self, on: bool) -> bool:
+        """Turn on or off the reopening of the last project at launch; return if it was saved.
+
+        When the preferences file cannot be written, the action shows the stored answer
+        again, so the menu never shows a setting the next launch will not use.
+        """
+        on = bool(on)
+        # The menu click has checked the action already; a call from code checks it here,
+        # without the toggled signal calling this method a second time.
+        self._check_reopen_last(on)
+        saved = self._remember(
+            lambda: preferences.set_reopen_last_project(on, self._preferences_file)
+        )
+        if not saved:
+            self._check_reopen_last(
+                self._preferences_file is not None
+                and preferences.reopen_last_project(self._preferences_file)
+            )
+        else:
+            self._status(
+                "The last project opens again at the next start"
+                if on
+                else "The next start shows the start page"
+            )
+        return saved
+
+    def _check_reopen_last(self, on: bool) -> None:
+        """Check or clear **Reopen last project at start** without its toggled signal."""
+        blocked = self._act_reopen_last.blockSignals(True)
+        try:
+            self._act_reopen_last.setChecked(on)
+        finally:
+            self._act_reopen_last.blockSignals(blocked)
+
+    def reopen_last_project(self) -> str | None:
+        """At launch, open the newest recent project in the section of its next step (#1159).
+
+        It does nothing when this shell remembers nothing, when **File → Reopen last project
+        at start** is off, or when **File → Open recent** is empty. The section comes from
+        the readiness record of the project ([`refresh_readiness`][]), the next step that
+        ``tether status`` prints, and never from the preferences file. A step with no section
+        the shell shows keeps the section the open chose.
+
+        When the file is missing, the open fails, or the readiness cannot be read, the start
+        page stays (or shows again) and the status bar says why. Return the id of the section
+        that shows after a reopen, or ``None`` when nothing was opened.
+        """
+        if self._preferences_file is None or not preferences.reopen_last_project(
+            self._preferences_file
+        ):
+            return None
+        recent = preferences.recent_projects(self._preferences_file)
+        if not recent:
+            return None
+        from tether.gui.messages import Level
+
+        path = recent[0]
+        if not path.is_file():
+            self._status(f"Last project not reopened: {path} was not found", Level.WARNING)
+            return None
+        if self.load_project(path) is None:
+            # load_project said why on the status bar, and the start page still shows.
+            return None
+        if self._readiness is None:
+            self.close_project()
+            self._status(
+                f"Last project not reopened: the next step of {path.name} could not be read",
+                Level.WARNING,
+            )
+            return None
+        step = guided_step(self._readiness, self._sections)
+        if step is not None and step.section is not None:
+            self.set_section(step.section)
+        return self._section
+
+    @property
     def recent_menu(self) -> QtWidgets.QMenu:
         """The **File → Open recent** submenu."""
         return self._recent_menu
@@ -2356,7 +2893,7 @@ class TetherShell:
     def _section_hidden_docks(self) -> list[str]:
         """The docks hidden only because their section is not current (by object name)."""
         names = {dock.objectName() for dock, shown in self._dock_restore.items() if shown}
-        # A dock not built in this session (Overlap, Population histogram) keeps the stored
+        # A dock not built in this session (Overlap, Movie) keeps the stored
         # answer, since Qt keeps its stored place and visibility for the next launch too.
         built = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
         return sorted(names | (self._stored_section_hidden - built))
@@ -2416,7 +2953,7 @@ class TetherShell:
         self._window.restoreState(self._default_state)
         self._stored_section_hidden = set()
         # The default state does not know a dock built after it was captured (Overlap,
-        # Population histogram), so restoring it leaves such a dock where the user put it.
+        # Movie), so restoring it leaves such a dock where the user put it.
         for dock, area in self._dock_default_area.items():
             if dock not in self._default_docks:
                 dock.setFloating(False)
@@ -2440,8 +2977,14 @@ class TetherShell:
         return self._file_menu
 
     def _set_read_only_reason(self, reason: str | None) -> None:
-        """Keep browse-only state visible and disable the exposed source-write controls."""
+        """Keep browse-only state visible and disable the exposed source-write controls.
+
+        It is called when a project opens, when it closes and when the session lock is
+        lost, so it also empties the undo and redo lists (#632): they belong to one
+        open, writable project.
+        """
         self._curation_read_only_reason = reason
+        self._clear_undo()
         if reason is None:
             self._read_only_banner.clear()
             self._read_only_banner.hide()
@@ -2485,8 +3028,8 @@ class TetherShell:
     ) -> Project | None:
         """Open a produced / extracted ``.tether`` live in this shell (§7.8, FR-LEGACY).
 
-        Re-wires the running shell's store-backed seams onto ``path`` — the one-click
-        idealize (``I``), the population histogram (``&Analysis``), the standalone-tMAVEN
+        Re-wires the running shell's store-backed seams onto ``path`` — the whole-project
+        fit (``I``), the Analyze section's plots (#374), the standalone-tMAVEN
         hand-off (``&Hand-off``), the per-molecule overlap view, and the ``&Conditions``
         validation target — then loads the store's molecules into the browser + trace
         dock ([`set_molecules`][]). This is the general store↔shell hookup (the
@@ -2499,7 +3042,8 @@ class TetherShell:
         browsing: the project opens read-only, write seams stay disabled, and the
         status banner records why. Replacing a project releases the prior session
         lock; [`close`][] releases the current one (after any in-flight idealizer
-        write settles).
+        write settles). Replacing a project also closes the summary of the last
+        correction pass, so [`correction_summary`][] is ``None`` until the next pass.
 
         Every [`TraceView`][tether.gui.trace_dock.TraceView] carries its ``molecule_key`` so
         the idealize / overlap seams resolve the store row. An **analysis-only** import
@@ -2568,7 +3112,6 @@ class TetherShell:
             marker = read_analysis_only_marker(proj_path)
             analysis_only = marker is not None
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
-            histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
             # The movie panel's data (#356): the /movies rows with their spots, and the
             # stored aperture radius the overlap view uses too. An analysis-only project
@@ -2578,7 +3121,7 @@ class TetherShell:
                 if analysis_only
                 else read_project_movies(proj_path)
             )
-            idealizer_candidate = make_store_idealizer(project, require_held_lock=True)
+            idealizer_candidate = make_store_idealizer(project)
             # Export is read-only with respect to the source project, so retain this
             # seam even when the canonical store must open browse-only.
             handoff = make_store_handoff(project)
@@ -2705,7 +3248,6 @@ class TetherShell:
         self._lock_refusal = refusal
         self._set_lock_recovery(recovery)
         self._idealizer = idealizer
-        self._histogram_seam = histogram
         self._handoff = handoff
         self._overlap_seam = overlap
         self._conditions = project if writable else None
@@ -2717,12 +3259,14 @@ class TetherShell:
             if session_project is not None:
                 self._lock_release_timer.start()
         # Drop any docks built against a prior project so they rebuild fresh against the
-        # new store (no stale histogram / overlap leaking across a re-open).
+        # new store (no stale overlap view leaking across a re-open).
         self._reset_store_docks()
         self._close_generation_page()
+        self._close_correction_summary()
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self._analysis_section.set_project(self._project_path)
         self.refresh_readiness()
         # A project made from imported traces starts in Curate and correct (#897).
         entry = entry_section(self._readiness)
@@ -2734,7 +3278,8 @@ class TetherShell:
         movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
-        self.set_molecules(traces)
+        # The rows' states are read once here; actions then update their own rows (#630).
+        self.set_molecules(traces, self._read_molecule_states(proj_path))
         # Then the molecule selected when this project was last closed here, and the
         # project goes to the top of File -> Open recent (#628).
         self._resume_position()
@@ -3111,14 +3656,11 @@ class TetherShell:
             return True
 
     def _reset_store_docks(self) -> None:
-        """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
-        self._histogram_refresh_timer.stop()
+        """Discard the lazily-built overlap / movie docks so a re-open rebuilds them."""
+        self._analysis_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
         self._reset_movie_panel()
-        for dock_attr, widget_attr in (
-            ("_histogram_dock", "_histogram_dock_widget"),
-            ("_overlap_dock", "_overlap_dock_widget"),
-        ):
+        for dock_attr, widget_attr in (("_overlap_dock", "_overlap_dock_widget"),):
             widget = getattr(self, widget_attr)
             if widget is not None:
                 self._detach_section_dock(widget)
@@ -3207,7 +3749,8 @@ class TetherShell:
         Refused (returns ``False`` with a status message) while idealization owns the
         store, as [`load_project`][] is. The lock release takes the same nonce-safe
         route as a lock-loss fallback: a transient failure keeps the handle and the
-        release timer retries it.
+        release timer retries it. It also closes the summary of the last correction
+        pass, so [`correction_summary`][] is ``None`` afterwards (#1393).
         """
         if self._project_path is None:
             self._status("Close project: no project is open")
@@ -3225,11 +3768,12 @@ class TetherShell:
         self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
-        self._histogram_seam = None
         self._overlap_seam = None
         self._conditions = None
         self._reset_store_docks()
+        self._close_correction_summary()
         self._project_path = None
+        self._analysis_section.set_project(None)
         self._readiness = None
         self._sync_guided()
         self._act_close_project.setEnabled(False)
@@ -3534,6 +4078,7 @@ class TetherShell:
             except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
                 summary = f"{summary}; the trace view could not reread the windows: {exc}"
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # a return leg can change labels, windows and fits
         self._status(summary)
         return applied
 
@@ -3706,6 +4251,191 @@ class TetherShell:
             return
         self._status("Conditions validation closed")
 
+    # --- corrections (the correction pass, §7.2, #360) -----------------------
+
+    @property
+    def corrections_menu(self) -> QtWidgets.QMenu:
+        """The ``Co&rrections`` menu of the Curate and correct section (#360)."""
+        return self._corrections_menu
+
+    @property
+    def correction_pass_action(self) -> Any:
+        """The **Run correction pass…** action of the Corrections menu (#360)."""
+        return self._act_correction_pass
+
+    @property
+    def correction_summary(self) -> Any | None:
+        """The [`CorrectionSummaryDialog`][tether.gui.corrections.CorrectionSummaryDialog].
+
+        It is the summary of the last correction pass, or ``None`` before the first one.
+        Closing the project or opening another one closes the summary and resets this to
+        ``None`` until the next pass (#1393).
+        """
+        return self._correction_summary
+
+    def _close_correction_summary(self) -> None:
+        """Close the summary of the last pass when the project it describes goes (#1393).
+
+        The summary shows no project name or path, so a summary left open after the
+        project is closed, or after another one is opened, reads as the new project's.
+        """
+        summary = self._correction_summary
+        self._correction_summary = None
+        if summary is not None:
+            with suppress(RuntimeError):  # the window already deleted the dialog
+                summary.close()
+
+    def _correction_pass_unavailable(self) -> str | None:
+        """Why the correction pass cannot start now, or ``None`` when it can.
+
+        It needs an idle, writable session, a correction state of
+        [`PASS_STATES`][tether.services.corrections.PASS_STATES] and no manual factor
+        ([`pass_refusal`][tether.services.corrections.pass_refusal], read now, with no lock).
+        """
+        from tether.services.corrections import pass_refusal
+
+        if self._idealize_future is not None:
+            return "a background task is running; wait for it to finish"
+        project = self._curation_project
+        if project is None:
+            reason = self._curation_read_only_reason or "load a writable project first"
+            prefix = "project is read-only: " if self._curation_read_only_reason else ""
+            return f"{prefix}{reason}"
+        try:
+            return pass_refusal(project.path)
+        except Exception as exc:  # noqa: BLE001 - a state that cannot be read refuses the pass
+            return f"the correction state could not be read: {exc}"
+
+    def sync_correction_controls(self) -> None:
+        """Enable **Run correction pass…** from the correction state, with the reason if not.
+
+        The Corrections menu calls this each time it opens.
+        """
+        reason = self._correction_pass_unavailable()
+        self._act_correction_pass.setEnabled(reason is None)
+        tip = "" if reason is None else f"Unavailable: {reason}"
+        self._act_correction_pass.setToolTip(tip)
+        self._act_correction_pass.setStatusTip(tip)
+
+    def run_correction_pass(self, *, apparent_e_only: bool = False) -> bool:
+        """Start the correction pass over the open project; return whether it started.
+
+        The pass is [`compute_corrected_fret`][tether.project.correct.compute_corrected_fret]
+        over every molecule, through
+        [`run_correction_pass`][tether.services.corrections.run_correction_pass]. It runs on
+        the background-task service (#343), so idealization and every other project write
+        are frozen until it ends. Its writes are bound to the retained session lock: the
+        write guard asserts the exact nonce held when the pass started, so a lock stolen
+        while it runs refuses the publish. When it ends, the summary shows field by field
+        ([`correction_summary`][]). A refusal is a status message and starts nothing.
+        """
+        from tether.services.corrections import run_correction_pass
+
+        verb = "Correction pass"
+        if self._curation_project is not None:
+            self._refresh_project_lock()
+        reason = self._correction_pass_unavailable()
+        project = self._curation_project
+        if reason is None and project is not None:
+            try:
+                nonce = project._assert_held_lock()
+            except Exception:  # noqa: BLE001 - fail closed: any doubt about ownership refuses
+                self._refresh_project_lock()
+                reason = self._curation_read_only_reason or "the session lock is not held"
+        if reason is not None or project is None:
+            self._status(f"{verb} unavailable: {reason}")
+            return False
+
+        def guard() -> None:
+            project._assert_held_lock(expected_nonce=nonce)
+
+        claimed = self._claimed_project_key
+        token = self._project_owner_token
+
+        # The publish replaces the file, and the new file has no owner key until the claim
+        # moves to it after the pass. The path is held from now until then, so another
+        # window in this process cannot claim the new file in between.
+        publishing = _hold_publishing_path(project.path, token)
+
+        def task() -> CorrectionPassResult:
+            # The window's key moves here too, before the task settles: a window closed
+            # while the pass ran abandons the task, and its release after the task then
+            # frees the new key. Open and close project are refused while a task runs, so
+            # nothing else changes the key meanwhile.
+            try:
+                return run_correction_pass(
+                    project.path, apparent_e_only=apparent_e_only, write_guard=guard
+                )
+            finally:
+                rebound = _rebind_gui_project(claimed, project.path, token)
+                if rebound != claimed:
+                    self._claimed_project_key = rebound
+                _drop_publishing_path(publishing, token)
+
+        self._status("Running the correction pass…")
+        started = self._tasks.start(
+            task,
+            context=project.path,
+            label="Correction pass",
+            on_finished=self._finish_correction_pass,
+        )
+        if started is None:
+            _drop_publishing_path(publishing, token)
+        self._sync_project_write_controls()
+        return started is not None
+
+    def _finish_correction_pass(self, outcome: TaskOutcome) -> None:
+        """Apply a finished correction pass on the main thread: show it, or say why not."""
+        from tether.gui.corrections import BANNER_FAILURE, CorrectionSummaryDialog
+        from tether.gui.messages import Level
+        from tether.gui.tasks import TaskState
+
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        if outcome.state is not TaskState.DONE:
+            # A lost lock is one way to fail: the refresh turns the window read-only then,
+            # and does nothing while the lock is still held.
+            self._refresh_project_lock()
+            self._status(f"Correction pass failed: {outcome.error}", Level.ERROR)
+            return
+        self._queue_readiness_refresh()
+        result = outcome.value
+        if self._correction_summary is not None:
+            self._correction_summary.close()
+        summary = CorrectionSummaryDialog(result, parent=self._window)
+        self._correction_summary = summary
+        summary.show()
+        s = result.summary
+        line = (
+            f"Correction pass: {s.n_corrected + s.n_manual} of {s.n_molecules} molecules "
+            f"corrected, {s.n_apparent} in apparent E (state {result.state})"
+        )
+        if summary.banner_kind == BANNER_FAILURE:
+            self._status(f"{line}. {summary.banner.text()}", Level.WARNING)
+        else:
+            self._status(line)
+
+    def _correction_pass_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        """Menu entry: ask whether to keep apparent E by choice, then run the pass."""
+        from pyqtgraph.Qt import QtWidgets
+
+        box = QtWidgets.QMessageBox(self._window)
+        box.setWindowTitle("Run correction pass")
+        box.setText(
+            "Stamp each molecule's correction method from its leakage factor α and γ. "
+            "A molecule without a valid factor stays in apparent E."
+        )
+        only = QtWidgets.QCheckBox("Apparent E only (keep every molecule in apparent E)")
+        box.setCheckBox(only)
+        box.setStandardButtons(
+            QtWidgets.QMessageBox.StandardButton.Ok | QtWidgets.QMessageBox.StandardButton.Cancel
+        )
+        if box.exec() != QtWidgets.QMessageBox.StandardButton.Ok:
+            self._status("Correction pass cancelled")
+            return
+        self.run_correction_pass(apparent_e_only=only.isChecked())
+
     # --- legacy (M7 Deep-LASI re-analysis bundle import, §7.8) ---------------
 
     @property
@@ -3763,111 +4493,40 @@ class TetherShell:
         """Menu entry: run the Deep-LASI re-analysis wizard (intake → import), §7.8."""
         self.import_deeplasi_bundle()
 
-    # --- analysis (population apparent-E histogram, §7.7) --------------------
+    # --- analysis (the Analyze section's plot builder, §7.7, #374) -----------
 
     @property
-    def analysis_menu(self) -> QtWidgets.QMenu:
-        """The ``&Analysis`` menu (population histogram)."""
-        return self._analysis_menu
+    def analysis_section(self) -> Any:
+        """The page of the Analyze section (#374).
 
-    @property
-    def histogram_dock(self) -> Any | None:
-        """The population-histogram dock, or ``None`` until first shown."""
-        return self._histogram_dock
-
-    def show_histogram(self) -> Any | None:
-        """Compute + display the population apparent-E histogram (§7.7, §9 M2).
-
-        Runs the injected ``histogram`` seam ([`make_store_histogram`][] wires the
-        real
-        [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram]
-        over
-        the bound project, recomputed each call so it tracks curation), draws the
-        result in a bottom [`HistogramDock`][tether.gui.histogram_dock.HistogramDock] (built
-        lazily on first use), and returns the dock. No wired seam, a failing
-        computation, or a ``None`` result each surface as a status message and
-        return ``None`` — the shell never crashes on analysis. An *empty* histogram
-        (zero accepted molecules) is still drawn: a flat baseline is the honest "no
-        data" answer, not an error.
+        An [`AnalysisSection`][tether.gui.analysis_section.AnalysisSection]: the plot
+        registry, the layer list and the preview.
         """
-        if self._histogram_seam is None:
-            self._status("Histogram: load a project with extracted molecules first")
-            return None
-        try:
-            hist = self._histogram_seam()
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Histogram failed: {exc}")
-            return None
-        if hist is None:
-            self._status("Histogram: nothing to pool")
-            return None
-        dock = self._histogram_dock
-        newly_built = dock is None
-        if newly_built:
-            from tether.gui.histogram_dock import HistogramDock
+        return self._analysis_section
 
-            dock = HistogramDock()
-        try:
-            dock.set_histogram(hist)
-        except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
-            # Mirrors _finish_idealize: an injected seam returning a shape-invalid
-            # Histogram1D surfaces as a status message, never an uncaught exception
-            # out of the &Analysis menu action. A dock that fails its very first draw
-            # is discarded, so no blank dock is ever adopted/attached to the window
-            # (consistent with the no-seam / seam-raises / None-result paths); an
-            # already-shown dock is kept, so a later failure leaves the last good view.
-            self._status(f"Histogram failed: {exc}")
-            if newly_built:
-                dock.close()
-            return None
-        # The histogram is a dock of the Analyze section (#341), so showing it shows that
-        # section; View → Section returns to Curate and correct.
-        self.set_section(ANALYZE_SECTION)
-        if newly_built:
-            self._histogram_dock = dock
-            self._attach_histogram_dock()
-        self._histogram_dock_widget.show()
-        self._histogram_dock_widget.raise_()
-        n_mol = hist.n_molecules if hist.n_molecules is not None else 0
-        self._status(f"Population histogram — {n_mol} molecule(s), {hist.n_samples} frame(s)")
-        return dock
+    def _queue_analysis_refresh(self) -> None:
+        """Draw the Analyze plot again once a burst of curation writes ends.
 
-    def _refresh_open_histogram(self) -> str | None:
-        """Recompute an already-open population view after a successful curation write."""
-        dock = self._histogram_dock
-        if dock is None or self._histogram_seam is None:
-            return None
-        try:
-            hist = self._histogram_seam()
-            if hist is None:
-                dock.clear()
-            else:
-                dock.set_histogram(hist)
-        except Exception as exc:  # noqa: BLE001 - curation succeeded; keep the GUI alive
-            return str(exc)
-        return None
-
-    def _queue_open_histogram_refresh(self) -> None:
-        """Debounce a project-wide refresh so curation keystrokes remain responsive."""
-        if self._histogram_dock is not None and self._histogram_seam is not None:
-            self._histogram_refresh_timer.start()
+        The single-shot timer of ``_HISTOGRAM_REFRESH_DEBOUNCE_MS`` coalesces the writes, so
+        a run of curation keystrokes draws the plot once, not once per key. A layer list
+        with no series has nothing to draw again.
+        """
+        section = self._analysis_section
+        if section.project is not None and section.series:
+            self._analysis_refresh_timer.start()
 
     def _queue_readiness_refresh(self) -> None:
         """Read the guided next step again once a burst of writes ends (#897)."""
         if self._project_path is not None:
             self._readiness_refresh_timer.start()
 
-    def _run_queued_histogram_refresh(self) -> None:
-        """Apply one coalesced refresh and surface a delayed failure without crashing."""
-        error = self._refresh_open_histogram()
-        if error:
-            self._status(f"Histogram refresh failed: {error}")
+    def _run_queued_analysis_refresh(self) -> None:
+        """Apply one coalesced refresh of the Analyze plot; a failure shows in its preview.
 
-    def _attach_histogram_dock(self) -> None:
-        """Dock the (already-built, successfully-drawn) histogram at the bottom, in Analyze."""
-        self._histogram_dock_widget = self._attach_section_dock(
-            ANALYZE_SECTION, "Population histogram", self._histogram_dock.widget, DockArea.BOTTOM
-        )
+        The redraw posts its summary only while Analyze shows, so it never replaces the
+        curation result that queued it in the status bar (as the old histogram refresh).
+        """
+        self._analysis_section.refresh(announce=self._section == ANALYZE_SECTION)
 
     # --- handlers ------------------------------------------------------------
 
@@ -3877,9 +4536,10 @@ class TetherShell:
             reject=lambda: self._curate_current(CurationAction.REJECT),
             unreject=lambda: self._curate_current(CurationAction.UNREJECT),
             jump=self._jump_to_movie,
-            idealize=self._idealize_current,
+            idealize=self.show_idealize_dialog,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
+            next_undecided=self.select_next_undecided,
             assign_category=self._assign_category,
             clear_category=self._clear_category,
             window_start=lambda delta: self._nudge_window(0, delta),
@@ -3909,15 +4569,21 @@ class TetherShell:
             return
         project, row, trace, nonce = selection
 
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        writers = {
+            CurationAction.ACCEPT: project.accept,
+            CurationAction.REJECT: project.reject,
+            CurationAction.UNREJECT: project.unreject,
+        }
+        before = _read_or_none(lambda: curation_snapshot(project.path, key))
         try:
-            writers = {
-                CurationAction.ACCEPT: project.accept,
-                CurationAction.REJECT: project.reject,
-                CurationAction.UNREJECT: project.unreject,
-            }
             self._guard_session_write(project, nonce)
-            result = writers[action](trace.molecule_key, **self._labeler_kwargs())
+            result = writers[action](key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._keep_history_if_unchanged(
+                key, before, lambda: curation_snapshot(project.path, key)
+            )
             self._status(f"{verb} failed: {exc}")
             return
         if action is CurationAction.UNREJECT and result is None:
@@ -3925,12 +4591,26 @@ class TetherShell:
             return
 
         target = trace.name or trace.molecule_key
-        self._queue_open_histogram_refresh()
+        self._record_undo(CURATION, key, row, f"{verb.lower()} {target}", before, project=project)
+        self._queue_analysis_refresh()
         self._queue_readiness_refresh()
-        if action is CurationAction.UNREJECT or not self._advance_after_curation:
+        # The rows of this key show their new state now, with no read of the store (#630);
+        # the writer set every row that carries the key.
+        state = {
+            CurationAction.ACCEPT: ACCEPTED,
+            CurationAction.REJECT: REJECTED,
+            CurationAction.UNREJECT: UNDECIDED,
+        }[action]
+        self._molecule_view.update_rows(
+            self._molecule_view.rows_of_key(trace.molecule_key), curation=state
+        )
+        stays = action is CurationAction.UNREJECT or not self._advance_after_curation
+        if stays and self._molecule_view.shown(row):
             self._status(f"{completed} {target}")
-            return
-        self._advance_from(row, f"{completed} {target}")
+        else:
+            # Advance on, or the filter now hides the row: show the next shown one.
+            self._advance_from(row, f"{completed} {target}")
+        self._after_states_changed()
 
     def _advance_from(self, row: int, done: str) -> None:
         """Select the next listed molecule after ``row`` once a decision is stored.
@@ -3941,10 +4621,8 @@ class TetherShell:
         The navigation status the move produces is kept after ``done``, so an overlap
         failure on the new molecule is still reported.
         """
-        nxt = row + 1
-        while nxt < len(self._traces) and self._molecule_list.isRowHidden(nxt):
-            nxt += 1
-        if nxt >= len(self._traces):
+        nxt = self._molecule_view.shown_from(row, 1)
+        if nxt is None:
             self._status(f"{done}; end of the list reached")
             return
         self._molecule_list.setCurrentRow(nxt)
@@ -4079,7 +4757,7 @@ class TetherShell:
             if trace.molecule_key == molecule_key:
                 if CURATE_SECTION in self._sections:
                     self.set_section(CURATE_SECTION)
-                self._molecule_list.setCurrentRow(row)
+                self._select_shown(row)
                 return True
         return False
 
@@ -4095,6 +4773,253 @@ class TetherShell:
         except Exception:
             self._refresh_project_lock()
             raise
+
+    # --- undo and redo of the curation actions (#632) ------------------------------
+
+    @property
+    def undo_stack(self) -> UndoStack:
+        """The undo and redo lists of this session's curation actions (#632)."""
+        return self._undo
+
+    @property
+    def edit_menu(self) -> QtWidgets.QMenu:
+        """The ``&Edit`` menu: **Undo** and **Redo** of the curation actions (#632)."""
+        return self._edit_menu
+
+    @property
+    def undo_action(self) -> Any:
+        """The **Edit → Undo** action (``Ctrl+Z``)."""
+        return self._act_undo
+
+    @property
+    def redo_action(self) -> Any:
+        """The **Edit → Redo** action (``Ctrl+Shift+Z``; also ``Ctrl+Y`` on Windows)."""
+        return self._act_redo
+
+    def _record_undo(
+        self,
+        kind: str,
+        key: str,
+        row: int,
+        description: str,
+        before: object,
+        *,
+        after: object = None,
+        project: Project | None = None,
+    ) -> None:
+        """Put a stored curation action on the undo list; an action that changed nothing is not.
+
+        ``before`` (or the state after) is ``None`` when it could not be read: the action
+        is then stored but cannot be undone, and the molecule's entries leave both lists.
+
+        For an accept, reject or un-reject (``project`` given) the state after the write
+        is read back from the store, so a redo writes what the action stored.
+        """
+        if kind == CURATION:
+            assert project is not None
+            try:
+                after = curation_snapshot(project.path, key)
+            except Exception:  # noqa: BLE001 - the write stands; it only cannot be undone
+                after = None
+        if before is None or after is None:
+            # A stored action that cannot be undone drops the molecule's entries: an undo
+            # or a redo of an earlier action written over it would take it back unseen.
+            # A redo of another molecule's action must not follow a new action either.
+            self._forget_undo(key)
+            self._undo.clear_redo()
+            self._sync_undo_actions()
+            return
+        if after == before:
+            return
+        self._undo.push(UndoEntry(kind, key, row, description, before, after))  # type: ignore[arg-type]
+        self._sync_undo_actions()
+
+    def _clear_undo(self) -> None:
+        """Empty the undo and redo lists: they belong to one open, writable project."""
+        self._undo.clear()
+        self._sync_undo_actions()
+
+    def _keep_history_if_unchanged(
+        self, key: str, before: object, read: Callable[[], object]
+    ) -> None:
+        """Keep molecule ``key``'s entries after a failed write only if its state is unchanged.
+
+        A writer can fail part way, after it changed the stored state: a reject can store
+        its label and then fail on its reject-log row. An undo or a redo written over such
+        a state would take it back unseen, so the molecule's entries leave both lists
+        unless its state can be read and still equals ``before``.
+        """
+        if before is not None and _read_or_none(read) == before:
+            return
+        self._forget_undo(key)
+
+    def _forget_undo(self, key: str) -> None:
+        """Drop molecule ``key``'s entries from both lists (see [`UndoStack.forget`][])."""
+        self._undo.forget(key)
+        self._sync_undo_actions()
+
+    def _sync_undo_actions(self) -> None:
+        """Name the action each Edit entry acts on, and enable it only when there is one."""
+        undo, redo = self._undo.undo_entry, self._undo.redo_entry
+        self._act_undo.setText(f"&Undo {undo.description}" if undo else "&Undo")
+        self._act_undo.setEnabled(undo is not None)
+        self._act_redo.setText(f"&Redo {redo.description}" if redo else "&Redo")
+        self._act_redo.setEnabled(redo is not None)
+
+    def undo(self) -> bool:
+        """Take back the last curation action of this session (**Edit → Undo**, ``Ctrl+Z``).
+
+        The molecule gets its stored state from before the action again, by new writes:
+        the curation log and the molecule edit log gain rows and lose none (PRD §5.1).
+        The list then selects that molecule. Refused, with a status message, while the
+        project is read-only, while idealization runs, and when there is nothing to undo.
+        Returns whether a state was written back.
+        """
+        return self._step_history(redo=False)
+
+    def redo(self) -> bool:
+        """Do the last undone action again (**Edit → Redo**).
+
+        The keys are ``Ctrl+Shift+Z``, and also ``Ctrl+Y`` on Windows. It writes the state
+        the action stored, by new writes, as [`undo`][] does, and is refused in the same
+        cases. A new curation action empties the redo list.
+        """
+        return self._step_history(redo=True)
+
+    def _step_history(self, *, redo: bool) -> bool:
+        verb = "Redo" if redo else "Undo"
+        writable = self._writable_project(verb)
+        if writable is None:
+            return False
+        entry = self._undo.redo_entry if redo else self._undo.undo_entry
+        if entry is None:
+            self._status(f"{verb} unavailable: no curation action to {verb.lower()}")
+            return False
+        project, nonce = writable
+        state = entry.after if redo else entry.before
+        expected = entry.before if redo else entry.after
+        if _read_or_none(lambda: self._read_entry_state(project, entry)) != expected:
+            # Something the lists do not hold changed the molecule since (a return-leg
+            # import, a bulk reject, a step the store refused): writing this step would
+            # take that back unseen, so the molecule's entries leave both lists.
+            self._forget_undo(entry.molecule_key)
+            self._status(
+                f"{verb} unavailable: {entry.description} was changed since by an edit "
+                "that cannot be undone, so its steps are no longer on the lists"
+            )
+            return False
+        try:
+            self._guard_session_write(project, nonce)
+            self._write_undo_state(project, entry, state, verb.lower())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            # The store refused this step, so it stays refused: drop it, so the steps
+            # before it can still be taken. A lost lock has emptied both lists already,
+            # and a write that failed part way drops the molecule's entries here.
+            self._keep_history_if_unchanged(
+                entry.molecule_key,
+                entry.before if redo else entry.after,
+                lambda: self._read_entry_state(project, entry),
+            )
+            still_there = self._undo.redo_entry if redo else self._undo.undo_entry
+            if still_there is entry:
+                self._undo.discard(redo=redo)
+            self._sync_undo_actions()
+            self._refresh_undo_rows(project, entry)
+            self._status(
+                f"{verb} {entry.description} failed: {exc}; it is no longer on the {verb} list"
+            )
+            return False
+        if redo:
+            self._undo.redone()
+        else:
+            self._undo.undone()
+        self._sync_undo_actions()
+        self._refresh_undo_rows(project, entry)
+        self._select_undo_row(entry)
+        self._after_states_changed()
+        self._status(f"{verb} {entry.description}")
+        return True
+
+    def _read_entry_state(self, project: Project, entry: UndoEntry) -> object:
+        """Read the stored state of ``entry``'s molecule, in the form its ``kind`` names."""
+        key = entry.molecule_key
+        if entry.kind == CURATION:
+            return curation_snapshot(project.path, key)
+        if entry.kind == CATEGORY:
+            return _category_state(stored_rows(project.path, (key,)))
+        return _window_state(stored_rows(project.path, (key,)), entry.row)
+
+    def _write_undo_state(
+        self, project: Project, entry: UndoEntry, state: Any, reason: str
+    ) -> None:
+        """Write ``state`` back for ``entry``'s molecule by the action's own setters.
+
+        Each write appends to its log: ``/labels`` (and ``/labels/reject_log``) for an
+        accept or reject, ``/settings/molecule_audit`` for a category or a window, whose
+        ``reason`` column then reads ``undo`` or ``redo``.
+        """
+        key = entry.molecule_key
+        labeler = self._labeler_kwargs()
+        if entry.kind == CURATION:
+            snap: CurationSnapshot = state
+            project.restore_curation(
+                key,
+                snap.label,
+                pending=snap.pending,
+                reason=snap.reason,
+                note=snap.note,
+                value=snap.value,
+                restore_note=reason,
+                **labeler,
+            )
+        elif entry.kind == CATEGORY:
+            project.restore_categories(key, dict(state), reason=reason, **labeler)
+        else:
+            window: WindowState = state
+            if window.whole:
+                project.reset_analysis_window(key, reason=reason, **labeler)
+            else:
+                project.restore_analysis_windows(key, dict(window.rows), reason=reason, **labeler)
+
+    def _refresh_undo_rows(self, project: Project, entry: UndoEntry) -> None:
+        """Show the stored state of ``entry``'s molecule on its list rows and trace view."""
+        key = entry.molecule_key
+        rows = self._molecule_view.rows_of_key(key)
+        try:
+            if entry.kind == CURATION:
+                label = curation_snapshot(project.path, key).label
+                self._molecule_view.update_rows(rows, curation=curation_state(label))
+                self._queue_analysis_refresh()
+                self._queue_readiness_refresh()
+            elif entry.kind == CATEGORY:
+                # Each list row shows its own stored category; a listed row the store
+                # does not hold shows its key's first.
+                by_row = {m.row: m for m in stored_rows(project.path, (key,))}
+                first = next(iter(by_row.values()))
+                for i in rows:
+                    self._molecule_view.update_rows([i], category=by_row.get(i, first).category)
+            else:
+                self._queue_analysis_refresh()
+                self._queue_readiness_refresh()
+                self._queue_states_refresh()
+                self._show_stored_windows(project.path, (key,))
+        except Exception:  # noqa: BLE001 - the next full read shows it; the write stands
+            self._queue_states_refresh()
+
+    def _select_undo_row(self, entry: UndoEntry) -> None:
+        """Select the molecule an undo or redo changed, so the curator sees it (#632).
+
+        The row the action was made on when it still carries the molecule, else the
+        first row that does. A row the filter hides is shown first.
+        """
+        rows = [i for i, t in enumerate(self._traces) if t.molecule_key == entry.molecule_key]
+        if not rows:
+            return
+        row = entry.row if entry.row in rows else rows[0]
+        if CURATE_SECTION in self._sections and self._section != CURATE_SECTION:
+            self.set_section(CURATE_SECTION)
+        if row != self._molecule_list.currentRow() or not self._molecule_view.shown(row):
+            self._select_shown(row)
 
     def _assign_category(self, integer_class: int) -> None:
         """Store class ``integer_class`` of the molecule's condition list as its category.
@@ -4121,13 +5046,30 @@ class TetherShell:
             count = f"{len(classes)} " + ("category" if len(classes) == 1 else "categories")
             self._status(f"{verb} unavailable: its condition has {count}")
             return
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
-        self._status(f"Category {integer_class} ({name}) set for {trace.name or key}")
+        target = trace.name or key
+        self._record_undo(
+            CATEGORY,
+            key,
+            row,
+            f"category {integer_class} ({name}) for {target}",
+            before,
+            after=_read_or_none(read),
+        )
+        self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=name)
+        self._after_states_changed()
+        self._status(f"Category {integer_class} ({name}) set for {target}")
 
     def _clear_category(self) -> None:
         """Clear the selected molecule's category to *uncategorized* (``0``, §7.3)."""
@@ -4135,16 +5077,337 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, _row, trace, nonce = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
+
+        def read() -> tuple[tuple[str, str], ...]:
+            return _category_state(stored_rows(project.path, (key,)))
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             project.clear_category(key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
+        self._record_undo(
+            CATEGORY,
+            key,
+            row,
+            f"category clearing for {trace.name or key}",
+            before,
+            after=_read_or_none(read),
+        )
+        self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category="")
+        self._after_states_changed()
         self._status(f"Category cleared for {trace.name or key}")
+
+    # --- the category list of the selected molecule's condition (#633) ----------
+
+    def _selected_condition_id(self) -> str | None:
+        """The ``condition_id`` of the selected project molecule, or ``None``.
+
+        ``None`` while no project is open, nothing is selected, the molecule has no
+        condition, or its row cannot be read.
+        """
+        path = self._project_path
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if path is None or trace is None or trace.molecule_key is None:
+            return None
+        try:
+            return stored_molecule(path, trace.molecule_key, row=row).condition_id or None
+        except Exception:  # noqa: BLE001 - an unreadable row names no condition
+            return None
+
+    def category_names(self) -> dict[int, str] | None:
+        """The category each number key assigns to the selected molecule, by class (#633).
+
+        Class ``k`` is the ``k``-th name of the list of the selected molecule's condition,
+        as the number keys and the overflow picker use it. ``None`` while no project
+        molecule with a condition is selected, or when the list cannot be read.
+        """
+        from tether.services.curation import category_classes
+
+        condition_id = self._selected_condition_id()
+        if condition_id is None or self._project_path is None:
+            return None
+        try:
+            return category_classes(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - the keys then show only their numbers
+            return None
+
+    def _category_members(self, condition_id: str, name: str) -> tuple[str, ...]:
+        """The keys of the molecules of ``condition_id`` whose stored category is ``name``."""
+        from tether.services.curation import category_members
+
+        assert self._project_path is not None
+        return category_members(self._project_path, condition_id, name)
+
+    def category_usage(self, name: str, *, condition_id: str | None = None) -> int:
+        """How many molecules of a condition have category ``name``.
+
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's.
+        """
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
+        if condition_id is None:
+            return 0
+        try:
+            return len(self._category_members(condition_id, name))
+        except Exception:  # noqa: BLE001 - nothing read, so nothing to count
+            return 0
+
+    def _category_target(
+        self, verb: str, condition_id: str | None
+    ) -> tuple[Project, str, str] | None:
+        """The writable project, the condition and the lock nonce of a list change.
+
+        A given ``condition_id`` is used as it is: the editor binds the condition it was
+        opened on, so a later change of the selection cannot redirect an edit (#633).
+        ``None`` takes the selected molecule's condition. Says why on the status bar and
+        returns ``None`` when the project is read-only, or with no ``condition_id`` when
+        nothing is selected or the selected molecule has no condition.
+        """
+        if condition_id is not None:
+            writable = self._writable_project(verb)
+            if writable is None:
+                return None
+            project, nonce = writable
+            return project, condition_id, nonce
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return None
+        project, _row, _trace, nonce = selection
+        condition_id = self._selected_condition_id()
+        if condition_id is None:
+            self._status(f"{verb} unavailable: the selected molecule has no condition")
+            return None
+        return project, condition_id, nonce
+
+    def _current_category_names(self, condition_id: str | None = None) -> tuple[str, ...]:
+        """The list of ``condition_id`` (default: the selected molecule's), or ``()``."""
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
+        if condition_id is None or self._project_path is None:
+            return ()
+        from tether.services.curation import category_names
+
+        try:
+            return category_names(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - show an empty list rather than guess
+            return ()
+
+    def _category_failed(
+        self, message: str, condition_id: str | None, *, post: bool = True
+    ) -> CategoryEdit:
+        """Report ``message`` and return a failed edit that shows the list as stored.
+
+        ``post=False`` when the status bar already says it.
+        """
+        from tether.gui.category_editor import CategoryEdit
+
+        if post:
+            self._status(message)
+        names = self._current_category_names(condition_id)
+        return CategoryEdit(ok=False, names=names, message=message)
+
+    def _category_done(self, names: Sequence[str], message: str) -> CategoryEdit:
+        """Report ``message``, show the new names on the keys, and return the edit."""
+        from tether.gui.category_editor import CategoryEdit
+
+        self._status(message)
+        self._cheatsheet.refresh()
+        return CategoryEdit(ok=True, names=tuple(names), message=message)
+
+    def add_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Add ``name`` at the end of the list of a condition.
+
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's, as
+        it does for each of the list changes below. It calls
+        [`Project.add_category`][tether.project.core.Project.add_category] under the
+        session's lock. The new name takes the next number key.
+        """
+        verb = "Add category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.add_category(condition_id, name)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        names = result.categories
+        return self._category_done(names, f"Category {len(names)} ({names[-1]}) added")
+
+    def rename_category(
+        self, old: str, new: str, *, condition_id: str | None = None
+    ) -> CategoryEdit:
+        """Rename ``old`` to ``new`` and keep the category of every molecule that has it.
+
+        The list keeps the position, so the number key stays the same
+        ([`Project.rename_category`][tether.project.core.Project.rename_category]).
+        Molecules store their category by name, so each molecule of the condition that
+        has ``old`` is then given ``new``
+        ([`Project.set_category`][tether.project.core.Project.set_category]), with one
+        molecule edit log row each that names the rename. All under the session's lock.
+        """
+        verb = "Rename category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            members = self._category_members(condition_id, old)
+            self._guard_session_write(project, nonce)
+            result = project.rename_category(condition_id, old, new)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        renamed = result.categories[result.code_of(new.strip())]
+        reason = f"category renamed from {old!r} to {renamed!r}"
+        moved = 0
+        for key in members:
+            try:
+                self._guard_session_write(project, nonce)
+                project.set_category(key, renamed, reason=reason, **self._labeler_kwargs())
+            except Exception as exc:  # noqa: BLE001 - say what is left, never hide it
+                left = len(members) - moved
+                self._after_states_changed()
+                return self._category_failed(
+                    f"{verb}: “{old}” is now “{renamed}” in the list, but {left} of "
+                    f"{len(members)} molecules still have “{old}”: {exc}",
+                    condition_id,
+                )
+            self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=renamed)
+            moved += 1
+        self._after_states_changed()
+        noun = "molecule keeps" if moved == 1 else "molecules keep"
+        return self._category_done(
+            result.categories, f"Category “{old}” renamed to “{renamed}”; {moved} {noun} it"
+        )
+
+    def remove_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Remove ``name`` from the list of a condition.
+
+        It calls [`Project.remove_category`][tether.project.core.Project.remove_category]
+        under the session's lock. The library's rule applies: a molecule that has
+        ``name`` keeps it as its stored category, and the categories after it move up
+        one number key. The editor asks before it calls this for a used name.
+        """
+        verb = "Remove category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        try:
+            used = len(self._category_members(condition_id, name))
+            self._guard_session_write(project, nonce)
+            result = project.remove_category(condition_id, name)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        message = f"Category “{name}” removed"
+        if used:
+            noun = "molecule keeps" if used == 1 else "molecules keep"
+            message += f"; {used} {noun} it as a name that is not in the list"
+        return self._category_done(result.categories, message)
+
+    def move_category(
+        self, name: str, offset: int, *, condition_id: str | None = None
+    ) -> CategoryEdit:
+        """Move ``name`` ``offset`` places in the list (``-1`` up, ``+1`` down).
+
+        The new order is written with
+        [`Project.set_category_list`][tether.project.core.Project.set_category_list]
+        under the session's lock. Molecules keep their categories; the number keys follow
+        the new order.
+        """
+        verb = "Move category"
+        target = self._category_target(verb, condition_id)
+        if target is None:
+            return self._category_failed(self.status_message, condition_id, post=False)
+        project, condition_id, nonce = target
+        from tether.services.curation import category_names
+
+        try:
+            names = list(category_names(project.path, condition_id))
+            index = names.index(name)
+        except ValueError:
+            return self._category_failed(
+                f"{verb} failed: “{name}” is not in the list", condition_id
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        target_index = index + offset
+        if not 0 <= target_index < len(names):
+            return self._category_failed(
+                f"{verb} unavailable: “{name}” is at the end of the list", condition_id
+            )
+        names.insert(target_index, names.pop(index))
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.set_category_list(condition_id, names)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
+        return self._category_done(
+            result.categories, f"Category “{name}” is now category {target_index + 1}"
+        )
+
+    def show_category_editor(self) -> CategoryEditor | None:
+        """Open the editor of the list of the selected molecule's condition (#633).
+
+        **Curation → Categories…** and the **Categories…** button of the browser panel.
+        Returns the editor after it closes, or ``None`` (with a status message) when no
+        project molecule with a condition is selected. A read-only project shows the list,
+        and each change then says why it is unavailable.
+        """
+        from tether.gui.category_editor import CategoryEditor
+
+        condition_id = self._selected_condition_id()
+        if condition_id is None:
+            self._status("Categories: select a molecule of a condition in an open project first")
+            return None
+        # Every read and write of the editor is bound to the condition it opens on: a
+        # rename the filter hides, or a click, can move the selection to a molecule of
+        # another condition while the editor is open (#633).
+        cid = condition_id
+        editor = CategoryEditor(
+            self._condition_text(cid),
+            self._current_category_names(cid),
+            usage=lambda name: self.category_usage(name, condition_id=cid),
+            add=lambda name: self.add_category(name, condition_id=cid),
+            rename=lambda old, new: self.rename_category(old, new, condition_id=cid),
+            remove=lambda name: self.remove_category(name, condition_id=cid),
+            move=lambda name, offset: self.move_category(name, offset, condition_id=cid),
+            parent=self._window,
+        )
+        self._category_editor = editor
+        editor.exec()
+        return editor
+
+    def _condition_text(self, condition_id: str) -> str:
+        """The condition's identity fields in one line, else its ``condition_id``."""
+        from tether.gui.conditions import _key_summary
+        from tether.services.curation import condition_key
+
+        assert self._project_path is not None
+        try:
+            key = condition_key(self._project_path, condition_id)
+        except Exception:  # noqa: BLE001 - the id alone still names it
+            key = None
+        return f"{_key_summary(key)} ({condition_id})" if key is not None else condition_id
+
+    @property
+    def category_editor(self) -> CategoryEditor | None:
+        """The last category editor opened, or ``None`` before the first."""
+        return self._category_editor
+
+    @property
+    def categories_button(self) -> QtWidgets.QPushButton:
+        """The browser panel's **Categories…** button, which opens the editor."""
+        return self._categories_button
 
     def _nudge_window(self, bound: int, delta: int) -> None:
         """Move the analysis window's start (``bound`` 0) or end (``bound`` 1) by ``delta``.
@@ -4187,6 +5450,7 @@ class TetherShell:
             lambda: project.set_analysis_window(key, *wanted, **self._labeler_kwargs()),
             verb,
             "Analysis window",
+            f"analysis-window {name}",
         )
 
     def _reset_window(self) -> None:
@@ -4206,6 +5470,7 @@ class TetherShell:
             lambda: project.reset_analysis_window(key, **self._labeler_kwargs()),
             verb,
             "Analysis window reset to",
+            "window reset",
         )
 
     def _photobleach(self) -> None:
@@ -4254,6 +5519,7 @@ class TetherShell:
             lambda: project.set_analysis_window(key, start, bleach, **self._labeler_kwargs()),
             verb,
             f"{found} analysis window",
+            "photobleach edit",
         )
 
     def _write_window(
@@ -4265,30 +5531,43 @@ class TetherShell:
         write: Callable[[], object],
         verb: str,
         done: str,
+        undo_text: str,
     ) -> None:
         """Run one analysis-window write, then show the window the project now stores.
 
         The window is read back from the project rather than assumed from the request,
         so the dock's bounds and overlay always agree with ``/molecules.analysis_window``.
+        The windows before and after go on the undo list as ``undo_text`` (#632).
         """
         key = trace.molecule_key
         assert key is not None  # every caller passed _writable_selection
+
+        def read() -> WindowState:
+            return _window_state(stored_rows(project.path, (key,)), row)
+
+        before = _read_or_none(read)
         try:
             self._guard_session_write(project, nonce)
             write()
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(key, before, read)
             self._status(f"{verb} failed: {exc}")
             return
-        self._queue_open_histogram_refresh()
+        self._queue_analysis_refresh()
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # a window edit can make the row's fit stale
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
+            self._record_undo(WINDOW, key, row, undo_text, None)  # cannot be undone
             self._status(
                 f"Analysis window saved for {trace.name or key}, "
                 f"but the trace view could not reread it: {exc}"
             )
             return
+        after = _window_state(tuple(by_row.values()), row)
+        description = f"{undo_text} for {trace.name or key}"
+        self._record_undo(WINDOW, key, row, description, before, after=after)
         selected = by_row.get(row) or next(iter(by_row.values()))
         start, stop = selected.window
         self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
@@ -4332,7 +5611,7 @@ class TetherShell:
 
     @property
     def is_idealizing(self) -> bool:
-        """Whether a background one-click-idealize fit is currently running."""
+        """Whether a background task (the project fit, the correction pass) is running."""
         return self._tasks.busy
 
     @property
@@ -4341,98 +5620,140 @@ class TetherShell:
         # source-project writer gate reads it: None means idealization owns no HDF5.
         return self._tasks.future
 
-    def _idealize_current(self) -> None:
-        """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
+    @property
+    def idealize_dialog(self) -> Any | None:
+        """The open "Idealize project…" dialog ([`show_idealize_dialog`][]), or ``None``."""
+        return self._idealize_dialog
 
-        The thin GUI layer over [`tether.project.idealize.idealize_molecules`][]
-        (M2 S6 PR-A): resolve the selected list row to its ``molecule_key`` and run
-        the injected [`Idealizer`][] (the store-backed one built by
-        [`make_store_idealizer`][] runs the real SMD→vbFRET→write pipeline). The
-        fit runs on a **background worker** and a main-thread timer polls it, so the
-        GUI stays responsive during a long (cold-JIT) fit; when it finishes the
-        Viterbi path is drawn on the dock — always on the main thread. A missing
-        selection, no wired idealizer, an already-running fit, an empty result, or a
-        failing/length-mismatched fit each surface as a status message, never a crash.
-        """
+    def _idealize_unavailable(self) -> str | None:
+        """Why "Idealize project…" cannot run now, or ``None`` when it can."""
         if self._idealize_future is not None:
-            self._status("Idealize: a fit is already running")
-            return
-        row = self._molecule_list.currentRow()
-        trace = self._traces[row] if 0 <= row < len(self._traces) else None
-        if trace is None:
-            self._status("Idealize: select a molecule first")
-            return
-        if trace.molecule_key is None or self._idealizer is None:
-            self._status("Idealize: load a project with extracted molecules first")
-            return
+            return "a background task is running; wait for it to finish"
         if self._curation_project is not None:
             self._refresh_project_lock()
-            if self._curation_project is None:
-                return
-        key = trace.molecule_key
-        if self._curation_project is not None:
-            from tether.project.labels import CurationLabel
+        if self._idealizer is None or self._curation_project is None:
+            return self._curation_read_only_reason or "load a project with extracted molecules"
+        return None
 
-            try:
-                rejected = self._curation_project.curation_label(key) == CurationLabel.REJECT
-            except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the read failure
-                self._status(f"Idealize failed for {key}: {exc}")
-                return
-            if rejected:
-                self._status(
-                    "Idealize unavailable: selected molecule is rejected; un-reject it first"
-                )
-                return
-        self._status(f"Idealizing {key} (one-click vbFRET)…")
-        # The indicator names the molecule as the list shows it (``trace.name`` or
-        # ``mol-<i>``); the key stays for the idealizer and the status message. The fit
-        # is not cancellable (#343): its sidecar may still commit HDF5 data.
-        self._tasks.start(
+    def show_idealize_dialog(self) -> Any | None:
+        """Open "Idealize project…" (``I``, **Idealize** menu, #625); return the dialog.
+
+        The dialog ([`IdealizeProjectDialog`][tether.gui.idealize_project.IdealizeProjectDialog])
+        shows non-modal over the window, with the facts of the open project read now; its
+        **Idealize** starts [`idealize_project`][] with the choice. ``None``, with a status
+        message, when no fit can run: no writable project, or a background task running.
+        """
+        from tether.gui.idealize_project import IdealizeProjectDialog, read_fit_facts
+
+        reason = self._idealize_unavailable()
+        project = self._curation_project
+        if reason is not None or project is None:
+            self._status(f"Idealize project unavailable: {reason}")
+            return None
+        try:
+            facts = read_fit_facts(project)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the read failure
+            self._status(f"Idealize project unavailable: {exc}")
+            return None
+        if self._idealize_dialog is not None:
+            self._idealize_dialog.dialog.close()
+        dialog = IdealizeProjectDialog(facts, parent=self._window)
+        self._idealize_dialog = dialog
+
+        def accepted() -> None:
+            self._idealize_dialog = None
+            self.idealize_project(dialog.choice())
+
+        def rejected() -> None:
+            self._idealize_dialog = None
+
+        dialog.dialog.accepted.connect(accepted)
+        dialog.dialog.rejected.connect(rejected)
+        dialog.dialog.open()
+        return dialog
+
+    def idealize_project(self, fit: Any) -> bool:
+        """Start the whole-project fit *fit* (#625).
+
+        *fit* is a [`ProjectFit`][tether.gui.idealize_project.ProjectFit].
+
+        It runs on the background-task service (#343) with progress and **Cancel**; the
+        project stays open for browsing while every project write waits for it. The fit
+        is the ``idealize`` command on the session's own project handle, bound to the
+        exact lock held when it starts. A cancel stops it before its model is written,
+        so the project is unchanged. Returns whether it started; a refusal is a status
+        message and starts nothing.
+        """
+        from tether.gui.idealize_project import METHOD_LABELS
+
+        reason = self._idealize_unavailable()
+        if reason is not None:
+            self._status(f"Idealize project unavailable: {reason}")
+            return False
+        label = METHOD_LABELS.get(fit.method, fit.method)
+        what = f"Refitting the stale {fit.method} model" if fit.stale_only else "Idealizing project"
+        self._status(f"{what} ({label})…")
+        started = self._tasks.start(
             self._idealizer,
-            key,
-            context=key,
-            label=f"Idealizing {self._molecule_list.item(row).text()}",
+            fit,
+            context=fit,
+            label=what,
             on_finished=self._finish_idealize,
+            cancellable=True,
+            reports_progress=True,
         )
         self._sync_project_write_controls()
+        return started is not None
 
     def _finish_idealize(self, outcome: TaskOutcome) -> None:
-        """Apply a finished fit on the main thread: draw it, or report why not."""
+        """Apply a finished project fit on the main thread: report it and draw the step line."""
+        from tether.gui.idealize_project import SIDECAR_REMEDY, outcome_message, stored_model
+        from tether.gui.messages import Level
         from tether.gui.tasks import TaskState
+        from tether.services.idealize import SidecarUnavailable
 
         # The service has already stopped the timer, restored the cursor and stopped the
         # indicator, and holds no task: the write gates below see an idle shell.
-        key = outcome.context
+        fit = outcome.context
         self._sync_project_write_controls()
         if self._curation_project is None:
             self._retry_session_release()
+        if outcome.state is TaskState.CANCELLED:
+            self._status("Idealize project cancelled: the project is unchanged")
+            return
         if outcome.state is not TaskState.DONE:
-            self._status(f"Idealize failed for {key}: {outcome.error}")
+            self._refresh_project_lock()
+            detail = f"Idealize project failed: {outcome.error}"
+            if isinstance(outcome.error, SidecarUnavailable):
+                detail = f"{detail}. {SIDECAR_REMEDY}"
+            self._status(detail, Level.ERROR)
             return
-        idealized = outcome.value
+        result = outcome.value
         self._queue_readiness_refresh()
-        if idealized is None:
-            self._status(f"Idealize: no idealization produced for {key}")
-            return
+        self._queue_states_refresh()  # the rows now have a fit
+        self._queue_analysis_refresh()  # a model-derived plot may read the new fit
+        self._status(outcome_message(fit, result))
+        stored = stored_model(result)
         row = self._molecule_list.currentRow()
-        current = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
-        if current != key:
-            # The curator navigated away while the fit ran; the result is for a
-            # different molecule, so don't draw it on the one now on screen.
-            self._status(f"Idealization for {key} ready (selection moved on)")
+        key = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
+        if stored is None or stored.idealized is None or key not in stored.molecule_keys:
             return
         try:
-            self._trace_dock.set_idealization(idealized)
+            self._trace_dock.set_idealization(stored.idealized[stored.molecule_keys.index(key)])
         except Exception as exc:  # noqa: BLE001 - a mismatched result must not crash
-            self._status(f"Idealize failed for {key}: {exc}")
-            return
-        self._status(f"Idealized {key} (one-click vbFRET)")
+            self._status(f"Idealize project: the step line of {key} cannot be drawn: {exc}")
 
     def _step(self, delta: int) -> None:
         if not self._traces:
             self._status("Next trace" if delta > 0 else "Previous trace")
             return
-        new_row = min(max(self._molecule_list.currentRow() + delta, 0), len(self._traces) - 1)
+        # The next row the filter shows; at either end the selection stays (#630).
+        current = self._molecule_list.currentRow()
+        new_row = self._molecule_view.shown_from(current, 1 if delta > 0 else -1)
+        if new_row is None:
+            if current < 0 or not self._molecule_view.shown(current):
+                self._ensure_current_shown()
+            return
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str, level: Any = None) -> None:
@@ -4473,7 +5794,7 @@ class TetherShell:
         self._event_filter.remove()
         self._lock_refresh_timer.stop()
         self._lock_release_timer.stop()
-        self._histogram_refresh_timer.stop()
+        self._analysis_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
         future = self._idealize_future
         writable_project = self._curation_project
@@ -4498,7 +5819,16 @@ class TetherShell:
         self._busy_indicator.stop()
         self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
+        self._molecule_view.close()
         self._start_page.close()
+        # The "Idealize project…" dialog is non-modal: close it with the window.
+        if self._idealize_dialog is not None:
+            self._idealize_dialog.dialog.close()
+            self._idealize_dialog = None
+        # The correction summary is its own top-level window: it would outlive the shell.
+        if self._correction_summary is not None:
+            self._correction_summary.close()
+            self._correction_summary = None
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer
             # settles. The repeating timer then attempts release and keeps retrying
@@ -4518,8 +5848,7 @@ class TetherShell:
             # even though the visible shell has already closed.
             self._retry_session_release()
         self._tasks.shutdown()
-        if self._histogram_dock is not None:
-            self._histogram_dock.close()
+        self._analysis_section.close()
         if self._overlap_dock is not None:
             self._overlap_dock.close()
         self._reset_movie_panel()
@@ -4534,75 +5863,21 @@ class TetherShell:
         self.close()
 
 
-def make_store_idealizer(
-    project: Project | str | PathLike[str],
-    *,
-    model_name: str = "vbfret",
-    overwrite: bool = True,
-    require_held_lock: bool = False,
-    **kwargs: Any,
-) -> Idealizer:
-    """Build the store-backed one-click-idealize callable for a [`TetherShell`][].
+def make_store_idealizer(project: Project, *, _runner: Any = None) -> Idealizer:
+    """Build the store-backed whole-project fit for a [`TetherShell`][] (#625).
 
-    Returns a ``molecule_key -> idealized-path`` function that runs the real
-    [`tether.project.idealize.idealize_molecules`][] pipeline for that molecule
-    (build an SMD → vbFRET via the sidecar → write ``/idealization/{model_name}`` as
-    additive data with the per-molecule input-provenance hash) and hands back its
-    per-frame Viterbi path for the dock overlay. ``overwrite=True`` so re-pressing
-    ``I`` re-idealizes into the same model. Extra keyword arguments
-    (``nstates`` / ``nstates_grid`` / ``intensity_quantity`` / ``sidecar_python`` /
-    ``timeout`` …) pass straight through to
-    [`idealize_molecules`][tether.project.idealize.idealize_molecules].
-
-    ``require_held_lock=True`` is the explicit retained-session contract used by
-    [`TetherShell.load_project`][]. An ordinary [`Project`][] handle keeps the
-    documented unlocked-or-self-owned writer guard.
-
-    **MVP scope.** Idealizes the single selected molecule into a shared model,
-    overwriting that model's prior contents; batch / accumulating idealization and
-    model management are a later session (the deferred store↔shell hookup).
+    Returns ``idealizer(fit, cancel=None, progress=None)``, which runs
+    [`fit_project`][tether.gui.idealize_project.fit_project] on *project*: the
+    ``idealize`` command ([`run_held`][tether.services.idealize.run_held]) on this handle,
+    whose session lock it requires and does not release. ``_runner`` is the private
+    sidecar test seam of the command.
     """
-    from tether.project.idealize import idealize_molecules
+    from tether.gui.idealize_project import fit_project
 
-    retained_session = {"require_held_lock": True} if require_held_lock else {}
-
-    def _idealize(molecule_key: str) -> np.ndarray | None:
-        stored = idealize_molecules(
-            project,
-            [molecule_key],
-            model_name=model_name,
-            overwrite=overwrite,
-            **retained_session,
-            **kwargs,
-        )
-        if stored.idealized is None:
-            return None
-        try:
-            row = stored.molecule_keys.index(molecule_key)
-        except ValueError:  # the requested key was not fitted (should not happen)
-            return None
-        return stored.idealized[row]
+    def _idealize(fit: Any, *, cancel: Any = None, progress: Any = None) -> Any:
+        return fit_project(project, fit, cancel=cancel, progress=progress, _runner=_runner)
 
     return _idealize
-
-
-def make_store_histogram(project: Project | str | PathLike[str], **kwargs: Any) -> HistogramSeam:
-    """Build the store-backed population-histogram seam for a [`TetherShell`][].
-
-    Returns a ``() -> Histogram1D`` that runs
-    [`tether.analysis.histogram.population_apparent_e_histogram`][] over
-    ``project`` **each time it is called**, so re-opening the histogram reflects the
-    current curation state (rejected molecules excluded by default, §7.5). Keyword
-    arguments (``molecule_keys`` / ``intensity_quantity`` / ``bins`` /
-    ``value_range`` / ``density`` / ``per_molecule_equal_weight`` /
-    ``include_rejected``) pass straight through to that function.
-    """
-    from tether.analysis.histogram import population_apparent_e_histogram
-
-    def _histogram() -> Histogram1D:
-        return population_apparent_e_histogram(project, **kwargs)
-
-    return _histogram
 
 
 def _stored_disk_radius(path: str | PathLike[str]) -> float | None:
@@ -4637,7 +5912,7 @@ def make_store_overlap(
     (confined per movie, §5.2), and returns a ``molecule_key -> OverlapInfo`` lookup
     the shell refreshes on selection. The geometry is static — spot coordinates
     never change with curation — so it is computed once, not per call (unlike the
-    histogram seam). ``aperture_radius`` defaults to the experiment's stored
+    Analyze section's plots). ``aperture_radius`` defaults to the experiment's stored
     extraction ``disk_radius``, falling back to
     [`DEFAULT_APERTURE_RADIUS`][tether.analysis.overlap.DEFAULT_APERTURE_RADIUS] when absent, so the
     overlap threshold is never a hardcoded literal. An analysis-only project with no
@@ -4791,7 +6066,7 @@ class _StoreHandoff:
             # binds each write to the retained session's exact nonce, so a lock stolen
             # while `_reconcile()` re-resolves the match — and released again before the
             # return leg persists — is still refused. Matches the retained-session
-            # contract `make_store_idealizer(..., require_held_lock=True)` uses.
+            # contract the whole-project fit of `make_store_idealizer` uses.
             return self._project.apply_reconcile(smd_path, require_held_lock=True, **kwargs)
         return apply_reconcile(
             self._project,
@@ -4873,8 +6148,8 @@ def traces_from_store(
     decoded ``molecule_key`` (so the idealize / overlap seams resolve the store row) and
     its ``frame_time`` from the linked ``/movies`` row (``0.0``/movie-less → ``None``).
 
-    Rejected molecules are **included** (a curator revisits rejects); the histogram /
-    analysis seams still exclude them by their own default. ``intensity_quantity`` selects
+    Rejected molecules are **included** (a curator revisits rejects); the Analyze
+    section's plots still exclude them by their own default. ``intensity_quantity`` selects
     the ``/traces`` layer via the frozen
     [`INTENSITY_QUANTITY_LAYERS`][tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS] map —
     ``"corrected"``
@@ -4939,6 +6214,7 @@ def traces_from_store(
                 frame_time=frame_times.get(_decode(movie_col[i])),
                 molecule_key=_decode(key_col[i]),
                 analysis_window=_relative_window(lo, int(donor.size), window),
+                frame_offset=lo,
             )
         )
     return views
@@ -4987,28 +6263,6 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
             )
         )
 
-    keyed = {t.molecule_key: t for t in traces}
-
-    def _demo_idealizer(molecule_key: str) -> np.ndarray | None:
-        # A SYNTHETIC two-level step for the interactive/computer-use smoke ONLY —
-        # not a real vbFRET fit. The real one-click uses make_store_idealizer(project).
-        trace = keyed.get(molecule_key)
-        if trace is None:
-            return None
-        path = np.full(trace.n_frames, 0.3)
-        path[trace.n_frames // 2 :] = 0.7
-        return path
-
-    def _demo_histogram() -> Any:
-        # Pool the synthetic traces' apparent E for the &Analysis smoke ONLY — the
-        # real menu uses make_store_histogram(project) over population_apparent_e_histogram.
-        from dataclasses import replace
-
-        from tether.analysis.histogram import apparent_e_histogram
-
-        pooled = np.concatenate([t.apparent_e for t in traces])
-        return replace(apparent_e_histogram(pooled), n_molecules=len(traces))
-
     # A tiny on-disk demo project so the &Conditions menu opens a populated dialog for
     # the live smoke: two acquisitions of one condition (T-box) across two files + a
     # near-miss (Tbox), left unsynced so the rows show as «dangling» until the curator
@@ -5043,9 +6297,7 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         demo_table.resize((len(specs),))
         demo_table[:] = demo_rows
 
-    shell = TetherShell(
-        idealizer=_demo_idealizer, histogram=_demo_histogram, conditions=Project(demo_path)
-    )
+    shell = TetherShell(conditions=Project(demo_path))
     shell.set_molecules(traces)
     shell.show()
     app.exec()

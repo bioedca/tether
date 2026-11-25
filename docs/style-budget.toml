@@ -211,14 +211,14 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 18.1
-semicolons = 19
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
-retired = 6
+retired = 0
 
 [pages."docs/reference/movie-containers.md"]
 kind = "descriptive"
-long_share = 12.0
+long_share = 3.6
 semicolons = 0
 long_paragraphs = 0
 retired = 0
@@ -239,8 +239,8 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 19.4
-semicolons = 28
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
@@ -253,8 +253,8 @@ retired = 0
 
 [pages."docs/reproducibility.md"]
 kind = "descriptive"
-long_share = 30.2
-semicolons = 18
+long_share = 1.1
+semicolons = 2
 long_paragraphs = 0
 retired = 0
 
@@ -358,14 +358,14 @@ retired = 0
 
 [pages."docs/stability.md"]
 kind = "descriptive"
-long_share = 29.6
-semicolons = 7
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 0.9
+long_share = 1.5
 semicolons = 1
 long_paragraphs = 0
 retired = 0
@@ -398,6 +398,13 @@ semicolons = 0
 long_paragraphs = 0
 retired = 0
 
+[pages."docs/maintainers/architecture.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/maintainers/building-installers.md"]
 kind = "procedure"
 long_share = 2.8
@@ -417,6 +424,13 @@ kind = "procedure"
 long_share = 12.9
 semicolons = 3
 long_paragraphs = 2
+retired = 0
+
+[pages."docs/maintainers/merge-queue.md"]
+kind = "descriptive"
+long_share = 2.9
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]

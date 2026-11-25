@@ -322,13 +322,13 @@ def test_restore_one_command_and_all(launch) -> None:
 
     # Move PREV off Left and Up, give Left to ACCEPT: PREV's default is now in the way.
     editor.select(Command(A.PREV))
-    assert editor.propose(key.Key_U) is None and editor.assign()
+    assert editor.propose(key.Key_Y) is None and editor.assign()
     editor.select(Command(A.ACCEPT))
     assert editor.propose(key.Key_Left) is None and editor.assign()
     editor.select(Command(A.PREV))
     assert editor.restore_selected() is False
     assert "Accept trace" in editor.message
-    assert editor.keymap.chords_for(Command(A.PREV)) == [(int(key.Key_U), 0)]
+    assert editor.keymap.chords_for(Command(A.PREV)) == [(int(key.Key_Y), 0)]
 
     editor.restore_all()
     assert editor.keymap.bindings == Keymap.default().bindings
@@ -354,13 +354,17 @@ def test_cancel_drops_the_edits(launch, tmp_path) -> None:
 def test_a_rebound_bare_key_still_types_in_the_category_field(launch) -> None:
     from pyqtgraph.Qt import QtCore, QtGui
 
+    from tether.gui.category_editor import CategoryEditor
+
     key, mod = _qt()
     shell = launch()
     editor = shell.show_keymap_editor()
     editor.select(Command(A.ACCEPT))
     assert editor.propose(key.Key_A) is None and editor.assign()
     editor.save()
-    field = shell.category_field
+    field = CategoryEditor(
+        "c", [], usage=len, add=None, rename=None, remove=None, move=None, parent=shell.window
+    ).name_field
     press = QtGui.QKeyEvent(QtCore.QEvent.Type.KeyPress, int(key.Key_A), mod.NoModifier, "a")
     # The text field keeps the key: the filter passes it through and nothing curates.
     assert shell.event_filter.filter_event(field, press, focus_widget=field) is False

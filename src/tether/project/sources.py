@@ -17,8 +17,13 @@ another one) names its original in ``derived_from`` and the recipe between them 
   Reading it writes nothing; the first write that needs it stores it.
 * **The checksum.** [`file_sha256`][] reads a file in 1 MiB blocks, asks a
   [`CancelToken`][tether.project.jobs.CancelToken] between blocks and reports the bytes
-  read. A large file is read by the checksum job of [`tether.services.sources`][], which
-  runs on a worker thread, never in the window thread.
+  read. It returns a [`FileDigest`][]: the checksum, the bytes read, and the device, inode
+  and modification time of the file it read. A write that stores the checksum first checks
+  that the path still names that file, unchanged, so a file replaced or written during the
+  read is not stored ([`SourceReplaced`][], #1356). On a filesystem that gives no inode
+  number, only the size and modification time are compared (#1419). A large file is read
+  by the checksum job of [`tether.services.sources`][], which runs on a worker thread,
+  never in the window thread.
 * **Link again.** A source that moved is linked to its new path with [`relink_source`][].
   The checksum decides: the new file must have the checksum the registry holds (or, for a
   movie whose record has none, the one ``/movies`` recorded at extraction). The same rule,
@@ -38,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -49,15 +55,20 @@ if TYPE_CHECKING:
 
     from tether.project.core import Project
     from tether.project.jobs import CancelToken
+    from tether.project.lock import FileIdentity
 
 __all__ = [
     "SOURCE_ROLES",
     "ChecksumMismatch",
+    "FileDigest",
     "RelinkRefused",
     "SourceRecord",
+    "SourceReplaced",
     "ensure_registry",
     "file_sha256",
+    "project_movie_uri",
     "read_sources",
+    "record_movie_pair",
     "register_source",
     "relink_source",
     "same_file",
@@ -80,6 +91,67 @@ class ChecksumMismatch(ValueError):
 
 class RelinkRefused(ValueError):
     """A file given to [`relink_source`][] is not, by its checksum, the registered file."""
+
+
+class SourceReplaced(ValueError):
+    """The path no longer names the file whose checksum was read (#1356).
+
+    Another process replaced or changed the file during the read, so the checksum is not
+    the checksum of the file now at the path.
+    """
+
+
+def _stat_identity(info: os.stat_result) -> FileIdentity | None:
+    """Return the canonical file identity of a ``stat`` result (ADR-0112)."""
+    from tether.project.lock import _stat_identity  # noqa: PLC0415, PLC2701
+
+    return _stat_identity(info)
+
+
+@dataclass(frozen=True)
+class FileDigest:
+    """The checksum of a file and the identity of the file it read ([`file_sha256`][]).
+
+    ``size`` is the number of bytes read. ``identity`` is the canonical file identity
+    (device and inode, [`file_identity`][tether.project.lock.file_identity]) of the open
+    handle the bytes were read from, or ``None`` on a filesystem that reports no inode
+    number. ``mtime_ns`` is the handle's modification time when it was opened, so a write
+    into the same file during or after the read is seen too, within the filesystem's time
+    resolution.
+    """
+
+    sha256: str
+    size: int
+    identity: FileIdentity | None
+    mtime_ns: int
+
+    def check_path(self, path: str | Path) -> None:
+        """Make sure ``path`` still names the file that was read, unchanged since.
+
+        The path is read with ``os.stat`` and never opened, so a check of a path that now
+        names a FIFO cannot block.
+
+        Raises
+        ------
+        SourceReplaced
+            If the path names another file or no file, or the file's size or modification
+            time changed. Where the filesystem gives no inode number, both identities are
+            ``None`` and only the size and modification time are compared.
+        """
+        try:
+            now = os.stat(path)
+        except OSError as exc:
+            raise SourceReplaced(
+                f"{Path(path).name} cannot be read again, so its checksum is not stored"
+            ) from exc
+        if (_stat_identity(now), now.st_size, now.st_mtime_ns) != (
+            self.identity,
+            self.size,
+            self.mtime_ns,
+        ):
+            raise SourceReplaced(
+                f"{Path(path).name} changed while its checksum was read, so it is not stored"
+            )
 
 
 @dataclass(frozen=True)
@@ -136,6 +208,39 @@ def _stored_path(project_path: Path, file_path: str | Path) -> str:
     except ValueError:  # another drive (Windows): no relative path exists
         return file_path.as_posix()
     return rel.replace(os.sep, "/")
+
+
+def project_movie_uri(
+    project_path: str | os.PathLike[str], movie_path: str | os.PathLike[str]
+) -> str:
+    """Return the ``/movies`` ``uri`` of ``movie_path`` in the project at ``project_path``.
+
+    PRD §5.1 records the source movie relative to the project: the ``uri`` is the path from
+    the folder of the project file to the movie, with POSIX separators (``../raw/m.tif``),
+    so a reader finds the movie from any working folder. A relative ``movie_path`` is read
+    from the current folder. Where no relative path exists (the movie is on another Windows
+    drive than the project) the absolute path is recorded instead (#1282). So it is when the
+    relative path leads somewhere else, as it does past a linked folder: ``..`` is taken
+    from where the link points, not from where it sits. That check reads only the files'
+    attributes; a movie that is not there to compare with keeps the relative path.
+
+    Examples
+    --------
+    >>> project_movie_uri("/data/out/m.tether", "/data/raw/m.tif")
+    '../raw/m.tif'
+    """
+    uri = _stored_path(Path(project_path), movie_path)
+    if _is_absolute(uri):
+        return uri
+    try:
+        movie = os.stat(movie_path)
+    except OSError:  # no movie file to compare with
+        return uri
+    try:
+        same = os.path.samestat(os.stat(Path(project_path).absolute().parent / uri), movie)
+    except OSError:  # the relative path leads to no file
+        same = False
+    return uri if same else Path(movie_path).absolute().as_posix()
 
 
 def shareable_path(relative_path: str) -> str:
@@ -349,16 +454,17 @@ def register_source(
 ) -> SourceRecord:
     """Store a new source record for ``file_path`` and return it (needs the writer lock).
 
-    The file must exist; its size is recorded and its checksum is not calculated (run the
+    The file must exist and be a regular file (a folder is refused); it can be outside the
+    project's folder. Its size is recorded and its checksum is not calculated (run the
     checksum job). A derived file names its original's ``source_id`` in ``derived_from``
     and the recipe that made it in ``recipe``; an original gives neither.
 
     Raises
     ------
     ValueError
-        If ``role`` is not one of [`SOURCE_ROLES`][], the file is already registered,
-        only one of ``derived_from`` and ``recipe`` is given, or a movie has no
-        ``movie_id``.
+        If ``role`` is not one of [`SOURCE_ROLES`][], the path is not a regular file,
+        the file is already registered, only one of ``derived_from`` and ``recipe`` is
+        given, or a movie has no ``movie_id``.
     KeyError
         If ``derived_from`` names no source of the project.
     """
@@ -369,7 +475,10 @@ def register_source(
     if role == "movie" and not movie_id:
         raise ValueError("a movie source needs the movie_id of its /movies row")
     path = Path(file_path)
-    size = path.stat().st_size
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{path.name} is not a file: only a file can be a source")
+    size = info.st_size
     stored_path = _stored_path(project.path, path)
     records = read_sources(project.path)
     if any(r.stored and r.relative_path == stored_path for r in records):
@@ -403,38 +512,120 @@ def register_source(
     return _store(project, record)
 
 
+def record_movie_pair(
+    project_path: str | Path,
+    movie_id: str,
+    files: Mapping[str, tuple[str | Path, int, str]],
+) -> list[SourceRecord]:
+    """Store the two files of a movie pair as the sources of ``movie_id`` (#909).
+
+    ``files`` maps each role of [`PAIR_ROLES`][tether.io.pair.PAIR_ROLES] to the file's
+    ``(path, size, sha256)`` as the extraction read it. Each file gets a stored record
+    with role ``movie``, ``movie_id``, its checksum and the acquisition
+    ``{"pair_role": role}``, so ``read_sources`` gives both files of the pair and makes
+    no record from the ``/movies`` row. This is a write into the project an extraction
+    is building (the staged copy of an append): the caller holds the writer lock and
+    publishes the file, so no lock is checked here. A store stamped before 3 gains the
+    table first ([`upgrade_skeleton`][tether.io.schema.upgrade_skeleton]); the publish
+    keeps the file as it was beside it.
+
+    Raises
+    ------
+    ValueError
+        If ``files`` does not give exactly the two roles.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.pair import PAIR_ROLE_KEY, PAIR_ROLES  # noqa: PLC0415
+    from tether.io.schema import upgrade_skeleton  # noqa: PLC0415
+
+    if set(files) != set(PAIR_ROLES):
+        raise ValueError(f"a movie pair needs the roles {PAIR_ROLES}, got {sorted(files)}")
+    project_path = Path(project_path)
+    now = _now()
+    records = [
+        SourceRecord(
+            source_id=f"src-{uuid4().hex}",
+            relative_path=_stored_path(project_path, files[role][0]),
+            original_name=Path(files[role][0]).name,
+            file_size=int(files[role][1]),
+            sha256=str(files[role][2]).lower(),
+            adapter="",
+            adapter_version="",
+            role="movie",
+            acquisition={PAIR_ROLE_KEY: role},
+            movie_id=movie_id,
+            derived_from="",
+            recipe="",
+            created_utc=now,
+        )
+        for role in PAIR_ROLES
+    ]
+    with h5py.File(project_path, "r+") as f:
+        upgrade_skeleton(f)
+        for record in records:
+            _append(f[_GROUP][_TABLE], record)
+    return records
+
+
 def file_sha256(
     path: str | Path,
     *,
     cancel: CancelToken | None = None,
     progress: Callable[[int, int], None] | None = None,
-) -> str:
-    """Return the SHA-256 of the file at ``path``, read in 1 MiB blocks.
+) -> FileDigest:
+    """Return the SHA-256 of the file at ``path``, read in 1 MiB blocks, as a [`FileDigest`][].
+
+    The digest also holds the number of bytes read and the device and inode of the open
+    handle, so a write can check that the path still names the file that was read
+    ([`FileDigest.check_path`][tether.project.sources.FileDigest.check_path]).
 
     ``cancel`` is asked between blocks (it raises
     [`JobCancelled`][tether.project.jobs.JobCancelled]); ``progress(read, size)`` is
     called after each block.
+
+    For a cellSens ``.vsi`` movie the checksum also covers the ``.ets`` files that hold
+    its frames, as the extraction's does ([`tether.io.movie_identity.content_sha256`][],
+    #1398, ADR-0153), and ``progress`` counts their bytes too. The size, identity and
+    modification time are still the ``.vsi`` file's own.
     """
+    from tether.io.movie_identity import content_sha256, frame_files  # noqa: PLC0415
+
+    frames = frame_files(path)
     digest = hashlib.sha256()
-    size = os.stat(path).st_size
     done = 0
     with open(path, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        size = opened.st_size
+        total = size + sum(frame.stat().st_size for frame in frames)
+        identity = _stat_identity(opened)
         for block in iter(lambda: handle.read(_CHUNK), b""):
             if cancel is not None:
                 cancel.raise_if_cancelled()
             digest.update(block)
             done += len(block)
             if progress is not None:
-                progress(done, size)
+                progress(done, total)
+    read_frames = 0
+
+    def _frame_block(n: int) -> None:
+        nonlocal read_frames
+        read_frames += n
+        if cancel is not None:
+            cancel.raise_if_cancelled()
+        if progress is not None:
+            progress(done + read_frames, total)
+
+    sha256 = content_sha256(path, digest.hexdigest(), frames=frames, on_block=_frame_block)
     if cancel is not None:  # a cancel during the last block still stops the calculation
         cancel.raise_if_cancelled()
-    return digest.hexdigest()
+    return FileDigest(sha256=sha256, size=done, identity=identity, mtime_ns=opened.st_mtime_ns)
 
 
 def set_checksum(
     project: Project,
     source_id: str,
-    sha256: str,
+    sha256: str | FileDigest,
     *,
     guard: Callable[[], object] | None = None,
 ) -> SourceRecord:
@@ -443,19 +634,40 @@ def set_checksum(
     A checksum already known for the source (the registry's, or for a movie the one
     ``/movies`` recorded at extraction) is its identity: a different one is refused, so a
     file that changed since then never replaces it. ``guard`` runs just before the write.
+    Given a [`FileDigest`][] (the checksum job's), the write also checks, just before it
+    writes, that the source's path still names the file that was read.
 
     Raises
     ------
     ChecksumMismatch
         If ``sha256`` differs from the checksum already known. Nothing is written.
+    SourceReplaced
+        If ``sha256`` is a [`FileDigest`][] and the source's path no longer names the file
+        it read. Nothing is written.
     """
     record = _find(project.path, source_id)
+    if isinstance(sha256, FileDigest):
+        read, sha256 = sha256, sha256.sha256
+        path = record.resolve(project.path)
+        guard = _then_check(guard or project._assert_writable, read, path)
     expected = _expected_sha256(project.path, record)
     if expected and not same_file(expected, sha256):
         raise ChecksumMismatch(
             f"{record.original_name} has changed: its checksum is not the one recorded for it"
         )
     return _store(project, record, guard, sha256=sha256.lower())
+
+
+def _then_check(
+    guard: Callable[[], object], read: FileDigest, path: str | Path
+) -> Callable[[], None]:
+    """Return a guard that runs ``guard``, then checks that ``path`` is the file ``read`` read."""
+
+    def check() -> None:
+        guard()
+        read.check_path(path)
+
+    return check
 
 
 def _expected_sha256(project_path: Path, record: SourceRecord) -> str:
@@ -522,14 +734,18 @@ def relink_source(
     """Link a source that moved to ``new_path`` when the checksum says it is the same file.
 
     The new file is read once ([`file_sha256`][]; a front end runs this off the window
-    thread). On a match the record's path and size are updated, and a checksum not yet in
-    the registry is stored. Needs the writer lock; the write checks the lock epoch the call
-    started under, so a steal during the read stops it.
+    thread). On a match the record's path and the size of the file read are stored, and a
+    checksum not yet in the registry is stored. Needs the writer lock; the write checks the
+    lock epoch the call started under, so a steal during the read stops it, and checks that
+    ``new_path`` still names the file that was read.
 
     Raises
     ------
     RelinkRefused
         If the checksum differs, or no checksum is known to compare with. Nothing is
+        written.
+    SourceReplaced
+        If the file at ``new_path`` was replaced or changed during the read. Nothing is
         written.
     """
     guard = _lock_epoch_guard(project)
@@ -540,8 +756,8 @@ def relink_source(
             f"{record.original_name}: no checksum is known for this source, so a moved file "
             "cannot be shown to be the same file"
         )
-    actual = file_sha256(new_path, cancel=cancel, progress=progress)
-    if not same_file(expected, actual):
+    read = file_sha256(new_path, cancel=cancel, progress=progress)
+    if not same_file(expected, read.sha256):
         raise RelinkRefused(
             f"{Path(new_path).name} is not {record.original_name}: its checksum is different"
         )
@@ -549,7 +765,7 @@ def relink_source(
         project,
         record,
         relative_path=_stored_path(project.path, new_path),
-        file_size=int(os.stat(new_path).st_size),
-        sha256=actual,
-        guard=guard,
+        file_size=int(read.size),
+        sha256=read.sha256,
+        guard=_then_check(guard, read, new_path),
     )

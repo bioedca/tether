@@ -15,6 +15,15 @@ than registered service commands, and they import the core only when they run (A
 - [`summed_bleach_frame`][] — the first frame of the summed-intensity photobleach, by the
   detector and priors that
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
+- [`curation_snapshot`][] — the accept/reject state of one molecule as an undo restores
+  it (#632): its ``curation_label``, whether a carried label waits for review, and the
+  reason of a reject.
+- [`molecule_states`][] — what the molecule list shows for every row (#630): the curation
+  state, the category, and whether an idealization exists and is stale.
+- [`category_names`][], [`category_classes`][], [`category_members`][] and
+  [`condition_key`][] — what the category editor and the number keys show for one
+  condition (#633): its ordered list, the class each key gives, the molecules that have a
+  name, and the key that names the condition.
 """
 
 from __future__ import annotations
@@ -26,8 +35,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from tether.io.filename import ConditionKey
+
 __all__ = [
+    "ACCEPTED",
+    "CURATION_STATES",
+    "REJECTED",
+    "UNDECIDED",
+    "CurationSnapshot",
+    "MoleculeState",
     "StoredMolecule",
+    "category_classes",
+    "category_members",
+    "category_names",
+    "condition_key",
+    "curation_snapshot",
+    "curation_state",
+    "molecule_states",
     "resolved_frame_range",
     "resolved_window",
     "stored_molecule",
@@ -35,6 +59,15 @@ __all__ = [
     "stored_rows",
     "summed_bleach_frame",
 ]
+
+#: The curation state of a molecule that is accepted (``curation_label`` ``+1``).
+ACCEPTED = "accepted"
+#: The curation state of a molecule that is rejected (``curation_label`` ``-1``).
+REJECTED = "rejected"
+#: The curation state of a molecule with no decision (``curation_label`` ``0``).
+UNDECIDED = "undecided"
+#: The three curation states, in the order the molecule list counts them (#630).
+CURATION_STATES = (ACCEPTED, REJECTED, UNDECIDED)
 
 
 @dataclass(frozen=True)
@@ -53,6 +86,10 @@ class StoredMolecule:
         ``(start, stop)`` native frames, resolved by [`resolved_frame_range`][].
     window
         The absolute ``(start, stop)`` analysis window, resolved by [`resolved_window`][].
+    category
+        The row's category name; ``""`` when it has none.
+    molecule_id
+        The row's unique ``molecule_id``.
     """
 
     row: int
@@ -60,6 +97,8 @@ class StoredMolecule:
     condition_id: str
     frame_range: tuple[int, int]
     window: tuple[int, int]
+    category: str = ""
+    molecule_id: str = ""
 
 
 def resolved_frame_range(frame_range: Any, n_frames: int) -> tuple[int, int]:
@@ -119,6 +158,8 @@ def stored_rows(
                 condition_id=_text(record["condition_id"]),
                 frame_range=frame_range,
                 window=resolved_window(record["analysis_window"], frame_range),
+                category=_text(record["category"]),
+                molecule_id=_text(record["molecule_id"]),
             )
         )
     return tuple(out)
@@ -152,6 +193,158 @@ def stored_molecule(
     return next((m for m in matches if m.row == row), matches[0])
 
 
+@dataclass(frozen=True)
+class MoleculeState:
+    """What the molecule list shows for one ``/molecules`` row (#630, PRD §7.3).
+
+    Attributes
+    ----------
+    row
+        The row index in ``/molecules`` (and so in the list).
+    molecule_key
+        The row's ``molecule_key``.
+    movie_id
+        The movie the row was extracted from.
+    curation
+        [`ACCEPTED`][], [`REJECTED`][] or [`UNDECIDED`][] (see [`curation_state`][]).
+    category
+        The row's category name; ``""`` when it has none.
+    idealized
+        Whether a model under ``/idealization`` holds a fit of this row.
+    stale
+        Whether one of those fits is stale: the row's inputs changed after the fit.
+    """
+
+    row: int
+    molecule_key: str
+    movie_id: str
+    curation: str
+    category: str = ""
+    idealized: bool = False
+    stale: bool = False
+
+
+def curation_state(label: int) -> str:
+    """Map a ``curation_label`` to its state: ``+1`` accepted, ``-1`` rejected, else undecided."""
+    if label > 0:
+        return ACCEPTED
+    if label < 0:
+        return REJECTED
+    return UNDECIDED
+
+
+@dataclass(frozen=True)
+class CurationSnapshot:
+    """One molecule's human accept/reject state, as an undo writes it back (#632).
+
+    Attributes
+    ----------
+    label
+        The ``curation_label``: ``+1`` accepted, ``-1`` rejected, ``0`` uncurated.
+    pending
+        Whether a row of the molecule carries a label of an earlier trace generation that
+        waits for review (ADR-0136).
+    reason, note, value
+        The reason row of the current reject
+        ([`reject_record_of`][tether.project.labels.reject_record_of]): its reason code,
+        note and threshold value. ``"unspecified"``, ``""`` and ``None`` when the molecule
+        is not rejected or its reject has no reason row.
+    """
+
+    label: int
+    pending: bool = False
+    reason: str = "unspecified"
+    note: str = ""
+    value: float | None = None
+
+
+def curation_snapshot(project_path: str | Path, molecule_key: str) -> CurationSnapshot:
+    """Read the [`CurationSnapshot`][] of ``molecule_key`` (read-only).
+
+    Raises ``KeyError`` when no row carries the key.
+    """
+    import math  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    from tether.io.generations import pending_label_ids_in  # noqa: PLC0415
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.labels import CurationLabel, reject_record_of  # noqa: PLC0415
+
+    path = Path(project_path)
+    with h5py.File(path, "r") as f:
+        table = f["molecules"][TABLE]
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        rows = [i for i, key in enumerate(keys) if key == molecule_key]
+        if not rows:
+            raise KeyError(f"no molecule with molecule_key {molecule_key!r} in {path.name}")
+        ids = table.fields("molecule_id")[:]
+        label = int(table.fields("curation_label")[rows[0]])
+        waiting = pending_label_ids_in(f)
+        pending = any(_text(ids[i]) in waiting for i in rows)
+    if label != CurationLabel.REJECT:
+        return CurationSnapshot(label=label, pending=pending)
+    record = reject_record_of(path, molecule_key)
+    if record is None:
+        return CurationSnapshot(label=label, pending=pending)
+    value = float(record["value"])
+    return CurationSnapshot(
+        label=label,
+        pending=pending,
+        reason=_text(record["reason"]),
+        note=_text(record["note"]),
+        value=None if math.isnan(value) else value,
+    )
+
+
+def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:
+    """Read the list state of every ``/molecules`` row, in row order (read-only, #630).
+
+    One read of ``/molecules`` gives the curation state and the category. For the
+    idealization marks each model's staleness stamp is read and checked against the
+    current traces, by the rule of
+    [`stale_row_ids`][tether.project.idealize.stale_row_ids]; the join is on the unique
+    ``molecule_id``, so two rows that share a ``molecule_key`` keep their own marks.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.idealize import (  # noqa: PLC0415
+        list_idealizations,
+        read_staleness_stamp,
+        stale_row_ids,
+    )
+
+    path = Path(project_path)
+    with h5py.File(path, "r") as f:
+        table = f["molecules"][TABLE]
+        if table.shape[0] == 0:
+            return ()
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        ids = [_text(k) for k in table.fields("molecule_id")[:]]
+        movies = [_text(k) for k in table.fields("movie_id")[:]]
+        categories = [_text(k) for k in table.fields("category")[:]]
+        labels = [int(v) for v in table.fields("curation_label")[:]]
+    fitted: set[str] = set()
+    stale: set[str] = set()
+    for model in list_idealizations(path):
+        stamp = read_staleness_stamp(path, model)
+        fitted.update(stamp.molecule_ids)
+        stale.update(stale_row_ids(path, stamp))
+    return tuple(
+        MoleculeState(
+            row=row,
+            molecule_key=keys[row],
+            movie_id=movies[row],
+            curation=curation_state(labels[row]),
+            category=categories[row],
+            idealized=ids[row] in fitted,
+            stale=ids[row] in stale,
+        )
+        for row in range(len(keys))
+    )
+
+
 def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> int:
     """Return the absolute first frame of ``molecule``'s summed-intensity photobleach.
 
@@ -177,3 +370,63 @@ def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> i
         donor = np.asarray(traces[donor_layer][molecule.row, lo:hi], dtype=np.float64)
         acceptor = np.asarray(traces[acceptor_layer][molecule.row, lo:hi], dtype=np.float64)
     return lo + int(detect_photobleach(donor, acceptor).sum_pb)
+
+
+# --- one condition's category list, for the editor and the keys (#633) ------------
+
+
+def category_names(project_path: str | Path, condition_id: str) -> tuple[str, ...]:
+    """Read the ordered category list of ``condition_id`` (``()`` when it has none).
+
+    Read-only, through
+    [`read_category_list`][tether.project.conditions.read_category_list].
+    """
+    from tether.project.conditions import read_category_list  # noqa: PLC0415
+
+    return read_category_list(project_path, condition_id).categories
+
+
+def category_classes(project_path: str | Path, condition_id: str) -> dict[int, str]:
+    """Read the class each number key gives in ``condition_id``, as ``{class: name}``.
+
+    The classes are ``>= 1``; class 0 is always *uncategorized* and is not listed.
+    Read-only, through the persisted lookup of
+    [`read_class_lookup`][tether.project.conditions.read_class_lookup] (ADR-0125).
+    Raises `ValueError` when that lookup disagrees with the list beside it.
+    """
+    from tether.project.conditions import read_class_lookup  # noqa: PLC0415
+
+    return dict(read_class_lookup(project_path, condition_id).classes)
+
+
+def category_members(project_path: str | Path, condition_id: str, category: str) -> tuple[str, ...]:
+    """Read the keys of the molecules of ``condition_id`` whose stored category is ``category``.
+
+    In row order, each key once (two rows can share a key). Read-only.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        table = f["molecules"][TABLE]
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        conditions = [_text(k) for k in table.fields("condition_id")[:]]
+        categories = [_text(k) for k in table.fields("category")[:]]
+    members = (
+        key
+        for key, cid, name in zip(keys, conditions, categories, strict=True)
+        if cid == condition_id and name == category
+    )
+    return tuple(dict.fromkeys(members))
+
+
+def condition_key(project_path: str | Path, condition_id: str) -> ConditionKey | None:
+    """Read the ``/conditions`` key of ``condition_id``, or ``None`` when it has no row.
+
+    Read-only, through
+    [`read_condition_keys`][tether.project.conditions.read_condition_keys].
+    """
+    from tether.project.conditions import read_condition_keys  # noqa: PLC0415
+
+    return read_condition_keys(project_path).get(condition_id)

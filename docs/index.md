@@ -21,10 +21,10 @@ publication exports carry the same stamp beside them.
 record and how to read it back.
 
 **Where each feature runs today.** The desktop application opens a project, curates its
-traces, fits one trace at a time and draws a population histogram. Extraction runs from the
+traces, fits one trace at a time and draws the population plots. Extraction runs from the
 [command line](cli.md). There, `tether batch` also applies the corrections and fits every
 molecule. From Python, you can run the corrections and whole-project fits with your own
-settings. You can also make the other plots and the exports, as each
+settings. You can also make the exports, as each
 [how-to guide](#using-tether) shows.
 
 The application also shows the movies of a project in a movie panel, with their donor and
@@ -100,26 +100,10 @@ in a paper.
 - [Standalone-tMAVEN cross-OS record](maintainers/standalone-tmaven-cross-os-record.md):
   for maintainers recording the manual tMAVEN GUI check on each operating system.
 
-## Modules
+## For contributors
 
-This section is for contributors. Tether pairs a PySide6 application shell and
-[pyqtgraph](https://www.pyqtgraph.org) trace docks with one self-describing HDF5 (`.tether`)
-project file. The movie panel uses [napari](https://napari.org).
-
-Each package below owns one responsibility. The table lists them by package. For the order in
-which a movie passes through them, and what each leaves in the project file, see
-[How Tether works](pipeline.md).
-
-| Module | Responsibility |
-| --- | --- |
-| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project file, the filename parser, and [exporters](reference/exports.md). |
-| [`tether.imaging`](cli.md#tether-extract) | Native movie-to-trace extraction and registration. |
-| [`tether.fret`](adr/0026-photobleach-detection-and-window-default.md) | Photobleaching detection, correction factors, and corrected FRET. |
-| [`tether.idealize`](idealize/standalone-tmaven-handoff.md) | The tMAVEN sidecar driver and dwell/rate analysis. |
-| [`tether.ml`](ml/deep-classifier.md) | The per-condition incrementally-retrained quality ranker. |
-| [`tether.analysis`](analysis/parity-gallery.md) | Histograms, transition-density plots, and population statistics. |
-| [`tether.gui`](adr/0055-gui-session-writer-ownership.md) | The PySide6 shell and dockable analysis surfaces. |
-| [`tether.project`](adr/0030-headless-batch-runner-isolation-and-checkpoint.md) | The experiment/session model and the headless core. |
+Before you change the code, read the [architecture overview](maintainers/architecture.md) of its
+packages, environments and data flow.
 
 ## Cite Tether
 

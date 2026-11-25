@@ -27,17 +27,18 @@ with `--strict-markers`. Where a test runs follows from its marker:
 
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
-| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
+| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `pyproject.toml`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate [`_sidecar_gate.py`](https://github.com/bioedca/tether/blob/main/tests/_sidecar_gate.py) and the RF2-ArfA child [`_rf2_arfa_child.py`](https://github.com/bioedca/tether/blob/main/tests/_rf2_arfa_child.py) in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
+| Bio-Formats stack | `@pytest.mark.bioformats` | `.github/workflows/bioformats.yml` — nightly cron, manual dispatch, and pull requests that touch its inputs; the base env drives the runner in the isolated `bioformats/` env, with `TETHER_REQUIRE_BIOFORMATS` set ([ADR-0147](adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) | No — `bioformats / live` is optional and path-filtered; the required `conda-lock-verify` checks its lock |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 | Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
 
 **When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
-a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
-`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke`,
+`bioformats / live` and `large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
 the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
 not list for that job with the same reason, when more tests skip than the job's
 `max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
@@ -80,6 +81,10 @@ only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `work
 directory that an environment variable names). A test skips, with the reason, when its tier is not
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
+
+A download that times out, loses its connection or gets an HTTP 5xx, 408 or 429 answer is tried
+again two times, after 15 s and 45 s, from an empty file (#1229). An HTTP 4xx answer and a wrong
+checksum are not tried again, because they tell that the upstream file moved or changed.
 
 **The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
 Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
@@ -388,7 +393,8 @@ pull request touching an idealization path, and reports a "not applicable" pass 
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
 `test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
-transition-matrix term (below). On the required matrix,
+transition-matrix term (below), and `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model`.
+On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -484,11 +490,19 @@ selection changes from seed to seed (ADR-0043). The live tests also check that e
 requested model type with the requested state count, which a cross-seed comparison of two
 equally wrong fits cannot see.
 
-> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small fixtures as
-> well as the consensus fit. `$.coverage.measured_methods` records only
-> `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
-> vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
-> measurement, and no committed test fits `model_type="vbfret"` against it.
+> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small
+> fixtures as well as the consensus fit. `model_type="vbfret"` now runs tMAVEN's own per-trace
+> step (`tracelevel_vbhmm_modelselection`, 1 to 4 states per trace, the highest evidence kept),
+> but it does not reproduce across seeds on the pinned build: over 20 unseeded fits per fixture
+> the worst state-count agreement was 0.0 on both `smd_2mol` and `smd_4mol`, and on
+> `smd_281mol` two fits differed by up to 0.96 FRET in a state mean. A row frozen from that
+> spread would have floors of 0.0, so none is frozen (maintainer decision of 2026-11-15, ADR-0110).
+>
+> `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that one seed gives one
+> model and writes the cross-seed agreement to the job log. `$.coverage.measured_methods`
+> records only `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` still lists
+> per-trace vbFRET, and no test asserts a per-trace fit against `$.tolerance`. The open row is
+> [#949](https://github.com/bioedca/tether/issues/949).
 
 ### Plain vbGMM against an independent fit
 
@@ -1750,8 +1764,10 @@ evidence about the size of the difference and not a tolerance.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
-  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
+- (b) has no per-trace vbFRET *parity* row: tMAVEN's per-trace step does not reproduce
+  across seeds on the pinned build, so no row is frozen, and the seeded test checks only that
+  one seed gives one model (ADR-0110). Its comparison with the original vbFRET_nov12 on
+  measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
   the workstation only. Each is stated in its own section above with the ADR that

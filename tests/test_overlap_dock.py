@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the static overlap-view dock (M2 S10, PRD §7.3 / §5.1).
 
-Two layers, mirroring ``test_histogram_dock``:
+Two layers, mirroring ``test_trace_dock``:
 
 * **Pure-numpy** checks of the Qt-free readout helper (:func:`_readout`) — these run
   in the default matrix because ``tether.gui.overlap_dock`` imports pyqtgraph/Qt

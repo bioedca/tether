@@ -94,6 +94,41 @@ So does a trace with a missing value or a constant channel.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
+### See the state of each molecule
+
+Each row of the list shows the name of the molecule and then its state. The state is
+`Accepted`, `Rejected` or `Undecided`.
+
+A mark at the start of the row also shows the state. The mark for accepted is a filled circle. The mark for rejected is a filled square. The mark
+for undecided is a ring. The shape and the words tell the states apart, so you do not need
+to see the colors.
+
+The row also shows the category of the molecule, for example `category bound`. When an
+idealization of the molecule exists, the row ends with `idealized`. When its trace or its
+analysis window changed after the fit, the row ends with `idealized, stale`. Refit the stale
+models to make them current.
+
+Above the list, two lines count the molecules. The first line counts the molecules of the
+movie of the selected molecule. The second line counts all the molecules of the project.
+Each line gives the number of accepted, rejected and undecided molecules, and the total. An
+accept or a reject changes the row and the counts immediately.
+
+The box above the list selects which molecules the list shows: **All molecules**,
+**Undecided**, **Accepted**, **Rejected**, or one category. The arrow keys then move only
+through the molecules that the list shows. The box only hides rows. It does not change the
+order of the list. When the selected molecule is hidden, Tether selects the next molecule
+that the list shows.
+
+To find the next molecule that has no decision, press **U**. Or select **Curation → Next
+undecided molecule**. Tether selects the next undecided molecule below the selected one.
+After the last row, it continues from the top of the list. It does not change the order of
+the list.
+
+When no molecule is undecided, the status bar reads `No undecided molecule is left`. When the box hides the undecided molecules, the status bar says how many it hides.
+
+The box and **Next undecided molecule** need extracted traces. Until the project has them,
+both are off and their tooltip names the step to do first.
+
 ### Go between a trace and its movie spot
 
 The **Movie** panel follows the list. When you select a molecule, the panel shows the
@@ -110,6 +145,29 @@ movie, the panel changes to that movie, and the **Movie** box names it.
 A molecule whose movie is not shown has no spot to go to. For such a molecule, **Enter**
 gives the reason, for example
 `Jump to movie spot unavailable: mol-4 has no spot in a movie shown here`.
+
+### Move through the trace and the movie together
+
+The trace plots have a **frame cursor**: a vertical line on the intensity plot and on the
+FRET plot. The movie panel follows the cursor, and the cursor follows the movie.
+
+- To see a frame of the trace in the movie, drag the cursor. It stops on whole frames, and
+  the panel shows the same frame of the molecule's movie.
+- To see where a movie frame is on the trace, move the time slider under the movie. The
+  cursor moves to that frame. Before the trace starts or after it ends, the cursor stops at
+  the first or last frame of the trace.
+- When you select another molecule in the list, the cursor stays on its frame and the movie
+  shows that frame.
+- When you click a spot to select its molecule, the movie stays on its frame. The cursor
+  moves to that frame.
+
+The link works only while the panel shows the selected molecule's own movie. If you choose
+another movie in the **Movie** box, the cursor and that movie do not move each other. When
+you choose the molecule's movie again, the cursor moves to the frame that the movie shows.
+
+To turn the link off, clear **Curation → Link trace and movie frames**. The setting is for
+Curate and correct in this window only. It stays as you set it while the window is open, also
+when you open another project. When you start Tether again, the link is on.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 The keys on this page are the ones Tether starts with. To move one, see
@@ -155,6 +213,8 @@ where this list shows Ctrl:
 - **File → Open project…**: Ctrl+O.
 - **File → Close project**: Ctrl+W.
 - **File → Quit**: Ctrl+Q.
+- **Edit → Undo**: Ctrl+Z.
+- **Edit → Redo**: Ctrl+Shift+Z. On Windows, Ctrl+Y also works.
 - **Help → Documentation**: F1. It opens the documentation for your version of Tether.
 
 Tether saves each mark when you make it, so **File → Close project** has nothing to save. It
@@ -199,9 +259,11 @@ selection.
 
 - **1** to **9** give the selected molecule a category from the list of its condition.
   **1** is the first name in the list, **2** the second, and so on. The status bar reads, for
-  example, `Category 2 (bound) set for` and the ID. For a category after the ninth, choose
-  **Curation → Assign category (overflow)…** and pick it from the list. A number past the end
-  of the list changes nothing. The status bar then says how many categories the condition has.
+  example, `Category 2 (bound) set for` and the ID. **Curation → Keyboard shortcuts…** shows
+  the name each number key gives, for example `Assign category 2 (bound)`. For a category
+  after the ninth, choose **Curation → Assign category (overflow)…** and pick it from the
+  list. A number past the end of the list changes nothing. The status bar then says how many
+  categories the condition has.
 - **0** clears the category. The molecule is then *uncategorized*, which is not the same as
   any named category.
 - **-** and **=** move the start of the
@@ -219,12 +281,39 @@ is the first frame inside the window and the second is the first frame after it.
 that would move a bound off the trace or empty the window changes nothing. The status bar
 then says why.
 
-Every one of these keys changes nothing while a one-click idealization is running or when the
-project is read-only. The status bar then reads `unavailable` and gives the reason. Each saved
-change is added to the project's molecule edit log, with your curator name.
+These keys change nothing while a project fit runs or when the project is read-only. The
+status bar then reads `unavailable` and gives the reason. Each saved change is added to the
+project's molecule edit log, with your curator name.
 
 A window you set by hand is kept when photobleach detection runs again over the whole project.
 After **R**, that detection may set the window of the molecule automatically again.
+
+### Edit the categories of a condition
+
+Each condition has its own list of categories. Tether gives no categories of its own: you
+make the list. To change it, select a molecule of that condition. Then click
+**Categories…** in the panel on the left, or choose **Curation → Categories…**. The window
+shows the list of the selected molecule's condition, with the number key of each name. When
+the project has several conditions, select a molecule of the other condition to edit its
+list.
+
+- **Add**: type a name in the field and click **Add**. The new name goes at the end of the
+  list and takes the next number key.
+- **Rename**: click a name, change it in the field and click **Rename**. The name keeps its
+  number key. Each molecule that had the old name gets the new name. The molecule edit log
+  records each one, with the reason `category renamed from` the old name `to` the new name.
+- **Move up** and **Move down**: the name moves one place in the list. The two names then
+  change number keys. Each molecule keeps its category.
+- **Remove…**: click a name and click **Remove…**. When molecules have that name, Tether
+  first says how many and asks. Those molecules keep the name as their category. But the name
+  is no longer in the list, so no number key gives it again. To change it, select the molecule
+  and press **0** or a number key. The names after the removed one move up by one number key.
+
+Two names in one list cannot be the same. A name that is already in the list is refused,
+and the window says why. The changes save to the project at once. They are not available
+when the project is read-only.
+
+The digits and letters type into the name field of this window. There they never curate.
 
 ## 5. Change your mind
 
@@ -236,9 +325,46 @@ After **R**, that detection may set the window of the molecule automatically aga
   not rejected it reads `Un-reject unavailable: selected molecule is not rejected` and changes
   nothing.
 
-Nothing you do here deletes a molecule or a decision. Every accept, reject and un-reject is
-added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
-so the history survives a reversal.
+### Undo a key you pressed by mistake
+
+To take back the last curation action, choose **Edit → Undo** or press **Ctrl+Z** (**Cmd+Z**
+on macOS). To do it again, choose **Edit → Redo** or press **Ctrl+Shift+Z**. On Windows,
+**Ctrl+Y** also works. Undo works for these actions:
+
+- Accept, reject and un-reject.
+- A category key (**1**–**9**, the overflow list) and **0**.
+- The analysis-window keys **-**, **=**, **[**, **]** and **R**, and the photobleach key **P**.
+
+The menu names the action, for example **Undo reject mol-0412**. You can undo several
+actions, one at a time, newest first. After an undo, the list selects the molecule again, so
+you see what changed. The status bar starts with `Undo` or `Redo` and names the action. A new
+action clears the redo list.
+
+An undo gives the molecule back what it had before the action. That includes the reason of a
+reject and the review mark of a label from an earlier
+[extraction](#after-a-movie-is-extracted-again). The undo list belongs to the open project in
+this session. Tether clears it when you close the project, when you open another one, and
+when the project becomes read-only. Tether does not save it in the project file. In a
+read-only project, the status bar reads `Undo unavailable: project is read-only` and the
+reason.
+
+Undo does not take back a correction pass, an idealization, an import or a bulk
+threshold-reject.
+
+Sometimes Tether cannot read a molecule's state around an action, or a write fails part way.
+Then Tether keeps what was stored and removes that molecule's actions from both lists.
+
+An import or a bulk reject can also change a molecule after an action on the list. Then the
+undo of that action does not run. The status bar says so, and the molecule's actions leave
+the lists. So an undo never takes back a change that is not on the list.
+
+Nothing you do here deletes a molecule or a decision. An undo adds the rows that restore the
+earlier state. It removes no row, so the history survives a reversal.
+
+Each accept, reject and un-reject goes to the project's
+[curation log](../reference/tether-format.md#labels-the-append-only-curation-log). So does its
+undo or redo. A category or window edit, and its undo or redo, goes to the molecule edit log
+`/settings/molecule_audit`.
 
 ## Change a key
 
@@ -262,8 +388,8 @@ The window tells you when it cannot use a key, and **Assign** stays off:
 - A key a menu command already uses, such as Ctrl+O for **File → Open project…**.
 - **Tab**, **Shift+Tab** and **Esc**. They move between the fields and close the window.
 
-A letter or digit you assign still types into the **Category name** field. There it never
-curates.
+A letter or digit you assign still types into the name field of the **Categories…** window.
+There it never curates.
 
 An action you give a new key loses its old keys. **Reject trace**, for example, then has
 only the new key. To get an action's first keys back, click it and then **Restore default**.
@@ -368,6 +494,15 @@ computer:
 - For each project, the molecule you had selected when you closed it.
 - The size of the window and the positions of its panels.
 - The curator name, if you set one.
+- Whether the application opens your last project when it starts.
+
+When you start the application without a project, it opens the top project of
+**File → Open recent** again. Then it shows the section of the next step that `tether status`
+gives. It does not show the section that was open when you closed the project.
+
+If the project or its next step cannot be read, the start page shows. The status bar then says
+why. To start on the start page, clear **File → Reopen last project at start**. A project that
+you name at start, or open from your file manager, opens in place of the last project.
 
 **View → Reset layout** puts the window and its panels back in their first positions. It also
 forgets the saved positions.
