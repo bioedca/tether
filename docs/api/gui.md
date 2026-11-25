@@ -25,6 +25,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.conditions
 
+::: tether.gui.corrections
+
 ::: tether.gui.curation
 
 ::: tether.gui.deeplasi_executor
@@ -48,6 +50,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.macos_app
 
 ::: tether.gui.messages
+
+::: tether.gui.molecule_list
 
 ::: tether.gui.movie_panel
 
