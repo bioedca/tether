@@ -48,6 +48,7 @@ __all__ = [
     "RERUN_ID",
     "STATE",
     "agreement_file",
+    "check_movie",
     "compare_exports",
     "deeplasi_corrected_fret",
     "fret_agreement",
@@ -56,6 +57,7 @@ __all__ = [
     "harness",
     "read_factors",
     "window_export",
+    "window_record",
 ]
 
 #: The role of the saved Deep-LASI state (``.tdat``) of an agreement id. It is not ``tdat``:
@@ -172,8 +174,8 @@ def agreement_file(private_data, neutral_id: str, role: str) -> Path:
     return path
 
 
-def window_export(private_data, neutral_id: str) -> Path:
-    """The ``.mat`` export of ``neutral_id`` that Deep-LASI's window saved, with its record.
+def window_record(private_data, neutral_id: str) -> tuple[Path, dict]:
+    """The ``.mat`` export of ``neutral_id`` that Deep-LASI's window saved, and its record.
 
     The ``window`` role names the copy of the export in a folder made by ``harness.py freeze``,
     beside a ``provenance.json`` that says no scripted run made it and gives the file's own date
@@ -196,7 +198,31 @@ def window_export(private_data, neutral_id: str) -> Path:
         f"{neutral_id}: the frozen export is not the one the check was recorded on "
         f"(SHA-256 {pinned[:16]}…); see tests/_deeplasi_agreement.py"
     )
-    return path
+    return path, record
+
+
+def window_export(private_data, neutral_id: str) -> Path:
+    """The export of ``neutral_id`` that Deep-LASI's window saved; see :func:`window_record`."""
+    return window_record(private_data, neutral_id)[0]
+
+
+def check_movie(movie: Path, record: dict, neutral_id: str) -> Path:
+    """``movie``, if it is the movie that the ``window`` record of ``neutral_id`` was frozen with.
+
+    ``harness.py freeze`` keeps the SHA-256 of each input it is given (ADR-0074), so the record
+    already pins the movie: a name table that points the id at a replaced or shortened movie
+    fails here, before extraction, instead of being scored under the same id (#1115). A record
+    with no ``movie`` input fails too: it pins nothing to compare with. The message names the id
+    and the role, never a file.
+    """
+    want = sorted(record.get("inputs", {}).get("movie", {}).values())
+    assert want, f"{neutral_id}/movie: the window record names no movie input to check against"
+    got = _sha256(movie)
+    assert want == [got], (
+        f"{neutral_id}/movie: the movie is not the one the window record was frozen with "
+        f"(SHA-256 {got[:16]}…, the record says {', '.join(w[:16] + '…' for w in want)})"
+    )
+    return movie
 
 
 #: Largest difference allowed between Tether's formula with Deep-LASI's factors (ADR-0028

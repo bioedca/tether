@@ -21,6 +21,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.filename
 
+::: tether.io.frames
+
 ::: tether.io.generations
 
 ::: tether.io.intake
