@@ -30,8 +30,9 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI and ND2
 ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI
 movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
-that the reader refuses (for example, two channels) fails with the reader's own message. A SIF
-or cellSens VSI movie opens through its reader, but extraction refuses it. The message is "this
+that the reader refuses (for example, two channels) fails with the reader's own message.
+
+A SIF or cellSens VSI movie opens through its reader, but extraction refuses it. The message is "this
 SIF movie opens, but extraction does not read SIF yet", or the same for cellSens VSI. The change
 for `.vsi` is #1398, and SIF needs a change of its own. Until then, export the movie to
 uncompressed TIFF.
