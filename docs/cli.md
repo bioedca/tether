@@ -118,8 +118,9 @@ Running `tether` with no subcommand prints the top-level help and exits 0.
 
 ## `tether extract`
 
-Run the native extraction pipeline on one dual-channel movie, a TIFF, CZI or ND2 file, and write
-a new `.tether` project. The stages are split, detect, register, colocalize and integrate.
+Run the native extraction pipeline on one dual-channel movie, a TIFF, CZI, ND2 or cellSens
+`.vsi` file, and write a new `.tether` project. The stages are split, detect, register, colocalize
+and integrate.
 
 ```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
@@ -141,7 +142,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movie` | *(required)* | Path to the dual-channel movie, a TIFF, CZI or ND2 file. |
+| `movie` | *(required)* | Path to the dual-channel movie, a TIFF, CZI, ND2 or cellSens `.vsi` file. |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | Path to the `.tether` project to create. |
 | `--overwrite` | off | Replace an existing output project. Tether refuses a project that another writer has open (note 1). |
 | `--donor-side {left,right}` | `left` | Which horizontal half of the frame is the donor channel. |
@@ -485,7 +486,7 @@ tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movies` | *(required, one or more)* | Dual-channel movies, TIFF, CZI or ND2. Each is a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)). |
+| `movies` | *(required, one or more)* | Dual-channel movies, TIFF, CZI, ND2 or cellSens `.vsi`. Each is a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)). |
 | `--recursive` | off | A folder argument also gives the movies in its sub-folders. |
 | `--dry-run` | off | Print each movie, its output project and what the run would do with it, then exit `0` (note 1). |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(this or `--into`)* | The directory for the per-movie `.tether` projects. Tether creates it if it is absent. |
@@ -568,15 +569,17 @@ Each `movies` argument is one of three things. Tether expands it itself, so the 
 gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly in it. A movie file has an extension that
-  extraction reads, in uppercase or lowercase. Today these are `.tif`, `.tiff`, `.czi` and
-  `.nd2`. With `--recursive`, a folder also gives the movies in its sub-folders.
-    - Tether opens `.sif`, `.sira` and `.vsi` movies too, but extraction does not read them yet
-      (#1398 for `.vsi`). So a folder or a pattern leaves them out. A `.sif`, `.sira` or `.vsi`
-      file that you name on its own fails its extraction stage, with a message that says so
+  extraction reads, in uppercase or lowercase. Today these are `.tif`, `.tiff`, `.czi`, `.nd2`
+  and `.vsi`. With `--recursive`, a folder also gives the movies in its sub-folders.
+    - Tether opens `.sif` and `.sira` movies too, but extraction does not read them yet. So a
+      folder or a pattern leaves them out. A `.sif` or `.sira` file that you name on its own
+      fails its extraction stage, with a message that says so
       ([Movie containers](reference/movie-containers.md)).
-    - An original beside its TIFF export in one folder (`x.nd2` and `x.tif`, or `x.czi` and
-      `x.tif`) is one movie. So the run stops before it writes anything, and the message names
-      both files. Move or rename one.
+    - An original beside its TIFF export in one folder (`x.nd2` and `x.tif`, `x.czi` and `x.tif`,
+      or `x.vsi` and `x.tif`) is one movie. So the run stops before it writes anything, and the
+      message names both files. Move or rename one.
+    - A `.vsi` movie needs the optional Bio-Formats stack. Without it, its stage fails with the
+      install message.
 - **A pattern** is an argument with `*`, `?` or `[...]` in it that is not an existing path. It
   gives the movie files that it matches. `**` matches any number of folders. Tether expands a
   folder that the pattern matches as a folder argument. Put a pattern in quotes, so that bash
@@ -590,7 +593,7 @@ movie stops the run before anything is written, and the message names the argume
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .czi, .nd2); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .czi, .nd2, .vsi); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each sub-folder

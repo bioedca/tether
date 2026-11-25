@@ -583,12 +583,21 @@ def file_sha256(
     ``cancel`` is asked between blocks (it raises
     [`JobCancelled`][tether.project.jobs.JobCancelled]); ``progress(read, size)`` is
     called after each block.
+
+    For a cellSens ``.vsi`` movie the checksum also covers the ``.ets`` files that hold
+    its frames, as the extraction's does ([`tether.io.movie_identity.content_sha256`][],
+    #1398, ADR-0153), and ``progress`` counts their bytes too. The size, identity and
+    modification time are still the ``.vsi`` file's own.
     """
+    from tether.io.movie_identity import content_sha256, frame_files  # noqa: PLC0415
+
+    frames = frame_files(path)
     digest = hashlib.sha256()
     done = 0
     with open(path, "rb") as handle:
         opened = os.fstat(handle.fileno())
         size = opened.st_size
+        total = size + sum(frame.stat().st_size for frame in frames)
         identity = _stat_identity(opened)
         for block in iter(lambda: handle.read(_CHUNK), b""):
             if cancel is not None:
@@ -596,12 +605,21 @@ def file_sha256(
             digest.update(block)
             done += len(block)
             if progress is not None:
-                progress(done, size)
+                progress(done, total)
+    read_frames = 0
+
+    def _frame_block(n: int) -> None:
+        nonlocal read_frames
+        read_frames += n
+        if cancel is not None:
+            cancel.raise_if_cancelled()
+        if progress is not None:
+            progress(done + read_frames, total)
+
+    sha256 = content_sha256(path, digest.hexdigest(), frames=frames, on_block=_frame_block)
     if cancel is not None:  # a cancel during the last block still stops the calculation
         cancel.raise_if_cancelled()
-    return FileDigest(
-        sha256=digest.hexdigest(), size=done, identity=identity, mtime_ns=opened.st_mtime_ns
-    )
+    return FileDigest(sha256=sha256, size=done, identity=identity, mtime_ns=opened.st_mtime_ns)
 
 
 def set_checksum(
