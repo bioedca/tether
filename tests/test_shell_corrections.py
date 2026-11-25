@@ -511,3 +511,26 @@ def test_closing_the_window_closes_the_summary(shell, qtbot, tmp_path) -> None:
     shell.close()
     assert not summary.dialog.isVisible()
     assert shell.correction_summary is None
+
+
+def test_a_claim_reads_the_file_identity_under_the_registry_lock(monkeypatch, tmp_path) -> None:
+    # A pass that replaces the file and moves its claim takes the same lock, so a claim
+    # cannot read the old identity, wait, and then take it after the claim has moved.
+    from tether.gui import shell as shell_mod
+
+    real = shell_mod._project_owner_key
+    held: list[bool] = []
+
+    def spy(path):
+        held.append(shell_mod._GUI_PROJECT_OWNERS_LOCK.locked())
+        return real(path)
+
+    monkeypatch.setattr(shell_mod, "_project_owner_key", spy)
+    token = object()
+    path = tmp_path / "p.tether"
+    path.write_bytes(b"")
+    key = shell_mod._claim_gui_project(path, token)
+    try:
+        assert held == [True]
+    finally:
+        shell_mod._release_gui_project(key, token)

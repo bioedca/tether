@@ -273,9 +273,11 @@ def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
     """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
-    key = _project_owner_key(path)
     canonical = _canonical_project_path(path)
     with _GUI_PROJECT_OWNERS_LOCK:
+        # Read the identity under the lock: a pass that replaces the file and moves its
+        # claim between this read and the check would leave the old identity free.
+        key = _project_owner_key(path)
         owner = _GUI_PROJECT_OWNERS.get(key)
         if owner is not None and owner is not token:
             return None
