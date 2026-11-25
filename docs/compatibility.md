@@ -61,7 +61,7 @@ in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved a
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
 message says so. A container Tether does not read, such as a `.sif`, is refused too.
 That message lists what Tether reads (today, TIFF, CZI, ND2 and cellSens VSI) and names the
-Bio-Formats route.
+Bio-Formats route for the others.
 
 **cellSens `.vsi` (the Bio-Formats route).** A `.vsi` file begins with a TIFF header. So its
 extension, not its content, sends it to the cellSens adapter, and a renamed `.vsi` is read as

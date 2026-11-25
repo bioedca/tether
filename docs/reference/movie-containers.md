@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Movie containers
 
 **Who this page is for.** Anyone who wants to know whether Tether opens a movie file, why it
-refuses one, and where each metadata value of an opened movie comes from. It assumes you know the
+refuses one, and where each metadata value comes from. It assumes you know the
 container your microscope software writes. It does not assume you know Python.
 
 Tether opens a movie through a reader for its container. The first bytes of the file choose the
