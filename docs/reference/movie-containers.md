@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, ZEISS CZI, Nikon ND2, Andor SIF, cellSens VSI), what each reader refuses, and where each metadata value comes from."
+description: "The movie containers Tether reads (TIFF, CZI, ND2, SIF, cellSens VSI), what each reader refuses, and where the frame time, pixel size and channels come from."
 ---
 
 <!--
@@ -140,8 +140,8 @@ refuses the file in these cases:
 
 | Value | Where it comes from (the Bio-Formats OME metadata) | When it is `unknown` |
 | --- | --- | --- |
-| Frame time (s) | the `TimeIncrement` of the image, or else the mean step of the `DeltaT` of its planes | neither is there, or the step is not positive |
-| Pixel size (µm) | `PhysicalSizeX` | not there |
+| Frame time (s) | the `TimeIncrement` of the image, or else the mean step of the `DeltaT` of its planes | neither is there, or the step is not a positive number |
+| Pixel size (µm) | `PhysicalSizeX` and `PhysicalSizeY`, when they agree | either is not there, the two differ, or a value is not positive |
 | Channels | the `Name` of the one channel | no name |
 
 Tether has no `.vsi` movie that it may share. So CI checks the reader on OME-TIFF movies through

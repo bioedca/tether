@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import glob
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -231,22 +232,26 @@ class Session:
         jp_units = _units()
         out: dict = {"frame_time": None, "pixel_size": None, "channels": None}
         with contextlib.suppress(Exception):
-            size = meta.getPixelsPhysicalSizeX(series)
-            if size is not None:
-                out["pixel_size"] = float(size.value(jp_units.MICROMETER).doubleValue())
+            # One pixel size is the scale of both axes, so it is known only when X and Y
+            # agree, as for the TIFF and CZI readers.
+            size_x = meta.getPixelsPhysicalSizeX(series)
+            size_y = meta.getPixelsPhysicalSizeY(series)
+            if size_x is not None and size_y is not None:
+                sx = _positive(size_x.value(jp_units.MICROMETER).doubleValue())
+                sy = _positive(size_y.value(jp_units.MICROMETER).doubleValue())
+                if sx is not None and sy is not None and math.isclose(sx, sy, rel_tol=1e-6):
+                    out["pixel_size"] = sx
         with contextlib.suppress(Exception):
             step = meta.getPixelsTimeIncrement(series)
-            if step is not None and float(step.value(jp_units.SECOND).doubleValue()) > 0:
-                out["frame_time"] = float(step.value(jp_units.SECOND).doubleValue())
+            if step is not None:
+                out["frame_time"] = _positive(step.value(jp_units.SECOND).doubleValue())
         if out["frame_time"] is None and n_frames > 1:
             with contextlib.suppress(Exception):
                 planes = int(meta.getPlaneCount(series))
                 times = [meta.getPlaneDeltaT(series, i) for i in range(planes)]
                 if len(times) == n_frames and all(t is not None for t in times):
                     secs = [float(t.value(jp_units.SECOND).doubleValue()) for t in times]
-                    step = (secs[-1] - secs[0]) / (n_frames - 1)
-                    if step > 0:
-                        out["frame_time"] = step
+                    out["frame_time"] = _positive((secs[-1] - secs[0]) / (n_frames - 1))
         with contextlib.suppress(Exception):
             name = meta.getChannelName(series, 0)
             if name is not None and str(name):
@@ -270,6 +275,12 @@ class Session:
             with contextlib.suppress(Exception):
                 self._reader.close()
             self._reader = None
+
+
+def _positive(raw) -> float | None:
+    """``raw`` as a float when it is finite and above zero, else ``None`` (not known)."""
+    value = float(raw)
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def _units():

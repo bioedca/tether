@@ -90,6 +90,14 @@ def _czi_zstd(tmp: Path) -> tuple[Path, np.ndarray]:
     return path, _frames("<u2")
 
 
+def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIF movie of ``tests/_sif_synth.py`` (#904): Solis stores 32-bit float counts."""
+    from _sif_synth import write_sif
+
+    frames = _frames("<f4")
+    return write_sif(tmp / "movie.sif", frames), frames
+
+
 _FAKE_RUNNER = Path(__file__).resolve().with_name("_fake_bioformats_runner.py")
 
 
@@ -107,14 +115,6 @@ def _use_fake_runner(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv(bioformats.BIOFORMATS_PYTHON_ENV, sys.executable)
     monkeypatch.setattr(bioformats, "RUNNER_SCRIPT", _FAKE_RUNNER)
-
-
-def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
-    """A SIF movie of ``tests/_sif_synth.py`` (#904): Solis stores 32-bit float counts."""
-    from _sif_synth import write_sif
-
-    frames = _frames("<f4")
-    return write_sif(tmp / "movie.sif", frames), frames
 
 
 @dataclass(frozen=True)

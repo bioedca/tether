@@ -19,7 +19,7 @@ This module is Qt-free and imports no reader package at import time; the
 built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]), then CZI
 ([`tether.io.czi.CZI_ADAPTER`][], ADR-0144), ND2
 ([`tether.io.nd2.ND2_ADAPTER`][], ADR-0148), SIF
-([`tether.io.sif.SIF_ADAPTER`][], ADR-0150), then cellSens VSI
+([`tether.io.sif.SIF_ADAPTER`][], ADR-0150) and cellSens VSI
 ([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
 ADR-0147), are registered the first time the registry is read. ADR-0113 records the
 interface and the rule by which a reader package can enter the base lock.
