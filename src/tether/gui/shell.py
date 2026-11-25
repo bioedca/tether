@@ -117,7 +117,6 @@ if TYPE_CHECKING:
     from os import PathLike
     from typing import Protocol
 
-    import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
     from tether.analysis.overlap import OverlapInfo
@@ -133,11 +132,11 @@ if TYPE_CHECKING:
     from tether.services.corrections import CorrectionPassResult
     from tether.services.curation import MoleculeState, StoredMolecule
 
-    #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
-    #: outside its analysis window), or ``None`` when nothing was produced. The
-    #: shell's ``I`` handler draws the result on the dock; `make_store_idealizer`
-    #: is the store-backed default that runs the real one-click vbFRET pipeline.
-    Idealizer = Callable[[str], np.ndarray | None]
+    #: Runs one whole-project fit, ``idealizer(fit, cancel=token, progress=report)``, on
+    #: the worker thread and returns the command's
+    #: [`IdealizeResult`][tether.services.idealize.IdealizeResult] (#625). The shell's
+    #: "Idealize project…" starts it; `make_store_idealizer` is the store-backed default.
+    Idealizer = Callable[..., Any]
 
     #: Resolve a molecule_key to its static-overlap-view payload — the cached patch
     #: + nearest-neighbour distance + apertures-overlap flag — or ``None`` for an
@@ -683,11 +682,11 @@ class TetherShell:
     ``-``/``=``/``[``/``]``, ``R``, ``P``, #359) for the selected molecule when that
     lock is available,
     falls back to read-only browsing otherwise, reports deferred commands explicitly
-    unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
-    the selected molecule through
-    the injected ``idealizer`` seam
-    ([`make_store_idealizer`][] wires the real store-backed vbFRET pipeline) and
-    draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
+    unavailable, and exposes the dialogs. The ``I`` key and **Idealize → Idealize
+    project…** open the whole-project fit ([`show_idealize_dialog`][], #625); the fit
+    runs through the injected ``idealizer`` seam ([`make_store_idealizer`][] wires the
+    store-backed ``idealize`` command) with progress and cancel, and the step line of the
+    selected molecule is drawn on the dock when it ends. When an ``overlap`` seam is wired
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
     (§7.3). The trace dock and the Browser belong to the Curate and correct section,
@@ -765,10 +764,12 @@ class TetherShell:
         # yet succeeded: ``(project path, taken LockInfo)``. The release-retry timer
         # keeps trying its exact nonce, as it does for a rollback session.
         self._recovered_lock: tuple[Path, Any] | None = None
-        # The one-click-idealize seam: a molecule_key -> idealized-path callable.
-        # None (the synthetic/no-project default) makes ``I`` report that a project
-        # must be loaded; make_store_idealizer(project) wires the real pipeline.
+        # The whole-project fit seam (#625): idealizer(fit, cancel=, progress=) -> result.
+        # None (the synthetic/no-project default) makes "Idealize project…" report that
+        # a project must be loaded; make_store_idealizer(project) wires the real command.
         self._idealizer = idealizer
+        # The open "Idealize project…" dialog, retained while it shows, or None.
+        self._idealize_dialog: Any | None = None
         # The standalone-tMAVEN hand-off seam (export + return-leg import). None (no
         # project) makes the &Hand-off menu report that a project must be loaded;
         # make_store_handoff(project) wires the real tether.project.handoff pipeline.
@@ -1107,7 +1108,7 @@ class TetherShell:
         self._app.aboutToQuit.connect(self.close)
 
         # File menu: open a produced/extracted .tether live in this shell for
-        # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
+        # curation + the project fit — the store<->shell hookup (§7.8, FR-LEGACY;
         # the general capability the M7 Deep-LASI wizard hands off into).
         # Open / Close project / Quit carry the platform's standard keys (#629); every
         # one has a modifier, so none shadows a bare curation key (§7.3).
@@ -1282,8 +1283,8 @@ class TetherShell:
         theme.subscribe(self._apply_menu_icons)
 
         # Busy indicator (#677): the wavefront mark and the task name, at the right
-        # of the status bar, while a task runs that gives no percentage (today the
-        # one-click idealize; the task service #343 connects the other tasks).
+        # of the status bar, while a background task runs (the task service, #343);
+        # a task that reports progress, such as the project fit, shows its percentage.
         from tether.gui.indicators import BusyIndicator
 
         self._busy_indicator = BusyIndicator()
@@ -1633,6 +1634,11 @@ class TetherShell:
                             title="Co&rrections",
                             populate=lambda _host, menu: self._populate_corrections_menu(menu),
                         ),
+                        MenuSpec(
+                            id="idealize",
+                            title="I&dealize",
+                            populate=lambda _host, menu: self._populate_idealize_menu(menu),
+                        ),
                     ),
                     keymap_scope=CURATION_SCOPE,
                 ),
@@ -1746,6 +1752,24 @@ class TetherShell:
         self._act_correction_pass = menu.addAction("Run &correction pass…")
         self._act_correction_pass.triggered.connect(self._correction_pass_dialog)
         menu.aboutToShow.connect(self.sync_correction_controls)
+
+    def _populate_idealize_menu(self, menu: Any) -> None:
+        """Curate and correct's Idealize menu: the whole-project fit (#625, §7.4).
+
+        Its one action opens the "Idealize project…" dialog, as the ``I`` key does; the
+        key is the curation keymap's, so the action carries no shortcut of its own.
+        """
+        self._idealize_menu = menu
+        self._act_idealize_project = menu.addAction("Idealize &project…")
+        self._act_idealize_project.triggered.connect(self.show_idealize_dialog)
+        # A fit needs extracted traces; a busy or read-only window says why on the status
+        # line when the action is chosen, as the I key does.
+        self.require(self._act_idealize_project, "traces")
+
+    @property
+    def idealize_project_action(self) -> Any:
+        """The **Idealize → Idealize project…** action."""
+        return self._act_idealize_project
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -2818,8 +2842,8 @@ class TetherShell:
     ) -> Project | None:
         """Open a produced / extracted ``.tether`` live in this shell (§7.8, FR-LEGACY).
 
-        Re-wires the running shell's store-backed seams onto ``path`` — the one-click
-        idealize (``I``), the Analyze section's plots (#374), the standalone-tMAVEN
+        Re-wires the running shell's store-backed seams onto ``path`` — the whole-project
+        fit (``I``), the Analyze section's plots (#374), the standalone-tMAVEN
         hand-off (``&Hand-off``), the per-molecule overlap view, and the ``&Conditions``
         validation target — then loads the store's molecules into the browser + trace
         dock ([`set_molecules`][]). This is the general store↔shell hookup (the
@@ -2910,7 +2934,7 @@ class TetherShell:
                 if analysis_only
                 else read_project_movies(proj_path)
             )
-            idealizer_candidate = make_store_idealizer(project, require_held_lock=True)
+            idealizer_candidate = make_store_idealizer(project)
             # Export is read-only with respect to the source project, so retain this
             # seam even when the canonical store must open browse-only.
             handoff = make_store_handoff(project)
@@ -4308,7 +4332,7 @@ class TetherShell:
             reject=lambda: self._curate_current(CurationAction.REJECT),
             unreject=lambda: self._curate_current(CurationAction.UNREJECT),
             jump=self._jump_to_movie,
-            idealize=self._idealize_current,
+            idealize=self.show_idealize_dialog,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
             next_undecided=self.select_next_undecided,
@@ -5085,7 +5109,7 @@ class TetherShell:
 
     @property
     def is_idealizing(self) -> bool:
-        """Whether a background one-click-idealize fit is currently running."""
+        """Whether a background task (the project fit, the correction pass) is running."""
         return self._tasks.busy
 
     @property
@@ -5094,93 +5118,128 @@ class TetherShell:
         # source-project writer gate reads it: None means idealization owns no HDF5.
         return self._tasks.future
 
-    def _idealize_current(self) -> None:
-        """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
+    @property
+    def idealize_dialog(self) -> Any | None:
+        """The open "Idealize project…" dialog ([`show_idealize_dialog`][]), or ``None``."""
+        return self._idealize_dialog
 
-        The thin GUI layer over [`tether.project.idealize.idealize_molecules`][]
-        (M2 S6 PR-A): resolve the selected list row to its ``molecule_key`` and run
-        the injected [`Idealizer`][] (the store-backed one built by
-        [`make_store_idealizer`][] runs the real SMD→vbFRET→write pipeline). The
-        fit runs on a **background worker** and a main-thread timer polls it, so the
-        GUI stays responsive during a long (cold-JIT) fit; when it finishes the
-        Viterbi path is drawn on the dock — always on the main thread. A missing
-        selection, no wired idealizer, an already-running fit, an empty result, or a
-        failing/length-mismatched fit each surface as a status message, never a crash.
-        """
+    def _idealize_unavailable(self) -> str | None:
+        """Why "Idealize project…" cannot run now, or ``None`` when it can."""
         if self._idealize_future is not None:
-            self._status("Idealize: a fit is already running")
-            return
-        row = self._molecule_list.currentRow()
-        trace = self._traces[row] if 0 <= row < len(self._traces) else None
-        if trace is None:
-            self._status("Idealize: select a molecule first")
-            return
-        if trace.molecule_key is None or self._idealizer is None:
-            self._status("Idealize: load a project with extracted molecules first")
-            return
+            return "a background task is running; wait for it to finish"
         if self._curation_project is not None:
             self._refresh_project_lock()
-            if self._curation_project is None:
-                return
-        key = trace.molecule_key
-        if self._curation_project is not None:
-            from tether.project.labels import CurationLabel
+        if self._idealizer is None or self._curation_project is None:
+            return self._curation_read_only_reason or "load a project with extracted molecules"
+        return None
 
-            try:
-                rejected = self._curation_project.curation_label(key) == CurationLabel.REJECT
-            except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the read failure
-                self._status(f"Idealize failed for {key}: {exc}")
-                return
-            if rejected:
-                self._status(
-                    "Idealize unavailable: selected molecule is rejected; un-reject it first"
-                )
-                return
-        self._status(f"Idealizing {key} (one-click vbFRET)…")
-        # The indicator names the molecule as the list shows it (``trace.name`` or
-        # ``mol-<i>``); the key stays for the idealizer and the status message. The fit
-        # is not cancellable (#343): its sidecar may still commit HDF5 data.
-        self._tasks.start(
+    def show_idealize_dialog(self) -> Any | None:
+        """Open "Idealize project…" (``I``, **Idealize** menu, #625); return the dialog.
+
+        The dialog ([`IdealizeProjectDialog`][tether.gui.idealize_project.IdealizeProjectDialog])
+        shows non-modal over the window, with the facts of the open project read now; its
+        **Idealize** starts [`idealize_project`][] with the choice. ``None``, with a status
+        message, when no fit can run: no writable project, or a background task running.
+        """
+        from tether.gui.idealize_project import IdealizeProjectDialog, read_fit_facts
+
+        reason = self._idealize_unavailable()
+        project = self._curation_project
+        if reason is not None or project is None:
+            self._status(f"Idealize project unavailable: {reason}")
+            return None
+        try:
+            facts = read_fit_facts(project)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the read failure
+            self._status(f"Idealize project unavailable: {exc}")
+            return None
+        if self._idealize_dialog is not None:
+            self._idealize_dialog.dialog.close()
+        dialog = IdealizeProjectDialog(facts, parent=self._window)
+        self._idealize_dialog = dialog
+
+        def accepted() -> None:
+            self._idealize_dialog = None
+            self.idealize_project(dialog.choice())
+
+        def rejected() -> None:
+            self._idealize_dialog = None
+
+        dialog.dialog.accepted.connect(accepted)
+        dialog.dialog.rejected.connect(rejected)
+        dialog.dialog.open()
+        return dialog
+
+    def idealize_project(self, fit: Any) -> bool:
+        """Start the whole-project fit *fit* (#625).
+
+        *fit* is a [`ProjectFit`][tether.gui.idealize_project.ProjectFit].
+
+        It runs on the background-task service (#343) with progress and **Cancel**; the
+        project stays open for browsing while every project write waits for it. The fit
+        is the ``idealize`` command on the session's own project handle, bound to the
+        exact lock held when it starts. A cancel stops it before its model is written,
+        so the project is unchanged. Returns whether it started; a refusal is a status
+        message and starts nothing.
+        """
+        from tether.gui.idealize_project import METHOD_LABELS
+
+        reason = self._idealize_unavailable()
+        if reason is not None:
+            self._status(f"Idealize project unavailable: {reason}")
+            return False
+        label = METHOD_LABELS.get(fit.method, fit.method)
+        what = f"Refitting the stale {fit.method} model" if fit.stale_only else "Idealizing project"
+        self._status(f"{what} ({label})…")
+        started = self._tasks.start(
             self._idealizer,
-            key,
-            context=key,
-            label=f"Idealizing {self._row_name(row, trace)}",
+            fit,
+            context=fit,
+            label=what,
             on_finished=self._finish_idealize,
+            cancellable=True,
+            reports_progress=True,
         )
         self._sync_project_write_controls()
+        return started is not None
 
     def _finish_idealize(self, outcome: TaskOutcome) -> None:
-        """Apply a finished fit on the main thread: draw it, or report why not."""
+        """Apply a finished project fit on the main thread: report it and draw the step line."""
+        from tether.gui.idealize_project import SIDECAR_REMEDY, outcome_message, stored_model
+        from tether.gui.messages import Level
         from tether.gui.tasks import TaskState
+        from tether.services.idealize import SidecarUnavailable
 
         # The service has already stopped the timer, restored the cursor and stopped the
         # indicator, and holds no task: the write gates below see an idle shell.
-        key = outcome.context
+        fit = outcome.context
         self._sync_project_write_controls()
         if self._curation_project is None:
             self._retry_session_release()
+        if outcome.state is TaskState.CANCELLED:
+            self._status("Idealize project cancelled: the project is unchanged")
+            return
         if outcome.state is not TaskState.DONE:
-            self._status(f"Idealize failed for {key}: {outcome.error}")
+            self._refresh_project_lock()
+            detail = f"Idealize project failed: {outcome.error}"
+            if isinstance(outcome.error, SidecarUnavailable):
+                detail = f"{detail}. {SIDECAR_REMEDY}"
+            self._status(detail, Level.ERROR)
             return
-        idealized = outcome.value
+        result = outcome.value
         self._queue_readiness_refresh()
-        self._queue_states_refresh()  # the row now has a fit
-        if idealized is None:
-            self._status(f"Idealize: no idealization produced for {key}")
-            return
+        self._queue_states_refresh()  # the rows now have a fit
+        self._queue_analysis_refresh()  # a model-derived plot may read the new fit
+        self._status(outcome_message(fit, result))
+        stored = stored_model(result)
         row = self._molecule_list.currentRow()
-        current = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
-        if current != key:
-            # The curator navigated away while the fit ran; the result is for a
-            # different molecule, so don't draw it on the one now on screen.
-            self._status(f"Idealization for {key} ready (selection moved on)")
+        key = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
+        if stored is None or stored.idealized is None or key not in stored.molecule_keys:
             return
         try:
-            self._trace_dock.set_idealization(idealized)
+            self._trace_dock.set_idealization(stored.idealized[stored.molecule_keys.index(key)])
         except Exception as exc:  # noqa: BLE001 - a mismatched result must not crash
-            self._status(f"Idealize failed for {key}: {exc}")
-            return
-        self._status(f"Idealized {key} (one-click vbFRET)")
+            self._status(f"Idealize project: the step line of {key} cannot be drawn: {exc}")
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -5260,6 +5319,10 @@ class TetherShell:
         theme.unsubscribe(self._apply_menu_icons)
         self._molecule_view.close()
         self._start_page.close()
+        # The "Idealize project…" dialog is non-modal: close it with the window.
+        if self._idealize_dialog is not None:
+            self._idealize_dialog.dialog.close()
+            self._idealize_dialog = None
         # The correction summary is its own top-level window: it would outlive the shell.
         if self._correction_summary is not None:
             self._correction_summary.close()
@@ -5298,54 +5361,19 @@ class TetherShell:
         self.close()
 
 
-def make_store_idealizer(
-    project: Project | str | PathLike[str],
-    *,
-    model_name: str = "vbfret",
-    overwrite: bool = True,
-    require_held_lock: bool = False,
-    **kwargs: Any,
-) -> Idealizer:
-    """Build the store-backed one-click-idealize callable for a [`TetherShell`][].
+def make_store_idealizer(project: Project, *, _runner: Any = None) -> Idealizer:
+    """Build the store-backed whole-project fit for a [`TetherShell`][] (#625).
 
-    Returns a ``molecule_key -> idealized-path`` function that runs the real
-    [`tether.project.idealize.idealize_molecules`][] pipeline for that molecule
-    (build an SMD → vbFRET via the sidecar → write ``/idealization/{model_name}`` as
-    additive data with the per-molecule input-provenance hash) and hands back its
-    per-frame Viterbi path for the dock overlay. ``overwrite=True`` so re-pressing
-    ``I`` re-idealizes into the same model. Extra keyword arguments
-    (``nstates`` / ``nstates_grid`` / ``intensity_quantity`` / ``sidecar_python`` /
-    ``timeout`` …) pass straight through to
-    [`idealize_molecules`][tether.project.idealize.idealize_molecules].
-
-    ``require_held_lock=True`` is the explicit retained-session contract used by
-    [`TetherShell.load_project`][]. An ordinary [`Project`][] handle keeps the
-    documented unlocked-or-self-owned writer guard.
-
-    **MVP scope.** Idealizes the single selected molecule into a shared model,
-    overwriting that model's prior contents; batch / accumulating idealization and
-    model management are a later session (the deferred store↔shell hookup).
+    Returns ``idealizer(fit, cancel=None, progress=None)``, which runs
+    [`fit_project`][tether.gui.idealize_project.fit_project] on *project*: the
+    ``idealize`` command ([`run_held`][tether.services.idealize.run_held]) on this handle,
+    whose session lock it requires and does not release. ``_runner`` is the private
+    sidecar test seam of the command.
     """
-    from tether.project.idealize import idealize_molecules
+    from tether.gui.idealize_project import fit_project
 
-    retained_session = {"require_held_lock": True} if require_held_lock else {}
-
-    def _idealize(molecule_key: str) -> np.ndarray | None:
-        stored = idealize_molecules(
-            project,
-            [molecule_key],
-            model_name=model_name,
-            overwrite=overwrite,
-            **retained_session,
-            **kwargs,
-        )
-        if stored.idealized is None:
-            return None
-        try:
-            row = stored.molecule_keys.index(molecule_key)
-        except ValueError:  # the requested key was not fitted (should not happen)
-            return None
-        return stored.idealized[row]
+    def _idealize(fit: Any, *, cancel: Any = None, progress: Any = None) -> Any:
+        return fit_project(project, fit, cancel=cancel, progress=progress, _runner=_runner)
 
     return _idealize
 
@@ -5536,7 +5564,7 @@ class _StoreHandoff:
             # binds each write to the retained session's exact nonce, so a lock stolen
             # while `_reconcile()` re-resolves the match — and released again before the
             # return leg persists — is still refused. Matches the retained-session
-            # contract `make_store_idealizer(..., require_held_lock=True)` uses.
+            # contract the whole-project fit of `make_store_idealizer` uses.
             return self._project.apply_reconcile(smd_path, require_held_lock=True, **kwargs)
         return apply_reconcile(
             self._project,
@@ -5732,18 +5760,6 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
             )
         )
 
-    keyed = {t.molecule_key: t for t in traces}
-
-    def _demo_idealizer(molecule_key: str) -> np.ndarray | None:
-        # A SYNTHETIC two-level step for the interactive/computer-use smoke ONLY —
-        # not a real vbFRET fit. The real one-click uses make_store_idealizer(project).
-        trace = keyed.get(molecule_key)
-        if trace is None:
-            return None
-        path = np.full(trace.n_frames, 0.3)
-        path[trace.n_frames // 2 :] = 0.7
-        return path
-
     # A tiny on-disk demo project so the &Conditions menu opens a populated dialog for
     # the live smoke: two acquisitions of one condition (T-box) across two files + a
     # near-miss (Tbox), left unsynced so the rows show as «dangling» until the curator
@@ -5778,7 +5794,7 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         demo_table.resize((len(specs),))
         demo_table[:] = demo_rows
 
-    shell = TetherShell(idealizer=_demo_idealizer, conditions=Project(demo_path))
+    shell = TetherShell(conditions=Project(demo_path))
     shell.set_molecules(traces)
     shell.show()
     app.exec()

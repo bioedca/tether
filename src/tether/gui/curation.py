@@ -98,7 +98,7 @@ class CurationAction(StrEnum):
     REJECT = "reject"  # Tether-only: Backspace / Delete
     UNREJECT = "unreject"  # Tether-only: visible one-click reversal control
     JUMP = "jump"  # Tether-only: Enter — round-trip to the movie spot
-    IDEALIZE = "idealize"  # Tether-only: I — one-click vbFRET (wired at M2 S6)
+    IDEALIZE = "idealize"  # Tether-only: I — opens "Idealize project…" (#625)
     NEXT = "next"  # inherited: Right / Down
     PREV = "prev"  # inherited: Left / Up
     NEXT_UNDECIDED = "next_undecided"  # Tether-only: U — the next undecided molecule (#630)
@@ -168,7 +168,7 @@ _ACTION_TEXT: dict[CurationAction, str] = {
     CurationAction.REJECT: "Reject trace",
     CurationAction.UNREJECT: "Un-reject trace",
     CurationAction.JUMP: "Jump to movie spot",
-    CurationAction.IDEALIZE: "One-click idealize",
+    CurationAction.IDEALIZE: "Idealize project…",
     CurationAction.NEXT: "Next trace",
     CurationAction.PREV: "Previous trace",
     CurationAction.NEXT_UNDECIDED: "Next undecided trace",

@@ -1036,8 +1036,8 @@ log file `tether.log` keep the earlier ones.
 
 **Why.** A warning or an error stays in the status bar until you press **Dismiss** beside it, or
 until the next warning or error. A later information line, such as `Molecule mol-3 (4/40)`,
-does not hide it. The one-click idealize has no **Cancel**, because its sidecar may still write
-to the project, and the [privacy page](privacy.md#the-desktop-application) says what the log
+does not hide it. The whole-project fit has a **Cancel**: it stops the fit before the model
+is written, so the project is unchanged. The [privacy page](privacy.md#the-desktop-application) says what the log
 file holds.
 
 ---
