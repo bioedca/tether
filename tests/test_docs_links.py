@@ -273,6 +273,9 @@ _DELIMITERS = {
     "_": _delimiter_boundary("_", smart=True),
 }
 
+# The comment alternative of `HTML_RE`: an inline comment, as the inline pass reads it.
+_INLINE_COMMENT_RE = re.compile(r"<!--(?:(?!<!--|-->).)*-->", re.DOTALL)
+
 # htmlparser.commentclose. The renderer's HTML preprocessor reads the page in order: a
 # comment runs from `<!--` to the first close, and one with no close is a literal `<`. A
 # comment that opens a line (at most three spaces in, outside any blockquote) is a raw
@@ -1095,6 +1098,25 @@ def _reread(nodes: list[_Node], spans: list[tuple[int, int]] = ()) -> list[tuple
     return out
 
 
+def _inline_comments(view: str, start: int, end: int, nodes) -> list[tuple[int, int]]:
+    """The spans of the inline comments the renderer finds in ``view[start:end]``.
+
+    Inline HTML runs after the code spans and the link patterns, on text where each node
+    they made is stashed as a placeholder. So a ``<!--`` or ``-->`` in a code span, in a
+    link, or in an image's ``alt`` pairs with nothing outside it, and
+    ``![<!--](#a) [t][k] -->`` shows ``[t][k]``. A link's text is read again on its own,
+    so a comment inside it is found there; an image's text is an attribute and is not.
+    """
+    text = view[start:end]
+    for n in nodes:
+        text = text[: n.begin - start] + _CODE * (n.stop - n.begin) + text[n.stop - start :]
+    out = [(start + s, start + e) for s, e in (m.span() for m in _INLINE_COMMENT_RE.finditer(text))]
+    for n in nodes:
+        if not n.kind.startswith(("image", "short_image")):
+            out += _inline_comments(view, n.text[0], n.text[1], n.children)
+    return out
+
+
 def _walk(nodes) -> list[_Node]:
     """The nodes and every node nested in them, except inside an image.
 
@@ -1162,10 +1184,11 @@ def _doc(path: Path) -> _Doc:
 
     fenced = _FENCED_BLOCK_RE.sub(blank_fence, text)
     comments = _comments(fenced)
-    for offset in _tag_value_hazards(fenced, comments):
-        problem(
-            offset, "an HTML tag with `<!--`, `>` or a block-level tag in a quoted attribute value"
-        )
+    # Found before the comment and raw-block passes it would mislead, and reported once the
+    # code is known: a tag in a code span or an indented code block is text, not a tag.
+    hazards = _tag_value_hazards(fenced, comments)
+    hazard = "an HTML tag with `<!--`, `>` or a block-level tag in a quoted attribute value"
+    placed: set[int] = set()
     raw = _raw_html_blocks(_blank_spans(fenced, comments))
     stashed = _stashed_comments(fenced, comments)
     blocks = _blank_spans(fenced, stashed)
@@ -1240,12 +1263,21 @@ def _doc(path: Path) -> _Doc:
             spans += [(start + s_, end + s_) for start, end in inner]
         for start, end in spans:
             crosses(start, end, "a code span")
+        for offset in hazards:
+            if a <= offset < b:
+                placed.add(offset)
+                in_code = bisect.bisect_right(starts, offset) - 1 in code
+                if not in_code and not any(s_ <= offset - a < e_ for s_, e_ in spans):
+                    problem(offset, hazard)
         view = _mask_escapes(view)
-        hidden = [
-            (start - a, end - a)
-            for start, end in comments
-            if a <= start < b and blocks[start] == "<"
-        ]
+        nodes: list[_Node] = []
+        tries: list[tuple[_Try, int]] = []  # each with the end of its segment
+        hidden: list[tuple[int, int]] = []
+        for s_, e_ in segments:
+            more, more_tries = _inline(view, definitions, 0, s_, e_)
+            nodes += more
+            tries += [(t, e_) for t in more_tries]
+            hidden += _inline_comments(view, s_, e_, more)
 
         def shown(offset: int, hidden: list[tuple[int, int]] = hidden) -> bool:
             # A comment that does not open a line is inline HTML, which runs after the link
@@ -1253,12 +1285,6 @@ def _doc(path: Path) -> _Doc:
             # reader sees none of it and the strict build does not check it (#1013, gap 10).
             return not any(start <= offset < end for start, end in hidden)
 
-        nodes: list[_Node] = []
-        tries: list[tuple[_Try, int]] = []  # each with the end of its segment
-        for s_, e_ in segments:
-            more, more_tries = _inline(view, definitions, 0, s_, e_)
-            nodes += more
-            tries += [(t, e_) for t in more_tries]
         for start, end in _reread(nodes, spans):
             if "[" in view[start:end]:
                 problem(
@@ -1325,11 +1351,14 @@ def _doc(path: Path) -> _Doc:
         links.extend((a + s, t) for s, _, t, _ in _bracketed(chunk, _link_target))
         refs.extend(ref_of(chunk, a, t) for t in _inline(chunk, definitions)[1])
 
+    for offset in hazards:
+        if offset not in placed:  # in a raw HTML block, a heading or a stashed comment
+            problem(offset, hazard)
     for unit in units:
         if unit.heading is not None:
-            hazard = _heading_read(unit.heading, definitions)[1]
-            if hazard is not None:
-                problem(lines[unit.first].start, hazard)
+            why = _heading_read(unit.heading, definitions)[1]
+            if why is not None:
+                problem(lines[unit.first].start, why)
     headings = tuple(u.heading for u in units if u.heading is not None)
     return _Doc(
         path,
@@ -1408,7 +1437,9 @@ def _heading_read(raw: str, definitions: frozenset[str]) -> tuple[str, str | Non
     view = _mask_escapes(view)
     nodes, _ = _inline(view, definitions)
     # A comment is stripped whole, with whatever the link patterns made inside it (#1013).
-    comments = _comments(view)
+    # It is found as in a paragraph, with each node stashed: a `<!--` in an image's alt or
+    # a link's text opens none.
+    comments = _inline_comments(view, 0, len(view), nodes)
     hazards: list[str] = []
     gone: list[int] = []  # the offsets of the `_` markers the emphasis pass pairs
 
@@ -2180,6 +2211,13 @@ _GAP_ROWS = [
         id="gap-5-a-plain-attribute-value",
     ),
     pytest.param(
+        # In a code span or an indented code block the tag is text, shown escaped.
+        'Use `<span title="x > y">t</span>` as an example.\n\nPara.\n\n    <i title="a > b">\n',
+        [],
+        '<code>&lt;span title="x &gt; y"&gt;t&lt;/span&gt;</code>',
+        id="gap-5-a-hazard-in-code-is-text",
+    ),
+    pytest.param(
         # No closing run of two backticks: the first one pairs with nothing and stays
         # literal, and so do the two, so the slug keeps the space between them.
         "# x` ``ax\n\n[ok](#x-ax) [bad](#xax)\n",
@@ -2194,6 +2232,38 @@ _GAP_ROWS = [
         [],
         '<!-- [hidden][missing] and <a href="gone.md">x</a> -->',
         id="gap-10-links-inside-a-mid-line-comment",
+    ),
+    pytest.param(
+        # Comment delimiters shown in code spans open no comment: the code spans run first.
+        "See `<!--` [broken][missing] `-->` here.\n",
+        [f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>See <code>&lt;!--</code> [broken][missing] <code>--&gt;</code> here.</p>",
+        id="gap-10-delimiters-in-code-hide-nothing",
+    ),
+    pytest.param(
+        # Nor do delimiters in an image's alt or a link's text: inline HTML runs after the
+        # link patterns, with each image and link stashed.
+        "Text ![<!--](#a) [broken][missing] [<!--](#a) [gone][missing] -->\n",
+        [
+            f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}",
+            f"docs/a.md:3: reference-style link [gone][missing] has no [missing]: {_REF}",
+        ],
+        '<img alt="&lt;!--" src="#a" /> [broken][missing] <a href="#a">&lt;!--</a>',
+        id="gap-10-delimiters-in-a-link-hide-nothing",
+    ),
+    pytest.param(
+        # A definition cuts the block, so no comment runs across it.
+        "Text <!-- x\n[k]: a.md\n--> [broken][missing]\n",
+        [f"docs/a.md:5: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>--&gt; [broken][missing]</p>",
+        id="gap-10-a-definition-cuts-a-comment",
+    ),
+    pytest.param(
+        # A heading's comments are found the same way, so its slug keeps the link's text.
+        "## A ![<!--](#a) [B](#a) --> C\n\n[ok](#a-b-c) [bad](#a-ba-c)\n",
+        ["docs/a.md:5: link to '#a-ba-c': no heading or HTML anchor '#a-ba-c' in docs/a.md"],
+        '<h2 id="a-b-c">A <img alt="&lt;!--" src="#a" /> <a href="#a">B</a> --&gt; C</h2>',
+        id="gap-10-delimiters-in-an-image-in-a-heading",
     ),
     # Emphasis markers in heading slugs (#1385).
     pytest.param(

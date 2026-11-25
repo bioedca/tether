@@ -100,6 +100,11 @@ _TETHER_IMPORT_LINE_RE = re.compile(
     r"""|\b(?:import_module|__import__)\s*\(\s*[rRuU]?["']tether\b"""
 )
 
+#: A literal dynamic import whose string may follow on a later line, past session prompts.
+_SPLIT_DYNAMIC_IMPORT_RE = re.compile(
+    r"""\b(?:import_module|__import__)\s*\((?:\s|\.\.\. )*[rRuU]?["']tether\b"""
+)
+
 
 def _page_text(path: Path) -> str:
     """The page as ``NormalizeWhitespace`` hands it on: newlines unified, tabs expanded."""
@@ -132,13 +137,19 @@ def _fences(path: Path) -> list[tuple[str, int, list[str]]]:
     return out
 
 
+# A line that may hold a dynamic import call, which the fallback parse also reads.
+_DYNAMIC_CALL_RE = re.compile(r"\b(?:import_module|__import__)\s*\(")
+
+
 def _statements(body: list[str]) -> list[tuple[int, ast.stmt]]:
     """Top-level statements of a fence body, with 0-based line offsets into ``body``.
 
     A whole-fence parse is tried first. A fence that is not valid Python as a whole (an
     elided ``...`` argument list, a ``>>>`` session) falls back to parsing each statement
     that starts on its own line, extending it line by line until it parses, so a
-    parenthesised multi-line import is still read as one statement.
+    parenthesised multi-line import is still read as one statement. A line holding an
+    ``import_module`` or ``__import__`` call is read the same way, so a ``pycon`` session
+    that shows the call's output still has the call checked (#1013).
     """
     body = [re.sub(r"^(?:>>> |\.\.\. )", "", ln) for ln in body]
     try:
@@ -148,7 +159,7 @@ def _statements(body: list[str]) -> list[tuple[int, ast.stmt]]:
         pass
     out = []
     for start, line in enumerate(body):
-        if not re.match(r"(?:from|import)\s", line):
+        if not re.match(r"(?:from|import)\s", line) and not _DYNAMIC_CALL_RE.search(line):
             continue
         for end in range(start + 1, len(body) + 1):
             try:
@@ -378,11 +389,32 @@ def _unchecked_import_lines() -> list[str]:
     missed = []
     for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
         rel = path.relative_to(ROOT).as_posix()
-        for first, last, text in _logical_lines(_page_text(path)):
+        page = _page_text(path)
+        reported: set[int] = set()
+        for first, last, text in _logical_lines(page):
             if _TETHER_IMPORT_LINE_RE.search(text) and not any(
                 (rel, number) in checked for number in range(first, last + 1)
             ):
                 missed.append(f"{rel}:{first}: {text.strip()}")
+                reported.update(range(first, last + 1))
+        # Each physical line is read on its own too: a backslash that ends a comment, as in
+        # ``# C:\``, continues nothing, so the import on the next line must not hide in it.
+        for number, line in enumerate(page.split("\n"), start=1):
+            if (
+                number not in reported
+                and (rel, number) not in checked
+                and _TETHER_IMPORT_LINE_RE.search(line)
+            ):
+                missed.append(f"{rel}:{number}: {line.strip()}")
+                reported.add(number)
+        # A dynamic import's call and its string may sit on separate lines inside the
+        # parentheses, which no backslash joins, so the page is searched whole for it as well.
+        lines = page.split("\n")
+        for m in _SPLIT_DYNAMIC_IMPORT_RE.finditer(page):
+            number = page.count("\n", 0, m.start()) + 1
+            if number not in reported and (rel, number) not in checked:
+                missed.append(f"{rel}:{number}: {lines[number - 1].strip()}")
+                reported.add(number)
     return missed
 
 
@@ -850,6 +882,37 @@ def test_an_import_continued_with_a_backslash_is_one_line_to_the_guard(
     assert _unchecked_import_lines() == ["docs/a.md:4: import os,     tether.no_such_module"]
 
 
+def test_a_backslash_that_ends_a_comment_hides_no_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A comment is not continued by a backslash, so the import on the next line is read."""
+    untagged = "# A\n\n```\n# Example path: C:\\\nimport tether.no_such_module\n```\n"
+    _page(tmp_path, monkeypatch, untagged)
+    assert _unchecked_import_lines() == ["docs/a.md:5: import tether.no_such_module"]
+
+
+def test_a_dynamic_import_split_across_lines_is_seen_by_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Greptile on PR #1391: no backslash joins the call to its string inside parentheses."""
+    untagged = '# A\n\n```\nm = importlib.import_module(\n    "tether.no_such_module"\n)\n```\n'
+    _page(tmp_path, monkeypatch, untagged)
+    assert _unchecked_import_lines() == ["docs/a.md:4: m = importlib.import_module("]
+
+
+def test_a_split_dynamic_import_in_a_python_fence_is_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = (
+        "# A\n\n```python\nimport importlib\n"
+        'm = importlib.import_module(\n    "tether.no_such_module"\n)\n```\n'
+    )
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 5)]
+    assert _unchecked_import_lines() == []
+
+
 def test_a_continued_import_in_a_python_fence_is_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -858,4 +921,20 @@ def test_a_continued_import_in_a_python_fence_is_checked(
     imports = _docs_imports()
     assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 4)]
     assert "no module tether.no_such_module" in _problems(*imports[0])[0]
+    assert _unchecked_import_lines() == []
+
+
+def test_a_dynamic_import_in_a_session_with_output_is_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The output line makes the whole-fence parse fail; the fallback still reads the call."""
+    body = (
+        "# A\n\n```pycon\n>>> import importlib\n"
+        '>>> importlib.import_module("tether.analysis.histogram")\n'
+        "<module 'tether.analysis.histogram' from '...'>\n```\n"
+    )
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 5)]
+    assert [p for i in imports for p in _problems(*i)] == []
     assert _unchecked_import_lines() == []

@@ -71,15 +71,21 @@ def movie_suffixes() -> tuple[str, ...]:
     """Return the file suffixes a folder or a pattern contributes as movies.
 
     They are the extensions of the registered movie readers
-    ([`tether.io.adapters.registered_adapters`][]), lower case and in registration order,
-    so a reader added to the registry is found in folders with no change here. Suffixes
-    are compared without regard to case. A file named as an argument of its own is used
-    whatever its suffix, and the registry then decides by its content.
+    ([`tether.io.adapters.registered_adapters`][]) whose movies extraction reads
+    ([`tether.io.movie.EXTRACTED_CONTAINERS`][]), lower case and in registration order.
+    A reader that opens a movie extraction refuses contributes nothing. A folder that
+    holds an original beside its TIFF export (``x.nd2`` and ``x.tif``) gives both, and
+    [`output_stems`][] then refuses the pair by name. Suffixes are compared without
+    regard to case. A file named as an argument of its own is used whatever its suffix,
+    and the registry then decides by its content.
     """
-    from tether.io.adapters import registered_adapters  # noqa: PLC0415 - imports the readers
+    from tether.io import movie  # noqa: PLC0415 - imports the readers
+    from tether.io.adapters import registered_adapters  # noqa: PLC0415
 
     suffixes: list[str] = []
     for adapter in registered_adapters():
+        if adapter.name not in movie.EXTRACTED_CONTAINERS:
+            continue
         suffixes.extend(ext for ext in adapter.extensions if ext not in suffixes)
     return tuple(suffixes)
 
@@ -338,7 +344,10 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
     ------
     OutputNameCollision
         If two movies still share a stem when neither has a parent folder left, such as
-        ``A.tif`` and ``a.tif`` in one folder.
+        ``A.tif`` and ``a.tif`` in one folder. Two movies of one stem in one folder with
+        different suffixes, such as an ND2 original ``x.nd2`` beside its TIFF export
+        ``x.tif``, are refused with a message that says so: the batch does not choose
+        between them (#1388).
     """
     parents = [_parent_names(Path(movie)) for movie in movies]
     stems = [Path(movie).stem for movie in movies]
@@ -364,6 +373,16 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
                     grew = True
         if not grew:
             first, second = colliding[0][:2]
+            a, b = Path(movies[first]), Path(movies[second])
+            if a.suffix.casefold() != b.suffix.casefold():
+                # One stem, one folder, two containers: an original beside its export
+                # (x.nd2 and x.tif). Neither is taken for the other; the user picks one
+                # (#1388, ADR-0149).
+                raise OutputNameCollision(
+                    f"movies {str(a)!r} and {str(b)!r} have one name in two containers "
+                    f"({a.suffix} and {b.suffix}), as an original and its export do; the "
+                    "batch reads only one of them: move or rename the other"
+                )
             raise OutputNameCollision(
                 f"movies {str(movies[first])!r} and {str(movies[second])!r} both map to "
                 f"the output name {names[first]!r} (names that differ only in case are "

@@ -7,7 +7,8 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has eight subcommands: `tether extract` and `tether batch` write projects,
+command line has nine subcommands: `tether extract` and `tether batch` write projects,
+`tether reextract` extracts a movie of a project again as a new trace generation,
 `tether idealize` fits the traces of a project that exists, `tether map create` writes a
 channel map file for later extractions, `tether info` only reads projects and prints a
 summary, `tether status` only reads a project and prints which steps are complete, which
@@ -84,11 +85,11 @@ Running `tether` with no subcommand prints the top-level help and exits 0.
 ## `tether extract`
 
 Run the native extraction pipeline — split → detect → register → colocalize → integrate —
-on one dual-channel TIFF movie and write a new `.tether` project.
+on one dual-channel movie (TIFF or ND2) and write a new `.tether` project.
 
 ```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
-               [--detection-mode {wavelet,intensity,bandpass}]
+               [--detection-mode {wavelet,intensity,bandpass,zmw}]
                [--detection-threshold FRAC] [--window WINDOW]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
@@ -102,14 +103,14 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movie` | *(required)* | path to the dual-channel TIFF movie |
+| `movie` | *(required)* | path to the dual-channel movie (TIFF or ND2) |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
 | `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
-| `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
-| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
+| `--detection-mode {wavelet,intensity,bandpass,zmw}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass`/`zmw` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
+| `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98`, zmw `0.5` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass/zmw modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
 | `--window WINDOW` | `21` | aperture / crop-box side length in px, odd |
-| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass 3) | minimum spot separation in px |
+| `--min-separation MIN_SEPARATION` | unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass/zmw 3) | minimum spot separation in px |
 | `--detection-block DETECTION_BLOCK` | `50` | moving-average block size for the detection image |
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
@@ -335,6 +336,56 @@ still exits 0, but a warning goes to stderr and the affected molecules are tagge
 `low-confidence-registration` in the project — a flag you can filter on later rather
 than a silent pass.
 
+## `tether reextract`
+
+Extract a movie that a project holds again, as a new *trace generation*
+([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). Use it
+when the map, the channel geometry or an extraction option of a movie you have curated
+changes. The earlier extraction is never overwritten: it stays readable in the project, labels
+and all.
+
+```text
+tether reextract [-h] [--map PATH] [--tmap PATH] [--tdat PATH] [--profile PATH]
+                 [--match-px PX]
+                 project movie
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | the `.tether` project that holds the movie |
+| `movie` | *(required)* | the movie file, with the bytes the project recorded |
+| `--map PATH` | none | apply a saved Tether `.npz` map file instead of a native fit, never with `--tmap` |
+| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit |
+| `--tdat PATH` | none | apply the particle-detection mode of a Deep-LASI `.tdat`, as for `tether extract` |
+| `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). Without one, each option has the default of `tether extract` |
+| `--match-px PX` | `None` | the "did not move" distance in pixels. `None` is 0.5 px (`GENERATION_MATCH_PX`) |
+
+**What moves to the new generation.** A molecule of the new extraction within `--match-px`
+of a molecule of the previous one (each the other's closest) *did not move*. It keeps that
+molecule's key, and its label, category and analysis window move to it with the mark
+**carried**. A carried label does not train the ranker until a person confirms it in the
+application (Curation → Reconcile trace generation…), or accepts or rejects the molecule
+again. Every fit and correction of the movie becomes stale. The aperture options of the
+profile (`disk_radius`, `ring_inner`, `ring_outer`, `bg_window`) must equal the project's.
+
+The command holds the project's writer lock for the whole run, so it refuses a project
+that the application or another command has open for writing. It prints the counts of
+the three lists that the reconciliation page shows:
+
+```console
+$ tether reextract experiment.tether movie_010.tif --map beads.npz
+Extracted 214 molecule(s) as generation 2 of movie movie_010 -> experiment.tether
+  198 carried (198 waiting for confirmation), 16 new, 9 lost. The fits and corrections of the movie are stale
+```
+
+A **new** molecule has no partner in the previous generation, so it has no labels. A
+**lost** molecule of the previous generation has no partner in the new one. It and its
+labels stay readable in the previous generation. `tether status` prints the same counts.
+Exit codes: `0` the new generation was written, `1` the run failed and the project is
+unchanged (for example, the movie is not in the project, or the project is locked), `2`
+bad command-line arguments. A recipe step runs the same command:
+`{"command": "reextract", "fields": {"project": ..., "movie": ...}}`.
+
 ## `tether batch`
 
 Process many movies unattended (FR-BATCH). Give it a folder of movies, a pattern or the
@@ -357,7 +408,7 @@ tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
+| `movies` | *(required, one or more)* | dual-channel movies (TIFF or ND2): each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
 | `--recursive` | off | a folder argument also includes the movies in its sub-folders |
 | `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. Nothing is written, and no movie is read except to hash it under `--into` ([see below](#check-a-batch-before-it-runs-dry-run)) |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(this or `--into`)* | directory for the per-movie `.tether` projects (created if absent) |
@@ -398,18 +449,26 @@ profile.
 | `done` | the stage ran and succeeded | no |
 | `skipped` | a checkpoint found the stage already complete | no |
 | `failed` | the stage raised (or an over-gate movie under `--policy fail`) | **yes** |
-| `blocked` | an upstream stage failed | no |
+| `blocked` | an upstream stage did not complete, or (with `--into`) the movie left the project | no |
 | `deferred` | the sidecar was unavailable at startup | no |
 | `not-requested` | `--no-idealize` | no |
-| `warning` | non-fatal, for example provenance stamping failed | no |
 
-Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
-makes it exit `3`. See
+A `warning` is not a stage status. It is a log event for a non-fatal problem, for example a
+failed provenance stamp or a write lock that was not released. It goes to the structured log
+at the WARNING level. Unless you pass `--quiet`, the progress output on stderr shows it too. It
+does not change the exit code.
+
+In a finished run, only `failed` makes the run exit `1`. A `deferred` stage in a run with no
+`failed` stage makes it exit `3`. See
 [a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+The command also exits `1`, with no summary, when it cannot create the output directory or
+write the batch log (`tether.services.batch`).
 
-`blocked` is the one row that never shows up on an exit-`0` run in practice. A stage is
-blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
-with a `failed` in the same movie and the run exits `1` anyway.
+A stage is usually blocked because its upstream stage was not `done`/`skipped`. So a `blocked`
+usually travels with a `failed` in the same movie, and the run exits `1` anyway. There is one
+exception. With `--into`, a movie that another writer removed from the project after its
+extract stage gets `correct=blocked`, with the detail `no longer in <project>`. Its extract
+stage is `done` or `skipped`, so that run can exit `0`.
 
 ### Which movies a folder or a pattern gives
 
@@ -417,8 +476,13 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  a Tether movie reader opens, in any case. Today these are `.tif` and `.tiff`. With
-  `--recursive` it also gives the movies in its sub-folders.
+  extraction reads, in any case. Today these are `.tif`, `.tiff` and `.nd2`. With `--recursive`
+  it also gives the movies in its sub-folders. Tether opens `.czi` movies too, but extraction
+  does not read them yet (#1390), so a folder or a pattern leaves them out. A `.czi` file that
+  you name on its own fails its extraction stage with a message that says so
+  ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
+  folder (`x.nd2` and `x.tif`) is one movie, so the run stops before anything is written and the
+  message names both files. Move or rename one.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
@@ -432,7 +496,7 @@ gives no movie stops the run before anything is written, and the message names i
 
 ```console
 $ tether batch data/day4 -d out
-tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff, .nd2); add --recursive to include its sub-folders
 ```
 
 A folder that Tether cannot list stops the run in the same way. This includes each
@@ -740,8 +804,8 @@ tether run [-h] [--dry-run] [--resume] recipe
 | `--resume` | off | skip the completed steps at the start of the latest run and continue from the first unfinished step |
 
 Each step runs through its service command, in order, as a job stored in the project that
-the step writes (the `output` of `extract`, the `project` of `idealize`, the `into` of
-`batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
+the step writes (the `output` of `extract`, the `project` of `reextract` and of `idealize`,
+the `into` of `batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
 its number. Tether also records progress in its per-user state for the recipe's path and
 contents. This includes successful steps that write no single project, such as `map` or
 `batch` without `into`. The run stops at the first failed step.
@@ -1024,6 +1088,7 @@ out/movie_010.tether
     results: not available in this version (#943)
   Deposit
     deposit: not available in this version (#956)
+  new trace generations: 1 movie(s), 198 carried (12 waiting for confirmation), 16 new, 9 lost
   stale: 1
     fit vbconhmm: 3 of 184 molecules changed since the fit (their traces, window or correction factors)
   jobs: none
@@ -1075,6 +1140,12 @@ and changes the version if it renames or removes a key, or changes the meaning o
 | `next_step.stage` | its stage key, or `null` when every available stage is ready |
 | `next_step.section` | its section, or `null` |
 | `next_step.action` | what to do |
+| `reconciliation` | the molecules of the movies extracted again ([`tether reextract`](#tether-reextract)). The text output prints this line only when `movies` is not `0` |
+| `reconciliation.movies` | how many movies have more than one trace generation |
+| `reconciliation.carried` | the molecules whose labels moved from the previous generation |
+| `reconciliation.new` | the molecules of the active generation with no partner in the previous one |
+| `reconciliation.lost` | the molecules of the previous generation with no partner in the active one |
+| `reconciliation.waiting` | the carried molecules that wait for a person to confirm them |
 
 ## `tether idealize`
 
@@ -1387,8 +1458,8 @@ shows the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract`, `tether batch`, `tether idealize`, `tether map create` and `tether approve`
-are each the command-line route of one *service command*
+`tether extract`, `tether reextract`, `tether batch`, `tether idealize`, `tether map create`
+and `tether approve` are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -1403,6 +1474,7 @@ two differ:
 | Command | Request | Result | What it does |
 |---|---|---|---|
 | `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether reextract` | `tether.services.reextract.ReextractRequest` (version 1) | `tether.services.reextract.ReextractResult` | extract a movie of a .tether project again, as a new trace generation |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
 | `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
 | `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |

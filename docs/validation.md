@@ -241,6 +241,34 @@ donor 0.982 / acceptor 0.854 above). Also
 degree-2 fit vs the imported `.tmap`: RMS ≤ 0.5 px and ≥ 95 % of molecule positions
 agreeing within 1 px, on committed fixtures).
 
+### Detection mode 5 against Deep-LASI's own `findPart`
+
+**What is compared.** The spots of Tether's ZMW detector (`zmw`, Deep-LASI particle-detection
+mode 5, `tether.imaging.detect.detect_spots_zmw`) against the spots of Deep-LASI's own
+`findPart` with mode 5, run in MATLAB at the pinned commit by the `findpart` task of
+`scripts/reference/matlab/deep_lasi.py`
+([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
+Deep-LASI's window cannot select mode 5, so there is no saved Deep-LASI extraction with it to
+repeat. The comparison is of the detector on detection images, with Deep-LASI's shared tail at
+its smallest border width (1 px) and no refinement on both sides.
+
+**Reference data.** Two committed detection images: a 128 × 128 crop of a detection image that
+Deep-LASI saved in the public `Figure_2.zip` of Zenodo record 7561162 (CC-BY-4.0), and a
+synthetic image with three spots on or next to the edge. The run uses thresholds 0.1, 0.3 and
+0.5. Its record and outputs are frozen in `tests/fixtures/reference/deep-lasi/findpart-zmw/`
+(ADR-0074), and the same run keeps the error MATLAB gives for mode 4.
+
+**Tolerance.** Every spot must agree within 1e-9 px, and the counts must be equal. Both sides
+compute the same centroids in double precision.
+
+**Result.** The run of 2026-11-24 (MATLAB R2023b Update 10) agrees in all six cases: 45 spots,
+largest difference 1.5e-14 px. Mode 4 stopped with `Unrecognized function or variable 'r'.`
+
+**Enforcing tests.** `tests/test_deeplasi_findpart_reference.py` (required matrix, no MATLAB
+needed: the outputs are committed), with a fault injection: an erosion padded with 1, where
+MATLAB's `bwmorph` pads with 0, fails the comparison. `tests/test_matlab_reference.py` checks
+the SHA-256 of every frozen file.
+
 ## (b) Idealization parity vs tMAVEN
 
 **What is compared.** Four metrics from `src/tether/idealize/parity.py`, after canonical
@@ -690,11 +718,19 @@ an uplift in percentage points. Two protocols make that measurement
 ([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
 
 - **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
-  videos curated before it. The first video is skipped. This is the ship gate.
+  videos of the condition curated before it. The first video is skipped. This is the ship gate.
 - **Leave-one-video-out**: each video is scored by a model trained on every other video of the
   condition, never on itself. The first video is scored too, and which videos train each
   scorer does not depend on the curation order. It is reported beside the gate, at the same
-  bar. The store entry point evaluates one condition at a time.
+  bar.
+
+Both store entry points evaluate one condition at a time, so the two protocols report on the
+same condition. Each takes a `condition_id`. Without one, a project whose labeled molecules
+span more than one condition raises `ValueError`, which names the conditions. A project with
+one condition gives the same result with or without it. Before
+[#1106](https://github.com/bioedca/tether/issues/1106) the prequential gate pooled every
+condition's labeled videos, so in a project with two conditions it scored one condition's video
+with a ranker trained on the other's, and its median mixed the two.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
@@ -707,7 +743,8 @@ gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 programmatic project files; no committed artifact records a precision@k uplift measured on a real
 labeled video set (withheld, see the gap below). What is
 proven is that both *protocols* behave: the prequential walk skips the first video rather than
-scoring it against nothing, leave-one-video-out trains each video's scorer on exactly the other
+scoring it against nothing and trains each video's scorer on the earlier videos of its own
+condition only, leave-one-video-out trains each video's scorer on exactly the other
 videos' rows and labels of one condition, a ranker equal to file order yields zero uplift and does not ship, a
 non-finite score raises instead of being ranked last, a video split over two folds raises, and
 a single-movie project raises rather than inventing a held-out video.
@@ -722,6 +759,8 @@ a single-movie project raises rather than inventing a held-out video.
 (project-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
 `test_single_movie_project_has_no_held_out_video`,
+`test_gate_refuses_a_project_whose_labels_span_conditions`,
+`test_gate_condition_id_keeps_the_other_condition_out_of_every_fit`,
 `test_lovo_gate_ships_on_separable_multivideo`,
 `test_lovo_trains_on_every_other_video_never_itself` and
 `test_lovo_refuses_a_project_whose_labels_span_conditions`).
@@ -989,6 +1028,10 @@ and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026
 output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
 200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
 with a `provenance.json` that holds the citation, the script hash and the input hashes.
+MATLAB's `run` executes a P-file of the same name in place of the `.m` file, so the harness and
+the task refuse to run when `FRET_cloud_contours_centroids.p` sits beside the pinned script
+([#1252](https://github.com/bioedca/tether/issues/1252)). The script hash is then the hash of the
+code that ran.
 
 The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
 copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
@@ -1230,10 +1273,8 @@ so each test finds the windows in the trace matrix when it runs.
    unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
    Fig. 5b has no trace data in the archive. The authors' per-run trace files, which are not
-   published, hold 138 of the column's 163 molecules: molecules 1 to 138 are the three 5 uM WT
-   tRNA runs joined in order (66, 8 and 64 molecules), first 400 frames each, to 1e-6. The other
-   25 agree with no molecule of those files at any start frame (to 1e-4), and no file has 163
-   molecules (#1128).
+   published, hold all of the column's 163 molecules: they are the four 5 uM WT tRNA runs joined
+   in order (66, 8, 64 and 25 molecules), first 400 frames each, to 1e-6 (#1128, #1344).
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
@@ -1261,7 +1302,7 @@ The two-Gaussian fit of Fig. 5c is compared since #1030 and #1131
 `test_two_gaussian_fit_gives_the_closed_state_fraction` (the four columns with trace data),
 `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` and
 `test_a_198_bin_histogram_fails_the_fig5c_comparison`. Workstation (ADR-0071), on the per-run files:
-`tests/test_campos_chavez_5um_runs.py`, which records the number of molecules that match nothing.
+`tests/test_campos_chavez_5um_runs.py`, which requires all 163 molecules to be the four joined files.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
@@ -1753,10 +1794,13 @@ evidence about the size of the difference and not a tolerance.
 
 **Input formats refused rather than approximated.**
 
-- Deep-LASI particle-detection modes **4 (local-variance)** and **5 (ZMW intensity)** are
-  not ported. `src/tether/io/tdat.py` raises `ValueError` on them rather than silently
-  mis-detecting; only modes 1 (wavelet), 2 (intensity) and 3 (bandpass) are supported
-  ([ADR-0021](adr/0021-particle-detection-modes.md)). A `.tdat` with a non-integer or
+- Deep-LASI particle-detection mode **4 (local-variance)** is not ported, because Deep-LASI's
+  own mode 4 stops with an error at the pinned commit and so gives no result to match.
+  `src/tether/io/tdat.py` raises `ValueError` on it rather than silently mis-detecting. Modes
+  1 (wavelet), 2 (intensity), 3 (bandpass) and 5 (ZMW intensity) are supported
+  ([ADR-0021](adr/0021-particle-detection-modes.md),
+  [ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)). A
+  `.tdat` with a non-integer or
   out-of-range mode code also raises. Covered by
   `tests/test_tdat.py::test_unsupported_detection_mode_raises` and, at the CLI, by
   `tests/test_extract_cli.py::test_extract_tdat_unsupported_mode_errors`, which asserts a

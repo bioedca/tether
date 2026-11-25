@@ -127,6 +127,27 @@ The section bar also shows the next step that `tether status` gives for the open
 Click **Go to** on the bar to open the section of that step. A project made from imported
 traces opens in **Curate and correct**.
 
+A control that needs an earlier step is disabled. Its tooltip names the missing step and
+says what to do, and a screen reader reads the same text. To open the section of that step,
+click **Go to this step**. For a menu command it is the next item in the same menu. For a
+button it is next to the button.
+
+While no project is open, the text is "Open or import a project first." The text for each
+step is:
+
+- **sources and geometry**: Add a movie to the project in Prepare.
+- **map**: Make or choose a map for each movie in Prepare.
+- **trace generation**: Extract the traces of a movie in Prepare.
+- **curation**: Accept or reject the molecules in Curate and correct.
+- **corrections**: Complete the corrections in Curate and correct.
+- **analysis sets**: Make an analysis set in Analyze.
+- **fits**: Fit the molecules in Analyze.
+- **results**: Save a result snapshot in Analyze.
+- **deposit**: Make the deposit package in Deposit.
+
+The same table is `REQUIREMENTS` in
+[`tether.gui.requirements`](../api/gui.md#tether.gui.requirements).
+
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
 where this list shows Ctrl:
@@ -308,6 +329,35 @@ for key in sorted(project.rejected_molecule_keys()):
 ```
 
 `project.accept(key, labeler=…)` and `project.reject(key, labeler=…)` work the same way.
+
+## After a movie is extracted again
+
+A new map, channel geometry or extraction option can make you extract a movie again. Use
+[`tether reextract`](../cli.md#tether-reextract) or a recipe step for it. That writes a new
+*trace generation* and keeps the one you curated
+([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A molecule
+that did not move keeps its key. Its label, category and analysis window move to it with the
+mark **carried**. Every fit and correction of the movie becomes stale.
+
+To see what moved, open the project and choose **Curation → Reconcile trace generations…**.
+The page lists each movie extracted again, in three groups:
+
+- **Carried**: the label moved. The row names who labeled the molecule and when. It says
+  *waiting for confirmation* until you confirm it.
+- **New**: a molecule with no partner in the previous extraction. It has no labels yet.
+- **Lost**: a molecule of the previous extraction with no partner in the new one. It and its
+  labels stay in the previous generation. The trace view does not show it.
+
+Check **Show only the carried molecules** to hide the other two groups. To see the trace of a
+carried or new molecule, double-click it. You can also select it and click **Open in trace
+view**.
+
+Click **Confirm selected** for the molecules you selected. Click **Confirm all carried** for
+every molecule that waits. A confirmation removes the mark and records your curator name and
+the time. The label does not change.
+
+A carried label does not train the quality ranker until you confirm it. An accept or a reject
+of the molecule confirms it too. `tether status` prints the counts of the three groups.
 
 ## What the application remembers on this computer
 
