@@ -232,9 +232,9 @@ retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
-long_share = 28.8
-semicolons = 14
-long_paragraphs = 2
+long_share = 1.2
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/reference/tether-format.md"]
