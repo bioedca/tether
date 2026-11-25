@@ -2574,7 +2574,8 @@ class TetherShell:
         browsing: the project opens read-only, write seams stay disabled, and the
         status banner records why. Replacing a project releases the prior session
         lock; [`close`][] releases the current one (after any in-flight idealizer
-        write settles).
+        write settles). Replacing a project also closes the summary of the last
+        correction pass, so [`correction_summary`][] is ``None`` until the next pass.
 
         Every [`TraceView`][tether.gui.trace_dock.TraceView] carries its ``molecule_key`` so
         the idealize / overlap seams resolve the store row. An **analysis-only** import
@@ -3283,7 +3284,8 @@ class TetherShell:
         Refused (returns ``False`` with a status message) while idealization owns the
         store, as [`load_project`][] is. The lock release takes the same nonce-safe
         route as a lock-loss fallback: a transient failure keeps the handle and the
-        release timer retries it.
+        release timer retries it. It also closes the summary of the last correction
+        pass, so [`correction_summary`][] is ``None`` afterwards (#1393).
         """
         if self._project_path is None:
             self._status("Close project: no project is open")
@@ -3800,6 +3802,8 @@ class TetherShell:
         """The [`CorrectionSummaryDialog`][tether.gui.corrections.CorrectionSummaryDialog].
 
         It is the summary of the last correction pass, or ``None`` before the first one.
+        Closing the project or opening another one closes the summary and resets this to
+        ``None`` until the next pass (#1393).
         """
         return self._correction_summary
 
