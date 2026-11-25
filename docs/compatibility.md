@@ -36,7 +36,7 @@ Tether reads a current ND2 movie with its own reader and extracts it as it extra
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF; a ZEISS `.czi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)) |
+| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel and a current `.nd2` movie extract too ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
 | Compression | **none** — the movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
@@ -59,7 +59,7 @@ return wrong data quietly, which is worse than failing.
 **The content decides, not the extension.** Every movie opens through the reader registry
 in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
 `movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
-message says so. A container Tether does not read, such as a `.czi`, is refused too.
+message says so. A container Tether does not read, such as an Olympus `.oir`, is refused too.
 That message lists what Tether reads (today, TIFF, CZI and ND2) and names the Bio-Formats route for
 the others.
 
