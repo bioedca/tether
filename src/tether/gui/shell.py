@@ -4743,6 +4743,10 @@ class TetherShell:
         self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
+        # The correction summary is its own top-level window: it would outlive the shell.
+        if self._correction_summary is not None:
+            self._correction_summary.close()
+            self._correction_summary = None
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer
             # settles. The repeating timer then attempts release and keeps retrying
