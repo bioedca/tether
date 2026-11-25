@@ -15,6 +15,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.about
 
+::: tether.gui.analysis_section
+
 ::: tether.gui.app
 
 ::: tether.gui.app_settings
@@ -36,8 +38,6 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.file_type
 
 ::: tether.gui.generation_reconcile
-
-::: tether.gui.histogram_dock
 
 ::: tether.gui.identity
 

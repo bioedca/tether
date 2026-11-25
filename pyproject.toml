@@ -128,7 +128,6 @@ convention = "numpy"
 "src/tether/gui/deeplasi_wizard.py" = ["D105", "D401"]
 "src/tether/gui/deeplasi_wizard_ui.py" = ["D401"]
 "src/tether/gui/env_path.py" = ["D301"]
-"src/tether/gui/histogram_dock.py" = ["D105", "D401"]
 "src/tether/gui/identity.py" = ["D401"]
 "src/tether/gui/indicators.py" = ["D401"]
 "src/tether/gui/movie_panel.py" = ["D105"]
