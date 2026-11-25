@@ -15,6 +15,7 @@ from __future__ import annotations
 import shutil
 import tracemalloc
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -25,6 +26,7 @@ pytest.importorskip("numpy")
 import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
+from _nd2_synth import write_nd2  # noqa: E402
 from tether.io.adapters import (  # noqa: E402
     ORIGINS,
     MetadataValue,
@@ -35,7 +37,8 @@ from tether.io.adapters import (  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
+
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 # 64 frames of 64 x 64 uint16 is 512 KiB: large enough that a two-frame read
 # (16 KiB) and a full load differ by a factor the memory bound can see.
@@ -62,6 +65,31 @@ def _tiff_little_endian(tmp: Path) -> tuple[Path, np.ndarray]:
     return path, frames
 
 
+def _nd2_time_series(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A 64-frame ND2 time series (the public ND2 files are one frame, or not a series)."""
+    frames = _frames("<u2")
+    return write_nd2(tmp / "movie.nd2", frames), frames
+
+
+def _czi_zstd(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A CZI written by ZEISS libCZI that holds exactly ``_frames("<u2")`` (#903).
+
+    Tether writes no CZI, so the file is committed (``scripts/make_czi_fixtures.py``,
+    pylibCZIrw 6.1.0): 64 Zstd-compressed frames, so a frame read also decodes.
+    """
+    path = tmp / "movie.czi"
+    shutil.copyfile(_FIXTURES / "czi" / "movie_zstd_64x64x64.czi", path)
+    return path, _frames("<u2")
+
+
+def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIF movie of ``tests/_sif_synth.py`` (#904): Solis stores 32-bit float counts."""
+    from _sif_synth import write_sif
+
+    frames = _frames("<f4")
+    return write_sif(tmp / "movie.sif", frames), frames
+
+
 @dataclass(frozen=True)
 class Case:
     """One adapter under test: its registry name and a factory for a movie it reads."""
@@ -73,6 +101,9 @@ class Case:
 CASES = [
     pytest.param(Case("TIFF", _tiff_big_endian), id="tiff-big-endian"),
     pytest.param(Case("TIFF", _tiff_little_endian), id="tiff-little-endian"),
+    pytest.param(Case("CZI", _czi_zstd), id="czi-zstd"),
+    pytest.param(Case("ND2", _nd2_time_series), id="nd2-time-series"),
+    pytest.param(Case("SIF", _sif_synthetic), id="sif-synthetic"),
 ]
 
 

@@ -120,6 +120,7 @@ nav:
           - Deep trace classifier (GPU add-on): ml/deep-classifier.md
       - Reference:
           - Command line: cli.md
+          - Movie containers (TIFF, CZI): reference/movie-containers.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
           - Project file format (.tether HDF5 schema): reference/tether-format.md
@@ -150,6 +151,7 @@ nav:
       - Building the installers: maintainers/building-installers.md
       - Standalone-tMAVEN cross-OS record: maintainers/standalone-tmaven-cross-os-record.md
       - Running the private-data checks: maintainers/workstation-runner.md
+      - The merge queue: maintainers/merge-queue.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
       - Writing docstrings: maintainers/docstring-style.md

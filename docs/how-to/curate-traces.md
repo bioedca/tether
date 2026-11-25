@@ -94,6 +94,41 @@ So does a trace with a missing value or a constant channel.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
+### See the state of each molecule
+
+Each row of the list shows the name of the molecule and then its state. The state is
+`Accepted`, `Rejected` or `Undecided`.
+
+A mark at the start of the row also shows the state. The mark for accepted is a filled circle. The mark for rejected is a filled square. The mark
+for undecided is a ring. The shape and the words tell the states apart, so you do not need
+to see the colors.
+
+The row also shows the category of the molecule, for example `category bound`. When an
+idealization of the molecule exists, the row ends with `idealized`. When its trace or its
+analysis window changed after the fit, the row ends with `idealized, stale`. Refit the stale
+models to make them current.
+
+Above the list, two lines count the molecules. The first line counts the molecules of the
+movie of the selected molecule. The second line counts all the molecules of the project.
+Each line gives the number of accepted, rejected and undecided molecules, and the total. An
+accept or a reject changes the row and the counts immediately.
+
+The box above the list selects which molecules the list shows: **All molecules**,
+**Undecided**, **Accepted**, **Rejected**, or one category. The arrow keys then move only
+through the molecules that the list shows. The box only hides rows. It does not change the
+order of the list. When the selected molecule is hidden, Tether selects the next molecule
+that the list shows.
+
+To find the next molecule that has no decision, press **U**. Or select **Curation → Next
+undecided molecule**. Tether selects the next undecided molecule below the selected one.
+After the last row, it continues from the top of the list. It does not change the order of
+the list.
+
+When no molecule is undecided, the status bar reads `No undecided molecule is left`. When the box hides the undecided molecules, the status bar says how many it hides.
+
+The box and **Next undecided molecule** need extracted traces. Until the project has them,
+both are off and their tooltip names the step to do first.
+
 ### Go between a trace and its movie spot
 
 The **Movie** panel follows the list. When you select a molecule, the panel shows the
@@ -329,6 +364,35 @@ for key in sorted(project.rejected_molecule_keys()):
 ```
 
 `project.accept(key, labeler=…)` and `project.reject(key, labeler=…)` work the same way.
+
+## After a movie is extracted again
+
+A new map, channel geometry or extraction option can make you extract a movie again. Use
+[`tether reextract`](../cli.md#tether-reextract) or a recipe step for it. That writes a new
+*trace generation* and keeps the one you curated
+([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A molecule
+that did not move keeps its key. Its label, category and analysis window move to it with the
+mark **carried**. Every fit and correction of the movie becomes stale.
+
+To see what moved, open the project and choose **Curation → Reconcile trace generations…**.
+The page lists each movie extracted again, in three groups:
+
+- **Carried**: the label moved. The row names who labeled the molecule and when. It says
+  *waiting for confirmation* until you confirm it.
+- **New**: a molecule with no partner in the previous extraction. It has no labels yet.
+- **Lost**: a molecule of the previous extraction with no partner in the new one. It and its
+  labels stay in the previous generation. The trace view does not show it.
+
+Check **Show only the carried molecules** to hide the other two groups. To see the trace of a
+carried or new molecule, double-click it. You can also select it and click **Open in trace
+view**.
+
+Click **Confirm selected** for the molecules you selected. Click **Confirm all carried** for
+every molecule that waits. A confirmation removes the mark and records your curator name and
+the time. The label does not change.
+
+A carried label does not train the quality ranker until you confirm it. An accept or a reject
+of the molecule confirms it too. `tether status` prints the counts of the three groups.
 
 ## What the application remembers on this computer
 

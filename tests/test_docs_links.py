@@ -26,7 +26,8 @@ forms the parse models (below):
 External URLs are out of scope here (the advisory ``external-links`` job checks them). The
 walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes from the site.
 
-**The parse is a model of Python-Markdown 3.11 with a stated scope, not a renderer.** It is
+**The parse is a model of Python-Markdown 3.11.3 with a stated scope, not a renderer.** That
+is the version ``requirements-docs.txt`` pins for the docs build (#1013). The model is
 stdlib only (``re``, ``html.parser``, ``pathlib``), like ``tests/test_adr_index.py``:
 ``python-markdown`` is not in the base conda-lock, so it cannot be imported on the 3-OS
 ``test`` matrix. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
@@ -35,16 +36,20 @@ promises is narrower than "the renderer's verdict on any page". It promises this
 
 * the forms listed below are modelled, most of them with Python-Markdown's own regular
   expressions and procedures, copied and named. Each is pinned here by a test whose page
-  was rendered with Python-Markdown 3.11, and during review of #511 a differential fuzzer
-  compared the model with an instrumented real render over tens of thousands of generated
-  pages and headings. That fuzzer needs ``python-markdown`` and is not part of this suite;
+  was rendered with Python-Markdown 3.11.3. A seeded differential test,
+  :func:`test_the_model_matches_python_markdown`, also compares the model with an
+  instrumented real render over generated pages built from these forms: heading ids, link
+  targets, and which reference uses stay literal. It needs ``python-markdown``, so the
+  3-OS matrix skips it and the required ``docs-build`` job runs it;
 * a form outside the list that the checker can detect, and that could change its
   verdict, fails with ``unsupported Markdown form, the checker cannot vouch for it`` and
   the file and line. Fix such a failure by rewriting the page in a listed form, or by
   extending the model with a test checked against a real render — never by guessing;
 * any other form is not guaranteed. The checker may misread it either way.
 
-Known gaps are tracked in #1013. A form not listed here is out of scope until it is listed.
+A form not listed here is out of scope until it is listed. A bare ``[k]`` is not a
+reference use, by design and not as a gap: a citation key such as
+``[Lee2005]`` stays plain text, so an undefined one is not reported.
 
 The modelled forms:
 
@@ -54,30 +59,50 @@ The modelled forms:
   here too: its backticks pair as code spans and its other lines are read;
 * HTML comments, read in page order as ``html.parser`` reads them, so nothing inside one
   opens a comment or a block of its own; one that opens a line is stashed whole by
-  ``HtmlBlockPreprocessor``. Raw HTML blocks as its ``HTMLExtractor`` cuts them, whose
-  Markdown is not parsed;
-* blockquotes, lazy continuation lines included;
+  ``HtmlBlockPreprocessor``, and so is a comment that starts later on that line, in the
+  stashed one's tail. Any other comment is inline: the link patterns run inside it, but
+  what they make stays inside the comment, so a reader sees none of it and it is not
+  checked. Raw HTML blocks as its ``HTMLExtractor`` cuts them, whose Markdown is not
+  parsed;
+* blockquotes, lazy continuation lines included. Their markers are stripped before the
+  inline patterns run, so a reference key may run across them;
 * indented code blocks that open after a blank line at the root, where the block before
   them is certainly not a list (``_code_blocks``): their lines are code, read as a fenced
   block is, and the first line after them opens a paragraph that is read (#1013);
 * the block boundaries that hold in every context: blank lines, ATX headings
-  (``HashHeaderProcessor.RE``, at column zero inside any blockquotes), horizontal rules
+  (``HashHeaderProcessor.RE``, at column zero inside any blockquotes, a ``#`` allowed in
+  the text), horizontal rules
   (``HRProcessor.SEARCH_RE``), and the first line of a blockquote;
 * setext headings whose title certainly opens a block, that is, it follows one of those
   boundaries, and whose underline is at column zero (``SetextHeaderProcessor.RE``). An
-  underline anywhere else makes no heading;
+  underline anywhere else makes no heading. A title that is itself a rule, such as
+  ``___``, makes a heading too, as ``SetextHeaderProcessor`` runs before ``HRProcessor``;
 * reference definitions (``ReferenceProcessor.RE``), with keys normalised as the
-  renderer normalises them;
-* within each block: code spans (``BacktickInlineProcessor``, with its backslash parity
-  and its fallback pairing), backslash escapes, link text nested to any depth
-  (``getText``), inline link targets (``getLink``, nested parentheses and all), reference
-  uses (``ReferenceInlineProcessor``), and inline HTML (``HTML_RE``). A reference with a
-  defined key takes its span before the link pass, in the renderer's pattern order. Inline
-  HTML attributes are read by ``html.parser``, so an unquoted ``href`` counts;
+  renderer normalises them. A definition cuts its block in two, and one block may hold
+  several, so no code span, link or reference runs across one;
+* within each block: code spans (``BacktickInlineProcessor``, with its backslash parity,
+  its fallback that pairs a run only with a shorter later one, and the characters it skips
+  when nothing pairs), backslash escapes, link text nested to any depth (``getText``),
+  inline link targets (``getLink``, nested parentheses and an unclosed title included),
+  and inline HTML (``HTML_RE``). Inline HTML attributes are read by ``html.parser``, so an
+  unquoted ``href`` counts;
+* links, images and references as ``InlineProcessor`` makes them, by one routine
+  (``_inline``) that the page pass and the heading slugs share. The six link patterns run
+  in the renderer's order (reference, link, image link, image reference, and the two short
+  forms), each over what the ones before it left. A ``[`` after ``!`` is skipped by the
+  reference pattern, so in ``![i][k] [t][k]`` it pairs ``[k] [t]``. A match resumes the
+  scan at its end, and so does a pair whose key is undefined, which stays as text: every
+  pair the renderer tried and could not resolve is reported, and no pair it skipped is
+  read as a link. A node's own text is read by the patterns after its own. Nothing in an
+  image's text counts, since it becomes the ``alt`` attribute, and nothing in a link's
+  target, which becomes the ``href``;
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
-  an image gives none, and an undefined reference stays as written. The de-duplication
+  an image gives none, and an undefined reference stays as written. Emphasis markers are
+  read by ``DelimiterProcessor``'s own boundary patterns (``_delimiter_boundary``) where
+  they pair flat, one pair open at a time, or not at all: a paired marker is dropped and
+  an unpaired one stays, so ``# _a_b`` slugs ``_a_b`` (#1385). The de-duplication
   starts empty. ``toc`` seeds it only from ids that are already elements when it runs,
   and with mkdocs' default extensions no element has one: raw HTML, ``<a id>`` included,
   is stashed before ``toc`` runs (#515).
@@ -88,6 +113,16 @@ model does not track:
 * a code span, link or inline tag that runs from one line onto a line that may start a
   new block — a list item, a reference definition, a table row, or the first line after
   an indented block;
+* a bracket in a span that ``InlineProcessor.run`` reads a second time with every
+  pattern: inside a link or reference, the text of a node nested in it, and what follows
+  a nested node or a code span up to the next one; in a heading, also inside emphasis,
+  and after emphasis in a link's text;
+* emphasis markers in a heading that may nest or pair unevenly, where the 3.11.3 pass
+  can cut letters out of the slug or leave a placeholder's name in it (#1385);
+* text after a comment that opens a line, on the same line, and a comment that opens a
+  line with a setext underline after it;
+* an HTML start tag with ``<!--``, ``>`` or a block-level tag's start in a quoted
+  attribute value, which ``html.parser`` reads whole and the raw-HTML passes do not;
 * a heading, rule or definition line inside a table-like block, which is a row if the
   block is a table and structure if it is not;
 * an HTML ``id`` or ``name`` on a line of an indented block that is not certainly code,
@@ -105,8 +140,10 @@ from __future__ import annotations
 
 import ast
 import bisect
+import collections
 import html
 import importlib.util
+import random
 import re
 import sys
 import unicodedata
@@ -116,6 +153,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+
+from _docs_source import python_markdown as _python_markdown
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 _MKDOCS_YML = DOCS.parent / "mkdocs.yml"
@@ -153,9 +192,9 @@ _FENCED_BLOCK_RE = re.compile(
 """,
     re.MULTILINE | re.DOTALL | re.VERBOSE,
 )
-# blockprocessors.HashHeaderProcessor.RE, matched against one whole line. A line ending
-# in a single backslash is therefore no heading, as it is not to the renderer.
-_HASH_HEADER_RE = re.compile(r"(?P<level>#{1,6})(?P<header>(?:\\.|[^\\])*?)#*")
+# blockprocessors.HashHeaderProcessor.RE (3.11.3), matched against one whole line. A line
+# ending in a single backslash is therefore no heading, as it is not to the renderer.
+_HASH_HEADER_RE = re.compile(r"(?P<level>#{1,6})(?P<header>(?:\\.|[^\\#]|#+(?=[^#\n]))*?)#*")
 # blockprocessors.SetextHeaderProcessor.RE's second line: column zero, one character kind.
 _SETEXT_UNDERLINE_RE = re.compile(r"(?:=+|-+)[ ]*")
 # blockprocessors.HRProcessor.SEARCH_RE, matched against one whole line.
@@ -190,7 +229,7 @@ _BACKTICK_RE = re.compile(r"(?:(?<!\\)((?:\\{2})+)(?=`+)|(?<!\\)`)")
 _ESCAPE_RE = re.compile(r"\\(.)", re.DOTALL)
 _ESCAPED_CHARS = frozenset("\\`*_{}[]()>#+-.!|")
 # inlinepatterns.ReferenceInlineProcessor.RE_LINK
-_REF_TAIL_RE = re.compile(r"\s?\[([^\]]*)\]", re.DOTALL)
+_REF_TAIL_RE = re.compile(r"\s?\x02*\[([^\]]*)\]", re.DOTALL)  # \x02: a stripped quote marker
 # inlinepatterns.LinkInlineProcessor.RE_LINK (see `_link_target` for the rest of getLink).
 _LINK_TAIL_RE = re.compile(r"""\(\s*(?:(<[^<>]*>)\s*(?:('[^']*'|"[^"]*")\s*)?\))?""", re.DOTALL)
 # inlinepatterns.HTML_RE
@@ -199,6 +238,43 @@ _HTML_RE = re.compile(
     r"|!\[CDATA\[(?:(?!<!\[CDATA\[|\]\]>).)*\]\])>)",
     re.DOTALL,
 )
+# inlinepatterns.ENTITY_RE and AUTOMAIL_RE: like HTML_RE, each match becomes a placeholder.
+_ENTITY_RE = re.compile(r"(&(?:\#[0-9]+|\#x[0-9a-fA-F]+|[a-zA-Z0-9]+);)")
+_AUTOMAIL_RE = re.compile(r"<([^<> !]+@[^@<> ]+)>")
+
+
+def _delimiter_boundary(token: str, smart: bool) -> re.Pattern[str]:
+    """``inlinepatterns.Delimiter._build_patterns``, copied: which side a run can close.
+
+    ``build_inlinepatterns`` gives one ``DelimiterProcessor`` both tokens, ``*`` plain and
+    ``_`` smart (3.11.3). A run of the token matches ``start``, ``end`` or ``ambiguous`` (it
+    can do either), or none of them, and then it stays as text.
+    """
+    etoken = re.escape(token)
+    xstart = rf"(?:(?<=_)|(?<![\w{etoken}]))" if token != "_" else rf"(?<![\w{etoken}])"
+    xend = rf"(?:(?=_)|(?![\w{etoken}]))" if token != "_" else rf"(?![\w{etoken}])"
+    if smart:
+        pattern = rf"""(?x)
+                (?P<ambiguous>(?<!^)(?<![\s{etoken}]){xstart}{etoken}{{1,}}{xend}(?![\s{etoken}])(?!$))|
+                (?P<end>(?<!^)(?<![\s{etoken}]){etoken}{{1,}}{xend})|
+                (?P<start>{xstart}{etoken}{{1,}}(?![\s{etoken}])(?!$))
+                """
+    else:
+        pattern = rf"""(?x)
+                (?P<ambiguous>(?<!^)(?<![\s{etoken}]){etoken}{{1,}}(?![\s{etoken}])(?!$))|
+                (?P<end>(?<!^)(?<![\s{etoken}]){etoken}{{1,}})|
+                (?P<start>{etoken}{{1,}}(?![\s{etoken}])(?!$))
+                """
+    return re.compile(pattern, flags=re.UNICODE)
+
+
+_DELIMITERS = {
+    "*": _delimiter_boundary("*", smart=False),
+    "_": _delimiter_boundary("_", smart=True),
+}
+
+# The comment alternative of `HTML_RE`: an inline comment, as the inline pass reads it.
+_INLINE_COMMENT_RE = re.compile(r"<!--(?:(?!<!--|-->).)*-->", re.DOTALL)
 
 # htmlparser.commentclose. The renderer's HTML preprocessor reads the page in order: a
 # comment runs from `<!--` to the first close, and one with no close is a literal `<`. A
@@ -236,6 +312,15 @@ _SCHEME_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
 _CODE = "\x00"
 _ESC = "\x01"
 _ESC_SHIFT = 0xE000
+# A blockquote marker the renderer strips before the inline patterns run, kept as a
+# character so offsets survive and read as nothing at all.
+_GONE = "\x02"
+# What the emphasis pass sees where an earlier pattern left a placeholder. The renderer's
+# placeholders open with STX and close with ETX: neither a word character, a space nor a
+# delimiter, and this stands for both. A link or reference whose text holds a bracket is
+# marked apart (see `_emphasis_hazard`).
+_STASHED = "\x04"
+_BRACKETED = "\x05"
 
 
 def _blank_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
@@ -261,6 +346,62 @@ def _comments(text: str) -> tuple[tuple[int, int], ...]:
         spans.append((start, close.end()))
         pos = close.end()
     return tuple(spans)
+
+
+def _stashed_comments(
+    text: str, comments: tuple[tuple[int, int], ...]
+) -> tuple[tuple[int, int], ...]:
+    """The comments ``HtmlBlockPreprocessor`` stashes whole, as raw blocks.
+
+    A comment that opens a line (at most three spaces in) is a raw block. Its extractor is
+    then in the block's tail until the next newline, and a comment that starts there is
+    stashed into raw HTML too, though it is mid-line (3.11.3): ``<!-- a -->x <!-- b -->``
+    renders ``<!-- a -->``, ``<p>x </p>`` and ``<!-- b -->``. Any other comment is inline.
+    """
+    out = []
+    tail = -1  # the end of the stretch a stashed comment's tail runs to
+    for start, end in comments:
+        if start < tail or _LINE_START_RE.fullmatch(text, text.rfind("\n", 0, start) + 1, start):
+            out.append((start, end))
+            newline = text.find("\n", end)
+            tail = len(text) if newline == -1 else newline
+    return tuple(out)
+
+
+# A start tag as the HTML standard spells one, its quoted values allowed to hold anything.
+_START_TAG_RE = re.compile(
+    r"""<[A-Za-z][^\t\n\r\f />\x00]*"""
+    r"""(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>"""
+)
+_QUOTED_VALUE_RE = re.compile(r"""=\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def _tag_value_hazards(text: str, comments: tuple[tuple[int, int], ...]) -> list[int]:
+    """Where a start tag has ``<!--``, ``>`` or a block-level tag's start in a quoted value.
+
+    ``html.parser`` reads such a value whole, but the renderer's raw-HTML block search, its
+    ``HTML_RE`` and the model's comment pass do not, so the page order the model assumes is
+    wrong from there on (#1013, gap 5): ``<span id="a" title="x > y">`` renders the anchor
+    ``a``, which ``HTML_RE``, cut at the first ``>``, never shows the model. A tag inside a
+    comment is not one.
+    """
+    out = []
+    for m in _START_TAG_RE.finditer(text):
+        if any(start <= m.start() < end for start, end in comments):
+            continue
+        for value in _QUOTED_VALUE_RE.finditer(m.group()):
+            value = value.group(1) if value.group(1) is not None else value.group(2)
+            if (
+                "<!--" in value
+                or ">" in value
+                or any(
+                    t.group(1).lower() in _BLOCK_TAGS
+                    for t in re.finditer(r"</?([A-Za-z][^\t\n\r\f />\x00]*)", value)
+                )
+            ):
+                out.append(m.start())
+                break
+    return out
 
 
 def _raw_html_blocks(text: str) -> tuple[tuple[int, int], ...]:
@@ -394,6 +535,18 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
         cur = _Unit(i, i, level)
         units.append(cur)
 
+    def setext(i: int) -> bool:
+        """Whether line ``i``, which opens a block, is a setext title."""
+        line, nxt = lines[i], lines[i + 1] if i + 1 < len(lines) else None
+        return bool(
+            line.depth == open_
+            and fresh <= line.depth
+            and not line.body.startswith(" " * _TAB)
+            and nxt is not None
+            and nxt.depth == line.depth
+            and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body)
+        )
+
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -406,6 +559,8 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
             cur, fresh, open_ = None, min(fresh, open_ + 1), depth
         atx = _HASH_HEADER_RE.fullmatch(body)
         rule = _HR_RE.fullmatch(body)
+        if rule and cur is None and setext(i):
+            rule = None  # `SetextHeaderProcessor` runs first: `___` over `===` is a heading
         if i in tables and (atx or rule):
             problem(line.start, "a heading or rule line inside a table-like block")
             atx = rule = None
@@ -424,15 +579,7 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
             i += 1
             continue
         if cur is None:
-            nxt = lines[i + 1] if i + 1 < len(lines) else None
-            if (
-                depth == open_
-                and fresh <= depth
-                and not body.startswith(" " * _TAB)
-                and nxt is not None
-                and nxt.depth == depth
-                and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body)
-            ):
+            if setext(i):
                 units.append(_Unit(i, i, depth, heading=body.strip()))
                 fresh = min(fresh, depth)
                 i += 2
@@ -602,10 +749,11 @@ def _definitions(
 
 
 def _code_span_end(text: str, begin: int) -> int | None:
-    """Where the code span opened at ``begin`` ends: ``BacktickInlineProcessor``, verbatim.
+    """Where the code span opened at ``begin`` ends: ``find_code_spans`` (3.11.3), verbatim.
 
     The opening run pairs with the next run of the same length; failing that, with the
-    longest later run, the surplus opening ticks becoming code. Same result, same quirks.
+    longest later run if that is shorter, the surplus opening ticks becoming code. With
+    neither, the span does not open (None) and its ticks stay literal.
     """
     last, start, max_ticks = len(text), begin, 0
     while start < last and text[start] == "`":
@@ -625,31 +773,37 @@ def _code_span_end(text: str, begin: int) -> int | None:
             return i
         if span_length > longest_span:
             longest_span, end = span_length, i
-    return end if longest_span else None
+    return end if 0 < longest_span < max_ticks else None
 
 
 def _mask_code(text: str) -> tuple[str, list[tuple[int, int]]]:
     """``text`` with its code spans masked, and their spans, as the backtick pattern runs.
 
     An even run of backslashes before a backtick is escaped backslashes, so the backtick
-    stays live; an odd run escapes it.
+    stays live; an odd run escapes it. An opening run that pairs with nothing is skipped
+    whole, and the scan resumes after it, as ``BacktickInlineProcessor`` resumes (3.11.3).
     """
     spans = []
     pos = 0
-    while True:
-        for m in _BACKTICK_RE.finditer(text, pos):
-            if m.group(1):
-                start, end = m.span()
-                break
-            end_ = _code_span_end(text, m.start())
-            if end_ is not None:
-                start, end = m.start(), end_
-                spans.append((start, end))
-                break
+    while (m := _BACKTICK_RE.search(text, pos)) is not None:
+        if m.group(1):
+            start, end = m.span()
         else:
-            return text, spans
+            start, end_ = m.start(), _code_span_end(text, m.start())
+            if end_ is None:
+                # ``handleMatch`` resumes at the index ``find_code_spans`` returns, which is
+                # past the run by its own length again: ``\`\`k\`x\``` resumes after the
+                # first ``k\```, so that tick never opens a span (3.11.3).
+                run = start
+                while run < len(text) and text[run] == "`":
+                    run += 1
+                pos = run + (run - start)
+                continue
+            end = end_
+            spans.append((start, end))
         text = text[:start] + _CODE * (end - start) + text[end:]
         pos = end
+    return text, spans
 
 
 def _mask_escapes(text: str) -> str:
@@ -758,20 +912,6 @@ def _key_tail(text: str, index: int) -> tuple[str, int] | None:
     return None if m is None else (m.group(1), m.end())
 
 
-def _ref_tail(text: str, index: int) -> tuple[str, int] | None:
-    """``_key_tail`` for a reference use the checker reports, or None.
-
-    One exception of the checker's own: when ``[key](…)`` forms a link, as in
-    ``[text][key](url)``, no literal reference is left on the page — with ``key`` undefined
-    the renderer shows ``[text]`` and a link, and a defined one takes the span before the
-    link pass (see ``_doc``) — so that is not a reference use here.
-    """
-    t = _key_tail(text, index)
-    if t is not None and text.startswith("(", t[1]) and _link_target(text, t[1]) is not None:
-        return None
-    return t
-
-
 def _bracketed(text: str, tail, image: bool | None = None) -> list[tuple[int, int, str, int]]:
     """``(start, text_end, payload, end)`` for each ``[text]`` that ``tail`` reads on from.
 
@@ -817,6 +957,178 @@ def _start_tag(source: str) -> tuple[str, dict[str, str]] | None:
     if len(parser.tags) == 1 and parser.get_starttag_text() == source:
         return parser.tags[0][0], parser.tags[0][1]
     return None
+
+
+@dataclass(frozen=True)
+class _Node:
+    """An element an inline pattern makes: a link, an image or a reference with a defined key."""
+
+    kind: str  # the pattern's name in `markdown.inlinepatterns.build_inlinepatterns`
+    begin: int  # where its source starts, the `!` of an image included
+    text: tuple[int, int]  # its text, inside the outer brackets
+    stop: int  # the end of its source
+    payload: str  # a link's target, or a reference's lookup key
+    children: tuple[_Node, ...]  # the nodes inside its text
+
+
+@dataclass(frozen=True)
+class _Try:
+    """A pair the reference pattern tried and left as text, its key being undefined."""
+
+    begin: int  # the `[` of its text
+    text_end: int
+    stop: int
+    lookup: str | None  # as the renderer looks it up; None when it cannot match any definition
+    image: bool
+
+
+def _lookup(view: str, start: int, end: int, key: str) -> str | None:
+    """``ReferenceInlineProcessor``'s id: the key, or a collapsed use's text, normalised."""
+    lookup = re.sub(r"\s+", " ", (key or view[start + 1 : end - 1]).replace(_GONE, "").lower())
+    # An escape or code span in an id never matches a definition.
+    return None if _CODE in lookup or _ESC in lookup else lookup
+
+
+def _no_tail(text: str, index: int) -> tuple[str, int]:
+    return "", index
+
+
+# The link patterns of `build_inlinepatterns` in priority order: (name, image, tail, by_key).
+# A pattern marked `by_key` makes a node only for a defined key; the others make one for any
+# match their tail accepts.
+_INLINE_STAGES = (
+    ("reference", False, _key_tail, True),
+    ("link", False, _link_target, False),
+    ("image_link", True, _link_target, False),
+    ("image_reference", True, _key_tail, True),
+    ("short_reference", False, _no_tail, True),
+    ("short_image_ref", True, _no_tail, True),
+)
+
+
+def _inline(
+    view: str, definitions: frozenset[str] | dict, stage: int = 0, a: int = 0, b: int | None = None
+) -> tuple[list[_Node], list[_Try]]:
+    """The link elements of ``view[a:b]``, made as ``InlineProcessor`` makes them (#1013).
+
+    This is the one pairing routine of the page pass and the heading slugs. Each pattern
+    runs over what the ones before it left, from ``stage`` on: a node's source becomes a
+    placeholder, and its text is read by the patterns after its own, as ``__applyPattern``
+    reads a node's text. A match resumes the scan at its end, and so does a pair whose key is
+    undefined, which makes no node and stays as text (3.11.3). A ``[`` whose text does not
+    close, or whose tail does not follow, is retried one character on. Code spans and
+    escapes are already masked in ``view``.
+    """
+    b = len(view) if b is None else b
+    left = view[:b]
+    nodes: list[_Node] = []
+    tries: list[_Try] = []
+    for index in range(stage, len(_INLINE_STAGES)):
+        name, image, tail, by_key = _INLINE_STAGES[index]
+        pos = a
+        while (start := left.find("[", pos, b)) != -1:
+            pos = start + 1
+            if (start > 0 and left[start - 1] == "!") != image:
+                continue
+            end = _link_text_end(left[:b], start)
+            if end is None or (t := tail(left[:b], end)) is None:
+                continue
+            payload, stop = t
+            if stop < 0:
+                # ``getLink`` can return the index -1 (an unclosed title quote), and the
+                # renderer then keeps ``data[-1:]``: the source runs to the last character.
+                stop += b
+            pos = stop
+            if by_key:
+                payload = _lookup(left, start, end, payload) or ""
+                if payload not in definitions:
+                    if tail is _key_tail:
+                        tries.append(_Try(start, end, stop, payload or None, image))
+                    continue
+            begin = start - 1 if image else start
+            # A node made earlier inside this one's text is its child; one inside its tail,
+            # the target of a link, became part of an attribute and is not in the page, and
+            # so is one the source ends inside of (the ``-1`` above cuts its placeholder).
+            inner = [n for n in nodes if start < n.begin and n.stop < end]
+            nodes = [n for n in nodes if not begin <= n.begin < stop]
+            if not image:  # an image's text is its alt attribute, which no pattern reads
+                more, more_tries = _inline(left, definitions, index + 1, start + 1, end - 1)
+                inner += more
+                tries += more_tries
+            inner.sort(key=lambda n: n.begin)
+            nodes.append(_Node(name, begin, (start + 1, end - 1), stop, payload, tuple(inner)))
+            left = left[:begin] + _CODE * (stop - begin) + left[stop:]
+    nodes.sort(key=lambda n: n.begin)
+    tries.sort(key=lambda t: t.begin)
+    return nodes, tries
+
+
+def _reread(nodes: list[_Node], spans: list[tuple[int, int]] = ()) -> list[tuple[int, int]]:
+    """The spans ``InlineProcessor.run`` passes through every pattern a second time.
+
+    ``run`` pops each node it made from a stack and runs the patterns afresh, from the
+    first, over the text and the tail of each of that node's children. So inside a link or
+    a reference, the text of a node nested in it, and what follows such a node up to the
+    next one, are read twice; the second pass can make links and references that the
+    first, which started at a later pattern, did not. The model reads them once. A code
+    span, one of ``spans``, is a child too: its text is atomic, but its tail is read again.
+    """
+    out: list[tuple[int, int]] = []
+
+    def visit(node: _Node, nested: bool) -> None:
+        if node.kind.startswith(("image", "short_image")):
+            return  # its text is an attribute, read by no pattern
+        kids: list[tuple[int, int, _Node | None]] = [(k.begin, k.stop, k) for k in node.children]
+        lo, hi = node.text
+        kids += [
+            (s, e, None)
+            for s, e in spans
+            if lo <= s and e <= hi and not any(k.begin <= s < k.stop for k in node.children)
+        ]
+        kids.sort(key=lambda k: k[0])
+        if nested:
+            out.append((lo, kids[0][0] if kids else hi))
+        for i, (_, stop, kid) in enumerate(kids):
+            out.append((stop, kids[i + 1][0] if i + 1 < len(kids) else hi))
+            if kid is not None:
+                visit(kid, True)
+
+    for node in nodes:
+        visit(node, False)
+    return out
+
+
+def _inline_comments(view: str, start: int, end: int, nodes) -> list[tuple[int, int]]:
+    """The spans of the inline comments the renderer finds in ``view[start:end]``.
+
+    Inline HTML runs after the code spans and the link patterns, on text where each node
+    they made is stashed as a placeholder. So a ``<!--`` or ``-->`` in a code span, in a
+    link, or in an image's ``alt`` pairs with nothing outside it, and
+    ``![<!--](#a) [t][k] -->`` shows ``[t][k]``. A link's text is read again on its own,
+    so a comment inside it is found there; an image's text is an attribute and is not.
+    """
+    text = view[start:end]
+    for n in nodes:
+        text = text[: n.begin - start] + _CODE * (n.stop - n.begin) + text[n.stop - start :]
+    out = [(start + s, start + e) for s, e in (m.span() for m in _INLINE_COMMENT_RE.finditer(text))]
+    for n in nodes:
+        if not n.kind.startswith(("image", "short_image")):
+            out += _inline_comments(view, n.text[0], n.text[1], n.children)
+    return out
+
+
+def _walk(nodes) -> list[_Node]:
+    """The nodes and every node nested in them, except inside an image.
+
+    An image's text is its ``alt`` attribute: a link made inside it first is not in the
+    page, so ``![[a](x.md)][k]`` shows an image and no link to ``x.md``.
+    """
+    out = []
+    for n in nodes:
+        out.append(n)
+        if not n.kind.startswith(("image", "short_image")):
+            out += _walk(n.children)
+    return out
 
 
 # --- one page ------------------------------------------------------------------------------
@@ -872,15 +1184,26 @@ def _doc(path: Path) -> _Doc:
 
     fenced = _FENCED_BLOCK_RE.sub(blank_fence, text)
     comments = _comments(fenced)
+    # Found before the comment and raw-block passes it would mislead, and reported once the
+    # code is known: a tag in a code span or an indented code block is text, not a tag.
+    hazards = _tag_value_hazards(fenced, comments)
+    hazard = "an HTML tag with `<!--`, `>` or a block-level tag in a quoted attribute value"
+    placed: set[int] = set()
     raw = _raw_html_blocks(_blank_spans(fenced, comments))
-    blocks = _blank_spans(
-        fenced,
-        tuple(
-            (start, end)
-            for start, end in comments
-            if _LINE_START_RE.fullmatch(fenced, fenced.rfind("\n", 0, start) + 1, start)
-        ),
-    )
+    stashed = _stashed_comments(fenced, comments)
+    blocks = _blank_spans(fenced, stashed)
+    for start, end in stashed:
+        newline = blocks.find("\n", end)
+        line_end = len(blocks) if newline == -1 else newline
+        if blocks[end:line_end].strip():
+            # The renderer ends the block before the comment and opens a new one after it,
+            # at a column the model does not track (#1013).
+            problem(start, "text after a comment that opens a line, on the same line")
+        following = blocks.find("\n", line_end + 1)
+        nxt = blocks[line_end + 1 : len(blocks) if following == -1 else following]
+        if newline != -1 and _SETEXT_UNDERLINE_RE.fullmatch(nxt):
+            # Its placeholder is a paragraph to the block parser: the pair is a heading.
+            problem(start, "a comment that opens a line with a setext underline after it")
     md = _blank_spans(blocks, raw)
     lines = _lines(md)
     tables = _table_lines(lines)
@@ -894,19 +1217,12 @@ def _doc(path: Path) -> _Doc:
     refs: list[_Ref] = []
     tags: list[tuple[int, str, dict[str, str]]] = []
 
-    def lookup_of(view: str, start: int, end: int, key: str) -> str | None:
-        lookup = re.sub(r"\s+", " ", (key or view[start + 1 : end - 1]).lower())
-        # An escape or code span in an id never matches a definition.
-        return None if _CODE in lookup or _ESC in lookup else lookup
-
-    def refs_in(view: str, a: int, consumed: list[tuple[int, int]]) -> None:
-        for start, end, key, stop in _bracketed(view, _ref_tail):
-            lookup = lookup_of(view, start, end, key)
-            if lookup in definitions:
-                consumed.append((end, stop))
-            source = blocks[a + start : a + stop]
-            shown = blocks[a + end : a + stop].strip()[1:-1] or blocks[a + start + 1 : a + end - 1]
-            refs.append(_Ref(a + start, source, shown, lookup))
+    def ref_of(view: str, a: int, t: _Try) -> _Ref:
+        source = blocks[a + t.begin : a + t.stop]
+        shown = blocks[a + t.text_end : a + t.stop].strip()[1:-1]
+        return _Ref(
+            a + t.begin, source, shown or blocks[a + t.begin + 1 : a + t.text_end - 1], t.lookup
+        )
 
     for unit in units:
         a = lines[unit.first].start
@@ -919,44 +1235,88 @@ def _doc(path: Path) -> _Doc:
                 problem(a + start, f"{what} that runs onto a line which may start a new block")
 
         chunk = blocks[a:b]
+        for k in range(unit.first + 1, unit.last + 1):
+            # The renderer strips each line's quote markers before the inline patterns run,
+            # so `[a]\n> [b]` is one reference use, of the key `b`.
+            s_, n_ = lines[k].start - a, len(lines_[k]) - len(lines[k].body)
+            chunk = chunk[:s_] + _GONE * n_ + chunk[s_ + n_ :]
         for k in sorted(code):
             if unit.first <= k <= unit.last:  # code is not inline text: blank it as a fence
                 s_ = lines[k].start - a
                 chunk = chunk[:s_] + " " * len(lines_[k]) + chunk[s_ + len(lines_[k]) :]
+        # A definition is not inline text, and the renderer cuts the block around it: what
+        # comes before it and what comes after are separate blocks, so no code span, link or
+        # reference runs from one into the other.
+        segments: list[tuple[int, int]] = []
+        pos = 0
         for d in defs:
-            if unit.first <= d.first <= unit.last:  # a definition is not inline text
+            if unit.first <= d.first <= unit.last:
                 s_, e_ = lines[d.first].start - a, lines[d.last].start + len(lines_[d.last]) - a
                 chunk = chunk[:s_] + _CODE * (e_ - s_) + chunk[e_:]
-        view, spans = _mask_code(chunk)
+                segments.append((pos, s_))
+                pos = e_
+        segments.append((pos, len(chunk)))
+        view, spans = chunk, []
+        for s_, e_ in segments:
+            masked, inner = _mask_code(chunk[s_:e_])
+            view = view[:s_] + masked + view[e_:]
+            spans += [(start + s_, end + s_) for start, end in inner]
         for start, end in spans:
             crosses(start, end, "a code span")
+        for offset in hazards:
+            if a <= offset < b:
+                placed.add(offset)
+                in_code = bisect.bisect_right(starts, offset) - 1 in code
+                if not in_code and not any(s_ <= offset - a < e_ for s_, e_ in spans):
+                    problem(offset, hazard)
         view = _mask_escapes(view)
+        nodes: list[_Node] = []
+        tries: list[tuple[_Try, int]] = []  # each with the end of its segment
+        hidden: list[tuple[int, int]] = []
+        for s_, e_ in segments:
+            more, more_tries = _inline(view, definitions, 0, s_, e_)
+            nodes += more
+            tries += [(t, e_) for t in more_tries]
+            hidden += _inline_comments(view, s_, e_, more)
+
+        def shown(offset: int, hidden: list[tuple[int, int]] = hidden) -> bool:
+            # A comment that does not open a line is inline HTML, which runs after the link
+            # patterns: what they make inside it is in the page but inside the comment, so a
+            # reader sees none of it and the strict build does not check it (#1013, gap 10).
+            return not any(start <= offset < end for start, end in hidden)
+
+        for start, end in _reread(nodes, spans):
+            if "[" in view[start:end]:
+                problem(
+                    a + start,
+                    "a bracket in or after a link or reference nested inside another one, "
+                    "which the renderer reads a second time",
+                )
+                break
         consumed: list[tuple[int, int]] = []
-        # The renderer's pattern order, as in `_heading_text`: a reference whose key is
-        # defined takes its span before the link pass, which reads its text on its own.
-        # An image reference runs after the link pass, so it takes nothing here.
-        taken = [
-            (start, end, stop)
-            for start, end, key, stop in _bracketed(view, _key_tail, image=False)
-            if lookup_of(view, start, end, key) in definitions
-        ]
-        left = view
-        for start, end, stop in taken:
-            left = left[:start] + _CODE * (stop - start) + left[stop:]
-            consumed.append((end, stop))
-        found = _bracketed(left, _link_target) + [
-            (t + 1 + s, t + 1 + e, target, t + 1 + p)
-            for t, t_end, _ in taken
-            for s, e, target, p in _bracketed(view[t + 1 : t_end - 1], _link_target)
-        ]
-        for start, end, target, stop in sorted(found):
-            crosses(start, stop, "a link")
-            links.append((a + start, target))
-            consumed.append((end, stop))
-        before = len(refs)
-        refs_in(view, a, consumed)
-        for ref in refs[before:]:
-            crosses(ref.start - a, ref.start - a + len(ref.source), "a reference")
+        for node in _walk(nodes):
+            # An image's text is its ``alt`` attribute, so no tag in it is in the page.
+            image = node.kind.startswith(("image", "short_image"))
+            consumed.append((node.begin if image else node.text[1] + 1, node.stop))
+            if not shown(node.begin):
+                continue
+            if node.kind in ("link", "image_link"):
+                crosses(node.text[0] - 1, node.stop, "a link")
+                links.append((a + node.text[0] - 1, node.payload))
+            elif node.kind in ("reference", "image_reference"):
+                crosses(node.text[0] - 1, node.stop, "a reference")
+        for t, e_ in tries:
+            if not shown(t.begin):
+                continue
+            # Its pairing turns on the line break either way, so this comes before the
+            # exception below.
+            crosses(t.begin, t.stop, "a reference")
+            # One exception of the checker's own: when ``[key](…)`` forms a link, as in
+            # ``[text][key](url)``, no literal reference is left on the page — the renderer
+            # shows ``[text]`` and a link — so that is not a reference use here.
+            if view.startswith("(", t.stop) and _link_target(view[:e_], t.stop) is not None:
+                continue
+            refs.append(ref_of(view, a, t))
         for start, end in consumed:
             view = view[:start] + _CODE * (end - start) + view[end:]
         for m in _HTML_RE.finditer(view):
@@ -989,8 +1349,16 @@ def _doc(path: Path) -> _Doc:
         # Raw HTML is passed through as text, so a link or reference here is literal: read
         # them anyway, which can only report something, never hide it.
         links.extend((a + s, t) for s, _, t, _ in _bracketed(chunk, _link_target))
-        refs_in(chunk, a, [])
+        refs.extend(ref_of(chunk, a, t) for t in _inline(chunk, definitions)[1])
 
+    for offset in hazards:
+        if offset not in placed:  # in a raw HTML block, a heading or a stashed comment
+            problem(offset, hazard)
+    for unit in units:
+        if unit.heading is not None:
+            why = _heading_read(unit.heading, definitions)[1]
+            if why is not None:
+                problem(lines[unit.first].start, why)
     headings = tuple(u.heading for u in units if u.heading is not None)
     return _Doc(
         path,
@@ -1019,46 +1387,90 @@ def _slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value)
 
 
-def _heading_text(raw: str, definitions: frozenset[str]) -> str:
-    """The plain text the toc extension slugifies: the heading as rendered, tags stripped.
+def _emphasis_pairs(scope: str, nested: bool = False) -> tuple[str | None, list[int]]:
+    """How the emphasis pass pairs ``scope``'s markers: the offsets it consumes, or why not.
 
-    The inline structure is read with the passes a paragraph gets: code spans, escapes,
-    links by ``getLink`` and reference uses. A link, or a reference whose key is defined,
-    reduces to its text; an image, of either kind, renders no text. An undefined reference
-    stays on the page as written, brackets and all, and so in the slug.
+    ``scope`` is one string the pass runs over, as it sees it: the heading's text, or a
+    link's text, with each match of an earlier pattern as one ``_STASHED`` character. Every
+    run of ``*`` or ``_`` is read by its token's ``_DELIMITERS`` pattern. The model follows
+    the pass where its pairs are flat (#1385): one pair open at a time, opened by a run that
+    can open, three long at most, and closed by the next run of its token that can close,
+    if that run is as long. A run that matches no side stays as text, and so does a closer
+    with nothing of its token open, which the pass skips; so does an opener left open at
+    the end, as ``_`` in ``_a_b``. Anything else is refused: ``DelimiterProcessor``
+    (3.11.3) pairs both tokens in one pass and builds the elements from offsets it caches,
+    and for nested or uneven runs those offsets can cut letters and placeholders out of
+    the text or leave a placeholder's name in it: ``*a**b*`d``` slugs ``abklzzwxh0000``.
     """
+    paired: list[int] = []
+    open_: tuple[str, int, int] | None = None  # the open run: its token and span
+    for m in re.finditer(r"\*+|_+", scope):
+        token, (start, end) = m.group()[0], m.span()
+        side = _DELIMITERS[token].match(scope, start)
+        kind = side.lastgroup if side else None
+        if kind is None or (kind == "end" and (open_ is None or open_[0] != token)):
+            continue
+        if open_ is None and kind in ("start", "ambiguous") and end - start <= 3:
+            open_ = (token, start, end)
+        elif (
+            open_ is not None
+            and open_[0] == token
+            and kind in ("end", "ambiguous")
+            and end - start == open_[2] - open_[1]
+        ):
+            # ``InlineProcessor.run`` reads what an emphasis element holds a second time
+            # with every pattern, as it reads the text of a node nested in a link; in a
+            # link's own text, ``nested``, it reads what follows the element too.
+            again = scope[open_[2] : len(scope) if nested else start]
+            if "[" in again or _BRACKETED in again:
+                return "a bracket inside emphasis in a heading, which the renderer reads twice", []
+            paired += [*range(open_[1], open_[2]), *range(start, end)]
+            open_ = None
+        else:
+            return "emphasis markers in a heading that may nest or pair unevenly", []
+    return None, paired
+
+
+def _heading_read(raw: str, definitions: frozenset[str]) -> tuple[str, str | None]:
+    """The heading's slug text, as ``_heading_text`` says, and why it is refused, or None."""
     view, spans = _mask_code(raw)
     view = _mask_escapes(view)
+    nodes, _ = _inline(view, definitions)
+    # A comment is stripped whole, with whatever the link patterns made inside it (#1013).
+    # It is found as in a paragraph, with each node stashed: a `<!--` in an image's alt or
+    # a link's text opens none.
+    comments = _inline_comments(view, 0, len(view), nodes)
+    hazards: list[str] = []
+    gone: list[int] = []  # the offsets of the `_` markers the emphasis pass pairs
 
-    def key(start: int, end: int, tail: str) -> str:
-        return re.sub(r"\s+", " ", (tail or view[start + 1 : end - 1]).lower())
+    def emphasis(nodes: tuple[_Node, ...] | list[_Node], a: int, b: int, nested: bool) -> None:
+        """Pair the markers of ``view[a:b]``, then of each node's text, as the pass runs."""
+        chars, at = [], a  # (character, offset in view), each node stashed
+        for node in nodes:
+            chars += [(view[i], i) for i in range(at, node.begin)]
+            text = view[node.text[0] : node.text[1]]
+            chars.append((_BRACKETED if "[" in text else _STASHED, node.begin))
+            at = node.stop
+            if not node.kind.startswith(("image", "short_image")):
+                emphasis(node.children, *node.text, nested=True)
+        chars += [(view[i], i) for i in range(at, b)]
+        chars = [(c, i) for c, i in chars if c != _GONE]
+        # Each match of a later pattern is one placeholder too: a code span, an escape, a
+        # mail link, an HTML tag or comment, an entity.
+        for pattern in (re.compile(f"{_CODE}+|{_ESC}.", re.DOTALL), _AUTOMAIL_RE, _HTML_RE):
+            chars = _stash(chars, pattern)
+        chars = _stash(chars, _ENTITY_RE)
+        hazard, paired = _emphasis_pairs("".join(c for c, _ in chars), nested)
+        if hazard is not None:
+            hazards.append(hazard)
+        gone.extend(chars[k][1] for k in paired if chars[k][0] == "_")
 
-    def any_tail(text: str, index: int) -> tuple[str, int]:
-        return "", index
-
-    # The inline patterns in priority order, each over what the ones before left: reference,
-    # link, image link, image reference, short image reference. A short reference's text is
-    # its key, which slugifies as the bracketed source does, so it needs no stage.
-    stages = (
-        (_key_tail, False, True),
-        (_link_target, False, False),
-        (_link_target, True, False),
-        (_key_tail, True, True),
-        (any_tail, True, True),
-    )
-    links: list[tuple[int, int, int]] = []  # (start, text_end, end); an image has no text
-    left = view  # what the stages so far have not consumed
-    for tail, image, by_key in stages:
-        for start, end, payload, stop in _bracketed(left, tail, image):
-            if by_key and key(start, end, payload) not in definitions:
-                continue
-            begin = start - 1 if image else start
-            links.append((begin, -1 if image else end, stop))
-            left = left[:begin] + _CODE * (stop - begin) + left[stop:]
+    emphasis(nodes, 0, len(raw), nested=False)
+    for i in gone:
+        view = view[:i] + "*" + view[i + 1 :]  # read as a `*`, which the slug drops
 
     def prose(a: int, b: int) -> str:
         text = _HTML_RE.sub("", view[a:b]).replace("*", "")
-        text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)  # emphasis, not snake_case
         return html.unescape(_unescape(text))
 
     def plain(a: int, b: int) -> str:
@@ -1071,13 +1483,40 @@ def _heading_text(raw: str, definitions: frozenset[str]) -> str:
                 pos = end
         return "".join(out) + prose(pos, b)
 
-    out, pos = [], 0
-    for start, end, stop in sorted(links):
-        out.append(plain(pos, start))
-        if end != -1:  # link text is inline Markdown of its own: an image in it adds nothing
-            out.append(_heading_text(raw[start + 1 : end - 1], definitions))
-        pos = stop
-    return "".join(out) + plain(pos, len(raw))
+    def text_of(nodes: tuple[_Node, ...] | list[_Node], a: int, b: int) -> str:
+        out, pos = [], a
+        for node in nodes:
+            if any(start <= node.begin < end for start, end in comments):
+                continue
+            out.append(plain(pos, node.begin))
+            if not node.kind.startswith(("image", "short_image")):
+                out.append(text_of(node.children, *node.text))
+            pos = node.stop
+        return "".join(out) + plain(pos, b)
+
+    return text_of(nodes, 0, len(raw)), (hazards[0] if hazards else None)
+
+
+def _stash(chars: list[tuple[str, int]], pattern: re.Pattern[str]) -> list[tuple[str, int]]:
+    """``chars`` with each match of ``pattern`` in their text made one ``_STASHED``."""
+    text, out, pos = "".join(c for c, _ in chars), [], 0
+    for m in pattern.finditer(text):
+        out += [*chars[pos : m.start()], (_STASHED, chars[m.start()][1])]
+        pos = m.end()
+    return out + chars[pos:]
+
+
+def _heading_text(raw: str, definitions: frozenset[str]) -> str:
+    """The plain text the toc extension slugifies: the heading as rendered, tags stripped.
+
+    The inline structure is read with the passes a paragraph gets: code spans, escapes and
+    the link patterns, by ``_inline``, the page pass's own routine. A link, or a reference
+    whose key is defined, reduces to its text; an image, of either kind, renders no text. An
+    undefined reference stays on the page as written, brackets and all, and so in the slug.
+    Every ``*`` is dropped, as ``toc.slugify`` drops it, and a ``_`` is dropped where the
+    emphasis pass pairs it and kept where it stays as text, by ``_emphasis_pairs`` (#1385).
+    """
+    return _heading_read(raw, definitions)[0]
 
 
 @cache
@@ -1546,8 +1985,19 @@ def test_an_undefined_reference_stays_in_its_heading_slug(
         ('- item\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
         ("See <a href='x.md>y</a> here.\n", 3, "an <a> tag html.parser cannot read"),
         ("- item\n\n        [k]: #a\n", 5, "a reference definition indented four spaces"),
+        # Python-Markdown 3.11.3 renders `<!-- separator -->`, then a list (#1013).
+        ("<!-- separator -->- item\n\n    x[t][nokey]\n", 3, "text after a comment that opens"),
+        # The reference's text is read from the link pattern on, which leaves `[b](c.md)`
+        # as text; 3.11.3 then runs every pattern again over the nested link's own text and
+        # renders a link to `c.md` inside the link to `e.md` (#1013).
+        ("[[a [b](c.md)](e.md)][k]\n\n[k]: #a\n", 3, "a bracket in or after a link"),
+        # The pair `[t]` + `[k]` spans the break after a line that is code after a
+        # paragraph and text in a list item: 3.11.3 renders `x[t]` and a link to `a.md` in
+        # the list. It is refused even where `[k](a.md)` would be a link (#1013).
+        ("- item\n\n    x[t]\n[k](a.md)\n", 5, "a reference that runs onto a line"),
     ],
-    ids=["crosses-a-block-start", "heading-in-a-table", "indented-anchor", "broken-a", "deep-def"],
+    ids=["crosses-a-block-start", "heading-in-a-table", "indented-anchor", "broken-a", "deep-def"]
+    + ["comment-then-text", "read-twice", "pair-across-indented"],
 )
 def test_a_form_outside_the_model_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int, what: str
@@ -1636,7 +2086,6 @@ def test_text_after_an_indented_code_block_is_read(
         # the same, with a label that runs over two lines, which the renderer allows
         ("- item\n\n[k\n]: #a\n\n    x[t][nokey]\n", 8),
         ("- item\n\n    <!-- separator -->\n\n    x[t][nokey]\n", 7),
-        ("<!-- separator -->- item\n\n    x[t][nokey]\n", 5),
         # A quote without a separating blank stays inside the root list.
         ("- item\n>\n> q\n\n    x[t][nokey]\n", 7),
         # Definitions and setext headings can split a block before an item line.
@@ -1647,7 +2096,6 @@ def test_text_after_an_indented_code_block_is_read(
     + [
         "after-two-line-definition",
         "indented-comment",
-        "comment-with-item",
         "quote-inside-list",
         "definition-before-item",
         "setext-before-item",
@@ -1688,7 +2136,8 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
     read by the later patterns alone. An undefined one consumes nothing, and ``[k](…)`` is a
     link. After ``![i]`` it is a link whatever ``k`` is: an image reference runs after the
     link pass, and the reference pattern skips a ``[`` after ``!``, so ``[u]`` pairs with
-    ``[g]`` below.
+    ``[g]`` below. Both stay literal: Python-Markdown 3.11.3 renders ``![f][u]`` and ``[g]``
+    as text before the link, so both pairs are reported (#1013, gap 2).
     """
     defined = (
         "# A\n\n"
@@ -1701,6 +2150,8 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
     assert out == [
         "docs/a.md:7: reference-style link [f][u] has no [u]: definition in this file, "
         "so it renders as literal text",
+        "docs/a.md:7: reference-style link [u] [g] has no [g]: definition in this file, "
+        "so it renders as literal text",
         "docs/a.md:3: link to 'img.png': no such file",
         "docs/a.md:5: link to 'nested.md': no such file",
         "docs/a.md:8: link to 'far.md': no such file",
@@ -1711,6 +2162,180 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
         "docs/a.md:3: link to 'missing.md': no such file",
         "docs/a.md:3: link to 'gone.md': no such file",
     ], out
+
+
+# --- one row per closed gap (#1013) and per emphasis form (#1385) ----------------------
+# Each row is a page, the checker's verdict on it, and a piece of what Python-Markdown
+# 3.11.3 renders for it (`toc`, `tables`, `fenced_code`, as MkDocs configures them). The
+# verdict was read off that render; `test_the_gap_rows_render_as_python_markdown_does`
+# keeps the piece true of the installed renderer.
+_REF = "definition in this file, so it renders as literal text"
+_GAP_ROWS = [
+    pytest.param(
+        # The reference pattern skips the `[` after `!`, then pairs `[k] [t]`: `t` is
+        # undefined, so `[t]` stays literal, and the image reference and `[k]` render after.
+        "![i][k] [t][k]\n\n[k]: #a\n",
+        [f"docs/a.md:3: reference-style link [k] [t] has no [t]: {_REF}"],
+        '<img alt="i" src="#a" /> [t]<a href="#a">k</a>',
+        id="gap-2-pairing-after-an-image",
+    ),
+    pytest.param(
+        # A bare `[k]` is never a reference use, so a citation key stays plain text.
+        "See [Lee2005].\n",
+        [],
+        "<p>See [Lee2005].</p>",
+        id="gap-3-a-bare-key-is-text",
+    ),
+    pytest.param(
+        # The scan resumes after the undefined `[t][a b]`, so `[a b][k]` is never tried and
+        # the defined `[k]` renders alone.
+        "[t][a b][k]\n\n[k]: #a\n",
+        [f"docs/a.md:3: reference-style link [t][a b] has no [a b]: {_REF}"],
+        '<p>[t][a b]<a href="#a">k</a></p>',
+        id="gap-4-resume-after-an-undefined-pair",
+    ),
+    pytest.param(
+        # `HTML_RE` stops at the `>` in the value; the anchor `s` is in the page all the same.
+        'Text <span id="s" title="x > y">t</span>\n',
+        [
+            f"docs/a.md:3: {_UNSUPPORTED}: an HTML tag with `<!--`, `>` or a block-level tag "
+            "in a quoted attribute value"
+        ],
+        '<span id="s" title="x > y">t</span>',
+        id="gap-5-a-hazard-in-an-attribute-value",
+    ),
+    pytest.param(
+        'Text <span id="s" title="x y">t</span> [ok](#s)\n',
+        [],
+        '<span id="s" title="x y">t</span> <a href="#s">ok</a>',
+        id="gap-5-a-plain-attribute-value",
+    ),
+    pytest.param(
+        # In a code span or an indented code block the tag is text, shown escaped.
+        'Use `<span title="x > y">t</span>` as an example.\n\nPara.\n\n    <i title="a > b">\n',
+        [],
+        '<code>&lt;span title="x &gt; y"&gt;t&lt;/span&gt;</code>',
+        id="gap-5-a-hazard-in-code-is-text",
+    ),
+    pytest.param(
+        # No closing run of two backticks: the first one pairs with nothing and stays
+        # literal, and so do the two, so the slug keeps the space between them.
+        "# x` ``ax\n\n[ok](#x-ax) [bad](#xax)\n",
+        ["docs/a.md:5: link to '#xax': no heading or HTML anchor '#xax' in docs/a.md"],
+        '<h1 id="x-ax">x` ``ax</h1>',
+        id="gap-9-unpaired-backticks-in-a-heading",
+    ),
+    pytest.param(
+        # The link pattern runs inside a comment that does not open a line, but what it makes
+        # stays inside the comment: a reader sees none of it, and the strict build passes.
+        "Before <!-- [hidden][missing] and [x](gone.md) --> after\n",
+        [],
+        '<!-- [hidden][missing] and <a href="gone.md">x</a> -->',
+        id="gap-10-links-inside-a-mid-line-comment",
+    ),
+    pytest.param(
+        # Comment delimiters shown in code spans open no comment: the code spans run first.
+        "See `<!--` [broken][missing] `-->` here.\n",
+        [f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>See <code>&lt;!--</code> [broken][missing] <code>--&gt;</code> here.</p>",
+        id="gap-10-delimiters-in-code-hide-nothing",
+    ),
+    pytest.param(
+        # Nor do delimiters in an image's alt or a link's text: inline HTML runs after the
+        # link patterns, with each image and link stashed.
+        "Text ![<!--](#a) [broken][missing] [<!--](#a) [gone][missing] -->\n",
+        [
+            f"docs/a.md:3: reference-style link [broken][missing] has no [missing]: {_REF}",
+            f"docs/a.md:3: reference-style link [gone][missing] has no [missing]: {_REF}",
+        ],
+        '<img alt="&lt;!--" src="#a" /> [broken][missing] <a href="#a">&lt;!--</a>',
+        id="gap-10-delimiters-in-a-link-hide-nothing",
+    ),
+    pytest.param(
+        # A definition cuts the block, so no comment runs across it.
+        "Text <!-- x\n[k]: a.md\n--> [broken][missing]\n",
+        [f"docs/a.md:5: reference-style link [broken][missing] has no [missing]: {_REF}"],
+        "<p>--&gt; [broken][missing]</p>",
+        id="gap-10-a-definition-cuts-a-comment",
+    ),
+    pytest.param(
+        # A heading's comments are found the same way, so its slug keeps the link's text.
+        "## A ![<!--](#a) [B](#a) --> C\n\n[ok](#a-b-c) [bad](#a-ba-c)\n",
+        ["docs/a.md:5: link to '#a-ba-c': no heading or HTML anchor '#a-ba-c' in docs/a.md"],
+        '<h2 id="a-b-c">A <img alt="&lt;!--" src="#a" /> <a href="#a">B</a> --&gt; C</h2>',
+        id="gap-10-delimiters-in-an-image-in-a-heading",
+    ),
+    # Emphasis markers in heading slugs (#1385).
+    pytest.param(
+        # The first `_` can open but nothing closes it, and the second sits inside a word,
+        # so both stay: the id is `_a_b`, where the slug once dropped the first one.
+        "# _a_b\n\n[ok](#_a_b) [bad](#a_b)\n",
+        ["docs/a.md:5: link to '#a_b': no heading or HTML anchor '#a_b' in docs/a.md"],
+        '<h1 id="_a_b">_a_b</h1>',
+        id="1385-an-unpaired-underscore",
+    ),
+    pytest.param(
+        # The `*` can open but nothing closes it, and the `_` after it can only close, with
+        # nothing open: both stay as text. The slug drops the `*` and keeps the `_`, where
+        # it once dropped both.
+        "# k *_ x\n\n[ok](#k-_-x) [bad](#k-x)\n",
+        ["docs/a.md:5: link to '#k-x': no heading or HTML anchor '#k-x' in docs/a.md"],
+        '<h1 id="k-_-x">k *_ x</h1>',
+        id="1385-an-unpaired-asterisk",
+    ),
+    pytest.param(
+        # A flat pair is dropped and the `_` inside a word is kept.
+        "# _a_ b_c\n\n[ok](#a-b_c) [bad](#_a_-b_c)\n",
+        ["docs/a.md:5: link to '#_a_-b_c': no heading or HTML anchor '#_a_-b_c' in docs/a.md"],
+        '<h1 id="a-b_c"><em>a</em> b_c</h1>',
+        id="1385-a-flat-pair",
+    ),
+    pytest.param(
+        # Uneven runs: the 3.11.3 pass leaves the code span's placeholder name in the id.
+        "# *a**b*`d`\n",
+        [
+            f"docs/a.md:3: {_UNSUPPORTED}: emphasis markers in a heading that may nest or "
+            "pair unevenly"
+        ],
+        '<h1 id="abklzzwxh0000">',
+        id="1385-uneven-runs-are-refused",
+    ),
+    pytest.param(
+        # A bracket inside emphasis is read a second time, so its pairing is not followed.
+        "# *a [t][k]*\n",
+        [
+            f"docs/a.md:3: {_UNSUPPORTED}: a bracket inside emphasis in a heading, which the "
+            "renderer reads twice",
+            f"docs/a.md:3: reference-style link [t][k] has no [k]: {_REF}",
+        ],
+        '<h1 id="a-tk"><em>a [t][k]</em></h1>',
+        id="1385-a-bracket-inside-emphasis-is-refused",
+    ),
+    pytest.param(
+        # A rule over a setext underline is a heading: the title stays as text.
+        "___\n===\n\n[ok](#___)\n",
+        [],
+        '<h1 id="___">___</h1>',
+        id="1385-a-rule-as-a-setext-title",
+    ),
+]
+
+
+@pytest.mark.parametrize(("body", "expected", "rendered"), _GAP_ROWS)
+def test_a_closed_gap_is_read_as_the_renderer_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, expected: list[str], rendered: str
+) -> None:
+    assert _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body}) == expected
+
+
+def test_the_gap_rows_render_as_python_markdown_does() -> None:
+    """One test for all the rows, so the 3-OS matrix, which has no Markdown, skips it once."""
+    markdown = _python_markdown("markdown")
+    assert markdown.__version__ == _MARKDOWN_VERSION
+    for row in _GAP_ROWS:
+        body, _, rendered = row.values
+        html = markdown.markdown("# A\n\n" + body, extensions=["toc", "tables", "fenced_code"])
+        assert rendered in html, (row.id, html)
 
 
 # --- heading-id de-duplication is not seeded (#515) -------------------------------------
@@ -1744,6 +2369,242 @@ def test_raw_html_ids_do_not_seed_heading_deduplication(
     out = _check(tmp_path, monkeypatch, {"a.md": body})
     assert [o.split(":", 2)[1] for o in out] == ["16", "17", "18"], out
     assert "'#foo_2'" in out[0] and "'#bar_1'" in out[1] and "'#baz'" in out[2]
+
+
+# --- the model against the renderer (#1013) ---------------------------------------------
+# A differential test: generated pages built from the modelled forms, each read by the
+# model and rendered by the real Python-Markdown, must agree on three things. It needs
+# Python-Markdown, which the base lock does not carry, so the 3-OS matrix skips it; the
+# required `docs-build` job installs the pinned docs toolchain and sets
+# `TETHER_REQUIRE_PYTHON_MARKDOWN=1`, which turns the skip into a failure (#517).
+
+#: The renderer the model follows: `requirements-docs.txt` pins it for the docs build.
+_MARKDOWN_VERSION = "3.11.3"
+_FUZZ_SEED = 1013
+_FUZZ_PAGES = 4000
+#: The share of a heading's pieces that are emphasis markers (#1385).
+_FUZZ_EMPHASIS = 0.15
+
+
+def _fuzz_page(rng: random.Random) -> str:
+    """One page of the modelled forms, with every target and key named so it can be traced.
+
+    Inline link targets are ``L<n>.md`` and definition targets ``D<n>.md``. A comment that
+    does not open a line holds only the key ``zz`` and targets ``C<n>.md``: the model does
+    not check what such a comment hides (gap 10), so the comparison leaves those out of the
+    render's side. Headings also hold emphasis markers, paired and unpaired (#1385).
+    """
+    serial = iter(range(10**6))
+    words = ("a", "b", "k", "K", "t", "x y", "a_b")
+
+    def w() -> str:
+        return rng.choice(words)
+
+    atoms = (
+        lambda: w(),
+        lambda: " ",
+        lambda: f"[{w()}]",
+        lambda: f"[{w()}][{w()}]",
+        lambda: f"[{w()}] [{w()}]",
+        lambda: f"[{w()}][]",
+        lambda: f"![{w()}][{w()}]",
+        lambda: f"![{w()}]",
+        lambda: f"[{w()}](L{next(serial)}.md)",
+        lambda: f"![{w()}](L{next(serial)}.md)",
+        lambda: f"[[{w()}](L{next(serial)}.md)]",
+        lambda: f"[{w()} [{w()}][{w()}]](L{next(serial)}.md)",
+        lambda: f"[{w()}](L{next(serial)}.md (t))",
+        lambda: f"`{w()}`",
+        lambda: "`",
+        lambda: "``",
+        lambda: "\\",
+        lambda: "\\[",
+        lambda: "!",
+        lambda: "[",
+        lambda: "]",
+        lambda: "(",
+        lambda: ")",
+        lambda: "#",
+        lambda: f'<span id="s{next(serial)}">',
+        lambda: "<!-- c -->",
+        lambda: f"<!-- [{w()}][zz] [{w()}](C{next(serial)}.md) -->",
+    )
+
+    # Emphasis markers, paired and unpaired, go in headings alone: elsewhere they change no
+    # slug and no link target, and they are outside the model there (#1385).
+    emphasis = (
+        lambda: "*",
+        lambda: "**",
+        lambda: "_",
+        lambda: "__",
+        lambda: f"*{w()}*",
+        lambda: f"**{w()}**",
+        lambda: f"_{w()}_",
+        lambda: f"_{w()}",
+    )
+
+    def atom(heading: bool) -> str:
+        return rng.choice(emphasis if heading and rng.random() < _FUZZ_EMPHASIS else atoms)()
+
+    def line(heading: bool = False) -> str:
+        return "".join(atom(heading) for _ in range(rng.randint(1, 8)))
+
+    out = []
+    for _ in range(rng.randint(1, 7)):
+        kind = rng.random()
+        if kind < 0.22:
+            out.append("#" * rng.randint(1, 3) + " " + line(heading=True))
+        elif kind < 0.27:
+            out.append(rng.choice(("## Same", "## Same", "## Same_1")))
+        elif kind < 0.30:
+            out += ["", line(heading=True), rng.choice(("===", "---"))]
+        elif kind < 0.38:
+            out.append(f"[{rng.choice(words)}]: D{next(serial)}.md")
+        elif kind < 0.45:
+            out.append("> " + line())
+        elif kind < 0.49:
+            out += ["", "```", line(), "```"]
+        elif kind < 0.52:
+            out += ["", "    " + line()]
+        elif kind < 0.55:
+            out += ["", "<!-- c -->"]
+        elif kind < 0.58:
+            out += ["", f'<div id="d{next(serial)}">', "", "text", "", "</div>"]
+        else:
+            out.append(line())
+        if rng.random() < 0.6:
+            out.append("")
+    return "\n".join(out) + "\n"
+
+
+def _model_reading(path: Path) -> tuple[list[str], list[str], list[str]] | None:
+    """Anchors, undefined reference keys and inline link targets, or None if refused."""
+    _doc.cache_clear()
+    _anchors.cache_clear()
+    doc = _doc(path)
+    if doc.problems:
+        return None
+    # A key holding `zz` comes from a comment the generator wrote; the render's side
+    # leaves those out too.
+    refs = sorted(
+        r.key or "" for r in doc.refs if r.key not in doc.definitions and "zz" not in (r.key or "")
+    )
+    links = sorted(t for _, t in doc.links if t.startswith("L"))
+    return sorted(_anchors(path)), refs, links
+
+
+class _Rendered(HTMLParser):
+    """The anchors and link targets of a rendered page, as a browser reads them."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.anchors: set[str] = set()
+        self.links: list[str] = []
+        self.heading = 0
+        self.loose_emphasis = False  # an emphasis element outside a heading
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.heading += tag in ("h1", "h2", "h3", "h4", "h5", "h6")
+        self.loose_emphasis |= tag in ("em", "strong") and not self.heading
+        found = dict(attrs)
+        if found.get("id"):
+            self.anchors.add(found["id"])
+        if tag == "a" and found.get("name"):
+            self.anchors.add(found["name"])
+        self.links += [v for k, v in attrs if k in ("href", "src") and v and v.startswith("L")]
+
+    def handle_endtag(self, tag: str) -> None:
+        self.heading -= tag in ("h1", "h2", "h3", "h4", "h5", "h6")
+
+    handle_startendtag = handle_starttag
+
+
+def test_the_model_matches_python_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Over seeded pages of the modelled forms, the model reads what the renderer renders.
+
+    The render is instrumented: every pair the reference and image-reference patterns try
+    and leave as text, its key undefined, is recorded, as the checker reports it. The model
+    and the render must give the same anchors, the same undefined keys and the same inline
+    link targets for every page the model does not refuse; a refused page is the loud
+    outcome and is skipped, and most pages must be read. The seed and the count are fixed,
+    so a failure reproduces.
+    """
+    markdown = _python_markdown("markdown")
+    inline = _python_markdown("markdown.inlinepatterns")
+    assert markdown.__version__ == _MARKDOWN_VERSION, (
+        f"the docs build uses Python-Markdown {markdown.__version__}; the model follows "
+        f"{_MARKDOWN_VERSION}. Re-check the model against the new version, then update both."
+    )
+    # The emphasis patterns the slug model copies are the renderer's own (#1385).
+    delimiters = markdown.Markdown().delimiters.delimiters
+    assert {t: d.boundary.pattern for t, d in delimiters.items()} == {
+        t: d.pattern for t, d in _DELIMITERS.items()
+    }
+    assert (_ENTITY_RE.pattern, _AUTOMAIL_RE.pattern) == (inline.ENTITY_RE, inline.AUTOMAIL_RE)
+    tried: list[str] = []
+    handle = inline.ReferenceInlineProcessor.handleMatch
+
+    def recording(self, m, data):
+        node, start, end = handle(self, m, data)
+        exact = type(self) in (
+            inline.ReferenceInlineProcessor,
+            inline.ImageReferenceInlineProcessor,
+        )
+        if exact and node is None and start is not None:
+            text, index, _ = self.getText(data, m.end(0))
+            key, after, _ = self.evalId(data, index, text)
+            key = self.NEWLINE_CLEANUP_RE.sub(" ", key)
+            # The checker's own exception: `[key](…)` forming a link leaves no literal use.
+            link = inline.LinkInlineProcessor(inline.LINK_RE, self.md)
+            if not (data.startswith("(", after) and link.getLink(data, after)[3]):
+                tried.append("" if "\x02" in key else key)  # a placeholder in the key
+        return node, start, end
+
+    monkeypatch.setattr(inline.ReferenceInlineProcessor, "handleMatch", recording)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    monkeypatch.setattr(sys.modules[__name__], "DOCS", docs)
+    page = docs / "page.md"
+    rng = random.Random(_FUZZ_SEED)
+    read, mismatches = 0, []
+    try:
+        for _ in range(_FUZZ_PAGES):
+            source = _fuzz_page(rng)
+            page.write_text(source, encoding="utf-8")
+            model = _model_reading(page)
+            if model is None:
+                continue
+            tried.clear()
+            rendered = _Rendered()
+            rendered.feed(markdown.markdown(source, extensions=["toc", "tables", "fenced_code"]))
+            if rendered.loose_emphasis:
+                # A heading line the renderer did not read as one put emphasis in a
+                # paragraph, which is outside the model (#1385): skipped, as a refusal is.
+                continue
+            read += 1
+            real = (
+                sorted(rendered.anchors),
+                sorted(k for k in tried if "zz" not in k),
+                sorted(rendered.links),
+            )
+            if any(row.startswith(" " * _TAB) for row in source.split("\n")):
+                # Ambiguous indentation is read as prose on purpose, which can only report
+                # more: hold such a page to the safe direction alone. The model may find
+                # extra undefined keys and extra targets to check, and fewer anchors.
+                agree = (
+                    not collections.Counter(real[1]) - collections.Counter(model[1])
+                    and not collections.Counter(real[2]) - collections.Counter(model[2])
+                    and set(model[0]) <= set(real[0])
+                )
+            else:
+                agree = model == real
+            if not agree and len(mismatches) < 5:
+                mismatches.append(f"{source!r}\n  model:  {model}\n  render: {real}")
+    finally:
+        _doc.cache_clear()
+        _anchors.cache_clear()
+    assert not mismatches, "\n".join(mismatches)
+    assert read >= _FUZZ_PAGES * 0.7, f"the model refused {_FUZZ_PAGES - read} of {_FUZZ_PAGES}"
 
 
 def test_mkdocs_yml_names_no_markdown_extension() -> None:

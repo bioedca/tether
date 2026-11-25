@@ -15,6 +15,8 @@ than registered service commands, and they import the core only when they run (A
 - [`summed_bleach_frame`][] — the first frame of the summed-intensity photobleach, by the
   detector and priors that
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
+- [`molecule_states`][] — what the molecule list shows for every row (#630): the curation
+  state, the category, and whether an idealization exists and is stale.
 """
 
 from __future__ import annotations
@@ -27,7 +29,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 __all__ = [
+    "ACCEPTED",
+    "CURATION_STATES",
+    "REJECTED",
+    "UNDECIDED",
+    "MoleculeState",
     "StoredMolecule",
+    "curation_state",
+    "molecule_states",
     "resolved_frame_range",
     "resolved_window",
     "stored_molecule",
@@ -35,6 +44,15 @@ __all__ = [
     "stored_rows",
     "summed_bleach_frame",
 ]
+
+#: The curation state of a molecule that is accepted (``curation_label`` ``+1``).
+ACCEPTED = "accepted"
+#: The curation state of a molecule that is rejected (``curation_label`` ``-1``).
+REJECTED = "rejected"
+#: The curation state of a molecule with no decision (``curation_label`` ``0``).
+UNDECIDED = "undecided"
+#: The three curation states, in the order the molecule list counts them (#630).
+CURATION_STATES = (ACCEPTED, REJECTED, UNDECIDED)
 
 
 @dataclass(frozen=True)
@@ -150,6 +168,94 @@ def stored_molecule(
     """
     matches = stored_molecules(project_path, molecule_key)
     return next((m for m in matches if m.row == row), matches[0])
+
+
+@dataclass(frozen=True)
+class MoleculeState:
+    """What the molecule list shows for one ``/molecules`` row (#630, PRD §7.3).
+
+    Attributes
+    ----------
+    row
+        The row index in ``/molecules`` (and so in the list).
+    molecule_key
+        The row's ``molecule_key``.
+    movie_id
+        The movie the row was extracted from.
+    curation
+        [`ACCEPTED`][], [`REJECTED`][] or [`UNDECIDED`][] (see [`curation_state`][]).
+    category
+        The row's category name; ``""`` when it has none.
+    idealized
+        Whether a model under ``/idealization`` holds a fit of this row.
+    stale
+        Whether one of those fits is stale: the row's inputs changed after the fit.
+    """
+
+    row: int
+    molecule_key: str
+    movie_id: str
+    curation: str
+    category: str = ""
+    idealized: bool = False
+    stale: bool = False
+
+
+def curation_state(label: int) -> str:
+    """Map a ``curation_label`` to its state: ``+1`` accepted, ``-1`` rejected, else undecided."""
+    if label > 0:
+        return ACCEPTED
+    if label < 0:
+        return REJECTED
+    return UNDECIDED
+
+
+def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:
+    """Read the list state of every ``/molecules`` row, in row order (read-only, #630).
+
+    One read of ``/molecules`` gives the curation state and the category. For the
+    idealization marks each model's staleness stamp is read and checked against the
+    current traces, by the rule of
+    [`stale_row_ids`][tether.project.idealize.stale_row_ids]; the join is on the unique
+    ``molecule_id``, so two rows that share a ``molecule_key`` keep their own marks.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.idealize import (  # noqa: PLC0415
+        list_idealizations,
+        read_staleness_stamp,
+        stale_row_ids,
+    )
+
+    path = Path(project_path)
+    with h5py.File(path, "r") as f:
+        table = f["molecules"][TABLE]
+        if table.shape[0] == 0:
+            return ()
+        keys = [_text(k) for k in table.fields("molecule_key")[:]]
+        ids = [_text(k) for k in table.fields("molecule_id")[:]]
+        movies = [_text(k) for k in table.fields("movie_id")[:]]
+        categories = [_text(k) for k in table.fields("category")[:]]
+        labels = [int(v) for v in table.fields("curation_label")[:]]
+    fitted: set[str] = set()
+    stale: set[str] = set()
+    for model in list_idealizations(path):
+        stamp = read_staleness_stamp(path, model)
+        fitted.update(stamp.molecule_ids)
+        stale.update(stale_row_ids(path, stamp))
+    return tuple(
+        MoleculeState(
+            row=row,
+            molecule_key=keys[row],
+            movie_id=movies[row],
+            curation=curation_state(labels[row]),
+            category=categories[row],
+            idealized=ids[row] in fitted,
+            stale=ids[row] in stale,
+        )
+        for row in range(len(keys))
+    )
 
 
 def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> int:

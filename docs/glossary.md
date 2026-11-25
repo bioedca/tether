@@ -166,12 +166,13 @@ Paired with `correction_confidence`, `1.0` or `0.0`: a provenance flag, not a st
 
 ### withheld factor / NaN sentinel
 
-A NaN in a molecule's α or γ cell, which means that the estimator withheld the factor because too
-few traces qualified. It is the expected sign of a withhold, not damage to the file.
+A NaN in a molecule's α or γ cell, which means that no factor was applied to that molecule. One
+cause is that the estimator withheld the factor because too few traces qualified.
 
-A missing factor never becomes a NaN in E: Tether gives that molecule apparent E (ADR-0003). E
-can still be NaN on a frame where its denominator is zero, for example a frame with zero total
-intensity. That per-frame NaN is not this sentinel, and neither is the `-1`
+An analysis-only import also seeds every row at NaN, and it carries `/settings/analysis_only`. A
+withhold sets the `withheld` flag in `/settings/leakage` (α) or `/settings/gamma` (γ). Neither case is damage to the file.
+A missing factor never becomes a NaN in E: Tether gives that molecule apparent E (ADR-0003). A NaN E
+on a frame whose denominator is zero is not this sentinel, and neither is the `-1`
 [undetected sentinel](#photobleach-frames-first-bleach-frame) or [`NO_STATE`](#no_state). See
 [Two sentinels](reference/tether-format.md#two-sentinels-and-two-derivations-worth-reading-twice) and
 [the batch says `correct=done` but no corrections were applied](troubleshooting.md#the-batch-says-correctdone-but-no-corrections-were-applied).
@@ -336,7 +337,8 @@ The undecimated wavelet transform whose multiscale product is Tether's default s
 MAD, the median absolute deviation, is its noise estimate at each scale.
 
 ([Olivo-Marin 2002](https://doi.org/10.1016/S0031-3203%2801%2900127-3)). The alternatives are
-the `intensity` and `bandpass` modes, ported from Deep-LASI's `findPart` (ADR-0021).
+the `intensity`, `bandpass` and `zmw` modes, ported from Deep-LASI's `findPart` (ADR-0021,
+ADR-0143).
 
 ---
 
@@ -619,9 +621,11 @@ Code: `SidecarError.transient` in `tether.idealize.driver`.
 The word that the batch command prints for each stage of each movie. It tells you whether the
 stage ran and whether it counts as a failure.
 
-The values are `done`, `skipped`, `failed`, `blocked`, `deferred`, `not-requested` and
-`warning` (`tether.project.batch`). Only `failed` makes the run exit `1`. A `deferred` stage in a
-run with no `failed` stage makes it exit `3`: see
+The values are `done`, `skipped`, `failed`, `blocked`, `deferred` and `not-requested`
+(`tether.project.batch`). A `warning` is a log event, not a stage status. In a finished run, only
+`failed` makes the run exit `1`. A run that cannot create its output directory or write its log
+also exits `1`, with no summary. A `deferred` stage in a run with no `failed` stage makes it exit
+`3`: see
 [a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
 The [stage status table](cli.md#stage-status-in-the-batch-summary) gives the meaning of each.
 

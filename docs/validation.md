@@ -245,6 +245,34 @@ donor 0.982 / acceptor 0.854 above). Also
 degree-2 fit vs the imported `.tmap`: RMS ≤ 0.5 px and ≥ 95 % of molecule positions
 agreeing within 1 px, on committed fixtures).
 
+### Detection mode 5 against Deep-LASI's own `findPart`
+
+**What is compared.** The spots of Tether's ZMW detector (`zmw`, Deep-LASI particle-detection
+mode 5, `tether.imaging.detect.detect_spots_zmw`) against the spots of Deep-LASI's own
+`findPart` with mode 5, run in MATLAB at the pinned commit by the `findpart` task of
+`scripts/reference/matlab/deep_lasi.py`
+([ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)).
+Deep-LASI's window cannot select mode 5, so there is no saved Deep-LASI extraction with it to
+repeat. The comparison is of the detector on detection images, with Deep-LASI's shared tail at
+its smallest border width (1 px) and no refinement on both sides.
+
+**Reference data.** Two committed detection images: a 128 × 128 crop of a detection image that
+Deep-LASI saved in the public `Figure_2.zip` of Zenodo record 7561162 (CC-BY-4.0), and a
+synthetic image with three spots on or next to the edge. The run uses thresholds 0.1, 0.3 and
+0.5. Its record and outputs are frozen in `tests/fixtures/reference/deep-lasi/findpart-zmw/`
+(ADR-0074), and the same run keeps the error MATLAB gives for mode 4.
+
+**Tolerance.** Every spot must agree within 1e-9 px, and the counts must be equal. Both sides
+compute the same centroids in double precision.
+
+**Result.** The run of 2026-11-24 (MATLAB R2023b Update 10) agrees in all six cases: 45 spots,
+largest difference 1.5e-14 px. Mode 4 stopped with `Unrecognized function or variable 'r'.`
+
+**Enforcing tests.** `tests/test_deeplasi_findpart_reference.py` (required matrix, no MATLAB
+needed: the outputs are committed), with a fault injection: an erosion padded with 1, where
+MATLAB's `bwmorph` pads with 0, fails the comparison. `tests/test_matlab_reference.py` checks
+the SHA-256 of every frozen file.
+
 ## (b) Idealization parity vs tMAVEN
 
 **What is compared.** Four metrics from `src/tether/idealize/parity.py`, after canonical
@@ -1004,6 +1032,10 @@ and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026
 output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
 200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
 with a `provenance.json` that holds the citation, the script hash and the input hashes.
+MATLAB's `run` executes a P-file of the same name in place of the `.m` file, so the harness and
+the task refuse to run when `FRET_cloud_contours_centroids.p` sits beside the pinned script
+([#1252](https://github.com/bioedca/tether/issues/1252)). The script hash is then the hash of the
+code that ran.
 
 The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
 copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
@@ -1766,10 +1798,13 @@ evidence about the size of the difference and not a tolerance.
 
 **Input formats refused rather than approximated.**
 
-- Deep-LASI particle-detection modes **4 (local-variance)** and **5 (ZMW intensity)** are
-  not ported. `src/tether/io/tdat.py` raises `ValueError` on them rather than silently
-  mis-detecting; only modes 1 (wavelet), 2 (intensity) and 3 (bandpass) are supported
-  ([ADR-0021](adr/0021-particle-detection-modes.md)). A `.tdat` with a non-integer or
+- Deep-LASI particle-detection mode **4 (local-variance)** is not ported, because Deep-LASI's
+  own mode 4 stops with an error at the pinned commit and so gives no result to match.
+  `src/tether/io/tdat.py` raises `ValueError` on it rather than silently mis-detecting. Modes
+  1 (wavelet), 2 (intensity), 3 (bandpass) and 5 (ZMW intensity) are supported
+  ([ADR-0021](adr/0021-particle-detection-modes.md),
+  [ADR-0143](adr/0143-deep-lasi-detection-mode-5-is-ported-and-mode-4-stays-refused.md)). A
+  `.tdat` with a non-integer or
   out-of-range mode code also raises. Covered by
   `tests/test_tdat.py::test_unsupported_detection_mode_raises` and, at the CLI, by
   `tests/test_extract_cli.py::test_extract_tdat_unsupported_mode_errors`, which asserts a
