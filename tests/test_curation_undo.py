@@ -399,6 +399,28 @@ def test_an_undo_the_store_refuses_is_dropped_so_earlier_steps_still_undo(
 
 @_needs_qt
 @pytest.mark.gui
+def test_an_undo_that_fails_after_it_changed_the_store_empties_both_lists(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    project, keys = _loaded(shell, tmp_path)
+    _press(qtbot, shell, "Key_1")
+    _press(qtbot, shell, "Key_Backspace")
+
+    def no_log_row(*args, **kwargs):
+        raise OSError("reject log write failed")
+
+    # The undone reject stores its label and then fails on its restore-log row.
+    monkeypatch.setattr(labels, "_append_reject_log", no_log_row)
+    assert not shell.undo()
+    monkeypatch.undo()
+
+    assert "failed" in shell.status_message
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.UNCURATED
+    assert shell.undo_stack.undo_count == 0 and shell.undo_stack.redo_count == 0
+
+
+@_needs_qt
+@pytest.mark.gui
 def test_an_undone_un_reject_gets_back_the_reason_of_the_reject(shell, tmp_path) -> None:
     project, keys = _loaded(shell, tmp_path)
     project.reject(keys[0], reason="threshold", value=0.25, labeler="ana")
@@ -466,7 +488,7 @@ def test_an_undo_gives_each_row_of_a_shared_key_its_own_window_back(
 
 @_needs_qt
 @pytest.mark.gui
-def test_an_action_that_cannot_be_undone_still_ends_the_redo_list(
+def test_an_action_that_cannot_be_undone_empties_both_lists(
     shell, qtbot, tmp_path, monkeypatch
 ) -> None:
     from tether.gui import shell as shell_mod
@@ -474,7 +496,11 @@ def test_an_action_that_cannot_be_undone_still_ends_the_redo_list(
     project, keys = _loaded(shell, tmp_path)
     _press(qtbot, shell, "Key_Space")
     assert shell.undo()
-    assert shell.redo_action.isEnabled()
+    _press(qtbot, shell, "Key_1")  # a recorded action before the one that cannot be
+    assert shell.undo()
+    assert shell.undo_stack.undo_count == 0 and shell.redo_action.isEnabled()
+    _press(qtbot, shell, "Key_Space")
+    assert shell.undo_stack.undo_count == 1
 
     def unreadable(*args, **kwargs):
         raise OSError("snapshot read failed")
@@ -484,9 +510,62 @@ def test_an_action_that_cannot_be_undone_still_ends_the_redo_list(
     monkeypatch.undo()
 
     assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+    assert shell.undo_stack.undo_count == 0 and not shell.undo_action.isEnabled()
     assert shell.undo_stack.redo_count == 0 and not shell.redo_action.isEnabled()
+    assert not shell.undo() and not shell.redo()
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+
+
+@_needs_qt
+@pytest.mark.gui
+def test_a_write_that_fails_after_it_changed_the_store_empties_both_lists(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    project, keys = _loaded(shell, tmp_path)
+    _press(qtbot, shell, "Key_1")
+    _press(qtbot, shell, "Key_Space")
+    assert shell.undo()
+    assert shell.undo_stack.undo_count == 1 and shell.undo_stack.redo_count == 1
+
+    def no_log_row(*args, **kwargs):
+        raise OSError("reject log write failed")
+
+    # The reject stores its label and then fails on its reject-log row.
+    monkeypatch.setattr(labels, "_append_reject_log", no_log_row)
+    _press(qtbot, shell, "Key_Backspace")
+    monkeypatch.undo()
+
+    assert "failed" in shell.status_message
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+    assert shell.undo_stack.undo_count == 0 and shell.undo_stack.redo_count == 0
     assert not shell.redo()
     assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.REJECT
+
+
+@_needs_qt
+@pytest.mark.gui
+def test_a_write_that_fails_before_it_changed_the_store_keeps_both_lists(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.project.core import Project
+
+    project, keys = _loaded(shell, tmp_path)
+    _press(qtbot, shell, "Key_1")
+    _press(qtbot, shell, "Key_Space")
+    assert shell.undo()
+
+    def refused(*args, **kwargs):
+        raise OSError("store refused the write")
+
+    monkeypatch.setattr(Project, "reject", refused)
+    _press(qtbot, shell, "Key_Backspace")
+    monkeypatch.undo()
+
+    assert "failed" in shell.status_message
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.UNCURATED
+    assert shell.undo_stack.undo_count == 1 and shell.undo_stack.redo_count == 1
+    assert shell.redo()
+    assert labels.curation_label_of(project.path, keys[0]) == labels.CurationLabel.ACCEPT
 
 
 @_needs_qt

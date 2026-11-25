@@ -148,10 +148,6 @@ class UndoStack:
         """Drop the [`undo_entry`][] (or the [`redo_entry`][]) after its write failed."""
         return (self._redo if redo else self._undo).pop()
 
-    def clear_redo(self) -> None:
-        """Empty the redo list: a stored action that cannot be undone came after it."""
-        self._redo.clear()
-
     def clear(self) -> None:
         """Empty both lists: the project closed, another opened, or it became read-only."""
         self._undo.clear()

@@ -328,10 +328,17 @@ reason.
 Undo does not take back a correction pass, an idealization, an import or a bulk
 threshold-reject.
 
-Nothing you do here deletes a molecule or a decision. Every accept, reject, un-reject and undo is
-added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
-so the history survives a reversal. An undo adds the rows that restore the earlier state. It
-removes no row.
+Sometimes Tether cannot read a molecule's state around an action, or a write fails part way.
+Then Tether keeps what was stored and empties both lists. So an undo of an earlier action
+never takes back a change that is not on the list.
+
+Nothing you do here deletes a molecule or a decision. An undo adds the rows that restore the
+earlier state. It removes no row, so the history survives a reversal.
+
+Each accept, reject and un-reject goes to the project's
+[curation log](../reference/tether-format.md#labels-the-append-only-curation-log). So does its
+undo or redo. A category or window edit, and its undo or redo, goes to the molecule edit log
+`/settings/molecule_audit`.
 
 ## Change a key
 

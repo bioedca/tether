@@ -4409,16 +4409,17 @@ class TetherShell:
 
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
+        writers = {
+            CurationAction.ACCEPT: project.accept,
+            CurationAction.REJECT: project.reject,
+            CurationAction.UNREJECT: project.unreject,
+        }
+        before = _read_or_none(lambda: curation_snapshot(project.path, key))
         try:
-            writers = {
-                CurationAction.ACCEPT: project.accept,
-                CurationAction.REJECT: project.reject,
-                CurationAction.UNREJECT: project.unreject,
-            }
-            before = _read_or_none(lambda: curation_snapshot(project.path, key))
             self._guard_session_write(project, nonce)
             result = writers[action](key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._keep_history_if_unchanged(before, lambda: curation_snapshot(project.path, key))
             self._status(f"{verb} failed: {exc}")
             return
         if action is CurationAction.UNREJECT and result is None:
@@ -4645,7 +4646,7 @@ class TetherShell:
         """Put a stored curation action on the undo list; an action that changed nothing is not.
 
         ``before`` (or the state after) is ``None`` when it could not be read: the action
-        is then stored but cannot be undone, and the redo list is emptied.
+        is then stored but cannot be undone, and both lists are emptied.
 
         For an accept, reject or un-reject (``project`` given) the state after the write
         is read back from the store, so a redo writes what the action stored.
@@ -4657,10 +4658,9 @@ class TetherShell:
             except Exception:  # noqa: BLE001 - the write stands; it only cannot be undone
                 after = None
         if before is None or after is None:
-            # A stored action that cannot be undone still ends the redo list: a redo
-            # written over it would undo it unseen.
-            self._undo.clear_redo()
-            self._sync_undo_actions()
+            # A stored action that cannot be undone empties both lists: an undo or a redo
+            # of an earlier action written over it would take it back unseen.
+            self._clear_undo()
             return
         if after == before:
             return
@@ -4671,6 +4671,18 @@ class TetherShell:
         """Empty the undo and redo lists: they belong to one open, writable project."""
         self._undo.clear()
         self._sync_undo_actions()
+
+    def _keep_history_if_unchanged(self, before: object, read: Callable[[], object]) -> None:
+        """Keep the undo and redo lists after a failed write only if the store is unchanged.
+
+        A writer can fail part way, after it changed the stored state: a reject can store
+        its label and then fail on its reject-log row. An undo or a redo written over such
+        a state would take it back unseen, so both lists are emptied unless the state can
+        be read and still equals ``before``.
+        """
+        if before is not None and _read_or_none(read) == before:
+            return
+        self._clear_undo()
 
     def _sync_undo_actions(self) -> None:
         """Name the action each Edit entry acts on, and enable it only when there is one."""
@@ -4716,7 +4728,12 @@ class TetherShell:
             self._write_undo_state(project, entry, state, verb.lower())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             # The store refused this step, so it stays refused: drop it, so the steps
-            # before it can still be taken. A lost lock has emptied both lists already.
+            # before it can still be taken. A lost lock has emptied both lists already,
+            # and a write that failed part way empties them here.
+            self._keep_history_if_unchanged(
+                entry.before if redo else entry.after,
+                lambda: self._read_entry_state(project, entry),
+            )
             still_there = self._undo.redo_entry if redo else self._undo.undo_entry
             if still_there is entry:
                 self._undo.discard(redo=redo)
@@ -4736,6 +4753,15 @@ class TetherShell:
         self._after_states_changed()
         self._status(f"{verb} {entry.description}")
         return True
+
+    def _read_entry_state(self, project: Project, entry: UndoEntry) -> object:
+        """Read the stored state of ``entry``'s molecule, in the form its ``kind`` names."""
+        key = entry.molecule_key
+        if entry.kind == CURATION:
+            return curation_snapshot(project.path, key)
+        if entry.kind == CATEGORY:
+            return stored_molecule(project.path, key, row=entry.row).category
+        return _window_state(stored_rows(project.path, (key,)), entry.row)
 
     def _write_undo_state(
         self, project: Project, entry: UndoEntry, state: Any, reason: str
@@ -4837,6 +4863,9 @@ class TetherShell:
             self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(
+                stored.category, lambda: stored_molecule(project.path, key, row=row).category
+            )
             self._status(f"{verb} failed: {exc}")
             return
         target = trace.name or key
@@ -4861,11 +4890,14 @@ class TetherShell:
         project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
+        before = _read_or_none(lambda: stored_molecule(project.path, key, row=row).category)
         try:
-            before = _read_or_none(lambda: stored_molecule(project.path, key, row=row).category)
             self._guard_session_write(project, nonce)
             project.clear_category(key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(
+                before, lambda: stored_molecule(project.path, key, row=row).category
+            )
             self._status(f"{verb} failed: {exc}")
             return
         self._record_undo(
@@ -5312,11 +5344,16 @@ class TetherShell:
         """
         key = trace.molecule_key
         assert key is not None  # every caller passed _writable_selection
+
+        def read() -> WindowState:
+            return _window_state(stored_rows(project.path, (key,)), row)
+
+        before = _read_or_none(read)
         try:
-            before = _read_or_none(lambda: _window_state(stored_rows(project.path, (key,)), row))
             self._guard_session_write(project, nonce)
             write()
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._keep_history_if_unchanged(before, read)
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_analysis_refresh()
@@ -5325,7 +5362,7 @@ class TetherShell:
         try:
             by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
-            self._record_undo(WINDOW, key, row, undo_text, None)  # ends the redo list only
+            self._record_undo(WINDOW, key, row, undo_text, None)  # empties both lists
             self._status(
                 f"Analysis window saved for {trace.name or key}, "
                 f"but the trace view could not reread it: {exc}"
