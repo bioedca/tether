@@ -555,7 +555,7 @@ the project that was open stays open.
 | Message | What it means | What to do |
 |---|---|---|
 | `no such .tether project: <path>` | The path has a typing error, or the file moved. | Give the correct path. |
-| `file schema_version 99 is newer than this app's 1; refusing to open (PRD section 5.4).` | A newer Tether wrote the file. | **Upgrade Tether.** Do not try to edit the file. |
+| `file schema_version 99 is newer than this app's 1; refusing to open (PRD section 5.4).` | The file was written by a newer Tether. | **[Update Tether](install.md#update-tether).** Do not try to edit the file. |
 | `<path> is not a .tether project (format marker=None)` | The file is HDF5 but not a project file, for example an SMD, a model or a `.mat`. | Open the correct file. |
 | `<path> is not a readable .tether HDF5 project` | The file is not HDF5, or it is truncated. | Restore the file from a backup, and make sure that the copy completed. |
 | `<path> is not a complete .tether project; missing: /movies, /molecules, …` | A half-written project file. The message names each missing group. | Extract the movie again. |

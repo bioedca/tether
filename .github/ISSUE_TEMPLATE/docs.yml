@@ -131,15 +131,15 @@ body:
       label: Risk level
       description: >-
         How much scrutiny this deserves, not the priority - and not the reviewer:
-        every item walks the same review lane. What it decides is whether a metered
-        Greptile credit is worth spending. High covers scientific logic or claims,
+        the changed files decide the review lane (ADR-0142), so a code change takes
+        one Greptile review at any risk. High covers scientific logic or claims,
         data, provenance, schema, security, dependencies, CI/release, a public API,
         persistence or migration, concurrency, HPC/Slurm, and broad cross-component
         work.
       options:
-        - "low — the lane: Codex on the draft, then CodeRabbit"
-        - "standard — the lane: Codex on the draft, then CodeRabbit"
-        - "high — the lane, and a Greptile credit is worth spending if the seat has budget"
+        - "low — the lane: Codex, then one Greptile review if it is code"
+        - "standard — the lane: Codex, then one Greptile review if it is code"
+        - "high — the same lane, and the PR records why the risk is high"
         - "unsure — leave it to grooming"
     validations:
       required: true

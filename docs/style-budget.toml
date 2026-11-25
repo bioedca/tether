@@ -106,7 +106,7 @@ retired = 0
 
 [pages."docs/packaging.md"]
 kind = "descriptive"
-long_share = 9.8
+long_share = 7.4
 semicolons = 2
 long_paragraphs = 0
 retired = 0
