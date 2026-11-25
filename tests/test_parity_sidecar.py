@@ -35,6 +35,7 @@ import pytest
 
 from _sidecar_gate import requires_sidecar
 from tether.idealize import (
+    NO_STATE,
     compare_models,
     load_frozen_tolerance,
     read_model,
@@ -42,6 +43,7 @@ from tether.idealize import (
     run_vbfret,
 )
 from tether.idealize.parity import (
+    PER_TRACE_MODEL_TYPE,
     load_transition_matrix_tolerance,
     within_tolerance,
     within_transition_matrix_tolerance,
@@ -256,3 +258,55 @@ def test_4mol_ebfret_same_seed_gives_the_same_model(tmp_path):
     assert a and a.keys() == b.keys()
     for name in a:
         np.testing.assert_array_equal(a[name], b[name], err_msg=name)
+
+
+@requires_sidecar
+def test_4mol_per_trace_vbfret_same_seed_gives_the_same_model(tmp_path, capsys):
+    """Per-trace vbFRET fits every trace, and one seed gives one model (#545, ADR-0110).
+
+    ``model_type="vbfret"`` runs tMAVEN's per-trace VB-HMM
+    (``tracelevel_vbhmm_modelselection``): each trace gets its own model for 1 to 4 states and
+    keeps the one with the highest evidence. The fit must carry a per-trace model for every
+    molecule, and two fits with one seed must write the same model, value for value: a tMAVEN
+    change that adds a random source the sidecar does not seed fails here.
+
+    The two seeds of the cross-seed pair are also scored and written to the job log. Their
+    agreement is not asserted: per-trace vbFRET does not reproduce across seeds on these
+    traces (ADR-0110 records the measured spread), so no frozen row exists for it.
+    """
+    import numpy as np
+
+    smd = tmp_path / "smd_4mol.hdf5"
+    shutil.copyfile(FIXTURES / "smd_4mol.hdf5", smd)
+    fits = {}
+    for name, seed in (("a", EBFRET_SEEDS[0]), ("b", EBFRET_SEEDS[0]), ("c", EBFRET_SEEDS[1])):
+        out = tmp_path / f"model_{name}.hdf5"
+        fits[name] = run_vbfret(
+            smd, model_type="vbfret", nstates=4, timeout=1800.0, seed=seed, model_out=out
+        )
+        result = fits[name]
+        assert result.status["ok"] is True
+        assert result.status["result_type"] == PER_TRACE_MODEL_TYPE
+        assert result.model.model_type == PER_TRACE_MODEL_TYPE
+        assert sorted(result.model.trace_level) == [0, 1, 2, 3]
+        for trace in result.model.trace_level.values():
+            assert 1 <= trace.nstates <= 4
+            assert trace.elbo is not None and np.isfinite(trace.elbo)
+            assert np.isfinite(trace.idealized).any()
+        # The returned paths use each trace's own states: a trace whose idealized row takes
+        # k levels has a path with k states, so its transitions and dwells survive.
+        assert sorted(result.state_paths) == [0, 1, 2, 3]
+        for mol, path in result.state_paths.items():
+            row = result.model.trace_level[mol].idealized
+            levels = np.unique(row[np.isfinite(row)])
+            assert np.unique(path[path != NO_STATE]).size == levels.size
+        assert len(result.dwells) >= len(result.state_paths)
+
+    a = _model_datasets(fits["a"].model_path)
+    b = _model_datasets(fits["b"].model_path)
+    assert a and a.keys() == b.keys()
+    for name in a:
+        np.testing.assert_array_equal(a[name], b[name], err_msg=name)
+
+    metrics = compare_models(fits["a"].model, fits["c"].model)
+    _report(capsys, f"vbfret per-trace smd_4mol, seeds {EBFRET_SEEDS}", metrics)

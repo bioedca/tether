@@ -109,6 +109,13 @@ class StateModel:
     ``b_prior``, ``beta_prior``, ``mu_prior``, ``pi_prior``, ``tm_prior``). All are
     optional: [`read_model`][] reads each when the model file carries it and leaves
     it ``None`` otherwise (a threshold/k-means model has no rate matrix or priors).
+
+    ``trace_level`` holds the **per-trace** models tMAVEN writes under the
+    ``trace_level/`` subgroup, keyed by SMD molecule index: each is a
+    [`StateModel`][] with that trace's own ``means``, ``nstates``, ``elbo``,
+    ``norm_tmatrix`` and its ``idealized`` row (1-D). A per-trace vbFRET model
+    (``model_type="vbfret"``) carries its result only there, and its ensemble
+    ``means`` are NaN. ``None`` when the file has no such subgroup.
     """
 
     model_type: str
@@ -126,6 +133,7 @@ class StateModel:
     pi: np.ndarray | None = None
     frac: np.ndarray | None = None
     priors: dict[str, np.ndarray] | None = None
+    trace_level: dict[int, StateModel] | None = None
 
 
 @dataclass(frozen=True)
@@ -133,7 +141,7 @@ class Dwell:
     """A single contiguous dwell in one molecule's idealized state path."""
 
     molecule_index: int  # index into the SMD molecule order
-    state: int  # state index into StateModel.means
+    state: int  # state index into StateModel.means (a per-trace model: that trace's means)
     start: int  # first frame of the dwell
     length: int  # number of frames
 
@@ -143,7 +151,9 @@ class IdealizationResult:
     """Outcome of a headless vbFRET round-trip.
 
     ``state_paths`` maps each idealized SMD molecule index to its integer state
-    path (``NO_STATE`` outside the window). ``molecule_keys`` carries the
+    path (``NO_STATE`` outside the window). For a per-trace vbFRET model the
+    indices are that trace's own states (sorted as its per-trace ``means``), not
+    states shared across molecules. ``molecule_keys`` carries the
     Tether ``molecule_key`` of each SMD molecule (from the superset group) when
     present, so a result row maps back to its store molecule without relying on
     order; the general scrambled-order return leg is handled separately by
@@ -242,6 +252,14 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
                 if isinstance(pg[name], h5py.Dataset)
             } or None
 
+        trace_level: dict[int, StateModel] | None = None
+        if "trace_level" in g and isinstance(g["trace_level"], h5py.Group):
+            trace_level = {
+                int(key): _read_trace_model(sub)
+                for key, sub in g["trace_level"].items()
+                if isinstance(sub, h5py.Group) and "mean" in sub
+            } or None
+
         return StateModel(
             model_type=model_type,
             nstates=nstates,
@@ -258,7 +276,33 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
             pi=_arr("pi"),
             frac=_arr("frac"),
             priors=priors,
+            trace_level=trace_level,
         )
+
+
+def _read_trace_model(g) -> StateModel:
+    """One entry of a model file's ``trace_level/`` subgroup, as a [`StateModel`][]."""
+
+    def _arr(name: str) -> np.ndarray | None:
+        return np.asarray(g[name][()], dtype="float64") if name in g else None
+
+    means = np.asarray(g["mean"][()], dtype="float64").reshape(-1)
+    likelihood = _arr("likelihood")
+    elbo = None
+    if likelihood is not None and likelihood.size:
+        elbo = float(likelihood.reshape(likelihood.shape[0], -1)[-1, 0])
+    idealized = _arr("idealized")
+    return StateModel(
+        model_type=_decode(g["type"][()]) if "type" in g else "unknown",
+        nstates=int(g["nstates"][()]) if "nstates" in g else int(means.shape[0]),
+        means=means,
+        variances=_arr("var"),
+        tmatrix=_arr("tmatrix"),
+        norm_tmatrix=_arr("norm_tmatrix"),
+        elbo=elbo,
+        likelihood=likelihood,
+        idealized=None if idealized is None else idealized.reshape(-1),
+    )
 
 
 def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarray:
@@ -279,6 +323,46 @@ def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarra
         diffs = np.abs(idealized[finite][:, None] - means[None, :])
         out[finite] = np.argmin(diffs, axis=1).astype("int64")
     return out
+
+
+def _state_paths_from_model(model: StateModel) -> dict[int, np.ndarray]:
+    """Each fitted molecule's integer state path, keyed by SMD molecule index.
+
+    An ensemble model maps every molecule's ``idealized`` row to the nearest of its
+    shared ``means`` ([`states_from_idealized`][]). A **per-trace** model (one whose
+    ensemble ``means`` are all NaN and which carries ``trace_level``, as
+    ``model_type="vbfret"`` writes) has no shared states: each molecule's row maps to
+    the nearest of **that trace's own** finite means, and each state index is the
+    index of that mean in the trace's ``means`` (a NaN mean is never chosen). A
+    molecule with no per-trace model, or whose per-trace model has no finite mean,
+    gets no path. Returns ``{}`` when the model has no
+    ``idealized`` array.
+    """
+    if model.idealized is None or not model.means.size:
+        return {}
+    idealized = np.asarray(model.idealized, dtype="float64")
+    if idealized.ndim == 1:
+        idealized = idealized[None, :]
+    ran = model.ran if model.ran.size else np.arange(idealized.shape[0], dtype="int64")
+    ensemble = np.asarray(model.means, dtype="float64").reshape(-1)
+    paths: dict[int, np.ndarray] = {}
+    if model.trace_level is not None and not np.isfinite(ensemble).any():
+        for mol_idx in ran.tolist():
+            trace = model.trace_level.get(int(mol_idx))
+            if trace is None:
+                continue
+            means = np.asarray(trace.means, dtype="float64").reshape(-1)
+            finite = np.flatnonzero(np.isfinite(means))
+            if not finite.size:
+                continue
+            # Nearest of the finite means, then back to its index in ``trace.means``.
+            local = states_from_idealized(idealized[mol_idx][None, :], means[finite])[0]
+            paths[mol_idx] = np.where(local == NO_STATE, NO_STATE, finite[np.maximum(local, 0)])
+        return paths
+    all_paths = states_from_idealized(idealized, ensemble)
+    for mol_idx in ran.tolist():
+        paths[mol_idx] = all_paths[mol_idx]
+    return paths
 
 
 def dwells_from_states(state_path: np.ndarray, molecule_index: int) -> list[Dwell]:
@@ -418,11 +502,16 @@ def run_vbfret(
         ``"vbconhmm_modelselection"`` and ``"ebhmm_modelselection"`` (the same,
         choosing the number of states), ``"vbgmm_vbhmm"`` (a VB-HMM seeded from
         a vbGMM, choosing the number of states), ``"kmeans_vbhmm"`` (a VB-HMM
-        seeded from k-means) and ``"vbgmm"`` (tMAVEN's plain variational-Bayes
-        Gaussian mixture, no HMM: its model has type ``"vb GMM"``).
+        seeded from k-means), ``"vbgmm"`` (tMAVEN's plain variational-Bayes
+        Gaussian mixture, no HMM: its model has type ``"vb GMM"``) and
+        ``"vbfret"`` (per-trace vbFRET: one VB-HMM per trace, each choosing its own
+        number of states up to ``nstates``; the result is in
+        ``StateModel.trace_level`` and the model has type
+        ``"vb HMM_model selection"``).
     nstates:
         Number of states (for fixed-``nstates`` model types: ``"vbconhmm"``,
-        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``).
+        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``; for ``"vbfret"``, the most
+        states one trace may choose).
     nrestarts:
         Optional override of tMAVEN's restart count (lower = faster, for tests).
     timeout:
@@ -526,15 +615,10 @@ def run_vbfret(
     smd = read_smd(smd_path, group)
     molecule_keys = smd.molecule_keys
 
-    state_paths: dict[int, np.ndarray] = {}
+    state_paths = _state_paths_from_model(model)
     dwells: list[Dwell] = []
-    if model.idealized is not None and model.means.size:
-        all_paths = states_from_idealized(model.idealized, model.means)
-        ran = model.ran if model.ran.size else np.arange(all_paths.shape[0], dtype="int64")
-        for mol_idx in ran.tolist():
-            row = all_paths[mol_idx]
-            state_paths[mol_idx] = row
-            dwells.extend(dwells_from_states(row, mol_idx))
+    for mol_idx, row in state_paths.items():
+        dwells.extend(dwells_from_states(row, mol_idx))
 
     return IdealizationResult(
         model=model,

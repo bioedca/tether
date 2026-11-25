@@ -26,6 +26,12 @@ file ([`tether.imaging.calibrate.save_map`][]) and the project's
 ``/calibration`` group ([`tether.imaging.calibrate.write_calibration`][])
 already persist ``provenance`` as JSON, so both keep them with no schema change.
 
+**A bead file pair** (#909): a setup with two cameras writes one bead file for each
+channel. [`bead_map_pair_from_files`][] (or [`bead_map`][] with ``acceptor_data``) reads
+each file as one whole channel, so the frame is not split and stages 6 to 9 run on the two
+files as they are. Both channel geometries of the map are the whole frame; that is the map
+of a movie pair, which ``tether.project.extract`` applies only to a movie pair.
+
 A source with too few bead spots in either half is refused with
 [`BeadMapError`][]; the message gives the count and the limit
 ([`DEFAULT_MIN_BEAD_SPOTS`][], PRD §11.2).
@@ -39,6 +45,8 @@ from __future__ import annotations
 import hashlib
 import operator
 import os
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -71,6 +79,7 @@ __all__ = [
     "MapQuality",
     "bead_map",
     "bead_map_from_file",
+    "bead_map_pair_from_files",
     "map_quality",
     "project_frames",
 ]
@@ -200,6 +209,8 @@ class BeadMapResult:
     source: BeadMapSource
     #: The image the stages ran on: the supplied image, or the video projection.
     image: np.ndarray
+    #: The acceptor file's source record of a bead file pair (#909); ``None`` for one file.
+    acceptor_source: BeadMapSource | None = None
 
 
 class _TiffFrames:
@@ -428,6 +439,8 @@ def bead_map(
     on_over_gate: Literal["warn", "fail"] = "warn",
     app_version: str | None = None,
     bead_file: str | None = None,
+    acceptor_data: np.ndarray | None = None,
+    acceptor_source_id: str | None = None,
 ) -> BeadMapResult:
     """Make a donor<->acceptor map from a bead video or one bead image.
 
@@ -490,6 +503,15 @@ def bead_map(
         The Tether version stamped in the map's provenance.
     bead_file : str or None, optional
         The bead file name stamped in the map's provenance.
+    acceptor_data : numpy.ndarray or None, optional
+        The acceptor camera's bead frames of a **bead file pair** (#909): ``data`` is
+        then the donor camera's, and each is one whole channel, so the frame is not
+        split and ``donor_side`` must stay ``"left"``. It must have the shape of
+        ``data`` and is reduced with the same ``frames`` and ``projection``. Both
+        channel geometries of the map are the whole frame, which is how an extraction
+        knows the map is one for a movie pair. ``None`` (the default) splits ``data``.
+    acceptor_source_id : str or None, optional
+        The identity of the acceptor source; required with ``acceptor_data``.
 
     Returns
     -------
@@ -519,35 +541,33 @@ def bead_map(
         raise BeadMapError(f"min_bead_spots must be a positive integer, got {min_bead_spots}")
     if prealign not in ("translation", "similarity"):
         raise BeadMapError(f"prealign must be 'translation' or 'similarity', got {prealign!r}")
-    if not isinstance(data, _TiffFrames):
-        data = np.asarray(data)
-    if data.ndim == 2:
-        if frames is not None or projection != "max":
-            raise BeadMapError("frames and projection apply to a bead video, not to one image")
-        image = np.array(data, dtype=np.float64)  # a copy: data may be a memory map
-        source = BeadMapSource(source_id=source_id, kind="image")
-    elif data.ndim == 3:
-        image = project_frames(data, frames=frames, projection=projection)
-        start, stop = _frame_range(frames, data.shape[0])
-        source = BeadMapSource(
-            source_id=source_id,
-            kind="video",
-            frame_start=start,
-            frame_stop=stop,
-            projection=projection,  # type: ignore[arg-type]  # checked by project_frames
-            n_frames=int(data.shape[0]),
+    image, source = _bead_image(data, source_id, frames, projection)
+    acceptor_source = None
+    if acceptor_data is not None:
+        if acceptor_source_id is None:
+            raise BeadMapError("a bead file pair needs acceptor_source_id")
+        if donor_side != "left":
+            raise BeadMapError(
+                "donor_side applies to one bead frame with both channels; in a bead file "
+                "pair each file is one whole channel"
+            )
+        if np.shape(data) != np.shape(acceptor_data):
+            raise BeadMapError(
+                f"the donor and acceptor bead files differ in shape ({np.shape(data)} and "
+                f"{np.shape(acceptor_data)}); give two files of the same acquisition"
+            )
+        acceptor_image, acceptor_source = _bead_image(
+            acceptor_data, acceptor_source_id, frames, projection
         )
-    else:
-        raise BeadMapError(
-            f"bead data must be one image (H, W) or a video (T, H, W), got shape {data.shape}"
-        )
-    if not np.isfinite(image).all():
-        raise BeadMapError("the bead image contains non-finite values")
 
     # --- Stages 6 to 9, unchanged ------------------------------------------------
     height, width = image.shape
-    donor_geom, acceptor_geom = _half_split(width, height, donor_side)
-    donor_half, acceptor_half = split_channels(image[np.newaxis], donor_geom, acceptor_geom)
+    if acceptor_source is None:
+        donor_geom, acceptor_geom = _half_split(width, height, donor_side)
+        donor_half, acceptor_half = split_channels(image[np.newaxis], donor_geom, acceptor_geom)
+    else:  # a bead file pair: each file is one whole channel (#909)
+        donor_geom = acceptor_geom = ChannelGeometry(crop=(1, 1, height, width))
+        donor_half, acceptor_half = image[np.newaxis], acceptor_image[np.newaxis]
     # A one-frame stack: the detection image is that frame, normalised to [0, 1]
     # (the same image ``tether extract`` detects on for a one-frame movie).
     donor_det = detection_image(donor_half, block=1)
@@ -605,9 +625,12 @@ def bead_map(
     quality = map_quality(reg_map, paired.reference, paired.moving, field_shape=donor_det.shape)
     provenance = dict(reg_map.provenance)
     provenance["bead_source"] = source.to_dict()
+    if acceptor_source is not None:
+        provenance["acceptor_bead_source"] = acceptor_source.to_dict()
     provenance["map_quality"] = quality.to_dict()
     provenance["bead_settings"] = {
-        "donor_side": donor_side,
+        "donor_side": donor_side if acceptor_source is None else None,
+        "two_files": acceptor_source is not None,
         "detection_mode": str(detection_mode),
         "detection_threshold": detection_threshold,
         "min_separation": min_separation,
@@ -625,7 +648,39 @@ def bead_map(
         quality=quality,
         source=source,
         image=image,
+        acceptor_source=acceptor_source,
     )
+
+
+def _bead_image(
+    data: np.ndarray, source_id: str, frames: tuple[int, int] | None, projection: str
+) -> tuple[np.ndarray, BeadMapSource]:
+    """Return the ``float64`` image the stages run on and the source record of ``data``."""
+    if not isinstance(data, _TiffFrames):
+        data = np.asarray(data)
+    if data.ndim == 2:
+        if frames is not None or projection != "max":
+            raise BeadMapError("frames and projection apply to a bead video, not to one image")
+        image = np.array(data, dtype=np.float64)  # a copy: data may be a memory map
+        source = BeadMapSource(source_id=source_id, kind="image")
+    elif data.ndim == 3:
+        image = project_frames(data, frames=frames, projection=projection)
+        start, stop = _frame_range(frames, data.shape[0])
+        source = BeadMapSource(
+            source_id=source_id,
+            kind="video",
+            frame_start=start,
+            frame_stop=stop,
+            projection=projection,  # type: ignore[arg-type]  # checked by project_frames
+            n_frames=int(data.shape[0]),
+        )
+    else:
+        raise BeadMapError(
+            f"bead data must be one image (H, W) or a video (T, H, W), got shape {data.shape}"
+        )
+    if not np.isfinite(image).all():
+        raise BeadMapError("the bead image contains non-finite values")
+    return image, source
 
 
 def _sha256_file(path: Path) -> str:
@@ -694,9 +749,103 @@ def bead_map_from_file(
     >>> result.source.source_id.startswith("sha256:")
     True
     """
+    path = Path(path)
+    with _open_bead_file(path, frames, projection) as (data, source_id):
+        kwargs.setdefault("bead_file", path.name)
+        if data.ndim == 2:
+            return bead_map(data, source_id=source_id, **kwargs)
+        return bead_map(data, source_id=source_id, frames=frames, projection=projection, **kwargs)
+
+
+def bead_map_pair_from_files(
+    donor_path: str | os.PathLike[str],
+    acceptor_path: str | os.PathLike[str],
+    *,
+    frames: tuple[int, int] | None = None,
+    projection: str = "max",
+    **kwargs: Any,
+) -> BeadMapResult:
+    """Make a map between two cameras from a bead file pair: one bead TIFF per channel (#909).
+
+    Each file is read as [`bead_map_from_file`][] reads one (the same source id, layouts
+    and checks), and the two are given to [`bead_map`][] as ``data`` and
+    ``acceptor_data``: each file is one whole channel and the present registration
+    stages run on them with no change. The two files must have one shape. The map's two
+    channel geometries are the whole frame, so it applies to a movie pair
+    (``extract_movie(..., acceptor_movie=...)``) and is refused for one movie. The
+    ``bead_file`` stamp is the donor file's name; the acceptor file's source record is
+    ``acceptor_bead_source`` in the provenance.
+
+    Parameters
+    ----------
+    donor_path, acceptor_path : str or os.PathLike
+        The donor camera's and the acceptor camera's bead TIFF.
+    frames : tuple of (int, int) or None, optional
+        For videos only: the 0-based half-open frame range of both files, in frames
+        (``None``, the default, uses every frame).
+    projection : {"max", "mean"}, optional
+        For videos only: the projection of both files (default ``"max"``).
+    **kwargs
+        Other keyword arguments of [`bead_map`][], such as ``pair_tol``.
+
+    Returns
+    -------
+    BeadMapResult
+        The map, its quality record, the donor image and both source records.
+
+    Raises
+    ------
+    BeadMapError
+        As for [`bead_map_from_file`][], for either file; and if the two files are one
+        file or differ in shape.
+
+    Examples
+    --------
+    With ``donor.tif`` and ``acceptor.tif`` the two cameras' bead images:
+
+    >>> result = bead_map_pair_from_files("donor.tif", "acceptor.tif")
+    >>> result.acceptor_source is not None
+    True
+    """
+    donor_path, acceptor_path = Path(donor_path), Path(acceptor_path)
+    if (
+        donor_path.is_file()
+        and acceptor_path.is_file()
+        and os.path.samefile(donor_path, acceptor_path)
+    ):
+        raise BeadMapError(
+            f"the donor and acceptor bead files are one file ({donor_path.name}); a bead "
+            "file pair is two files"
+        )
+    with ExitStack() as opened:
+        donor, donor_id = opened.enter_context(_open_bead_file(donor_path, frames, projection))
+        acceptor, acceptor_id = opened.enter_context(
+            _open_bead_file(acceptor_path, frames, projection)
+        )
+        kwargs.setdefault("bead_file", donor_path.name)
+        if donor.ndim == 3:
+            kwargs.update(frames=frames, projection=projection)
+        return bead_map(
+            donor,
+            source_id=donor_id,
+            acceptor_data=acceptor,
+            acceptor_source_id=acceptor_id,
+            **kwargs,
+        )
+
+
+@contextmanager
+def _open_bead_file(
+    path: Path, frames: tuple[int, int] | None, projection: str
+) -> Iterator[tuple[Any, str]]:
+    """Open a bead TIFF and yield ``(frames or image, source id)``; check it after use.
+
+    The rules of [`bead_map_from_file`][]: the source id is the file's checksum, the
+    layouts and the multi-file check are those it states, and the file must be the
+    same on exit as before the hash.
+    """
     import tifffile  # noqa: PLC0415
 
-    path = Path(path)
     if not path.is_file():
         raise BeadMapError(f"bead file not found: {path}")
     before = _file_state(path)
@@ -743,20 +892,13 @@ def bead_map_from_file(
             data = data[0]  # a one-frame stack is one image
         if data.ndim == 2 and (frames is not None or projection != "max"):
             raise BeadMapError(f"{path.name} has one page; frames and projection apply to a video")
-        kwargs.setdefault("bead_file", path.name)
-        if data.ndim == 2:
-            result = bead_map(data, source_id=source_id, **kwargs)
-        else:
-            result = bead_map(
-                data, source_id=source_id, frames=frames, projection=projection, **kwargs
-            )
+        yield data, source_id
     # The memory map is read lazily, so check after the projection: a file replaced
     # since it was hashed would make the source id name bytes that were not used.
     # Size and modification time alone miss a replacement that copies both, so the
     # file identity (device and inode) is compared too.
     if _file_state(path) != before:
         raise BeadMapError(f"{path.name} changed while it was read; run it again")
-    return result
 
 
 def _file_state(path: Path) -> tuple[FileIdentity | None, int, int]:

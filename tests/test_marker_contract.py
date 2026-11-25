@@ -35,6 +35,8 @@ from typing import NamedTuple
 import pytest
 import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
 
+from _bioformats_gate import BIOFORMATS_ENV
+from _bioformats_gate import REQUIRE_ENV as BIOFORMATS_REQUIRE_ENV
 from _sidecar_gate import REQUIRE_ENV as SIDECAR_REQUIRE_ENV
 from _sidecar_gate import SIDECAR_ENV
 
@@ -153,6 +155,11 @@ def test_sidecar_workflow_uses_no_explicit_exit():
 # keeps that glob honest so a new deep-marked test can never silently escape the live job.
 DEEP_FILE_GLOB = "test_*_deep.py"
 DEEP_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deep.yml"
+# The fourth stack (#907, ADR-0147): bioformats.yml collects this glob with `pytest -m bioformats`.
+BIOFORMATS_FILE_GLOB = "test_*_bioformats.py"
+BIOFORMATS_WORKFLOW = (
+    Path(__file__).resolve().parents[1] / ".github" / "workflows" / "bioformats.yml"
+)
 
 
 def _mark_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
@@ -297,6 +304,7 @@ TIERS_WITH_NO_CI_JOB: dict[str, str] = {
 TIER_GLOB_EXEMPT: dict[str, frozenset[str]] = {
     "sidecar": frozenset({"test_setup_sidecar.py"}),
     "deep": frozenset(),
+    "bioformats": frozenset(),
 }
 
 #: A pytest invocation on one shell line, bare or through `python -m`.
@@ -627,7 +635,12 @@ def test_the_unmarked_test_finder_reads_module_class_and_own_marks() -> None:
 
 
 @pytest.mark.parametrize(
-    ("marker", "glob"), [("sidecar", SIDECAR_FILE_GLOB), ("deep", DEEP_FILE_GLOB)]
+    ("marker", "glob"),
+    [
+        ("sidecar", SIDECAR_FILE_GLOB),
+        ("deep", DEEP_FILE_GLOB),
+        ("bioformats", BIOFORMATS_FILE_GLOB),
+    ],
 )
 def test_every_test_in_a_tier_file_carries_the_tier_marker(marker: str, glob: str) -> None:
     """The reverse of the glob contract: what the tier job collects, its ``-m`` keeps (DCS-F3).
@@ -890,7 +903,9 @@ def test_the_deep_path_filter_covers_what_the_deep_tests_import() -> None:
 
 
 @pytest.mark.parametrize(
-    "workflow", [SIDECAR_WORKFLOW, DEEP_WORKFLOW, LARGE_WORKFLOW], ids=lambda path: path.name
+    "workflow",
+    [SIDECAR_WORKFLOW, DEEP_WORKFLOW, LARGE_WORKFLOW, BIOFORMATS_WORKFLOW],
+    ids=lambda path: path.name,
 )
 def test_the_tier_jobs_keep_their_schedule(workflow: Path) -> None:
     """The nightly or weekly run is each tier's drift net on ``main`` (DCS-F5, DCS-F6)."""
@@ -4060,3 +4075,113 @@ def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
     (key,) = [s for s in job["steps"] if s.get("id") == "key"]
     assert "tests/reference_data/fetch.py cache-key" in key["run"]
     assert "month=$(date -u +%Y-%m)" in key["run"]
+
+
+# --- The fourth stack: the live Bio-Formats tier (#907, ADR-0147) ---------------------------
+
+
+def test_bioformats_marked_modules_match_ci_glob() -> None:
+    """Every ``@pytest.mark.bioformats`` module is collected by the bioformats.yml glob."""
+    detected, offenders = [], []
+    for path in _collectable_test_files():
+        if _uses_marker(path.read_text(encoding="utf-8"), "bioformats"):
+            detected.append(path.name)
+            if not _collected_by_tier_glob(path, BIOFORMATS_FILE_GLOB):
+                offenders.append(path.relative_to(TESTS_DIR).as_posix())
+    assert not offenders, (
+        f"bioformats-marked test modules must match '{BIOFORMATS_FILE_GLOB}' so the live job "
+        f"collects them; offenders: {offenders}"
+    )
+    assert detected, "expected to detect the live Bio-Formats suite; detected none"
+
+
+def test_the_bioformats_live_step_runs_the_whole_suite() -> None:
+    """``bioformats / live`` exports the stack's Python, then runs the whole tier (DCS-F1)."""
+    step = _the_pytest_step(BIOFORMATS_WORKFLOW, "live")
+    assert (step.get("env") or {}).get(BIOFORMATS_REQUIRE_ENV) == "1", (
+        f"the live step must set {BIOFORMATS_REQUIRE_ENV}=1, or a lost interpreter skips every "
+        "live test and the job passes with no movie read"
+    )
+    lines = _command_lines(step["run"])
+    assert len(lines) == 2 and lines[0].startswith(f"export {BIOFORMATS_ENV}="), lines
+    command = f"pytest -m bioformats tests/{BIOFORMATS_FILE_GLOB} -q"
+    assert _runs_exactly(lines[1], command), lines[1]
+
+
+def test_the_bioformats_tests_fail_rather_than_skip_where_the_job_requires_them() -> None:
+    """With ``TETHER_REQUIRE_BIOFORMATS=1`` and no stack, every live test FAILS."""
+    env = {k: v for k, v in os.environ.items() if k not in (BIOFORMATS_ENV,)}
+    env[BIOFORMATS_REQUIRE_ENV] = "1"
+    files = [str(p.relative_to(REPO_ROOT)) for p in sorted(TESTS_DIR.glob(BIOFORMATS_FILE_GLOB))]
+    proc = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-m", "bioformats"]
+        + files,
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    summary = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+    counts = {kind: int(n) for n, kind in re.findall(r"(\d+) (\w+)", summary)}
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 1 and set(counts) <= {"failed", "deselected"}, output
+    assert counts.get("failed", 0) >= len(files) >= 1, output
+    message = f"{BIOFORMATS_REQUIRE_ENV}=1 but {BIOFORMATS_ENV} is unset or empty"
+    assert output.count(message) >= counts["failed"], output
+
+
+def _bioformats_inputs() -> set[str]:
+    """Repository paths whose change can change a live Bio-Formats result."""
+    inputs = {path for path in (REPO_ROOT / "bioformats").rglob("*") if path.is_file()}
+    inputs |= {p for p in (REPO_ROOT / ".github/actions/setup-env").rglob("*") if p.is_file()}
+    inputs |= {BIOFORMATS_WORKFLOW, PYPROJECT, REPO_ROOT / "conda-lock.yml"}
+    inputs |= {TESTS_DIR / "_bioformats_gate.py"}
+    # The client starts the runner by its path, so the runner is an input though nothing imports it.
+    inputs |= {REPO_ROOT / "src/tether/io/_bioformats_runner.py"}
+    modules = sorted(TESTS_DIR.glob(BIOFORMATS_FILE_GLOB))
+    inputs |= set(modules)
+    for module in modules:
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            else:
+                continue
+            for name in names:
+                if name.split(".")[0] != "tether" or name == "tether.io":
+                    continue
+                base = REPO_ROOT / "src" / Path(*name.split("."))
+                found = [p for p in (base.with_suffix(".py"), base / "__init__.py") if p.is_file()]
+                assert found, f"{module.name} imports {name}, which is no file under src/"
+                inputs |= set(found)
+    return {path.relative_to(REPO_ROOT).as_posix() for path in inputs}
+
+
+def test_the_bioformats_path_filter_covers_what_the_live_tests_run() -> None:
+    """``bioformats.yml`` runs on a pull request that changes the code its tests run."""
+    paths = (_workflow_triggers(BIOFORMATS_WORKFLOW).get("pull_request") or {}).get("paths")
+    assert isinstance(paths, list) and paths, "bioformats.yml must keep its pull_request filter"
+    filters = [_github_path_filter(glob) for glob in paths]
+    unmatched = sorted(p for p in _bioformats_inputs() if not any(f.match(p) for f in filters))
+    assert not unmatched, f"bioformats.yml's paths filter misses inputs: {unmatched}"
+
+
+def test_the_lock_check_verifies_all_four_locks() -> None:
+    """``conda-lock-verify`` checks the fourth lock as it checks the other three (#907)."""
+    run = "\n".join(
+        step.get("run") or ""
+        for step in _job_steps(CI_WORKFLOW.read_text(encoding="utf-8"), "conda-lock-verify")
+    )
+    lines = _command_lines(run)
+    for spec, lock in [
+        ("environment.yml", "conda-lock.yml"),
+        ("sidecar/environment.yml", "sidecar/conda-lock.yml"),
+        ("deep/environment.yml", "deep/conda-lock.yml"),
+        ("bioformats/environment.yml", "bioformats/conda-lock.yml"),
+    ]:
+        assert f"run_check {spec} {lock}" in lines, (spec, lines)
+    (diff,) = [line for line in lines if line.startswith("if ! git diff --exit-code")]
+    for lock in ("sidecar/conda-lock.yml", "deep/conda-lock.yml", "bioformats/conda-lock.yml"):
+        assert f" {lock}" in diff, (lock, diff)

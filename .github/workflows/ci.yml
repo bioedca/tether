@@ -12,7 +12,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `mq/**`: merge-queue candidates, each tested here before its pull request merges (#1267).
+    branches: [main, "mq/**"]
   pull_request:
 
 permissions:
@@ -114,14 +115,15 @@ jobs:
           # so conda-lock never bootstraps an unpinned backend over the network.
           micromamba-version: "2.8.1-0"
           init-shell: none
-      - name: Verify base + sidecar + deep locks match their environment.yml
+      - name: Verify base + sidecar + deep + bioformats locks match their environment.yml
         # `--check-input-hash` short-circuits the solve when the spec hash still
         # matches the lock; the authoritative gate is then `git diff`: a stale
         # lock would be regenerated and show a diff. The pinned micromamba from
         # the step above is the only backend conda-lock may use (`--micromamba
         # --conda "$MAMBA_EXE"`), so the result does not depend on the image.
-        # The three isolated stacks (base GUI, tMAVEN sidecar, deep torch add-on)
-        # are each pin-and-held and verified independently (ADR-0004/0047).
+        # The four isolated stacks (base GUI, tMAVEN sidecar, deep torch add-on, the
+        # Bio-Formats Java stack) are each pin-and-held and verified independently
+        # (ADR-0004/0047/0147).
         run: |
           set -euo pipefail
           : "${MAMBA_EXE:?setup-micromamba did not export MAMBA_EXE}"
@@ -138,11 +140,12 @@ jobs:
           run_check environment.yml conda-lock.yml
           run_check sidecar/environment.yml sidecar/conda-lock.yml
           run_check deep/environment.yml deep/conda-lock.yml
-          if ! git diff --exit-code conda-lock.yml sidecar/conda-lock.yml deep/conda-lock.yml; then
+          run_check bioformats/environment.yml bioformats/conda-lock.yml
+          if ! git diff --exit-code conda-lock.yml sidecar/conda-lock.yml deep/conda-lock.yml bioformats/conda-lock.yml; then
             echo "::error::A committed lock no longer matches its environment.yml — re-run conda-lock and commit the result."
             exit 1
           fi
-          echo "All three locks (base + sidecar + deep) verified against their environment.yml."
+          echo "All four locks (base + sidecar + deep + bioformats) verified against their environment.yml."
 
   docs-build:
     name: docs-build
@@ -241,6 +244,8 @@ jobs:
       # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
       # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
       # on the non-required deep.yml leg — exclude it; the base app has no torch. The
+      # `bioformats` marker drives the isolated Java `bioformats/` env (ADR-0147), built only
+      # on the non-required bioformats.yml leg — exclude it; the base app has no Java. The
       # `workstation` marker needs private laboratory data that no runner has; those
       # tests run only from scripts/workstation/run_private_checks.py on the
       # maintainer's workstation (ADR-0071) — exclude them from every job.
@@ -269,9 +274,9 @@ jobs:
           TETHER_DOCSTRING_BASE_REF: ${{ runner.os == 'Linux' && 'origin/main' || '' }}
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a coverage run -m pytest -v -m "not large and not sidecar and not deep and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+            xvfb-run -a coverage run -m pytest -v -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           else
-            pytest -v -m "not large and not sidecar and not deep and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+            pytest -v -m "not large and not sidecar and not deep and not bioformats and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           fi
       # pytest exits 0 when a test skips, so a fixture, a tool or a package that goes absent
       # leaves the job green. This step fails the leg when a skip is not in
