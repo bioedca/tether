@@ -765,10 +765,9 @@ def UpdateNotice(window: Any, **kwargs: Any) -> Any:  # noqa: N802 - a lazy clas
     ``None``; defaults to [`check_for_update`][tether.gui.update_check.check_for_update]),
     and ``settings_file`` / ``override_file`` for the consent store (tests pass their own).
 
-    For **Install update**: ``install_prefix`` (the install folder,
-    `tether._verifier.install_prefix`) and ``gh`` (the bundled verifier,
-    `tether._verifier.bundled_gh`), which the caller looks up because this GUI module does not
-    import the core; without both, the notice offers only the link. ``quit_app`` is what the
+    For **Install update**: ``install_prefix`` (the install folder) and ``gh`` (the bundled
+    verifier), which the caller reads with [`tether.services.updater.update_site`][] because
+    the GUI does not import the core; without both, the notice offers only the link. ``quit_app`` is what the
     hand-off calls to quit (default: close the window and quit the application). For tests:
     ``can_install`` (a callable taking the offered version), ``download``, ``verify`` and
     ``hand_off`` (stand-ins for

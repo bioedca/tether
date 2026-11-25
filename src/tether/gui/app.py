@@ -244,14 +244,15 @@ def create_shell(
         # never delays the window, and it makes no request without the stored consent.
         # The Install update action (#1379) needs this copy's install folder and bundled
         # verifier; outside an installed copy there is none, and the notice keeps the link.
-        from tether import _verifier
         from tether.gui.update_notice import install_update_notice
+        from tether.services.updater import update_site
 
+        site = update_site()
         install_update_notice(
             shell.window,
             help_menu=shell.help_menu,
-            install_prefix=_verifier.install_prefix(),
-            gh=_verifier.bundled_gh(),
+            install_prefix=site.install_prefix,
+            gh=site.gh,
             quit_app=shell.quit,
         )
     except BaseException:
