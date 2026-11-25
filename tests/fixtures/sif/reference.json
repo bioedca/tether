@@ -1,0 +1,8 @@
+{
+  "c739xMagFRET_1.sif": {
+    "source": "doi:10.5281/zenodo.4904806",
+    "reader": "sif_parser 0.3.6 (np_open), rows reversed to top row first, as little-endian float32",
+    "shape": [1, 2048, 2048],
+    "pixel_sha256": "e7819391c89d539458d3d9690c08a2b0baad8771b3a612880bc407c7a1922b9d"
+  }
+}

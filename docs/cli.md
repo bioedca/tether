@@ -476,11 +476,13 @@ Each `movies` argument is one of three things, and Tether expands it itself, so 
 command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
-  extraction reads, in any case. Today these are `.tif`, `.tiff`, `.czi` and `.nd2`
-  ([Movie containers](reference/movie-containers.md)). With `--recursive` it also gives the
-  movies in its sub-folders. An original beside its TIFF export in one folder (`x.nd2` and
-  `x.tif`, or `x.czi` and `x.tif`) is one movie, so the run stops before anything is
-  written and the message names both files. Move or rename one.
+  extraction reads, in any case. Today these are `.tif`, `.tiff`, `.czi` and `.nd2`. With
+  `--recursive` it also gives the movies in its sub-folders. Tether opens `.sif` movies too, but
+  extraction does not read them yet, so a folder or a pattern leaves them out. A `.sif` file that
+  you name on its own fails its extraction stage with a message that says so
+  ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
+  folder (`x.nd2` and `x.tif`, or `x.czi` and `x.tif`) is one movie, so the run stops before
+  anything is written and the message names both files. Move or rename one.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
