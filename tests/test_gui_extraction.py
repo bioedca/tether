@@ -427,6 +427,24 @@ def test_a_failed_preview_clears_the_last_movie_and_residuals(page, qtbot, tmp_p
 
 @pytest.mark.gui
 @needs_qt
+def test_a_refused_preview_clears_the_last_movie_and_residuals(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_movie(tmp_path / "movie.tif"))
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert page.overlay_views and page._residual_label.text()
+    # Refused before any task starts (no movie): the last results describe other inputs.
+    page.set_movie("")
+    assert page.preview() is False
+    assert "Not started" in page.error_label.text()
+    assert page.overlay_views == ()
+    assert page.panels[0].movies == []
+    assert page._view_combo.count() == 0
+    assert page._residual_label.text() == ""
+    assert all(row[1] == "not run" for row in _table(page))
+
+
+@pytest.mark.gui
+@needs_qt
 def test_a_map_file_preview_skips_the_fit(page, qtbot, tmp_path) -> None:
     from tether.imaging.calibrate import save_map
 

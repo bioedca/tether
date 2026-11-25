@@ -382,6 +382,8 @@ class ExtractionSection:
             return False
         inputs = self._read_inputs()
         if inputs is None:
+            # Refused before it started: the last preview describes other inputs.
+            self._clear_preview()
             return False
         options = inputs.profile.extract_options()
         kwargs = _source_kwargs(inputs)
@@ -398,10 +400,7 @@ class ExtractionSection:
 
         if outcome.state is not TaskState.DONE:
             # The last preview's movie and residuals belong to other inputs: clear them.
-            self._preview = None
-            self._show_stages(None)
-            self._residual_label.setText("")
-            self._clear_movie()
+            self._clear_preview()
             self._error_label.setText(f"Preview failed: {outcome.error}")
             self._status(f"Preview failed: {outcome.error}")
             return
@@ -413,6 +412,13 @@ class ExtractionSection:
         self._show_overlays(reader, preview, inputs.profile.disk_radius)
         verdict = "completed" if preview.completed else f"stopped at {preview.stages[-1].name}"
         self._status(f"Preview of {Path(inputs.movie).name} {verdict}")
+
+    def _clear_preview(self) -> None:
+        """Clear the last preview's stages, residual line, movie and overlays."""
+        self._preview = None
+        self._show_stages(None)
+        self._residual_label.setText("")
+        self._clear_movie()
 
     def _show_stages(self, preview: ExtractionPreview | None) -> None:
         from pyqtgraph.Qt import QtWidgets
