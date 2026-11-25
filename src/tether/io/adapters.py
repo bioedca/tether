@@ -19,10 +19,11 @@ This module is Qt-free and imports no reader package at import time; the
 built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]), then CZI
 ([`tether.io.czi.CZI_ADAPTER`][], ADR-0144), ND2
 ([`tether.io.nd2.ND2_ADAPTER`][], ADR-0148), SIF
-([`tether.io.sif.SIF_ADAPTER`][], ADR-0150) and cellSens VSI
+([`tether.io.sif.SIF_ADAPTER`][], ADR-0150), cellSens VSI
 ([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
-ADR-0147), are registered the first time the registry is read. ADR-0113 records the
-interface and the rule by which a reader package can enter the base lock.
+ADR-0147) and SIRA ([`tether.io.sira.SIRA_ADAPTER`][], ADR-0152), are registered the
+first time the registry is read. ADR-0113 records the interface and the rule by which a
+reader package can enter the base lock.
 """
 
 from __future__ import annotations
@@ -249,6 +250,7 @@ def _ensure_builtins() -> None:
         from tether.io.movie import TIFF_ADAPTER
         from tether.io.nd2 import ND2_ADAPTER
         from tether.io.sif import SIF_ADAPTER
+        from tether.io.sira import SIRA_ADAPTER
 
         # All or none: a failure part-way leaves the registry as it was, so the retry
         # does not meet the adapters that the failed attempt had already added.
@@ -260,6 +262,7 @@ def _ensure_builtins() -> None:
                 ND2_ADAPTER,
                 SIF_ADAPTER,
                 BIOFORMATS_ADAPTER,
+                SIRA_ADAPTER,
             ):
                 _register(adapter)
         except BaseException:

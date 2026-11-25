@@ -45,4 +45,6 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.io.sif
 
+::: tether.io.sira
+
 ::: tether.io.tdat

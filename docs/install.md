@@ -460,6 +460,20 @@ The override applies to the Tether application, not to a user who changes the fi
 own install folder. Each user owns their own install, so the override is a site setting, not a
 lock. To remove it, delete the file.
 
+**The hosts the update reaches.** A site that limits outgoing connections needs these hosts for
+the update check and for **Install update**. All use HTTPS on port 443.
+
+| Host | Used for |
+|---|---|
+| `api.github.com` | The newest-release check, and the attestation of a downloaded installer |
+| `github.com` and `release-assets.githubusercontent.com` | The download of the installer |
+| `tuf-repo-cdn.sigstore.dev` and `tuf-repo.github.com` | The trust root that the verifier checks the attestation against |
+
+If the download hosts cannot be reached, the status bar says that the update could not be
+downloaded. If another host cannot be reached, Tether shows no error. Either way the notice keeps
+its link to the Releases page, and Tether installs nothing. The [privacy policy](privacy.md) says what each
+request sends.
+
 ## If it did not work
 
 **`tether: command not found`, or *"is not recognized as the name of a cmdlet"*.** The
@@ -565,8 +579,58 @@ When a newer release exists, a bar at the top of the window says:
 > *Tether &lt;new version&gt; is available (you have &lt;your version&gt;). Open the Releases
 > page to download it.*
 
-The link opens the [Releases page](https://github.com/bioedca/tether/releases). Tether
-downloads nothing. To install the new release, do the steps above.
+The link opens the [Releases page](https://github.com/bioedca/tether/releases). To install the
+new release by hand, do the steps above.
+
+### Install an update from inside Tether
+
+If this copy of Tether can replace itself, the bar also has an **Install update** button. The
+bar then says *Install it now, or open the Releases page*. Tether offers the button only when all of these are
+true:
+
+- You allowed the update check.
+- This copy was installed by a Tether installer, and its install folder has the bundled
+  verifier.
+- On Windows, Tether was installed for *Just Me*. On macOS, Tether is in the `Tether` folder of
+  your home folder. On every system, you can write to the folder that holds the install folder.
+- No earlier update left a `<install folder>.tether-update-backup` or
+  `<install folder>.tether-update-failed` folder beside the install.
+
+When you select **Install update**:
+
+1. Tether downloads the installer of the new release. A progress bar shows how much has
+   arrived. **Cancel** stops the download and deletes the file. If you close Tether before
+   the update starts, Tether also deletes the file.
+2. Tether checks the download against the release's build-provenance attestation, as
+   [How the in-app updater checks a download](packaging.md#how-the-in-app-updater-checks-a-download)
+   tells you. If the check refuses the file, the bar gives the reason and Tether installs
+   nothing. If the check cannot run, for example with no network, the bar shows the notice
+   again with the link only.
+3. The bar says *Tether will close, install &lt;new version&gt; and start again. Save your work
+   first.* Save your work, then select **Install and restart**. **Cancel** stops here and
+   deletes the file.
+4. Tether closes. A small helper moves the install folder aside and runs the installer into
+   the same folder. It checks that every launcher starts the new version. Then it starts Tether
+   again. If the installer or the check fails, the helper puts the previous copy back.
+
+At the next start, the bar says once what happened. Tether was updated, the previous copy was
+put back, or nothing was changed.
+
+### If an update stopped halfway
+
+A power cut or a stopped helper during step 4 can leave no install folder. The previous copy is
+then in `<install folder>.tether-update-backup` beside it. The bar can also say that Tether could not
+put the previous copy back, and name that folder. To get the previous copy back:
+
+1. Close every Tether window.
+2. If the install folder is there, it holds the incomplete update. Delete it. Delete a
+   `<install folder>.tether-update-failed` folder too, if there is one.
+3. Rename `<install folder>.tether-update-backup` to the name of the install folder. For the
+   default folder on Linux, that is `mv ~/tether.tether-update-backup ~/tether`.
+4. Start Tether. It is the version you had before the update.
+
+If no backup folder is there, install Tether again, as [step 3](#3-run-the-installer) tells you.
+Your projects and settings are outside the install folder, so they stay.
 
 The [privacy policy](privacy.md) says what the check sends. The
 [settings section](#settings-tether-keeps-outside-the-install-folder) says where Tether keeps

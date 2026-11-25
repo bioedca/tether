@@ -477,10 +477,10 @@ command gives the same movies in PowerShell, cmd and bash:
 
 - **A folder** gives the movie files directly inside it. A movie file has an extension that
   extraction reads, in any case. Today these are `.tif`, `.tiff`, `.czi` and `.nd2`. With
-  `--recursive` it also gives the movies in its sub-folders. Tether opens `.sif` and `.vsi` movies
-  too, but extraction does not read them yet (#1398 for `.vsi`), so a folder or a pattern leaves
-  them out. A `.sif` or `.vsi` file that you name on its own fails its extraction stage with a
-  message that says so
+  `--recursive` it also gives the movies in its sub-folders. Tether opens `.sif`, `.sira` and
+  `.vsi` movies too, but extraction does not read them yet (#1398 for `.vsi`), so a folder or a
+  pattern leaves them out. A `.sif`, `.sira` or `.vsi` file that you name on its own fails its
+  extraction stage with a message that says so
   ([Movie containers](reference/movie-containers.md)). An original beside its TIFF export in one
   folder (`x.nd2` and `x.tif`, or `x.czi` and `x.tif`) is one movie, so the run stops before
   anything is written and the message names both files. Move or rename one.
@@ -845,10 +845,14 @@ tether run: stopped at approval step 'gamma.approve' for 'KJG_231027': the recip
 You can copy each command and run it as printed. A path or a subject that holds a space
 is put in quotes: double quotes for the Tether Command Prompt on Windows, and shell quotes
 on macOS and Linux, for example `--subject 'condition 1'`. The command that `tether run`
-prints when a step fails is quoted in the same way. On Windows, the Tether Command Prompt
-still reads a value that holds a `"` together with `&`, `|`, `<`, `>` or `^`, or that holds a
-`%NAME%` of the environment, before Tether gets it. Type such a value by hand
-([#1354](https://github.com/bioedca/tether/issues/1354)).
+prints when a step fails is quoted in the same way.
+
+On Windows, a `"` in a value is written `""`, and a `%` is written `^%` outside the quotes,
+for example `--subject ""^%"USERNAME"^%""` for the subject `%USERNAME%`. The Tether Command
+Prompt then gives Tether the value as it is, also when it holds `&`, `|`, `<`, `>` or `^`, and
+it does not expand a `%NAME%` of the environment in it
+([#1354](https://github.com/bioedca/tether/issues/1354)). These commands are for the Tether
+Command Prompt. PowerShell reads quotes in a different way.
 
 No command reaches an approval step yet: the map, correction and fit steps that reach
 them come with #918, #930 and #939, so a recipe that names a policy today is refused

@@ -70,7 +70,7 @@ def test_every_registry_plot_is_reachable_from_the_plot_list(section) -> None:
     combo = section.plot_combo
     listed = [combo.itemData(i) for i in range(combo.count())]
     assert listed == [spec.id for spec in PLOTS]
-    assert len(listed) == 15
+    assert len(listed) == 16
     for spec in PLOTS:
         section.set_plot(spec.id)
         assert section.plot_id == spec.id
@@ -267,3 +267,50 @@ def test_showing_the_analyze_section_reads_the_model_choices_again(
         assert page.outcome.drawn
     finally:
         shell.close()
+
+
+def test_the_successive_frame_cloud_is_drawn_and_exported_with_its_numbers(
+    section, modelled, tmp_path
+) -> None:
+    """#1085: the cloud of E(i) against E(i+1), under its own name, and its export."""
+    import json
+
+    from tether.analysis.plot_export import export_figure
+    from tether.services.plots import plot_spec
+
+    path, keys = modelled
+    successive = plot_spec("population_successive_frame_cloud")
+    assert successive.title != plot_spec("population_raw_fret_cloud").title
+    assert "raw" not in successive.title.lower()
+    section.set_project(path)
+    section.set_plot(successive.id)
+    assert section.plot_combo.currentText() == successive.title
+    section.add_series(PlotSeries(ALL_MOLECULES, None))
+    assert section.outcome.drawn, section.outcome.missing
+    cloud = section.outcome.results[0][1]
+    assert cloud.n_molecules == len(keys) and cloud.n_pairs > 0
+    texts = _all_texts(section.figure)
+    assert "Successive-frame FRET cloud" in texts and "Raw FRET cloud" not in texts
+    assert section.canvas.figure is section.figure
+
+    out = export_figure(
+        section.figure,
+        tmp_path / "succ",
+        tether_export="plot:successive-frame-cloud",
+        source=path.name,
+        parameters={},
+        data_csv=True,
+    )
+    assert set(out.data_paths) == {"data", "density", "levels", "centroids"}
+    assert out.data_paths["levels"].read_text(encoding="utf-8").count("\n") > len(
+        cloud.hdr_coverages
+    )
+    sidecar = json.loads(out.provenance_path.read_text(encoding="utf-8"))
+    assert sidecar["tether_export"] == "plot:successive-frame-cloud"
+    (record,) = sidecar["parameters"]["series"]
+    assert record["label"] == ALL_MOLECULES
+    assert record["result"] == "SuccessiveFrameCloud"
+    analysis = record["analysis"]
+    assert analysis["analysis"] == "successive_frame_cloud"
+    assert analysis["parameters"]["molecule_keys"] == [str(k) for k in keys]
+    assert analysis["n_pairs"] == cloud.n_pairs
