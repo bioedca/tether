@@ -341,8 +341,9 @@ they tell you which half of the problem you have.
    or import the real calibration with `--tmap`.
 
 Defaults worth knowing: `--detection-threshold` is ignored by the `wavelet` mode, and
-defaults to `0.5` for `intensity` and `0.98` for `bandpass`. Omitting `--min-separation`
-gives each mode its own faithful default (wavelet 8 px, intensity/bandpass 3 px;
+defaults to `0.5` for `intensity` and `zmw` and `0.98` for `bandpass`. Omitting
+`--min-separation` gives each mode its own faithful default (wavelet 8 px,
+intensity/bandpass/zmw 3 px;
 ADR-0022).
 
 ### Extraction found far fewer, or far more, molecules than expected
@@ -388,7 +389,12 @@ that one finds nothing.
 | `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
 | `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
-| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether does not read this movie container (.sif). Tether reads: TIFF (.tif, .tiff); CZI (.czi); ND2 (.nd2). …` | A vendor container (`.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
+| `…: Tether reads a CZI file only as one movie (…), and this file holds 2 channels. …` | A CZI file with more than one channel, scene, Z plane or tile, a gap in its time points, or an image pyramid. The message names which. [Movie containers](reference/movie-containers.md#czi) lists what Tether reads. | Export one channel and one position for each file from ZEN, with no compression or with Zstd. |
+| `…: the frames use JPEG XR compression, which can be lossy …` | A CZI movie saved with JPEG or JPEG XR. The file does not say whether the stream is lossless, so Tether refuses it rather than guess. | Export again from ZEN with no compression or with Zstd. |
+| `…: the ND2 file holds more than a time series (Z planes). …`, `…: each pixel has 2 components …`, `…: the ND2 frames are compressed (lossless). …`, `…: Tether does not read padded ND2 rows. …`, `…: this ND2 file is format Ver2.0; …` | An ND2 variant that the reader cannot read fully ([ND2 movies](compatibility.md#nd2-movies)). It refuses the file rather than read part of it. | Export the movie (each position, plane or channel on its own) to uncompressed TIFF. |
+| `…: frame 12 of 400 is missing from the file; …` or `…: the ND2 chunk map is missing at the end of the file; …` | An ND2 file that is an incomplete copy, or an acquisition that did not finish. | Copy the file again from the acquisition machine. |
+| `…: this container opens, but extraction reads only TIFF today; …` | A CZI or ND2 movie that the reader opens, given to `tether extract` or `tether batch`. | Export the movie to uncompressed TIFF until extraction reads it (#1388 for ND2, #1390 for CZI). |
 
 Two more from the same family, raised by `tether.project.extract`:
 
@@ -410,7 +416,7 @@ value gives the usage line, `invalid choice: '<value>' (choose from …)` and ex
 | Message | Fix |
 |---|---|
 | `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` (library call; the CLI refuses it at parse time) |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three (library call; the CLI refuses it at parse time) |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass', 'zmw'), got 'gaussian'` | pick one of the four (library call; the CLI refuses it at parse time) |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | it is a fraction, not a count |
 | `min_separation must be > 0, got -1.0` | omit it to get each mode's faithful default |
 | `window must be a positive odd integer, got 20` | the aperture side must be odd (default 21) |
@@ -705,7 +711,7 @@ restarts.
 **Symptom.**
 
 ```text
-tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3] = wavelet/intensity/bandpass; modes 4 'local-variance' and 5 'ZMW intensity' are not ported)
+tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3, 5] = wavelet/intensity/bandpass/zmw; mode 4 'local-variance' is not ported: Deep-LASI's own mode 4 reads a variable that is never set and stops with an error, so there is no Deep-LASI result to match (ADR-0143))
 ```
 
 Raised by `tether.io.tdat`, wrapped by `tether.project.extract`. A related message tells you
