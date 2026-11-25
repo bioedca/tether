@@ -90,6 +90,14 @@ def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
     return write_sif(tmp / "movie.sif", frames), frames
 
 
+def _sira_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIRA movie of ``tests/_sira_synth.py`` (#905): MASH-FRET stores 32-bit floats."""
+    from _sira_synth import write_sira
+
+    frames = _frames("<f4")
+    return write_sira(tmp / "movie.sira", frames), frames
+
+
 @dataclass(frozen=True)
 class Case:
     """One adapter under test: its registry name and a factory for a movie it reads."""
@@ -104,6 +112,7 @@ CASES = [
     pytest.param(Case("CZI", _czi_zstd), id="czi-zstd"),
     pytest.param(Case("ND2", _nd2_time_series), id="nd2-time-series"),
     pytest.param(Case("SIF", _sif_synthetic), id="sif-synthetic"),
+    pytest.param(Case("SIRA", _sira_synthetic), id="sira-synthetic"),
 ]
 
 

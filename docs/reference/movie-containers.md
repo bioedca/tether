@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, ZEISS CZI, Andor SIF), what each reader refuses, and where the frame time, pixel size and channel name come from."
+description: "The movie containers Tether reads (TIFF, CZI, ND2, SIF, SIRA), what each reader refuses, and where the frame time, pixel size and channel name come from."
 ---
 
 <!--
@@ -25,12 +25,14 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | CZI (ZEISS ZEN) | `.czi` | czifile 2026.6.12 ([ADR-0144](../adr/0144-czi-movies-are-read-with-czifile-and-only-as-one-whole-movie.md)) |
 | ND2 (Nikon NIS-Elements) | `.nd2` | Tether's own reader ([ADR-0148](../adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md), [ND2 movies](../compatibility.md#nd2-movies)) |
 | SIF (Andor Solis) | `.sif` | Tether ([ADR-0150](../adr/0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md)) |
+| SIRA (MASH-FRET) | `.sira` | Tether ([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)) |
 
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF and ND2
-([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI or
-SIF movie opens through the reader, but extraction refuses it. The message is "this CZI movie
-opens, but extraction does not read CZI yet", or the same for SIF. The change that lets extraction read CZI is planned
-(#1390). SIF needs a change of its own. Until then, export the movie to uncompressed TIFF.
+([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)). A CZI,
+SIF or SIRA movie opens through the reader, but extraction refuses it. The message is "this CZI
+movie opens, but extraction does not read CZI yet", or the same for SIF or SIRA. The change that
+lets extraction read CZI is planned (#1390). SIF and SIRA each need a change of their own. Until
+then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
@@ -117,3 +119,47 @@ own ASCII export, value for value. An Andor Zyla image of Dryad
 independent reader sif_parser 0.3.6, bit for bit. Its row order is that of the TIFF that Solis
 exported from it. A 250-frame iXon movie of Zenodo
 [doi:10.5281/zenodo.11185140](https://doi.org/10.5281/zenodo.11185140) (CC-BY-4.0) reads whole.
+
+## SIRA
+
+MASH-FRET saves a `.sira` file when it exports a simulated movie (Simulation module). It also
+saves one for an edited movie or an average image (Video processing module). Tether reads a SIRA
+file **only when it can read all of it**:
+
+- The first line is the header of MASH-FRET 1.003.41 or later (`MASH-FRET exported binary graphic
+  Version: …`). An older header (`SIRA exported binary graphic`, `MASH smFRET exported binary
+  graphic`), or MASH-FRET 1.003 before 1.003.41, is refused. Those layouts can hold 16-bit pixels
+  and no offsets, and Tether has not been checked against them.
+- The width, the height and the frame count in the header are whole numbers of 1 or more.
+- The file holds every frame that the header declares, and nothing after them. An incomplete copy
+  is refused.
+- Each frame's offset is a finite number of 0 or more (see below).
+
+Any other file is refused, and the message names the reason. An example is "this file has the
+older header 'SIRA exported binary graphic'". MASH-FRET stores each pixel as a 32-bit float, so
+the pixel type is `<f4`.
+
+**Offsets.** When a frame has negative values, MASH-FRET adds the size of the lowest value to
+each pixel before it stores the frame. It stores that number, the offset, after the frame.
+Tether takes the offset off again, so each pixel is the value that MASH-FRET wrote. MASH-FRET's
+own reader takes it off when it reads one frame, but adds it again when it reads the whole movie
+([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)).
+On a frame with no negative value the offset is 0, and the two agree.
+
+**Row order.** Frame row 0 is the top row of the image as MASH-FRET shows it. MASH-FRET's TIFF
+export writes that row first too.
+
+| Value | Where it comes from (the SIRA header) | When it is `unknown` |
+| --- | --- | --- |
+| Frame time (s) | the frame time | one frame (an average image), or a value that is not finite and positive |
+| Pixel size (µm) | not read | always. The file does not record it |
+| Channels | not read | always. Two or more channels are side by side in each frame, and the file names none |
+
+Two channels side by side in one frame are one movie, and Tether splits the frame (see
+[Acquisition geometry](../compatibility.md#acquisition-geometry)).
+
+The SIRA reader is checked on the test movies of the MASH-FRET repository
+([RNA-FRETools/MASH-FRET](https://github.com/RNA-FRETools/MASH-FRET), commit 2877992, GPL-3.0). A
+64 x 64 movie of 200 frames and a 256 x 256 movie of 20 frames are checked. Each equals, bit for
+bit, MASH-FRET's own reader `readSira.m` run under GNU Octave 8.4.0. A movie that MASH-FRET's writer stored with
+offsets gives back the frames that were written.
