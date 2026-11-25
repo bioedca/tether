@@ -309,8 +309,9 @@ same either way, so the plot cannot tell you whether a correction was applied. T
 Tether does not clip apparent E to `[0, 1]`. A corrected value slightly outside that range on a
 noisy frame is a real fluctuation. Hiding it would be a silent distortion. The histogram and
 cloud analyses call `apparent_fret` unconditionally (`tether.analysis.histogram`,
-`tether.analysis.cloud`). The GUI axis label is the literal string `"apparent E"`
-(`tether.gui.histogram_dock`, `tether.gui.trace_dock`).
+`tether.analysis.cloud`). The axis label of the trace dock is the literal string
+`"apparent E"` (`tether.gui.trace_dock`). The plots of the Analyze section are the export
+figures of `tether.analysis.plot_export`.
 
 ### What per-molecule γ changes about a published number
 
