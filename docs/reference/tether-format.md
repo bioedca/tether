@@ -257,7 +257,7 @@ of the movie and therefore never hydrates a cloud placeholder.
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `movie_id` | `str:utf-8` | scalar | Movie identity within this store; the CLI writes `mov-<uuid4>` (`src/tether/project/extract.py`). |
-| `uri` | `str:utf-8` | scalar | Source movie path as text; `""` when unknown. |
+| `uri` | `str:utf-8` | scalar | Source movie path as text, relative to the folder of the project file with `/` separators (`../raw/m.tif`), or absolute when no relative path exists (the movie is on another Windows drive); `""` when unknown. |
 | `sha256` | `str:utf-8` | scalar | 64-char hex SHA-256 of the whole movie file ([`_hash_movie`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)); seeds every `molecule_key`. |
 | `file_size` | `i8` | scalar | `Path.stat().st_size`, **bytes**. |
 | `mtime` | `f8` | scalar | `Path.stat().st_mtime`, **POSIX epoch seconds**. |
@@ -276,6 +276,16 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `acceptor_rotation_deg` | `i4` | scalar | Same, acceptor channel. |
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
+
+**Where the movie file is.** A relative `uri` is relative to the folder that holds the
+project file, never to the folder a command ran in, so the movie is found from any working
+folder (PRD §5.1). Every writer records it that way: `tether extract`, `tether batch` with
+and without `--into`, a new trace generation and the Deep-LASI reconstruction
+(`project_movie_uri` in `src/tether/project/sources.py`, #1282). A project written before
+then can hold the path the extraction was given, relative to the folder the command ran in.
+A reader therefore looks in the project's folder first, then tries the same relative path
+from the current folder and takes that file only when its size and modification time match
+the row (`src/tether/services/movies.py`). Existing projects are not rewritten.
 
 The group also holds an additive child, `/movies/layouts/<movie_id>`: the **channel layout**
 the movie was split by (#908), written by `write_layout_record` in `src/tether/imaging/layout.py`. Each

@@ -57,6 +57,7 @@ __all__ = [
     "SourceRecord",
     "ensure_registry",
     "file_sha256",
+    "project_movie_uri",
     "read_sources",
     "register_source",
     "relink_source",
@@ -136,6 +137,25 @@ def _stored_path(project_path: Path, file_path: str | Path) -> str:
     except ValueError:  # another drive (Windows): no relative path exists
         return file_path.as_posix()
     return rel.replace(os.sep, "/")
+
+
+def project_movie_uri(
+    project_path: str | os.PathLike[str], movie_path: str | os.PathLike[str]
+) -> str:
+    """Return the ``/movies`` ``uri`` of ``movie_path`` in the project at ``project_path``.
+
+    PRD §5.1 records the source movie relative to the project: the ``uri`` is the path from
+    the folder of the project file to the movie, with POSIX separators (``../raw/m.tif``),
+    so a reader finds the movie from any working folder. A relative ``movie_path`` is read
+    from the current folder. Where no relative path exists (the movie is on another Windows
+    drive than the project) the absolute path is recorded instead (#1282).
+
+    Examples
+    --------
+    >>> project_movie_uri("/data/out/m.tether", "/data/raw/m.tif")
+    '../raw/m.tif'
+    """
+    return _stored_path(Path(project_path), movie_path)
 
 
 def shareable_path(relative_path: str) -> str:
