@@ -23,7 +23,7 @@ pytestmark = [
 ]
 
 #: The window's own menus: they show in every section.
-_WINDOW_MENUS_BEFORE = ["File"]
+_WINDOW_MENUS_BEFORE = ["File", "Edit"]  # Edit: undo and redo of the curation actions (#632)
 _WINDOW_MENUS_AFTER = ["View", "Help"]
 
 #: The sections whose central page has no curation keys.
@@ -148,6 +148,7 @@ def test_the_shell_opens_with_the_curate_menus(shell) -> None:
     assert shell.section == "curate"
     assert _bar_titles(shell, visible_only=True) == [
         "File",
+        "Edit",
         "Curation",
         "Hand-off",
         "Conditions",

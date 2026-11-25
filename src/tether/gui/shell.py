@@ -45,7 +45,8 @@ names the missing step, and it offers **Go to this step** ([`tether.gui.requirem
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
-the section is current, between the window's own File menu and its View and Help menus.
+the section is current, between the window's own File and Edit menus and its View and Help
+menus.
 The curation keys act only in a section whose ``keymap_scope`` is
 [`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
 event filter lets them through to the native widgets, and the cheat-sheet lists no key.
@@ -1222,7 +1223,7 @@ class TetherShell:
         )
 
         # The menus of the sections (#342): built from each section's MenuSpec, in the
-        # order of the registry, between the window's own File menu and its View and Help
+        # order of the registry, between the window's own File and Edit menus and its View and Help
         # menus. A section's menus show only while that section is current.
         menu_bar = self._window.menuBar()
         for spec in self._shown_sections:
