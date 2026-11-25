@@ -31,9 +31,9 @@ is written to a temporary file of its own (``<name>.<random>.part``) and renamed
 checksum matched. A download that does not arrive (HTTP 404, a moved record, no network) raises
 :class:`DownloadFailed`, which names the set and the URL.
 
-A failure that another try can fix -- a read that times out, a reset connection, an HTTP 5xx, 408
-or 429 -- is tried again after the waits of :data:`RETRY_WAITS`, each time from an empty file
-(#1229). A 4xx answer and a wrong checksum are never tried again: they are findings about the
+A failure that another try can fix -- a read that times out, a reset connection, a response cut
+before its declared length, an HTTP 5xx, 408 or 429 -- is tried again after the waits of
+:data:`RETRY_WAITS`, each time from an empty file (#1229). A 4xx answer and a wrong checksum are never tried again: they are findings about the
 upstream file. Once one set has used all its attempts on a host, later sets from that host in the
 same process get one attempt, so an outage of the whole host stays inside the job's time limit.
 
@@ -346,6 +346,16 @@ class _Unavailable(Exception):
     """One attempt of a download did not arrive; ``__cause__`` is the network error."""
 
 
+def _declared_length(response: object) -> int | None:
+    """The ``Content-Length`` the response declared, or ``None`` if it declared none."""
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Length") if headers is not None else None
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
 def _download_once(d: Dataset, target: Path, opener: Callable) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     # A temporary file of its own, created exclusively, so a second process that downloads the
@@ -367,6 +377,11 @@ def _download_once(d: Dataset, target: Path, opener: Callable) -> Path:
                             )
                         digest.update(chunk)
                         out.write(chunk)
+                    declared = _declared_length(response)
+                    if declared is not None and written < declared:
+                        # A bounded read of a response that closed early returns end of file,
+                        # not IncompleteRead; the bytes did not arrive, so another try can fix it.
+                        raise http.client.IncompleteRead(b"", declared - written)
             except _NETWORK_ERRORS as exc:
                 raise _Unavailable from exc
         if digest.hexdigest() != d.sha256:

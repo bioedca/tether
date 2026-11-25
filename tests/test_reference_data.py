@@ -549,6 +549,76 @@ def test_a_wrong_checksum_is_not_tried_again(tmp_path: Path, monkeypatch) -> Non
     assert opener.calls == 1 and waits.seconds == []
 
 
+class _Socket:
+    """Just enough of a socket for :class:`http.client.HTTPResponse` to read a raw answer."""
+
+    def __init__(self, raw: bytes) -> None:
+        self.raw = raw
+
+    def makefile(self, _mode: str) -> io.BytesIO:
+        return io.BytesIO(self.raw)
+
+
+def _http_response(body: bytes, length: int) -> http.client.HTTPResponse:
+    """A real HTTP response that declares ``length`` bytes and sends ``body``."""
+    head = f"HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n\r\n".encode()
+    response = http.client.HTTPResponse(_Socket(head + body))  # type: ignore[arg-type]
+    response.begin()
+    return response
+
+
+class _Cut:
+    """An upstream whose first answer closes after part of its declared length, then serves."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, url: str, timeout: float) -> http.client.HTTPResponse:
+        self.calls += 1
+        if self.calls == 1:
+            return _http_response(_PAYLOAD[:4], len(_PAYLOAD))
+        return _http_response(_PAYLOAD, len(_PAYLOAD))
+
+
+def test_a_response_cut_before_its_length_is_tried_again(tmp_path: Path, monkeypatch) -> None:
+    """A bounded read of a cut response returns end of file, not ``IncompleteRead`` (#1364)."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    opener, waits = _Cut(), _Waits()
+    path = fetch.path_for(
+        "demo",
+        manifest={"demo": _entry("download")},
+        cache_dir=tmp_path,
+        opener=opener,
+        sleep=waits,
+    )
+    assert path.read_bytes() == _PAYLOAD
+    assert opener.calls == 2 and waits.seconds == [fetch.RETRY_WAITS[0]]
+
+
+def test_a_complete_response_with_wrong_bytes_is_not_tried_again(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """All the declared bytes arrived, so a wrong checksum is about the file, not the network."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    other = b"other bytes\n"
+    calls: list[str] = []
+
+    def opener(url: str, timeout: float) -> http.client.HTTPResponse:
+        calls.append(url)
+        return _http_response(other, len(other))
+
+    waits = _Waits()
+    with pytest.raises(fetch.ChecksumMismatch):
+        fetch.path_for(
+            "demo",
+            manifest={"demo": _entry("download")},
+            cache_dir=tmp_path,
+            opener=opener,
+            sleep=waits,
+        )
+    assert len(calls) == 1 and waits.seconds == []
+
+
 def test_an_upstream_that_stays_down_fails_after_the_last_attempt(
     tmp_path: Path, monkeypatch
 ) -> None:
