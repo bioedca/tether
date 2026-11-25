@@ -1044,8 +1044,14 @@ sequence that delivers it is carried by the GitHub milestone that owns it, not b
 The check half exists: the opt-in release query and notice of
 [#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision. So does
 the verifier of [#333](https://github.com/bioedca/tether/issues/333) (`tether.gui.update_verify`), which makes the
-channel decision below; nothing calls it yet, because the download and the hand-off
-([#331](https://github.com/bioedca/tether/issues/331)) are still to come.
+channel decision below, and the hand-off of [#331](https://github.com/bioedca/tether/issues/331)
+(`tether.gui.update_handoff`, [ADR-0141](adr/0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md)),
+which accepts only the verifier's result. Nothing calls them yet, because the download is still to come.
+
+The hand-off **shall** start the OS installer only after the user chose to install, and only with the file that was
+verified, re-hashed from a private copy immediately before it runs. It **shall** move the existing install aside before
+the installer runs, check afterwards that every launcher and shortcut of the launch surface starts the new version,
+and put the previous copy back when the installer fails, is stopped, or the check fails.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
@@ -1673,6 +1679,7 @@ this section.
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Update verification (`TRUSTED_ROOT_TIMEOUT_S`, `VERIFY_TIMEOUT_S`) | `gh attestation trusted-root` may take **30 s**, then the check is abandoned in silence (*could not run*); each offline `gh` call, `--version` and `attestation verify` (which hashes the installer), may take **120 s**, then the update is refused; the attestations `GET` uses the update check's timeout | Tether (§7.12; ADR-0060); `tether.gui.update_verify`, #333 |
+| Installer hand-off (`HELPER_START_TIMEOUT_S`, `EXIT_WAIT_TIMEOUT_S`, `INSTALL_TIMEOUT_S`, `CHECK_TIMEOUT_S`) | Tether waits **15 s** for the update helper to report that it runs, else stays open with nothing changed; the helper waits **120 s** for Tether to exit, else stops with nothing changed; the installer may run **3600 s**, then it is stopped and the previous copy is put back; each command of the launch-surface check may take **120 s** | Tether (§7.12; ADR-0060, ADR-0141); `tether.gui.update_handoff`, #331 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |
