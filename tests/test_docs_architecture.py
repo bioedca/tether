@@ -39,7 +39,7 @@ MAINTAINER_GROUP = "Project & maintainers"
 #: The seven sections #610 asked for, in order.
 SECTIONS = (
     "The parts",
-    "The three environments",
+    "The four environments",
     "The project file",
     "How a movie becomes a result",
     "The invariants",

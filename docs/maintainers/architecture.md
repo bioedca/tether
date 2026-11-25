@@ -1,5 +1,5 @@
 ---
-description: "How Tether is built: its packages, its three environments, the project file, the data flow, the invariants, the decision records and the tests."
+description: "How Tether is built: its packages, its four environments, the project file, the data flow, the invariants, the decision records and the tests."
 ---
 
 # Architecture overview
@@ -55,19 +55,24 @@ where one step needs the output of another. These rules hold, and a test checks 
 5. The base application never imports PyTorch. Only functions inside `tether.ml.deep` import it,
    and `tests/test_torch_optional_import.py` checks it
    ([ADR-0047](../adr/0047-deep-model-optional-stack-and-dataset.md)).
+6. The base application never imports Java. Only `tether/io/_bioformats_runner.py` imports JPype,
+   and that file runs in the Bio-Formats interpreter. `tests/test_bioformats_adapter.py` checks it
+   ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)).
 
-## The three environments
+## The four environments
 
-Tether runs in three conda environments. Each has its own `environment.yml` and its own committed
-lock file. They are separate because their dependencies conflict: tMAVEN needs PyQt5 and NumPy
-below 2, and the application needs PySide6 and a current NumPy
-([ADR-0004](../adr/0004-pin-and-hold-dual-lock-isolation.md)).
+Tether runs in four conda environments. Each has its own `environment.yml` and its own committed
+lock file. They are separate because their dependencies conflict. tMAVEN needs PyQt5 and NumPy below 2,
+and the application needs PySide6 and a current NumPy
+([ADR-0004](../adr/0004-pin-and-hold-dual-lock-isolation.md)). PyTorch and Java are large and
+optional, so they stay out of the application.
 
 | Environment | Lock file | What it carries | How the application uses it |
 | --- | --- | --- | --- |
 | Application (base) | `conda-lock.yml` | Python, NumPy, Numba, h5py, PySide6, pyqtgraph and napari. | It is the environment that Tether runs in. |
 | tMAVEN sidecar | `sidecar/conda-lock.yml` | PyQt5, NumPy below 2, and the subset of the tMAVEN dependencies that the three fitting methods need. | `tether.idealize.driver` starts its interpreter as a subprocess. It writes an SMD file in, reads a model file out, and reads one JSON status line. |
 | Deep classifier (optional) | `deep/conda-lock.yml` | The CPU build of PyTorch, with the NumPy, SciPy and h5py that the dataset code needs. The [Deep trace classifier](../ml/deep-classifier.md) page tells you how to install a GPU build. | You run Tether in this environment to train or apply the deep classifier. The base application does not need it. |
+| Bio-Formats (optional) | `bioformats/conda-lock.yml` | Python, a Java runtime, JPype and Bio-Formats, for the cellSens `.vsi` movies. | `tether.io.bioformats` starts its interpreter, found through `TETHER_BIOFORMATS_PYTHON`, and sends JSON requests through a pipe. |
 
 The driver finds the sidecar interpreter in three places, in this order. It takes the
 `sidecar_python` argument, then the `TETHER_SIDECAR_PYTHON` environment variable, then the
@@ -149,7 +154,7 @@ A change must not break these rules. Each rule has a check that fails when the r
 | Rule | Source | What enforces it |
 | --- | --- | --- |
 | The HDF5 skeleton is additive-only. | [ADR-0005](../adr/0005-m0-schema-freeze.md) | The `schema-guard` check, and `tests/test_schema.py` |
-| The three lock files stay separate, and each one is pin-and-hold. | [ADR-0004](../adr/0004-pin-and-hold-dual-lock-isolation.md), [ADR-0047](../adr/0047-deep-model-optional-stack-and-dataset.md) | The `conda-lock-verify` check, and `tests/test_torch_optional_import.py` |
+| The four lock files stay separate, and each one is pin-and-hold. | [ADR-0004](../adr/0004-pin-and-hold-dual-lock-isolation.md), [ADR-0047](../adr/0047-deep-model-optional-stack-and-dataset.md), [ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md) | The `conda-lock-verify` check, `tests/test_torch_optional_import.py` and `tests/test_bioformats_adapter.py` |
 | A missing α or γ routes the molecule to apparent E. A NaN factor is never applied. | [ADR-0003](../adr/0003-apparent-e-never-nan.md) | `tests/test_project_correct.py` |
 | Provenance travels with each result: the application version, the parameters and the source of each value. | [ADR-0001](../adr/0001-provenance-first-data-model.md) | `tests/test_provenance_schema.py` for the provenance file beside each export |
 | Each analysis default has one registered value, and the reference page prints it. | [Analysis parameters](../reference/parameters.md) | `tests/test_docs_parameter_defaults.py` |
@@ -201,6 +206,7 @@ gives the commands and the rules of each marker.
 | `gui` | Qt, headless with `QT_QPA_PLATFORM=offscreen`. | `ci.yml`, required, on three operating systems |
 | `sidecar` | A live tMAVEN environment. | `sidecar.yml` |
 | `deep` | The deep environment with PyTorch. | `deep.yml` and `deep-gpu.yml`, advisory |
+| `bioformats` | A live Bio-Formats environment. | `bioformats.yml`, advisory |
 | `large` | The gated large fixtures. | `large-fixtures.yml`, on a schedule |
 | `reference_download` | Network access to the reference data sets. | `reference-data.yml`, weekly |
 | `workstation` | Private laboratory data. | The maintainer's workstation only |
