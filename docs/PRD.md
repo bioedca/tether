@@ -1044,8 +1044,14 @@ sequence that delivers it is carried by the GitHub milestone that owns it, not b
 The check half exists: the opt-in release query and notice of
 [#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision. So does
 the verifier of [#333](https://github.com/bioedca/tether/issues/333) (`tether.gui.update_verify`), which makes the
-channel decision below; nothing calls it yet, because the download and the hand-off
-([#331](https://github.com/bioedca/tether/issues/331)) are still to come.
+channel decision below, and the hand-off of [#331](https://github.com/bioedca/tether/issues/331)
+(`tether.gui.update_handoff`, [ADR-0141](adr/0141-the-update-helper-moves-the-install-aside-and-puts-it-back-on-failure.md)),
+which accepts only the verifier's result. Nothing calls them yet, because the download is still to come.
+
+The hand-off **shall** start the OS installer only after the user chose to install, and only with the file that was
+verified, re-hashed from a private copy immediately before it runs. It **shall** move the existing install aside before
+the installer runs, check afterwards that every launcher and shortcut of the launch surface starts the new version,
+and put the previous copy back when the installer fails, is stopped, or the check fails.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
@@ -1633,6 +1639,7 @@ this section.
 | Parameter | Default | Source / rationale |
 |---|---|---|
 | Channel layout (split geometry) | `side-by-side`, donor on the left (`ExtractOptions.channel_layout = None`, `donor_side = left`) — selectable `{side-by-side, top-bottom, rectangles}`; both channels the same size (a half layout drops an odd trailing column/row); rectangles of different size or outside the frame are refused, overlapping rectangles warn | Tether (#908, G02 note 01); the per-channel crop is Deep-LASI's `processImage` crop (`deeplasi/functions/tools/processImage.m`) |
+| Extraction read block (`READ_BLOCK_FRAMES`) | 64 frames — the frames of a non-TIFF movie (ND2) are copied to a temporary file 64 at a time before extraction; it sets only the memory the copy holds and changes no value (the copy is the same for every block size, tested), so it is not a tunable a user sets | Tether (#1388, [ADR-0149](adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)); `tether.io.frames` |
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |
@@ -1673,6 +1680,7 @@ this section.
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Update verification (`TRUSTED_ROOT_TIMEOUT_S`, `VERIFY_TIMEOUT_S`) | `gh attestation trusted-root` may take **30 s**, then the check is abandoned in silence (*could not run*); each offline `gh` call, `--version` and `attestation verify` (which hashes the installer), may take **120 s**, then the update is refused; the attestations `GET` uses the update check's timeout | Tether (§7.12; ADR-0060); `tether.gui.update_verify`, #333 |
+| Installer hand-off (`HELPER_START_TIMEOUT_S`, `EXIT_WAIT_TIMEOUT_S`, `INSTALL_TIMEOUT_S`, `CHECK_TIMEOUT_S`) | Tether waits **15 s** for the update helper to report that it runs, else stays open with nothing changed; the helper waits **120 s** for Tether to exit, else stops with nothing changed; the installer may run **3600 s**, then it is stopped and the previous copy is put back; each command of the launch-surface check may take **120 s** | Tether (§7.12; ADR-0060, ADR-0141); `tether.gui.update_handoff`, #331 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |
@@ -1849,19 +1857,20 @@ as a **draft PR** and cannot merge. The PR title is a Conventional-Commits strin
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
-spent **cheapest first**, and risk routes a provider only on the load-bearing route of ADR-0099 below. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
+spent **cheapest first**, and the changed files, not the risk, decide the metered gate (ADR-0142, below). **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
 diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
 or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
 has not — until it surfaces
-nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
-one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
-TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
-of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
-than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
-one standard Greptile review **may** stand in as that gate within Tether's share of 45 credits a cycle, and Codex
-**shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
-place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
+nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then the metered
+gate, by the changed files (ADR-0142): a **docs-only or test-only** pull request takes no metered provider, and a fresh
+posted Codex review of the final head that reports nothing actionable is its gate; a **code** pull request — and any
+that changes `AGENTS.md`, `CLAUDE.md` or this document — goes ready-for-review and takes **one standard Greptile review
+with no actionable comments, which is the metered gate before merge — and when that one-review cap is spent, a fresh
+posted Codex review of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read
+rather than on a maintainer (ADR-0065, as ADR-0069 and ADR-0142 amend it)**. Greptile has no queue. Tether's limit is
+its share of 45 credits a cycle plus what is left of a one-time grant of 50; when it is used, or cannot be read, a code
+pull request takes one CodeRabbit full review through the CodeRabbit queue instead, paced at one review an hour, until
+credits are added. Nothing stands in for a refused CodeRabbit, and Codex **shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 points to §Review rather than restating it (#615, recorded in ADR-0064), and the pull-request
 template carries a working copy as evidence fields that defers to §Review where they differ. Four drafts of this
@@ -1875,12 +1884,12 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
-interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 45 a cycle from the 17th (ADR-0099). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three, so a TREX review is not asked (ADR-0142). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
-credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
+credits sends a code PR to the CodeRabbit fallback, CodeRabbit unavailable on that fallback **freezes the PR** — though a fair-use refusal that names a retry time
 is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not a completed one.
 Author-side review and a green or status-only
 result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
@@ -1891,8 +1900,8 @@ open-for-review, draft-ready, or an `@codex review` comment — so a provider th
 bot posts an artifact naming the head it read, which every leg requires — §Review gives the two shapes; the CLI runs locally, posts nothing and therefore
 satisfies no leg — it is an author-side tool, useful before a provider is asked and recorded as none. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
-still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
-step recorded as spent, never discarded as unsolicited.
+still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and recorded as the PR's
+one Greptile review, never discarded as unsolicited.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
@@ -1902,8 +1911,8 @@ governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, th
 `.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most one completed review per metered provider**, Codex being unmetered and uncapped —
 needing a second usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
-**CodeRabbit's** one-review cap specifically is spent — or that of the Greptile review standing in for it (ADR-0069); not the
-optional Greptile review's, whose exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
+the metered gate's one-review cap is spent — Greptile's on a code PR, or CodeRabbit's on the fallback (ADR-0142) — a
+fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
 conditions `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
@@ -1930,11 +1939,11 @@ non-blocking findings in the same PR is a scope breach, and a deferral must neve
 exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
 never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
-left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
-PR**, because it is the last metered gate and an unavailable provider is not a spent cap — it reviewed
+left has not reviewed. Greptile out of credits sends a code PR to the CodeRabbit fallback; **CodeRabbit unavailable there
+freezes the PR**, because it is then the metered gate and an unavailable provider is not a spent cap — it reviewed
 nothing, so nothing opens the unmetered close. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
-which costs no round and no request, or, where it names more than 30 minutes, take the Greptile stand-in `AGENTS.md` §Review allows (ADR-0069) — and never accept the usage-based-billing offer that accompanies it, since that is
+which costs no round and no request — and never accept the usage-based-billing offer that accompanies it, since that is
 the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
 status reads `pending` while a review is in flight, and a re-request sent then destroys the running review, so the
 status **shall** be read before every ask. Human sign-off is required for releases,

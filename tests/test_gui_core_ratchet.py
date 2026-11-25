@@ -60,7 +60,6 @@ ALLOWED: dict[str, int] = {
     "gui/deeplasi_wizard.py: tether.io.intake.DiscoveryResult": 1,
     "gui/deeplasi_wizard.py: tether.io.intake.MovieRefCheck": 1,
     "gui/deeplasi_wizard.py: tether.io.intake.discover_acquisitions": 1,
-    "gui/movie_panel.py: tether.io.movie.MovieReader": 1,
     "gui/shell.py: tether.analysis.overlap.DEFAULT_APERTURE_RADIUS": 1,
     "gui/shell.py: tether.analysis.overlap.OverlapInfo": 1,
     "gui/shell.py: tether.analysis.overlap.neighbor_report": 1,

@@ -30,8 +30,8 @@ The maintainer directs the work. The maintainer decides what is built and what i
 |---|---|---|
 | Claude | Anthropic | Drafts changes |
 | Codex | OpenAI | Drafts changes and reviews changes |
-| CodeRabbit | CodeRabbit | Reviews changes |
-| Greptile | Greptile | Reviews changes when the maintainer asks |
+| CodeRabbit | CodeRabbit | Reviews code changes when Greptile has no credits |
+| Greptile | Greptile | Reviews code changes |
 | GitHub Copilot | GitHub | Is permitted to draft changes. Its review comments are advice only. |
 
 The project names these tools so that you know how the content was made. A name in this table
