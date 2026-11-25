@@ -55,7 +55,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / ".github" / "mutation.toml"
 #: The tiers the required matrix leaves out (``tests/test_marker_contract.py`` pins that list).
-MARKERS = "not large and not sidecar and not deep and not workstation and not reference_download"
+MARKERS = (
+    "not large and not sidecar and not deep and not bioformats and not workstation "
+    "and not reference_download"
+)
 #: A module whose score falls by more than this many points from the last report fails the run.
 DROP_POINTS = 5.0
 #: A mutant may run this many times as long as its tests took in the contexts run, plus a floor.

@@ -82,7 +82,8 @@ def test_each_section_has_the_menus_its_specs_declare(shell) -> None:
         "Conditions",
         "Corrections",
     ]
-    assert [_plain(m.title()) for m in shell.section_menus("analyze")] == ["Analysis"]
+    # The Analyze section's plots live on its page, so it has no menu of its own (#374).
+    assert shell.section_menus("analyze") == []
     with pytest.raises(KeyError):
         shell.section_menus("deposit")
 
@@ -122,11 +123,11 @@ def test_a_menu_added_to_the_registry_appears_on_the_menu_bar(qapp, qtbot, monke
     s = TetherShell()
     qtbot.addWidget(s.window)
     try:
-        assert [_plain(m.title()) for m in s.section_menus("analyze")] == ["Analysis", "Extra"]
+        assert [_plain(m.title()) for m in s.section_menus("analyze")] == ["Extra"]
         (host, action), *rest = populated
         assert not rest
         assert host is s
-        assert [a.text() for a in s.section_menus("analyze")[1].actions()] == [action.text()]
+        assert [a.text() for a in s.section_menus("analyze")[0].actions()] == [action.text()]
         assert "Extra" not in _bar_titles(s, visible_only=True)
         s.set_section("analyze")
         assert "Extra" in _bar_titles(s, visible_only=True)

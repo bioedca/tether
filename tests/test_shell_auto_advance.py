@@ -67,7 +67,8 @@ def shell_off(qapp, qtbot):
 
 def _list_texts(shell) -> list[str]:
     lst = shell.molecule_list
-    return [lst.item(i).text() for i in range(lst.count())]
+    # The name leads each row's text; the state marks after it change with a decision.
+    return [lst.item(i).text().split(" · ")[0] for i in range(lst.count())]
 
 
 def _label_rows(project):

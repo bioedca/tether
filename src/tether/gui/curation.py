@@ -101,6 +101,7 @@ class CurationAction(StrEnum):
     IDEALIZE = "idealize"  # Tether-only: I — one-click vbFRET (wired at M2 S6)
     NEXT = "next"  # inherited: Right / Down
     PREV = "prev"  # inherited: Left / Up
+    NEXT_UNDECIDED = "next_undecided"  # Tether-only: U — the next undecided molecule (#630)
     ASSIGN_CATEGORY = "assign_category"  # inherited: 1-9 (arg = integer class)
     CLEAR_CATEGORY = "clear_category"  # inherited: 0 -> uncategorized
     WINDOW_START_DEC = "window_start_dec"  # inherited: - (pre_list)
@@ -160,6 +161,7 @@ _ACTION_TEXT: dict[CurationAction, str] = {
     CurationAction.IDEALIZE: "One-click idealize",
     CurationAction.NEXT: "Next trace",
     CurationAction.PREV: "Previous trace",
+    CurationAction.NEXT_UNDECIDED: "Next undecided trace",
     CurationAction.CLEAR_CATEGORY: "Clear category (uncategorized)",
     CurationAction.WINDOW_START_DEC: "Analysis-window start −1",
     CurationAction.WINDOW_START_INC: "Analysis-window start +1",
@@ -202,6 +204,7 @@ class CurationHandlers:
     grid: Callable[[], Any] | None = None
     # Appended to preserve positional construction of the pre-existing handler API.
     unreject: Callable[[], Any] | None = None
+    next_undecided: Callable[[], Any] | None = None
 
 
 class CurationController:
@@ -250,6 +253,8 @@ class CurationController:
             _call(h.next)
         elif a is CurationAction.PREV:
             _call(h.prev)
+        elif a is CurationAction.NEXT_UNDECIDED:
+            _call(h.next_undecided)
         elif a is CurationAction.ASSIGN_CATEGORY:
             _call(h.assign_category, command.arg)
         elif a is CurationAction.CLEAR_CATEGORY:
@@ -437,6 +442,8 @@ class Keymap:
         bind(k.Key_Up, Command(CurationAction.PREV))
         bind(k.Key_Right, Command(CurationAction.NEXT))
         bind(k.Key_Down, Command(CurationAction.NEXT))
+        # The next molecule with no decision, in list order (#630; no tMAVEN key).
+        bind(k.Key_U, Command(CurationAction.NEXT_UNDECIDED))
 
         # Inherited categories: 1-9 assign classes 1-9; 0 clears to uncategorized.
         for slot, key in enumerate(
@@ -598,6 +605,7 @@ _ACTION_ORDER: dict[CurationAction, int] = {
             CurationAction.IDEALIZE,
             CurationAction.PREV,
             CurationAction.NEXT,
+            CurationAction.NEXT_UNDECIDED,
             CurationAction.ASSIGN_CATEGORY,
             CurationAction.CLEAR_CATEGORY,
             CurationAction.WINDOW_START_DEC,

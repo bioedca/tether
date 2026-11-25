@@ -322,13 +322,13 @@ def test_restore_one_command_and_all(launch) -> None:
 
     # Move PREV off Left and Up, give Left to ACCEPT: PREV's default is now in the way.
     editor.select(Command(A.PREV))
-    assert editor.propose(key.Key_U) is None and editor.assign()
+    assert editor.propose(key.Key_Y) is None and editor.assign()
     editor.select(Command(A.ACCEPT))
     assert editor.propose(key.Key_Left) is None and editor.assign()
     editor.select(Command(A.PREV))
     assert editor.restore_selected() is False
     assert "Accept trace" in editor.message
-    assert editor.keymap.chords_for(Command(A.PREV)) == [(int(key.Key_U), 0)]
+    assert editor.keymap.chords_for(Command(A.PREV)) == [(int(key.Key_Y), 0)]
 
     editor.restore_all()
     assert editor.keymap.bindings == Keymap.default().bindings

@@ -33,6 +33,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.notices
 
+::: tether.services.plots
+
 ::: tether.services.profile
 
 ::: tether.services.recipe
