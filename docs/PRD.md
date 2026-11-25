@@ -195,12 +195,12 @@ Data lives on OneDrive or a network share; there is no shared server.
 
 ### 3.2 North-star adoption test
 
-A scientist can: **open a real dataset → browse/curate with logged accept/reject → one-click vbFRET (verified
-tMAVEN parity) → export a per-condition FRET histogram with bootstrap CI ready for a figure.** The **M2–M3**
-milestone set built these steps as library capabilities, reachable from the Python API (§9 M2, M3). The shipped
-application does not yet do all of them: the project-wide one-click idealization
-([#625](https://github.com/bioedca/tether/issues/625)) and the histogram export
-([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) are carried by the
+A scientist can: **open a real dataset → browse/curate with logged accept/reject → fit the whole project with
+"Idealize project…" (verified tMAVEN parity, §7.4) → export a per-condition FRET histogram with bootstrap CI ready
+for a figure.** The **M2–M3** milestone set built these steps as library capabilities, reachable from the Python API
+(§9 M2, M3). The shipped application does not yet do all of them. It fits the whole project
+([#625](https://github.com/bioedca/tether/issues/625)); the histogram export
+([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) is carried by the
 milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#949](https://github.com/bioedca/tether/issues/949)).
 The test is a non-binding adoption aspiration, deliberately not operationalized as a calendar gate (§9 is
 capability-sequenced, with no schedule commitment anywhere).
@@ -677,7 +677,7 @@ Tether **shall** present a multi-movie round-trip browser:
   analysis-window **start** (`pre_list`) and `[`/`]` nudge the **end** (`post_list`) — distinct bounds, not one
   action; `R` reset, `P` photobleach, `G` grid) for muscle-memory continuity, and adds the Tether-only actions
   **`Space` = accept, `Backspace`/`Delete` = reject, `Enter` = jump to the movie spot (round-trip focus), `I` =
-  one-click idealize, `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
+  open "Idealize project…", the whole-project fit (§7.4), `U` = next undecided molecule** (a navigation step in list order, #630). tMAVEN's `C` (split) / `V` (collect) have no Tether analog and are **reserved as no-ops in
   v1** so no Tether-only binding shadows them. The integer↔category lookup pins **tMAVEN class 0 ↔ Tether
   "uncategorized"** and named categories ↔ tMAVEN classes ≥ 1, so a tMAVEN round-trip never silently turns an
   uncategorized trace into a named category (§7.4, Appendix D).
@@ -692,10 +692,16 @@ Tether **shall** present a multi-movie round-trip browser:
 
 ### 7.4 FR-IDEALIZE — Idealization (tMAVEN integration)
 
-In-app one-click idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
-sidecar: export selected molecules to SMD → run vbFRET (per-trace), consensus VB-HMM, or ebFRET headless through
-`tmaven.maven.maven_class` → import states/dwells. Auto state-count selection **shall** use max ELBO with a manual
-per-trace override. **In-app idealization is a hard requirement; a hand-off-only MVP is not acceptable** (see §10).
+In-app idealization **shall** be available from the MVP, with **verified tMAVEN parity**, via the embedded
+sidecar, as a fit of the whole project: **Idealize → Idealize project…** (the `I` key) exports the chosen molecules
+(the accepted ones, or the accepted ones of one condition) to SMD → runs consensus VB-HMM or ebFRET headless through
+`tmaven.maven.maven_class` → imports states/dwells into a model named for its method. It runs in the background with
+progress and a cancel that leaves the project unchanged, and "Refit stale only" refits a model whose molecules are
+stale with the settings it stored ([#625](https://github.com/bioedca/tether/issues/625)); it is the same fit as
+`tether idealize`. Auto state-count selection **shall** use max ELBO, with a fixed state count as the manual override.
+Per-trace vbFRET is not a method the application offers; it stays a headless fit through `tether.idealize.run_vbfret`,
+and #545 keeps its parity evidence (§9.6). **In-app idealization is a hard requirement; a hand-off-only MVP is not
+acceptable** (see §10).
 
 *Parity definition.* Because the pinned tMAVEN self-reseeds its RNG (`initialize_gmm` calls `np.random.seed()` then
 random-resamples a KDE; `clip_traces` reseeds from wall-clock), a default fit is not bit-identically reproducible,

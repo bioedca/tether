@@ -258,9 +258,9 @@ is the first frame inside the window and the second is the first frame after it.
 that would move a bound off the trace or empty the window changes nothing. The status bar
 then says why.
 
-Every one of these keys changes nothing while a one-click idealization is running or when the
-project is read-only. The status bar then reads `unavailable` and gives the reason. Each saved
-change is added to the project's molecule edit log, with your curator name.
+These keys change nothing while a project fit runs or when the project is read-only. The
+status bar then reads `unavailable` and gives the reason. Each saved change is added to the
+project's molecule edit log, with your curator name.
 
 A window you set by hand is kept when photobleach detection runs again over the whole project.
 After **R**, that detection may set the window of the molecule automatically again.

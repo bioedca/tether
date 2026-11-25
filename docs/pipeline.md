@@ -132,6 +132,15 @@ source with fewer than six bead spots in either half
 ([`min_bead_spots`](reference/parameters.md#registration-and-colocalization)). This is a
 Python entry point only for now. `tether extract` has no option to use such a map yet.
 
+The map file is an asset of its own ([`tether.imaging.map_asset`](api/imaging.md#tether.imaging.map_asset),
+[ADR-0146](adr/0146-the-map-file-is-a-separate-asset-and-reuse-checks-optics-not-the-date.md)).
+Besides the transform, it holds a map id, its origin, the source ids and the channel layout.
+It also holds the quality record, an optics text, the pixel size, the time and the Tether
+version. A project
+records the id and the checksum of each map file it used. Before a map file registers a movie,
+a reuse check compares the pixel size and the optics text, never the date
+([reuse a map file](cli.md#reuse-a-map-file)).
+
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
   [Analysis parameters](reference/parameters.md#registration-and-colocalization)

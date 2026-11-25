@@ -9,7 +9,7 @@ description: "Take a small sample movie through Tether from extraction to an exp
 their own data.
 
 You will take one small sample movie to one finished result. The result is a
-project with three molecules looked at and sorted. It also has one idealized trace, one
+project with three molecules looked at and sorted. It also has one idealization model, one
 population histogram and one exported table. It takes about fifteen minutes and needs no data of your own.
 
 Each step shows what you should see when it worked. If what you see differs, stop there. Read
@@ -175,29 +175,34 @@ Accepted 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057; end o
 Each decision is saved into `tutorial.tether` as you make it. There is no separate save step.
 To see every key that Tether uses, choose **Curation → Keyboard shortcuts…** at any time.
 
-## 7. Idealize one trace
+## 7. Idealize the project
 
 This step uses the separate tMAVEN environment that the installer sets up for you. If you run
 Tether from a source checkout instead of an installer, set that environment up first.
 [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md#guided-sidecar-setup) tells
 you how.
 
-With `mol-2` still selected, press **I**. The status bar shows that a fit has started:
+1. With `mol-2` still selected, press **I**. You can also choose **Idealize → Idealize
+   project…**. The **Idealize project** dialog opens.
+2. Keep its choices: the method **consensus VB-HMM (vbconhmm)**, the state count
+   **Automatic**, and the molecules **Accepted molecules (2)**.
+3. Click **Idealize**. The status bar shows that the fit has started:
 
 ```text
-Idealizing 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)…
+Idealizing project (consensus VB-HMM)…
 ```
 
 The first fit after Tether starts takes longer than later ones, while the fitting engine warms
-up. The application window stays usable meanwhile. When the fit is done, the status bar reads:
+up. The application window stays usable meanwhile, and **Cancel** next to the busy indicator
+stops the fit with the project unchanged. When the fit is done, the status bar reads:
 
 ```text
-Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)
+Idealized the project with consensus VB-HMM: 2 states, 2 molecules fitted (model vbconhmm)
 ```
 
-A stepped line is then drawn over the blue trace. It jumps between a low level near 0.25 and a
-high level near 0.75. It jumps at the same places as the blue trace. The line is black in the light
-theme and white in the dark theme
+A stepped line is then drawn over the blue trace of `mol-2`. It jumps between a low level near
+0.25 and a high level near 0.75. It jumps at the same places as the blue trace. The line is
+black in the light theme and white in the dark theme
 ([Application window themes and trace colors](reference/gui-theme.md#trace-colors)).
 
 ## 8. Draw the population histogram

@@ -43,6 +43,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.generation_reconcile
 
+::: tether.gui.idealize_project
+
 ::: tether.gui.identity
 
 ::: tether.gui.indicators

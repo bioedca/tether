@@ -47,9 +47,9 @@ GROUPS = (IN_APP, CLI, PYTHON, NOT_YET)
 #: ``None`` binds a fact that is not an import; see :func:`_in_application`.
 BINDINGS: dict[str, tuple[str, ...] | None] = {
     "Open and browse": ("tether.gui.trace_dock",),
-    "Curation": ("tether.project.labels",),
+    "Curation": ("tether.services.curation",),
     "Neighbor view": ("tether.gui.overlap_dock",),
-    "One-trace idealization": ("tether.project.idealize",),
+    "Whole-project idealization": ("tether.gui.idealize_project",),
     "Standalone-tMAVEN hand-off": ("tether.project.handoff",),
     "Condition validation": ("tether.gui.conditions",),
     "Deep-LASI import": ("tether.gui.deeplasi_wizard_ui",),
@@ -66,12 +66,7 @@ BINDINGS: dict[str, tuple[str, ...] | None] = {
 }
 
 #: Labels no import decides, each with the reason.
-UNBOUND: dict[str, str] = {
-    "Whole-project idealization": (
-        "the GUI already imports idealize_molecules for the one-trace fit, so only a menu "
-        "action (#625) would tell the two apart"
-    ),
-}
+UNBOUND: dict[str, str] = {}
 
 #: The planned-panel sentence on the two site pages, which the panel's PR removes.
 PLANNED_PANEL = "movie panel, which reaches the application"

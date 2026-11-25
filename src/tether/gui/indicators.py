@@ -18,7 +18,7 @@ change it sends to every widget.
   and the text percentage stays beside them.
 
 The task service ([`TaskService`][tether.gui.task_service.TaskService], #343) starts and
-stops the busy indicator for each background task, the one-click idealize first. For a task
+stops the busy indicator for each background task, such as the whole-project fit. For a task
 that reports its progress the indicator swaps the mark for its `ProgressRow`, and for a task
 that can be cancelled it shows a **Cancel** button (#627).
 
