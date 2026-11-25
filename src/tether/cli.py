@@ -63,6 +63,8 @@ from tether.services import (
     IdealizeResult,
     MapCreateRequest,
     MapCreateResult,
+    ReextractRequest,
+    ReextractResult,
     Request,
     RequestError,
     RequestRefused,
@@ -441,6 +443,104 @@ def _run_extract(args: argparse.Namespace) -> int:
         else:
             print(f"  donor side: {note}.")
     _warn_conflict_copies(summary.output_path)
+    return 0
+
+
+def _add_reextract_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``reextract`` subcommand (a movie of a project, as a new generation)."""
+    reextract = subparsers.add_parser(
+        "reextract",
+        help=summary,
+        description=(
+            "Extract a movie that a .tether project holds again, as a new trace generation "
+            "(ADR-0136). The molecules that did not move keep their key, labels, category "
+            "and window, marked carried; every fit and correction of the movie becomes "
+            "stale; the previous generation stays readable. Prints the carried, new and "
+            "lost molecules."
+        ),
+    )
+    reextract.add_argument("project", help="the .tether project that holds the movie")
+    reextract.add_argument(
+        "movie", help="the movie file; its bytes must be the ones the project recorded"
+    )
+    reextract.add_argument(
+        "--map",
+        dest="map_path",
+        default=None,
+        metavar="PATH",
+        help=(
+            "apply a saved Tether .npz map file instead of a native fit; cannot be "
+            "combined with --tmap"
+        ),
+    )
+    reextract.add_argument(
+        "--tmap",
+        default=None,
+        metavar="PATH",
+        help="apply an imported Deep-LASI .tmap instead of a native fit",
+    )
+    reextract.add_argument(
+        "--tdat",
+        default=None,
+        metavar="PATH",
+        help=f"apply the particle-detection mode decoded from a Deep-LASI .tdat; {_TDAT_RULE}",
+    )
+    reextract.add_argument(
+        "--profile",
+        default=None,
+        metavar="PATH",
+        help=(
+            "read every extraction option from an extraction profile (a JSON file); "
+            "without one, each option has the default of tether extract"
+        ),
+    )
+    reextract.add_argument(
+        "--match-px",
+        type=float,
+        default=None,
+        metavar="PX",
+        help=('the "did not move" distance in pixels (default: GENERATION_MATCH_PX, 0.5)'),
+    )
+
+
+def _reextract_request(args: argparse.Namespace) -> ReextractRequest:
+    """Build the ``reextract`` request; raise [`_ProfileRefused`][] for a bad ``--profile``."""
+    values = _profile_values(args) or {}
+    return ReextractRequest(
+        project=args.project,
+        movie=args.movie,
+        tmap=args.tmap,
+        tdat=args.tdat,
+        map_path=args.map_path,
+        match_px=args.match_px,
+        **values,  # type: ignore[arg-type]
+    )
+
+
+def _run_reextract(args: argparse.Namespace) -> int:
+    """Handle ``tether reextract``; a failed run or an unusable profile is exit code 1."""
+    try:
+        request = _reextract_request(args)
+    except _ProfileRefused as exc:
+        print(f"tether reextract: {exc}", file=sys.stderr)
+        return 1
+    try:
+        result: ReextractResult = run_service(request)
+    except CommandFailed as exc:
+        print(f"tether reextract: {exc}", file=sys.stderr)
+        return 1
+    generation = result.summary.generation
+    counts = result.reconciliation.counts
+    print(
+        f"Extracted {result.summary.extraction.n_molecules} molecule(s) as generation "
+        f"{generation.generation} of movie {generation.movie_id} -> {request.project}"
+    )
+    print(
+        f"  {counts.carried} carried ({counts.waiting} waiting for confirmation), "
+        f"{counts.new} new, "
+        f"{counts.lost} lost. The fits and corrections of the movie are stale"
+    )
+    _warn_conflict_copies(request.project)
     return 0
 
 
@@ -1187,6 +1287,7 @@ class _Route:
 
 _ROUTES: dict[str, _Route] = {
     "extract": _Route(_add_extract_parser, _extract_request, _run_extract),
+    "reextract": _Route(_add_reextract_parser, _reextract_request, _run_reextract),
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
     "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
     "map": _Route(_add_map_parser, _map_request, _run_map),
@@ -1471,6 +1572,12 @@ def _format_readiness(r: ProjectReadiness) -> str:
         for stage in (s for s in r.stages if s.section == section):
             detail = f" ({stage.detail})" if stage.detail else ""
             lines.append(f"    {stage.name}: {stage.state.text}{detail}")
+    counts = r.reconciliation
+    if counts is not None and counts.movies:
+        lines.append(
+            f"  new trace generations: {counts.movies} movie(s), {counts.carried} carried "
+            f"({counts.waiting} waiting for confirmation), {counts.new} new, {counts.lost} lost"
+        )
     if r.stale:
         lines.append(f"  stale: {len(r.stale)}")
         lines.extend(f"    {s.item}: {s.reason}" for s in r.stale)

@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import approve, batch, extract, idealize, maps
+from tether.services import approve, batch, extract, idealize, maps, reextract
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -62,6 +62,13 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         result_type=extract.ExtractResult,
         run=extract.run,
         summary="extract traces from a dual-channel movie into a .tether project",
+    ),
+    ServiceCommand(
+        name="reextract",
+        request_type=reextract.ReextractRequest,
+        result_type=reextract.ReextractResult,
+        run=reextract.run,
+        summary="extract a movie of a .tether project again, as a new trace generation",
     ),
     ServiceCommand(
         name="batch",
