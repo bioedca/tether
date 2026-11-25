@@ -29,10 +29,11 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 *three-color* or *confocal point detectors* describes your setup, Tether does not fit. See
 [What Tether does not do](#what-tether-does-not-do).
 
-If your movies are in a vendor container (`.nd2`, `.czi`, `.sif`), export them to
-uncompressed TIFF first, and Tether reads them. Tether opens a ZEISS `.czi` movie of one channel (see
-[Movie containers](reference/movie-containers.md)). Its own reader opens a current ND2 movie (see
-[ND2 movies](#nd2-movies)). Extraction still reads only TIFF.
+If your movies are in a vendor container (`.czi`, `.sif`), export them to uncompressed TIFF
+first, and Tether reads them. Tether opens a ZEISS `.czi` movie of one channel (see
+[Movie containers](reference/movie-containers.md)), but extraction does not read CZI yet.
+Tether reads a current ND2 movie with its own reader, and it extracts the movie as it extracts a
+TIFF (see [ND2 movies](#nd2-movies)).
 
 ## Movie files
 
@@ -85,9 +86,17 @@ The performance envelope is written against a reference acquisition. It is a
 Tether reads a Nikon NIS-Elements `.nd2` movie with its own reader, `tether.io.nd2`, and no
 reader package ([ADR-0148](adr/0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md)).
 It opens through the registry. `tether.io.adapters.open_movie_source("movie.nd2")` gives the
-geometry, the pixel type, a frame-range read and the metadata below. **Extraction (the
-application and `tether extract`) still reads only TIFF.** It refuses an ND2 movie with a
-message. Export the movie to uncompressed TIFF to extract it.
+geometry, the pixel type, a frame-range read and the metadata below.
+
+**Extraction reads an ND2 movie** (the application, `tether extract` and `tether batch`). It copies
+the frames to a temporary file, a block of frames at a time. Then it extracts from that copy with
+the same steps as for a TIFF. An ND2 movie and its TIFF export therefore give the same traces
+([ADR-0149](adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
+
+The copy is the size of the movie and is in the system temporary folder. The operating system deletes it
+when the extraction ends. A `tether batch` folder can hold an ND2 original beside its TIFF
+export (`x.nd2` and `x.tif`). The two files are one movie, so the batch refuses that folder
+before it writes anything. Move or rename one of them.
 
 | Requirement | Detail |
 |---|---|
