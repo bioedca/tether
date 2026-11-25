@@ -131,6 +131,14 @@ DEFAULT_PLOT_FORMATS: tuple[str, ...] = ("pdf", "svg", "png")
 #: salts element ids per process).
 _SVG_HASHSALT = "tether.analysis.plot_export"
 
+#: The ``tether_export`` kinds of the three project (store) exports. The published
+#: provenance schema reads a sidecar under one of these as a store export, with closed
+#: parameters, so `export_figure` refuses them: a figure sidecar under such a kind would
+#: fail the schema (#1248).
+_STORE_EXPORT_KINDS: frozenset[str] = frozenset(
+    {"deeplasi-txt", "molecule-table-csv", "subset-tether"}
+)
+
 #: The colour scales `render_transition_density` can draw the B1 TDP with.
 TDP_COLOR_SCALES: tuple[str, ...] = ("log", "linear")
 
@@ -514,7 +522,9 @@ def export_figure(
         ``<stem>.provenance.json``.
     tether_export : str
         The export kind, for example ``"plot:tdp"``. The stamp and the file metadata
-        record it.
+        record it. It may not be one of the three project export kinds
+        (``"deeplasi-txt"``, ``"molecule-table-csv"``, ``"subset-tether"``), which the
+        provenance schema reads as a store export.
     source : str
         The name of the source project or data set, recorded in the provenance file.
     parameters : dict of str to object
@@ -570,6 +580,7 @@ def export_figure(
         must be ``None`` or a list or tuple with one dict per drawn series.
         Each dict must agree with that series as drawn.
         ``data_csv=True`` needs a figure drawn by a ``render_*`` function.
+        ``tether_export`` may not name a project export kind.
 
     Examples
     --------
@@ -591,6 +602,11 @@ def export_figure(
     ...     print(result.formats, result.provenance_path.name)
     ('pdf', 'svg', 'png') a1.provenance.json
     """
+    if tether_export in _STORE_EXPORT_KINDS:
+        raise ValueError(
+            f"tether_export {tether_export!r} names a project export, not a figure; "
+            'use a figure kind such as "plot:tdp"'
+        )
     unknown = set(formats) - set(DEFAULT_PLOT_FORMATS)
     if unknown:
         raise ValueError(
