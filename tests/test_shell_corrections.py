@@ -503,6 +503,16 @@ def test_no_window_can_claim_the_file_between_the_publish_and_the_claim_move(
     assert not shell_mod._GUI_PUBLISHING_PATHS
 
 
+def test_closing_the_window_closes_the_summary(shell, qtbot, tmp_path) -> None:
+    # The summary is a top-level window of its own, so it must not outlive the shell.
+    _loaded(shell, tmp_path)
+    summary = _run(shell, qtbot)
+    assert summary.dialog.isVisible()
+    shell.close()
+    assert not summary.dialog.isVisible()
+    assert shell.correction_summary is None
+
+
 def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:
     # #1393: the summary names no project, so it must not outlive the one it describes.
     _loaded(shell, tmp_path)
