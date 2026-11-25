@@ -384,3 +384,29 @@ def test_the_button_and_the_menu_open_the_editor(shell, tmp_path, monkeypatch) -
 
     assert len(opened) == 2
     assert all(editor.names == tuple(NAMES_A) for editor in opened)
+
+
+def test_the_editor_stays_on_its_condition_when_the_selection_moves(
+    shell, tmp_path, monkeypatch
+) -> None:
+    # Greptile P1 on #1420: an edit made after the selection moved to a molecule of
+    # another condition (a rename that the filter hides, a click) must still change the
+    # condition the editor was opened on.
+    project, _keys, (cid_a, cid_b) = _loaded(shell, tmp_path, two_conditions=True)
+    shell.molecule_list.setCurrentRow(2)
+    editor, _ = _editor(shell, monkeypatch)
+    shell.molecule_list.setCurrentRow(0)  # now a molecule of condition A is selected
+
+    editor.name_field.setText("late")
+    assert editor.add().ok
+    editor.select("free")
+    editor.name_field.setText("loose")
+    assert editor.rename().ok
+    editor.select("bound")
+    assert editor.move(1).ok
+    editor.select("unclear")
+    assert editor.remove().ok
+
+    assert _names(project.path, cid_b) == ("loose", "bound", "late")
+    assert _names(project.path, cid_a) == tuple(NAMES_A)
+    assert editor.names == ("loose", "bound", "late")

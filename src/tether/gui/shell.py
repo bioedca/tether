@@ -4300,9 +4300,13 @@ class TetherShell:
         assert self._project_path is not None
         return category_members(self._project_path, condition_id, name)
 
-    def category_usage(self, name: str) -> int:
-        """How many molecules of the selected molecule's condition have category ``name``."""
-        condition_id = self._selected_condition_id()
+    def category_usage(self, name: str, *, condition_id: str | None = None) -> int:
+        """How many molecules of a condition have category ``name``.
+
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's.
+        """
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
         if condition_id is None:
             return 0
         try:
@@ -4310,12 +4314,23 @@ class TetherShell:
         except Exception:  # noqa: BLE001 - nothing read, so nothing to count
             return 0
 
-    def _category_target(self, verb: str) -> tuple[Project, str, str] | None:
+    def _category_target(
+        self, verb: str, condition_id: str | None
+    ) -> tuple[Project, str, str] | None:
         """The writable project, the condition and the lock nonce of a list change.
 
-        Says why on the status bar and returns ``None`` when the project is read-only,
-        nothing is selected, or the selected molecule has no condition.
+        A given ``condition_id`` is used as it is: the editor binds the condition it was
+        opened on, so a later change of the selection cannot redirect an edit (#633).
+        ``None`` takes the selected molecule's condition. Says why on the status bar and
+        returns ``None`` when the project is read-only, or with no ``condition_id`` when
+        nothing is selected or the selected molecule has no condition.
         """
+        if condition_id is not None:
+            writable = self._writable_project(verb)
+            if writable is None:
+                return None
+            project, nonce = writable
+            return project, condition_id, nonce
         selection = self._writable_selection(verb)
         if selection is None:
             return None
@@ -4326,9 +4341,10 @@ class TetherShell:
             return None
         return project, condition_id, nonce
 
-    def _current_category_names(self) -> tuple[str, ...]:
-        """The list of the selected molecule's condition, or ``()`` when there is none."""
-        condition_id = self._selected_condition_id()
+    def _current_category_names(self, condition_id: str | None = None) -> tuple[str, ...]:
+        """The list of ``condition_id`` (default: the selected molecule's), or ``()``."""
+        if condition_id is None:
+            condition_id = self._selected_condition_id()
         if condition_id is None or self._project_path is None:
             return ()
         from tether.services.curation import category_names
@@ -4338,7 +4354,9 @@ class TetherShell:
         except Exception:  # noqa: BLE001 - show an empty list rather than guess
             return ()
 
-    def _category_failed(self, message: str, *, post: bool = True) -> CategoryEdit:
+    def _category_failed(
+        self, message: str, condition_id: str | None, *, post: bool = True
+    ) -> CategoryEdit:
         """Report ``message`` and return a failed edit that shows the list as stored.
 
         ``post=False`` when the status bar already says it.
@@ -4347,7 +4365,8 @@ class TetherShell:
 
         if post:
             self._status(message)
-        return CategoryEdit(ok=False, names=self._current_category_names(), message=message)
+        names = self._current_category_names(condition_id)
+        return CategoryEdit(ok=False, names=names, message=message)
 
     def _category_done(self, names: Sequence[str], message: str) -> CategoryEdit:
         """Report ``message``, show the new names on the keys, and return the edit."""
@@ -4357,26 +4376,30 @@ class TetherShell:
         self._cheatsheet.refresh()
         return CategoryEdit(ok=True, names=tuple(names), message=message)
 
-    def add_category(self, name: str) -> CategoryEdit:
-        """Add ``name`` at the end of the list of the selected molecule's condition.
+    def add_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Add ``name`` at the end of the list of a condition.
 
-        It calls [`Project.add_category`][tether.project.core.Project.add_category] under
-        the session's lock. The new name takes the next number key.
+        ``condition_id`` names the condition; ``None`` takes the selected molecule's, as
+        it does for each of the list changes below. It calls
+        [`Project.add_category`][tether.project.core.Project.add_category] under the
+        session's lock. The new name takes the next number key.
         """
         verb = "Add category"
-        target = self._category_target(verb)
+        target = self._category_target(verb, condition_id)
         if target is None:
-            return self._category_failed(self.status_message, post=False)
+            return self._category_failed(self.status_message, condition_id, post=False)
         project, condition_id, nonce = target
         try:
             self._guard_session_write(project, nonce)
             result = project.add_category(condition_id, name)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            return self._category_failed(f"{verb} failed: {exc}")
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
         names = result.categories
         return self._category_done(names, f"Category {len(names)} ({names[-1]}) added")
 
-    def rename_category(self, old: str, new: str) -> CategoryEdit:
+    def rename_category(
+        self, old: str, new: str, *, condition_id: str | None = None
+    ) -> CategoryEdit:
         """Rename ``old`` to ``new`` and keep the category of every molecule that has it.
 
         The list keeps the position, so the number key stays the same
@@ -4387,16 +4410,16 @@ class TetherShell:
         molecule edit log row each that names the rename. All under the session's lock.
         """
         verb = "Rename category"
-        target = self._category_target(verb)
+        target = self._category_target(verb, condition_id)
         if target is None:
-            return self._category_failed(self.status_message, post=False)
+            return self._category_failed(self.status_message, condition_id, post=False)
         project, condition_id, nonce = target
         try:
             members = self._category_members(condition_id, old)
             self._guard_session_write(project, nonce)
             result = project.rename_category(condition_id, old, new)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            return self._category_failed(f"{verb} failed: {exc}")
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
         renamed = result.categories[result.code_of(new.strip())]
         reason = f"category renamed from {old!r} to {renamed!r}"
         moved = 0
@@ -4409,7 +4432,8 @@ class TetherShell:
                 self._after_states_changed()
                 return self._category_failed(
                     f"{verb}: “{old}” is now “{renamed}” in the list, but {left} of "
-                    f"{len(members)} molecules still have “{old}”: {exc}"
+                    f"{len(members)} molecules still have “{old}”: {exc}",
+                    condition_id,
                 )
             self._molecule_view.update_rows(self._molecule_view.rows_of_key(key), category=renamed)
             moved += 1
@@ -4419,8 +4443,8 @@ class TetherShell:
             result.categories, f"Category “{old}” renamed to “{renamed}”; {moved} {noun} it"
         )
 
-    def remove_category(self, name: str) -> CategoryEdit:
-        """Remove ``name`` from the list of the selected molecule's condition.
+    def remove_category(self, name: str, *, condition_id: str | None = None) -> CategoryEdit:
+        """Remove ``name`` from the list of a condition.
 
         It calls [`Project.remove_category`][tether.project.core.Project.remove_category]
         under the session's lock. The library's rule applies: a molecule that has
@@ -4428,23 +4452,25 @@ class TetherShell:
         one number key. The editor asks before it calls this for a used name.
         """
         verb = "Remove category"
-        target = self._category_target(verb)
+        target = self._category_target(verb, condition_id)
         if target is None:
-            return self._category_failed(self.status_message, post=False)
+            return self._category_failed(self.status_message, condition_id, post=False)
         project, condition_id, nonce = target
         try:
             used = len(self._category_members(condition_id, name))
             self._guard_session_write(project, nonce)
             result = project.remove_category(condition_id, name)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            return self._category_failed(f"{verb} failed: {exc}")
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
         message = f"Category “{name}” removed"
         if used:
             noun = "molecule keeps" if used == 1 else "molecules keep"
             message += f"; {used} {noun} it as a name that is not in the list"
         return self._category_done(result.categories, message)
 
-    def move_category(self, name: str, offset: int) -> CategoryEdit:
+    def move_category(
+        self, name: str, offset: int, *, condition_id: str | None = None
+    ) -> CategoryEdit:
         """Move ``name`` ``offset`` places in the list (``-1`` up, ``+1`` down).
 
         The new order is written with
@@ -4453,9 +4479,9 @@ class TetherShell:
         the new order.
         """
         verb = "Move category"
-        target = self._category_target(verb)
+        target = self._category_target(verb, condition_id)
         if target is None:
-            return self._category_failed(self.status_message, post=False)
+            return self._category_failed(self.status_message, condition_id, post=False)
         project, condition_id, nonce = target
         from tether.services.curation import category_names
 
@@ -4463,18 +4489,22 @@ class TetherShell:
             names = list(category_names(project.path, condition_id))
             index = names.index(name)
         except ValueError:
-            return self._category_failed(f"{verb} failed: “{name}” is not in the list")
+            return self._category_failed(
+                f"{verb} failed: “{name}” is not in the list", condition_id
+            )
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            return self._category_failed(f"{verb} failed: {exc}")
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
         target_index = index + offset
         if not 0 <= target_index < len(names):
-            return self._category_failed(f"{verb} unavailable: “{name}” is at the end of the list")
+            return self._category_failed(
+                f"{verb} unavailable: “{name}” is at the end of the list", condition_id
+            )
         names.insert(target_index, names.pop(index))
         try:
             self._guard_session_write(project, nonce)
             result = project.set_category_list(condition_id, names)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
-            return self._category_failed(f"{verb} failed: {exc}")
+            return self._category_failed(f"{verb} failed: {exc}", condition_id)
         return self._category_done(
             result.categories, f"Category “{name}” is now category {target_index + 1}"
         )
@@ -4493,14 +4523,18 @@ class TetherShell:
         if condition_id is None:
             self._status("Categories: select a molecule of a condition in an open project first")
             return None
+        # Every read and write of the editor is bound to the condition it opens on: a
+        # rename the filter hides, or a click, can move the selection to a molecule of
+        # another condition while the editor is open (#633).
+        cid = condition_id
         editor = CategoryEditor(
-            self._condition_text(condition_id),
-            self._current_category_names(),
-            usage=self.category_usage,
-            add=self.add_category,
-            rename=self.rename_category,
-            remove=self.remove_category,
-            move=self.move_category,
+            self._condition_text(cid),
+            self._current_category_names(cid),
+            usage=lambda name: self.category_usage(name, condition_id=cid),
+            add=lambda name: self.add_category(name, condition_id=cid),
+            rename=lambda old, new: self.rename_category(old, new, condition_id=cid),
+            remove=lambda name: self.remove_category(name, condition_id=cid),
+            move=lambda name, offset: self.move_category(name, offset, condition_id=cid),
             parent=self._window,
         )
         self._category_editor = editor
