@@ -760,8 +760,11 @@ why the keys read alphabetically:
 | `tether_export` | The export-kind discriminator |
 
 `tether_export` takes exactly three fixed values from the project exports —
-`"deeplasi-txt"`, `"molecule-table-csv"`, `"subset-tether"`. For plots it is **caller-supplied
-and unvalidated**: nothing in `src/` defines or checks a plot kind vocabulary.
+`"deeplasi-txt"`, `"molecule-table-csv"`, `"subset-tether"`. For plots it is **caller-supplied**.
+Nothing in `src/` defines a plot kind vocabulary. But `export_figure` refuses the three project
+kinds with `ValueError`. The [provenance schema](tether-provenance-schema.json) reads them as
+project exports, so a figure sidecar under one would fail it. Use a `plot:` kind, such as
+`"plot:tdp"`.
 
 A real provenance file, verbatim:
 
