@@ -249,6 +249,8 @@ def test_the_menu_syncs_the_action_when_it_opens(shell, tmp_path) -> None:
     shell.corrections_menu.aboutToShow.emit()
 
     assert not shell.correction_pass_action.isEnabled()
+    # The reason is in the tooltip, and a QMenu shows tooltips only when asked to.
+    assert shell.corrections_menu.toolTipsVisible()
 
 
 def test_a_read_only_project_refuses_the_pass(shell, tmp_path) -> None:
@@ -458,6 +460,47 @@ def test_a_window_closed_during_the_pass_frees_the_moved_claim(
     assert shell_mod._project_owner_key(project.path) != before
     assert not shell.holds_project_claim
     assert _has_correction_settings(project.path)
+
+
+def test_no_window_can_claim_the_file_between_the_publish_and_the_claim_move(
+    shell, qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    # The pass replaces the file before its claim moves to the new file. Hold the task
+    # right after the publish: a second window must still open the file read-only.
+    from tether.gui import shell as shell_mod
+    from tether.gui.shell import TetherShell
+    from tether.project import correct
+
+    project = _loaded(shell, tmp_path)
+    before = shell_mod._project_owner_key(project.path)
+    real = correct.compute_corrected_fret
+    published, go = threading.Event(), threading.Event()
+
+    def held_after_publish(*args, **kwargs):
+        summary = real(*args, **kwargs)
+        published.set()
+        assert go.wait(10)
+        return summary
+
+    monkeypatch.setattr(correct, "compute_corrected_fret", held_after_publish)
+    other = TetherShell(preferences_file=tmp_path / "other" / "preferences.json")
+    qtbot.addWidget(other.window)
+    try:
+        assert shell.run_correction_pass()
+        try:
+            assert published.wait(10)
+            assert shell_mod._project_owner_key(project.path) != before
+            other.load_project(project.path)
+            assert not other.holds_project_claim
+            assert other.curation_project is None
+        finally:
+            go.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
+    finally:
+        other.close()
+    after = shell_mod._project_owner_key(project.path)
+    assert {after: shell._project_owner_token} == shell_mod._GUI_PROJECT_OWNERS
+    assert not shell_mod._GUI_PUBLISHING_PATHS
 
 
 def test_closing_the_project_closes_the_summary(shell, qtbot, tmp_path) -> None:

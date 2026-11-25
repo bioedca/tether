@@ -21,8 +21,10 @@ tests/golden/deep/*.json text eol=lf
 *.h5    binary
 *.tether binary
 *.mat   binary
+*.czi   binary
 *.tdat  binary
 *.tmap  binary
+*.nd2   binary
 *.smd   binary
 *.npy   binary
 *.npz   binary
