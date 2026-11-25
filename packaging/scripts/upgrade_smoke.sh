@@ -158,6 +158,64 @@ test "$rc" = 0 || { echo "the install after removal exited $rc"; exit 1; }
 for _ in $(seq 1 40); do [ -f "$py_u" ] && break; sleep 3; done
 expect_declined "remove-then-install"
 
+# --- the in-app hand-off (issue #331, ADR-0141) -------------------------------------------
+# The real update helper on the real installer, started by the INSTALLED app the way
+# tether.gui.update_handoff.hand_off starts it. Two legs: an update that must land and pass
+# the new copy's own launch-surface check, and an update whose installer is stopped after
+# a few seconds, which must leave the previous install working. The helper writes one line
+# to the result file when it is done; nothing here touches the install folder itself.
+result="$("$py" -c 'from tether.gui.update_handoff import result_path; print(result_path())' | tr -d '\r')"
+if [ "$RUNNER_OS" = "Windows" ]; then result_u="$(cygpath -u "$result")"; else result_u="$result"; fi
+# The installer the legs above ran (an `ls` of the other platforms' globs would fail the
+# pipeline under `pipefail`).
+if [ "$RUNNER_OS" = "Windows" ]; then installer_arg="$exe_w"
+elif [ "$RUNNER_OS" = "macOS" ]; then installer_arg="$pkg"
+else installer_arg="$sh_installer"; fi
+version="$("$py" -m tether --version | tr -d '\r' | awk '{print $2}')"
+report ""
+report "#### In-app hand-off ($version over $version)"
+
+handoff() {
+  # $1: the installer timeout in seconds. Waits up to 40 minutes for the result line, and
+  # prints only that line (MSYS2_ARG_CONV_EXCL is "*" on Windows, so /F stays /F).
+  rm -f "$result_u"
+  "$py" packaging/scripts/handoff_smoke.py --installer "$installer_arg" --prefix "$prefix" \
+    --version "$version" --result "$result" --install-timeout "$1" >&2
+  for _ in $(seq 1 480); do [ -f "$result_u" ] && break; sleep 5; done
+  test -f "$result_u" || { echo "the update helper wrote no result in 40 minutes"; exit 1; }
+  # The helper starts Tether again when it is done. A runner has nobody to close it, and on
+  # Windows a running copy would keep the next leg from moving the folder aside.
+  sleep 10
+  if [ "$RUNNER_OS" = "Windows" ]; then
+    taskkill /F /T /IM tether-gui.exe > /dev/null 2>&1 || true
+    taskkill /F /T /IM pythonw.exe > /dev/null 2>&1 || true
+    sleep 5
+  else
+    pkill -f "$prefix/envs/tether/bin/" > /dev/null 2>&1 || true
+  fi
+  tr -d '\r' < "$result_u"
+}
+
+line="$(handoff 3600)"
+report "- **update**: the helper reports \`$line\`."
+case "$line" in "updated $version "*|"updated $version") ;; *)
+  echo "the update did not land: $line"; cat "${result_u%.txt}.log" || true; exit 1 ;; esac
+test ! -e "$prefix_u.tether-update-backup" || { echo "the backup was not deleted"; exit 1; }
+"$py" -m tether --version
+"$py" -m tether.gui.update_handoff check --prefix "$prefix" --version "$version"
+expect_declined "in-app update"
+
+line="$(handoff 5)"
+report "- **installer stopped after 5 s**: the helper reports \`$line\`."
+case "$line" in "restored $version "*) ;; *)
+  echo "an interrupted update was not put back: $line"; cat "${result_u%.txt}.log" || true; exit 1 ;; esac
+test ! -e "$prefix_u.tether-update-backup" || { echo "the backup was left behind"; exit 1; }
+test ! -e "$prefix_u.tether-update-failed" || { echo "a partial install was left behind"; exit 1; }
+"$py" -m tether --version
+"$py" -m tether.gui.update_handoff check --prefix "$prefix" --version "$version"
+expect_declined "interrupted in-app update"
+rm -f "$result_u" "${result_u%.txt}.log"
+
 # --- clean up ---------------------------------------------------------------------------
 remove_install || true
 rm -rf "$prefix_u" "$(dirname "$settings_u")"

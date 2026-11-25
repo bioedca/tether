@@ -28,6 +28,12 @@ script = fullfile(job.tool_dir, 'FRET_cloud_contours_centroids.m');
 if ~isfile(script)
     error('tether:noScript', 'FRET_cloud_contours_centroids.m is not in the tool folder');
 end
+% run executes a P-file of the same name in the same folder in place of the .m file, also when it
+% is given the .m path, so the recorded SHA-256 would name code that did not run (#1252).
+if isfile(fullfile(job.tool_dir, 'FRET_cloud_contours_centroids.p'))
+    error('tether:pcode', ['FRET_cloud_contours_centroids.p is in the tool folder; MATLAB ' ...
+        'would run it in place of the pinned .m file']);
+end
 traces = tether_fret_cloud_traces(job.inputs.traces);
 staging = tempname;
 mkdir(staging);

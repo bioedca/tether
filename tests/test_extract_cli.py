@@ -42,6 +42,7 @@ from tether.imaging.calibrate import LOW_CONFIDENCE_TAG  # noqa: E402
 from tether.imaging.detect import ParticleDetectionMode  # noqa: E402
 from tether.imaging.extract import read_molecules, read_patches, read_traces  # noqa: E402
 from tether.imaging.register import PolyTransform2D, TmapChannel  # noqa: E402
+from tether.io.generations import read_generations  # noqa: E402
 from tether.io.schema import SCHEMA_VERSION, assert_is_compatible_project  # noqa: E402
 from tether.project.extract import ExtractionError, ExtractOptions, extract_movie  # noqa: E402
 
@@ -1130,8 +1131,9 @@ def test_extract_tdat_not_found_errors(tmp_path, capsys) -> None:
 
 
 def test_extract_tdat_unsupported_mode_errors(tmp_path, capsys) -> None:
-    # A .tdat saved with an unported findPart mode (4 local-variance / 5 ZMW) is
-    # refused with a clean .tdat-centric error -- never silently mis-detected.
+    # A .tdat saved with findPart mode 4 (local-variance, which Deep-LASI itself
+    # cannot run; ADR-0143) is refused with a clean .tdat-centric error -- never
+    # silently mis-detected.
     movie = _make_movie(tmp_path)
     tdat = _write_tdat(tmp_path / "data.tdat", mode_code=4.0)
     out = tmp_path / "out.tether"
@@ -1140,7 +1142,32 @@ def test_extract_tdat_unsupported_mode_errors(tmp_path, capsys) -> None:
     err = capsys.readouterr().err
     assert "could not use --tdat" in err
     assert "not supported" in err
+    assert "local-variance" in err
     assert not out.exists()
+
+
+def test_extract_tdat_mode5_detects_with_zmw(tmp_path) -> None:
+    # A .tdat saved with findPart mode 5 decodes to the ZMW detector, and the
+    # re-extraction runs and records that mode (ADR-0143).
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=5.0)
+    out = tmp_path / "zmw.tether"
+    summary = extract_movie(movie, out, tdat=tdat, options=ExtractOptions(window=_WINDOW))
+    assert summary.detection_mode == "zmw"
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "zmw"
+    assert profile["tdat_source"] == "data.tdat"
+    (generation,) = read_generations(out)
+    assert generation.inputs["options"]["detection_mode"] == "zmw"
+
+
+def test_extract_cli_detection_mode_zmw_is_recorded(tmp_path) -> None:
+    # `tether extract --detection-mode zmw` runs the mode-5 detector and records it.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "cli_zmw.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--detection-mode", "zmw"])
+    assert rc == 0
+    assert _extraction_profile(out)["detection_mode"] == "zmw"
 
 
 def test_extract_tdat_composes_with_tmap(tmp_path, monkeypatch) -> None:
@@ -1373,7 +1400,7 @@ def test_extract_refuses_an_unguarded_overwrite_before_any_work(tmp_path, monkey
     def _no_movie_io(*_a, **_k):
         raise AssertionError("an unguarded overwrite must be refused before the movie opens")
 
-    monkeypatch.setattr(extract_module, "open_movie", _no_movie_io)
+    monkeypatch.setattr(extract_module, "open_extraction_movie", _no_movie_io)
     with pytest.raises(ExtractionError, match="needs its writer lock"):
         extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), overwrite=True)
     assert out.read_bytes() == b"existing project"

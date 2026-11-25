@@ -120,6 +120,7 @@ nav:
           - Deep trace classifier (GPU add-on): ml/deep-classifier.md
       - Reference:
           - Command line: cli.md
+          - Movie containers (TIFF, CZI): reference/movie-containers.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
           - Project file format (.tether HDF5 schema): reference/tether-format.md

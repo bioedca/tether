@@ -51,6 +51,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # it. Positionals (`movie`, `movies`) are checked separately below.
 _EXPECTED_OPTION_COUNTS = {
     "extract": 18,
+    "reextract": 5,
     "batch": 18,
     "map create": 6,
     "approve": 3,
@@ -61,7 +62,7 @@ _EXPECTED_OPTION_COUNTS = {
     "metadata": 5,
     "export table": 4,
     "export traces": 5,
-    "export subset": 5,
+    "export subset": 6,
 }
 
 # The top-level subcommands, each a column of the exit-code table. `export` is one column:
@@ -224,8 +225,8 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """The documented commands include approve and run (#899), status (#896), and the
-    three export forms (#658).
+    """The documented commands include approve and run (#899), status (#896), reextract
+    (#923) and the three export forms (#658).
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
@@ -234,6 +235,7 @@ def test_every_subcommand_is_documented() -> None:
     names = set(_subparsers(build_parser()))
     expected = {
         "extract",
+        "reextract",
         "batch",
         "map create",
         "approve",
