@@ -75,8 +75,6 @@ ALLOWED: dict[str, int] = {
     "gui/shell.py: tether.project.handoff.apply_reconcile": 1,
     "gui/shell.py: tether.project.handoff.hand_off_to_tmaven": 1,
     "gui/shell.py: tether.project.handoff.read_return_leg": 1,
-    "gui/shell.py: tether.project.idealize.idealize_molecules": 1,
-    "gui/shell.py: tether.project.labels.CurationLabel": 1,
     "gui/shell.py: tether.project.lock": 3,
     "gui/shell.py: tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S": 1,
     "gui/shell.py: tether.project.lock.LockedError": 5,

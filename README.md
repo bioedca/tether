@@ -55,10 +55,10 @@ to the application.
   ([how-to](docs/how-to/curate-traces.md#4-set-a-category-and-the-analysis-window)).
 - **Neighbor view.** The view shows the cached image patch of the selected molecule and the
   distance to its nearest neighbor. It warns you when the apertures overlap.
-- **One-trace idealization.** The **I** key fits the selected molecule in the **isolated
-  tMAVEN sidecar**. Then it draws the fitted steps on the trace. Use it to check a trace visually.
-  The status bar calls it vbFRET, but it runs the consensus VB-HMM
-  ([#554](https://github.com/bioedca/tether/issues/554)).
+- **Whole-project idealization.** **Idealize → Idealize project…**, or the **I** key, fits the
+  accepted molecules with the consensus VB-HMM or ebFRET in the **isolated tMAVEN sidecar**. It
+  runs in the background with progress and **Cancel**, and it can refit only a stale model
+  ([how-to](docs/how-to/idealize.md)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip. Save molecules as a file that the
   tMAVEN application window opens. Then import its result back through a reconcile prompt for
   each trace.
@@ -104,9 +104,6 @@ links a how-to guide, that guide shows the script. The quality ranker has no how
   ratio is not defined there. For apparent E, that is a frame with zero total intensity
   ([how-to](docs/how-to/apply-corrections.md)). The application gets it with the
   [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
-- **Whole-project idealization.** The consensus VB-HMM or ebFRET over every molecule, in the
-  isolated tMAVEN sidecar ([how-to](docs/how-to/idealize.md)). An **Idealize project…** action
-  is planned ([#625](https://github.com/bioedca/tether/issues/625), M16).
 - **Quality ranker.** A ranker for each condition learns from your accepts and rejects, and it
   orders traces for review. It retrains incrementally. It only sorts and ranks traces, and it
   never drops a trace by itself. The application gets it with [#639](https://github.com/bioedca/tether/issues/639) and

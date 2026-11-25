@@ -25,7 +25,8 @@ network access.
   [napari](https://napari.org) for the movie panel of the application.
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`). It runs every
   idealization fit:
-    - the one-trace fit on the **I** key in the application,
+    - the whole-project fit of **Idealize → Idealize project…** (the **I** key) in the
+      application,
     - the whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch),
     - the consensus VB-HMM and ebFRET fits that [run from Python](how-to/idealize.md).
 

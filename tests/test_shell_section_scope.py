@@ -81,6 +81,7 @@ def test_each_section_has_the_menus_its_specs_declare(shell) -> None:
         "Hand-off",
         "Conditions",
         "Corrections",
+        "Idealize",
     ]
     # The Analyze section's plots live on its page, so it has no menu of its own (#374).
     assert shell.section_menus("analyze") == []
@@ -152,6 +153,7 @@ def test_the_shell_opens_with_the_curate_menus(shell) -> None:
         "Hand-off",
         "Conditions",
         "Corrections",
+        "Idealize",
         "View",
         "Help",
     ]

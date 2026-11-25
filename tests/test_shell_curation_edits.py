@@ -26,6 +26,22 @@ BLEACH = 37
 CATEGORIES = [f"class {i}" for i in range(1, 13)]
 
 
+def _project_fit(**choices):
+    """A whole-project fit choice (#625), the default unless *choices* say otherwise."""
+    from tether.gui.idealize_project import ProjectFit
+
+    return ProjectFit(**choices)
+
+
+def _no_model():
+    """What a fake whole-project fit returns: a result that wrote no model."""
+    from pathlib import Path as _Path
+
+    from tether.services.idealize import IdealizeResult
+
+    return IdealizeResult(project=_Path("fake.tether"))
+
+
 def _store(tmp_path, *, windows=None):
     """A real ``.tether`` with three molecules and a 12-name category list.
 
@@ -328,14 +344,14 @@ def test_edits_are_refused_while_idealization_runs(shell, qtbot, tmp_path, key_n
     started = threading.Event()
     gate = threading.Event()
 
-    def blocking_idealizer(_molecule_key):
+    def blocking_idealizer(_fit, **_kw):
         started.set()
         gate.wait(timeout=5.0)
-        return np.full(N_FRAMES, 0.5)
+        return _no_model()
 
     shell._idealizer = blocking_idealizer  # an in-flight fit owns the HDF5
     try:
-        _press(qtbot, shell, "Key_I")
+        assert shell.idealize_project(_project_fit())
         qtbot.waitUntil(started.is_set, timeout=2000)
         _press(qtbot, shell, key_name)
         refused = shell.status_message

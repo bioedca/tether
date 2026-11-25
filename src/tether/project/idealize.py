@@ -1305,6 +1305,7 @@ def reidealize(
     scratch_dir: str | PathLike[str] | None = None,
     timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
     require_held_lock: bool = False,
+    write_guard: Callable[[], None] | None = None,
     _runner: Callable[..., IdealizationResult] | None = None,
 ) -> StoredIdealization:
     """Re-fit an existing model over its molecule set with the *current* inputs.
@@ -1323,7 +1324,7 @@ def reidealize(
     (ADR-0136). A member that moved is left out with a [`RefitMembersMoved`][] warning
     that names its key; when no member is left, the refit is refused (``ValueError``).
     ``_runner`` is the same private sidecar test seam as [`idealize_molecules`][], and
-    ``require_held_lock`` is forwarded to it.
+    ``require_held_lock`` and ``write_guard`` are forwarded to it.
     """
     import warnings  # noqa: PLC0415
 
@@ -1366,6 +1367,7 @@ def reidealize(
         overwrite=True,
         include_rejected=True,
         require_held_lock=require_held_lock,
+        write_guard=write_guard,
         _molecule_ids=list(members.molecule_ids),
         **extra,
     )
