@@ -324,6 +324,39 @@ def test_a_filter_that_hides_the_selection_moves_it_to_a_shown_row(shell, qtbot,
 
 @pytest.mark.gui
 @_needs_qt
+def test_a_focused_filter_box_keeps_its_keys(shell, qtbot, tmp_path) -> None:
+    """The curation keys do not act while the filter box has focus (Greptile P1, #1397).
+
+    Space opens a closed combo box and the arrow keys change its entry; without the
+    exemption, Space would accept the selected molecule and an arrow would step it.
+    """
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.project.labels import curation_labels
+
+    project, _keys = _store(tmp_path, n=4)
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(0)
+    box = shell.molecule_view.filter_box
+    before = curation_labels(project.path)
+
+    shell.window.show()
+    shell.window.activateWindow()
+    box.setFocus()
+    # Keys the box ignores (Right) climb to its parents; focus is what keeps them exempt.
+    qtbot.waitUntil(lambda: QtWidgets.QApplication.focusWidget() is box, timeout=2000)
+    qtbot.keyClick(box, QtCore.Qt.Key.Key_Space)
+    box.hidePopup()
+    assert curation_labels(project.path) == before  # Space did not accept
+    qtbot.keyClick(box, QtCore.Qt.Key.Key_Right)
+    assert shell.molecule_list.currentRow() == 0  # the arrow did not step the molecule
+    qtbot.keyClick(box, QtCore.Qt.Key.Key_Down)
+    assert shell.molecule_view.filter_key == "undecided"  # the box's own key
+    assert curation_labels(project.path) == before
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_a_movie_click_on_a_hidden_molecule_shows_all_first(shell, qtbot, tmp_path) -> None:
     from tether.project.labels import curation_labels
 

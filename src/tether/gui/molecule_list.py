@@ -198,6 +198,10 @@ class MoleculeListView:
         self._filter_box = QtWidgets.QComboBox()
         self._filter_box.setAccessibleName("Show molecules")
         self._filter_box.setToolTip("Show only the molecules in one state or one category")
+        # A focused combo box keeps its own keys (Space opens it, the arrows change the
+        # entry): the curation key filter exempts a widget with this property, as it
+        # does the category field, so Space here never accepts a molecule.
+        self._filter_box.setProperty("tetherTextEntry", True)
         self._filter_box.currentIndexChanged.connect(self._on_filter_index)
         self._sync_filter_options()
         theme.subscribe(self._on_theme)
