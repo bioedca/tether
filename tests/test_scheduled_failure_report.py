@@ -34,8 +34,10 @@ REPORT_WORKFLOW = WORKFLOWS / "scheduled-failure.yml"
 REPORT_USES = "./.github/workflows/scheduled-failure.yml"
 ORACLE_FORM = _REPO / ".github" / "ISSUE_TEMPLATE" / "validation-oracle-failure.yml"
 #: Scheduled workflows the issue leaves out of scope (#697 "Scope and non-goals"): the reaper
-#: writes issues itself, and the two audits are a later change.
-EXEMPT = {"agent-reaper.yml", "deps-audit.yml", "scorecard.yml"}
+#: writes issues itself, and the two audits are a later change. The merge queue keeps its
+#: GITHUB_TOKEN read-only (#1267), so it cannot call the report, which writes issues; its schedule
+#: is only a safety net, and the next event runs the same reconcile again.
+EXEMPT = {"agent-reaper.yml", "deps-audit.yml", "scorecard.yml", "merge-queue.yml"}
 #: The four the acceptance criteria name, and the later scheduled jobs of #695.
 NAMED = {
     "sidecar.yml",

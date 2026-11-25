@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,11 +54,13 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-    from tether.io.movie import MovieReader
+    from tether.io.adapters import MovieSource
 
 __all__ = [
     "ProjectMovie",
     "ProjectMovies",
+    "movie_file_suffixes",
+    "movie_frames",
     "open_project_movie",
     "read_project_movies",
     "subimage_to_frame",
@@ -394,24 +396,56 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
     return ProjectMovies(movies=tuple(out), aperture_radius=radius)
 
 
-def open_project_movie(movie: ProjectMovie) -> MovieReader:
-    """Open ``movie``'s file as a lazy [`MovieReader`][tether.io.movie.MovieReader].
+def movie_frames(source: MovieSource) -> Any:
+    """Return the ``(n_frames, height, width)`` frames of an open movie, for display.
 
-    The caller owns the reader and closes it. A movie that is not
+    A TIFF gives its memory map ([`tether.io.movie.MovieReader.data`][]); any other
+    reader a lazy [`tether.io.frames.FrameView`][] that reads only the frames an index
+    touches (#1388). Nothing is read here. A value that is not a
+    [`MovieSource`][tether.io.adapters.MovieSource] raises `TypeError`.
+    """
+    from tether.io.adapters import MovieSource
+    from tether.io.frames import FrameView
+    from tether.io.movie import MovieReader
+
+    if isinstance(source, MovieReader):
+        return source.data
+    if not isinstance(source, MovieSource):
+        raise TypeError(f"expected an open movie source, got {type(source).__name__}")
+    return FrameView(source)
+
+
+def movie_file_suffixes() -> tuple[str, ...]:
+    """Return the file suffixes of the movies that extraction reads, for a file dialog.
+
+    They are [`tether.project.batch_inputs.movie_suffixes`][]: the extensions of every
+    registered reader in [`tether.io.movie.EXTRACTED_CONTAINERS`][] (#1388).
+    """
+    from tether.project.batch_inputs import movie_suffixes
+
+    return movie_suffixes()
+
+
+def open_project_movie(movie: ProjectMovie) -> MovieSource:
+    """Open ``movie``'s file as a lazy [`MovieSource`][tether.io.adapters.MovieSource].
+
+    Any registered reader opens it (#1388): a TIFF as a
+    [`MovieReader`][tether.io.movie.MovieReader], an ND2 through its own reader. The caller
+    owns the source and closes it. A movie that is not
     [`available`][tether.services.movies.ProjectMovie.available] raises ``ValueError``
     naming the reason, so a missing or cloud-only file is never touched; a file the reader
-    refuses raises what [`tether.io.movie.open_movie`][] raises.
+    refuses raises what [`tether.io.adapters.open_movie_source`][] raises.
 
     The file is checked again just before the reader opens it, against the recorded fast
     signature (PRD §5.4, metadata only): a sync can replace it after
     [`read_project_movies`][] read it (#1293). A file that has changed, gone or left this
     disk since then raises the same ``ValueError``.
     """
-    from tether.io.movie import open_movie
+    from tether.io.adapters import open_movie_source
 
     if movie.path is None or not movie.available:
         raise ValueError(f"movie {movie.name} cannot be opened: {movie.unavailable}")
     reason = _unavailable(movie.path, movie.file_size, movie.mtime)
     if reason is not None:
         raise ValueError(f"movie {movie.name} cannot be opened: {reason}")
-    return open_movie(movie.path)
+    return open_movie_source(movie.path)
