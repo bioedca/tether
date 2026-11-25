@@ -219,6 +219,31 @@ def test_a_cut_file_is_refused(tmp_path: Path) -> None:
         Nd2Movie(path)
 
 
+def test_a_frame_read_after_the_file_shrank_does_not_come_from_a_buffer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1424: one small read must not leave the next frames in a buffer.
+
+    Python sizes the default buffer from the file system's block size, so on a file
+    system with large blocks one frame read buffers the next frames too. The spy gives
+    every default-buffered open such a buffer.
+    """
+    real_open = Path.open
+
+    def large_blocks(self: Path, mode: str = "r", buffering: int = -1, *args, **kwargs):
+        return real_open(self, mode, 1 << 20 if buffering == -1 else buffering, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", large_blocks)
+    frames = _frames()
+    path = write_nd2(tmp_path / "t.nd2", frames)
+    data = path.read_bytes()
+    with Nd2Movie(path) as movie:
+        movie.read_frames(0, 1)
+        path.write_bytes(data[: data.index(frames[2].tobytes()) + 10])
+        with pytest.raises(UnsupportedContainerError, match="frame 2 is cut short"):
+            movie.read_frames(1, 4)
+
+
 def test_a_renamed_nd2_is_found_by_content(tmp_path: Path) -> None:
     path = write_nd2(tmp_path / "movie.dat", _frames())
     assert select_adapter(path).name == "ND2"
