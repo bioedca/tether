@@ -85,7 +85,7 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 20.4
+long_share = 18.3
 semicolons = 8
 long_paragraphs = 0
 retired = 6
@@ -106,7 +106,7 @@ retired = 0
 
 [pages."docs/packaging.md"]
 kind = "descriptive"
-long_share = 9.8
+long_share = 7.4
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -337,10 +337,10 @@ retired = 0
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
-long_share = 21.4
-semicolons = 25
-long_paragraphs = 2
-retired = 6
+long_share = 0.9
+semicolons = 0
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/citing.md"]
 kind = "descriptive"
@@ -366,7 +366,7 @@ retired = 0
 [pages."docs/privacy.md"]
 kind = "descriptive"
 long_share = 7.6
-semicolons = 6
+semicolons = 5
 long_paragraphs = 0
 retired = 0
 
@@ -414,7 +414,7 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 15.0
+long_share = 12.9
 semicolons = 3
 long_paragraphs = 2
 retired = 0

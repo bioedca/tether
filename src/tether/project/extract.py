@@ -3,9 +3,10 @@
 """End-to-end native extraction pipeline (PRD §7.11, Appendix E; FR-EXTRACT, FR-BATCH).
 
 Orchestrates the M1 imaging primitives into a single headless call that turns a
-dual-channel TIFF movie into a populated ``.tether`` project::
+dual-channel movie (a TIFF, or a movie of any reader in
+[`tether.io.movie.EXTRACTED_CONTAINERS`][]) into a populated ``.tether`` project::
 
-    open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
+    open_extraction_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
     -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
@@ -152,8 +153,8 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
+from tether.io.frames import ExtractionMovie, open_extraction_movie
 from tether.io.generations import Generation
-from tether.io.movie import MovieReader, open_movie
 from tether.io.pair import PAIR_ROLES, MoviePairError, check_pair, pair_sha256
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
@@ -409,8 +410,8 @@ def _is_pair_geometry(donor: ChannelGeometry, acceptor: ChannelGeometry) -> bool
 
 
 def _split_stacks(
-    reader: MovieReader,
-    acceptor_reader: MovieReader | None,
+    reader: ExtractionMovie,
+    acceptor_reader: ExtractionMovie | None,
     donor_geom: ChannelGeometry,
     acceptor_geom: ChannelGeometry,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -796,10 +797,10 @@ def _run_pipeline(
         # so the persisted MovieMetadata describes exactly the bytes extracted.
         files = identity if identity is not None else _hash_inputs(movie_path, acceptor_path)
         with ExitStack() as opened:
-            reader = opened.enter_context(open_movie(movie_path))
+            reader = opened.enter_context(open_extraction_movie(movie_path))
             acceptor_reader = None
             if acceptor_path is not None:
-                acceptor_reader = opened.enter_context(open_movie(acceptor_path))
+                acceptor_reader = opened.enter_context(open_extraction_movie(acceptor_path))
                 try:
                     check_pair(
                         reader,
@@ -812,9 +813,10 @@ def _run_pipeline(
             n_frames, height, width = reader.shape
             pixel_dtype = str(reader.dtype)
             byteorder = reader.byteorder
-            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The
-            # ImageJ finterval tag is the only source: the .tdat/.mat decode reads no
-            # FrameTime, so a legacy import cannot supply one later either.
+            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The movie
+            # file is the only source (a TIFF's ImageJ finterval tag, an ND2's frame
+            # times): the .tdat/.mat decode reads no FrameTime, so a legacy import
+            # cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
             pixel_size_um = reader.pixel_size_um
 
@@ -1301,7 +1303,7 @@ def count_molecules_by_rule(
     _check_inputs(movie_path, tmap, tdat, map_path)
     options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
     try:
-        with open_movie(movie_path) as reader:
+        with open_extraction_movie(movie_path) as reader:
             stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
             for stage in stages:
                 if stage.outcome == OUTCOME_FAILED:

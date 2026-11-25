@@ -39,10 +39,10 @@ The cover for those older branches is the account-level **file-change limit**, s
 config to land in each. Note the comparison is **exceeding** — a pull request touching exactly one
 file is still reviewed automatically, so the limit is a broad net, not a seal.
 
-**It does not enforce a budget.** Tether's share of the seat is **45 credits a cycle** from the
-17th (ADR-0099, which raised the 15 of ADR-0069), and nothing stops a forty-sixth `@greptileai`
-except not typing it. The load-bearing route of ADR-0099 draws on the same share and asks only
-while `.agents/bin/greptile_usage.py --fail-over-share` exits 0.
+**It does not enforce a budget.** Tether's limit is its share of **45 credits a cycle** from the
+17th (ADR-0099) plus what is left of a one-time grant of 50 (ADR-0142), and nothing stops a review
+past it except not typing the request. A code pull request asks only while
+`.agents/bin/greptile_usage.py --fail-over-share` exits 0.
 
 ## Once this has merged, this repository no longer needs the account-level limit
 
@@ -82,8 +82,9 @@ Greptile publishes no usage API, so the only programmatic reading is counted fro
 python3 .agents/bin/greptile_usage.py
 ```
 
-It reports credits used this month across **all three** repositories on the seat, because credits are
-billed per seat and a per-repository number cannot say what is left.
+It reports credits used this cycle across **all three** repositories on the seat, because credits are
+billed per seat and a per-repository number cannot say what is left. For Tether it also prints the
+one-time grant used and left, and the limit this cycle.
 
 It is a proxy, not an invoice, and it can err in **both** directions: a TREX run that an
 account rule started costs 3 credits it does not see (a run asked on demand is counted at 3), while a re-triggered review is counted twice on the undocumented assumption that
@@ -93,28 +94,21 @@ cannot read makes the total **unknown** rather than silently small.
 
 The review lane this configuration serves is specified in [`AGENTS.md`](../AGENTS.md) §Review and
 decided in [ADR-0064](../docs/adr/0064-the-agent-layer-coordinates-writers-not-reviews.md). In
-short: Greptile is optional and metered — asked after Codex, on a diff that is already green, and
-skipped when the seat has no budget: skipped without a request, never without a record, since the
-PR body carries the skip and its reason as §Review words them. Draft-first is the default rather than a
+short: Greptile is the metered gate of a **code** pull request (ADR-0142) — asked after Codex, on a
+diff that is already green. A docs-only or test-only pull request does not ask it, and a code pull
+request with no credit left takes CodeRabbit instead: not asked, never without a record, since the
+PR body carries the reason as §Review words them. Draft-first is the default rather than a
 precondition: a pull request opened ready with its reason recorded is asked there, at the same point
 in the lane and on the same green checks. What does not change either way is the order — Codex
 reads the diff before any metered provider does. **One review**, and a review is not always one credit — a standard review costs one, a TREX review three (see above). The cap of **at most one completed
 review per metered provider** in `AGENTS.md` §Review applies here as everywhere. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
-ask and spends nothing. CodeRabbit, not Greptile, is the metered gate, except in the two cases below — and when CodeRabbit's own
-cap is spent with no finding left outstanding, an unmetered **posted** Codex review closes it — §Review carries the
-conditions on that, and this page states none of them.
+ask and spends nothing. When Greptile's cap is spent with no finding left outstanding, an unmetered
+**posted** Codex review closes it — §Review carries the conditions on that, and this page states
+none of them.
 
-**The stand-in makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
-names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
-already on the pull request, or else a new one asked only while the seat has credits left and Tether
-is under its share of 45 for the cycle, both read from the script above at that moment. The script counts
-a TREX run asked on demand at three; add three for any TREX run an account rule started (see
-"Reading the balance before spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
-beyond these.
-
-**The load-bearing route makes Greptile the metered gate as well** (ADR-0099). A pull request that
-changes `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md`, or whose Risk is `high` and whose changed lines
-are mostly not Markdown, takes one standard Greptile review instead of CodeRabbit, asked only while
-`.agents/bin/greptile_usage.py --fail-over-share` exits 0. After a review with findings, one
-CodeRabbit review and a Codex close finish it, and Greptile is not asked again. §Review carries the
-conditions.
+**Which pull requests are code** (ADR-0142): `python3 .agents/bin/greptile_usage.py --kind <PR>`
+reads the changed files. A pull request that changes `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md` is
+code; one whose files are all Markdown, under `docs/` or under `tests/` is docs/test-only; every
+other is code. The Risk line routes nothing. Greptile no longer stands in for a refused CodeRabbit,
+and the script counts a TREX run asked on demand at three; add three for any TREX run an account
+rule started (see "Reading the balance before spending").

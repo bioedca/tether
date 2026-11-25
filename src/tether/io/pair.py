@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    from tether.io.frames import ExtractionMovie
     from tether.io.movie import MovieReader
 
 __all__ = [
@@ -60,8 +61,8 @@ def _frame_time(value: float | None) -> str:
 
 
 def check_pair(
-    donor: MovieReader,
-    acceptor: MovieReader,
+    donor: ExtractionMovie | MovieReader,
+    acceptor: ExtractionMovie | MovieReader,
     *,
     donor_name: str = "the donor movie",
     acceptor_name: str = "the acceptor movie",
@@ -70,7 +71,7 @@ def check_pair(
 
     Parameters
     ----------
-    donor, acceptor : MovieReader
+    donor, acceptor : ExtractionMovie or MovieReader
         The open donor and acceptor movies.
     donor_name, acceptor_name : str, optional
         The names the message gives the two files.
