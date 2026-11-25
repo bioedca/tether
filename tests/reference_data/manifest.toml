@@ -2841,3 +2841,58 @@ sha256 = "807cd682ea532dcb135b77a046721b1489f60b2a99b62814e49db4681e4b94e9"
 tier = "download"
 download_url = "https://zenodo.org/records/4904806/files/c739xMagFRET_1.tif?download=1"
 citation = "Wu Y. Data from: Magnesium efflux from Drosophila Kenyon Cells is critical for normal and diet-enhanced long-term memory. Dryad (2021). doi:10.5061/dryad.80gb5mkpx"
+
+# --- MASH-FRET SIRA movies for the SIRA adapter (#905, ADR-0152) -----------------------------
+# Two test movies in the MASH-FRET repository (RNA-FRETools/MASH-FRET, GPL-3.0), and a committed
+# extract of the first 16 frames of one, with its reference TIFF as MASH-FRET's readSira.m reads
+# it under GNU Octave 8.4.0 (scripts/make_sira_reference.py).
+
+[[dataset]]
+id = "mash-fret-1chan1exc-sira"
+source = "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/tree/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc"
+license = "GPL-3.0-only"
+file = "1chan1exc.sira"
+size = 3277670
+sha256 = "86b94e36d00d3df70552a68b5e7b051ebb8e7647c63a304e7158e1b1196f38df"
+tier = "download"
+download_url = "https://raw.githubusercontent.com/RNA-FRETools/MASH-FRET/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc/1chan1exc.sira"
+citation = "Hadzic MCAS (RNA-FRETools). MASH-FRET: test data of its trace-processing routine. GitHub RNA-FRETools/MASH-FRET, commit 2877992 (2026-11-09)"
+
+[[dataset]]
+id = "mash-fret-2020-sira"
+source = "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/tree/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_video_processing/assets"
+license = "GPL-3.0-only"
+file = "2020.sira"
+size = 5243053
+sha256 = "41a99340abc891812600aba7936830f43ed91eb248505c53dc61968d73a889ea"
+tier = "download"
+download_url = "https://raw.githubusercontent.com/RNA-FRETools/MASH-FRET/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_video_processing/assets/2020.sira"
+citation = "Hadzic MCAS (RNA-FRETools). MASH-FRET: test data of its video-processing routine. GitHub RNA-FRETools/MASH-FRET, commit 2877992 (2026-11-09)"
+
+[[dataset]]
+id = "mash-fret-1chan1exc-16-sira"
+source = "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/tree/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc"
+license = "GPL-3.0-only"
+file = "tests/fixtures/sira/1chan1exc_16.sira"
+size = 262278
+sha256 = "5b89c03b209b1e2866099d163b96d00ac4818815038c5d6630d1f499e1f95b24"
+tier = "git"
+extract_of = ["mash-fret-1chan1exc-sira"]
+extract_script = "scripts/make_sira_reference.py"
+citation = "Hadzic MCAS (RNA-FRETools). MASH-FRET: test data of its trace-processing routine. GitHub RNA-FRETools/MASH-FRET, commit 2877992 (2026-11-09)"
+
+[[dataset]]
+id = "mash-fret-1chan1exc-16-reference"
+source = "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2"
+record_url = "https://github.com/RNA-FRETools/MASH-FRET/tree/2877992d246acbe65148ef1c948578f623a518b2/MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc"
+license = "GPL-3.0-only"
+file = "tests/fixtures/sira/1chan1exc_16_reference.tif"
+size = 265086
+sha256 = "086993a1a37fb6572683245f67a45331fb52f0480b724ab002588b8926dd281b"
+tier = "git"
+extract_of = ["mash-fret-1chan1exc-sira"]
+extract_script = "scripts/make_sira_reference.py"
+citation = "Hadzic MCAS (RNA-FRETools). MASH-FRET: test data of its trace-processing routine. GitHub RNA-FRETools/MASH-FRET, commit 2877992 (2026-11-09)"

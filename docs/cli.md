@@ -570,9 +570,9 @@ gives the same movies in PowerShell, cmd and bash:
 - **A folder** gives the movie files directly in it. A movie file has an extension that
   extraction reads, in uppercase or lowercase. Today these are `.tif`, `.tiff` and `.nd2`. With
   `--recursive`, a folder also gives the movies in its sub-folders.
-    - Tether opens `.czi`, `.sif` and `.vsi` movies too, but extraction does not read them yet.
-      So a folder or a pattern leaves them out. A `.czi`, `.sif` or `.vsi` file that you name on
-      its own fails its extraction stage, with a message that says so
+    - Tether opens `.czi`, `.sif`, `.sira` and `.vsi` movies too, but extraction does not read
+      them yet. So a folder or a pattern leaves them out. A `.czi`, `.sif`, `.sira` or `.vsi` file
+      that you name on its own fails its extraction stage, with a message that says so
       ([Movie containers](reference/movie-containers.md)).
     - An original beside its TIFF export in one folder (`x.nd2` and `x.tif`) is one movie. So the
       run stops before it writes anything, and the message names both files. Move or rename one.

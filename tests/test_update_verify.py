@@ -340,6 +340,36 @@ def test_nothing_runs_without_consent(rig: Rig, answer: object) -> None:
     assert rig.gh.calls == [] and rig.api.urls == []
 
 
+def test_consent_withdrawn_while_hashing_sends_nothing(rig: Rig, monkeypatch) -> None:
+    real_hash = update_verify._sha256_of
+
+    def hash_then_untick(path: Path) -> str:
+        digest = real_hash(path)
+        app_settings.record_update_consent(False, rig.settings)  # Help item unticked now
+        return digest
+
+    monkeypatch.setattr(update_verify, "_sha256_of", hash_then_untick)
+    result = rig.run()
+    assert result.outcome is Outcome.UNAVAILABLE
+    assert rig.api.urls == []
+    assert rig.gh.kinds() == ["version"]  # no trusted-root, no verify
+
+
+@pytest.mark.parametrize("after", [0, 1])
+def test_a_cancel_stops_before_the_next_network_step(rig: Rig, after: int) -> None:
+    asked = {"n": 0}
+
+    def cancelled() -> bool:
+        asked["n"] += 1
+        return asked["n"] > after + 1  # the first ask is the consent step
+
+    result = rig.run(cancelled=cancelled)
+    assert result.outcome is Outcome.UNAVAILABLE
+    _assert_nothing_installable(result)
+    assert len(rig.api.urls) == after  # 0: no attestation request; 1: that one only
+    assert "trusted-root" not in rig.gh.kinds() and "verify" not in rig.gh.kinds()
+
+
 @pytest.mark.parametrize(
     "version", ["v1.0.1-rc1", "1.0.1rc1", "1.0.1.dev3", "1.0.1.post1", "1.0.1.1", "1.0.1a1"]
 )

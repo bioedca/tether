@@ -96,13 +96,11 @@ The OS warning itself, and how to get past it on each platform, is in
 
 ## How the in-app updater checks a download
 
-In this release, the in-app update notice downloads nothing and installs nothing. It names the
-newer release and links to the Releases page. You download, check and install the new release
-yourself, as [Update Tether](install.md#update-tether) tells you.
-
-The check that the updater will run on a downloaded installer is already part of Tether
+When the update notice offers **Install update**, Tether downloads this computer's installer for
+the new release and checks it before anything runs it
 (`tether.gui.update_verify`, [ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)).
-It runs only when you allowed the update check. It accepts a file only when all of these are true:
+The check runs only when you allowed the update check. It accepts a file only when all of these
+are true:
 
 - The version is a stable `MAJOR.MINOR.PATCH` release, and the file name is this computer's
   installer for that version.
@@ -110,7 +108,8 @@ It runs only when you allowed the update check. It accepts a file only when all 
 - The bundled `gh` verifies that attestation offline. The attestation must come from the release workflow of
   `bioedca/tether`, built for the tag of that same version, on a GitHub-hosted runner.
 
-The updater refuses a file that fails any check, and no setting turns the checks off. Tether does
-not yet show this check or its result to you, so there is no failure message to look for.
-Installing from inside Tether is still to come
-([#331](https://github.com/bioedca/tether/issues/331)), and its failure message comes with it.
+The updater refuses a file that fails any check. No setting turns the checks off. A refusal
+shows its reason in the bar at the top of the window, with a link to the Releases page. Tether
+then installs nothing. If the check cannot run, for example with no network, Tether says
+nothing and keeps the link. [Update Tether](install.md#update-tether) says what you see at each
+step.

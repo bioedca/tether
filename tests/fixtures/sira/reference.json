@@ -1,0 +1,24 @@
+{
+  "1chan1exc.sira": {
+    "source": "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2",
+    "reader": "MASH-FRET readSira.m (RNA-FRETools/MASH-FRET 2877992d) under GNU Octave 8.4.0, C-order little-endian float32",
+    "shape": [
+      200,
+      64,
+      64
+    ],
+    "frame_time": 0.1,
+    "pixel_sha256": "406ce9c74477870ea42827601b471ce6af006a0fbae85dd2d1ecf9d2c5709b5c"
+  },
+  "2020.sira": {
+    "source": "accession:github:RNA-FRETools/MASH-FRET@2877992d246acbe65148ef1c948578f623a518b2",
+    "reader": "MASH-FRET readSira.m (RNA-FRETools/MASH-FRET 2877992d) under GNU Octave 8.4.0, C-order little-endian float32",
+    "shape": [
+      20,
+      256,
+      256
+    ],
+    "frame_time": 0.10107,
+    "pixel_sha256": "15173c65fd0e72cde473872ee3d755552976298047a3216ea3dda583362676ff"
+  }
+}
