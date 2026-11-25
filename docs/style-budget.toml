@@ -218,7 +218,7 @@ retired = 6
 
 [pages."docs/reference/movie-containers.md"]
 kind = "descriptive"
-long_share = 5.1
+long_share = 2.8
 semicolons = 0
 long_paragraphs = 0
 retired = 0
@@ -417,6 +417,13 @@ kind = "procedure"
 long_share = 12.9
 semicolons = 3
 long_paragraphs = 2
+retired = 0
+
+[pages."docs/maintainers/merge-queue.md"]
+kind = "descriptive"
+long_share = 2.9
+semicolons = 0
+long_paragraphs = 0
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]

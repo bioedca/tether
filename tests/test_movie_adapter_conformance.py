@@ -90,6 +90,14 @@ def _czi_zstd(tmp: Path) -> tuple[Path, np.ndarray]:
     return path, _frames("<u2")
 
 
+def _sif_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """A SIF movie of ``tests/_sif_synth.py`` (#904): Solis stores 32-bit float counts."""
+    from _sif_synth import write_sif
+
+    frames = _frames("<f4")
+    return write_sif(tmp / "movie.sif", frames), frames
+
+
 _FAKE_RUNNER = Path(__file__).resolve().with_name("_fake_bioformats_runner.py")
 
 
@@ -129,6 +137,7 @@ CASES = [
     pytest.param(Case("TIFF", _tiff_little_endian), id="tiff-little-endian"),
     pytest.param(Case("CZI", _czi_zstd), id="czi-zstd"),
     pytest.param(Case("ND2", _nd2_time_series), id="nd2-time-series"),
+    pytest.param(Case("SIF", _sif_synthetic), id="sif-synthetic"),
     pytest.param(
         Case("cellSens VSI", _vsi_fake_runner, setup=_use_fake_runner, by_content=False),
         id="vsi-fake-runner",

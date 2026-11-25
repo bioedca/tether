@@ -47,9 +47,8 @@ promises is narrower than "the renderer's verdict on any page". It promises this
   extending the model with a test checked against a real render — never by guessing;
 * any other form is not guaranteed. The checker may misread it either way.
 
-A form not listed here is out of scope until it is listed. One such form is known:
-unpaired emphasis markers (``*``, ``_``) in a heading slug, tracked in #1385. A bare
-``[k]`` is not a reference use, by design and not as a gap: a citation key such as
+A form not listed here is out of scope until it is listed. A bare ``[k]`` is not a
+reference use, by design and not as a gap: a citation key such as
 ``[Lee2005]`` stays plain text, so an undefined one is not reported.
 
 The modelled forms:
@@ -76,7 +75,8 @@ The modelled forms:
   (``HRProcessor.SEARCH_RE``), and the first line of a blockquote;
 * setext headings whose title certainly opens a block, that is, it follows one of those
   boundaries, and whose underline is at column zero (``SetextHeaderProcessor.RE``). An
-  underline anywhere else makes no heading;
+  underline anywhere else makes no heading. A title that is itself a rule, such as
+  ``___``, makes a heading too, as ``SetextHeaderProcessor`` runs before ``HRProcessor``;
 * reference definitions (``ReferenceProcessor.RE``), with keys normalised as the
   renderer normalises them. A definition cuts its block in two, and one block may hold
   several, so no code span, link or reference runs across one;
@@ -99,7 +99,10 @@ The modelled forms:
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
-  an image gives none, and an undefined reference stays as written. The de-duplication
+  an image gives none, and an undefined reference stays as written. Emphasis markers are
+  read by ``DelimiterProcessor``'s own boundary patterns (``_delimiter_boundary``) where
+  they pair flat, one pair open at a time, or not at all: a paired marker is dropped and
+  an unpaired one stays, so ``# _a_b`` slugs ``_a_b`` (#1385). The de-duplication
   starts empty. ``toc`` seeds it only from ids that are already elements when it runs,
   and with mkdocs' default extensions no element has one: raw HTML, ``<a id>`` included,
   is stashed before ``toc`` runs (#515).
@@ -112,7 +115,10 @@ model does not track:
   an indented block;
 * a bracket in a span that ``InlineProcessor.run`` reads a second time with every
   pattern: inside a link or reference, the text of a node nested in it, and what follows
-  a nested node or a code span up to the next one;
+  a nested node or a code span up to the next one; in a heading, also inside emphasis,
+  and after emphasis in a link's text;
+* emphasis markers in a heading that may nest or pair unevenly, where the 3.11.3 pass
+  can cut letters out of the slug or leave a placeholder's name in it (#1385);
 * text after a comment that opens a line, on the same line, and a comment that opens a
   line with a setext underline after it;
 * an HTML start tag with ``<!--``, ``>`` or a block-level tag's start in a quoted
@@ -232,6 +238,40 @@ _HTML_RE = re.compile(
     r"|!\[CDATA\[(?:(?!<!\[CDATA\[|\]\]>).)*\]\])>)",
     re.DOTALL,
 )
+# inlinepatterns.ENTITY_RE and AUTOMAIL_RE: like HTML_RE, each match becomes a placeholder.
+_ENTITY_RE = re.compile(r"(&(?:\#[0-9]+|\#x[0-9a-fA-F]+|[a-zA-Z0-9]+);)")
+_AUTOMAIL_RE = re.compile(r"<([^<> !]+@[^@<> ]+)>")
+
+
+def _delimiter_boundary(token: str, smart: bool) -> re.Pattern[str]:
+    """``inlinepatterns.Delimiter._build_patterns``, copied: which side a run can close.
+
+    ``build_inlinepatterns`` gives one ``DelimiterProcessor`` both tokens, ``*`` plain and
+    ``_`` smart (3.11.3). A run of the token matches ``start``, ``end`` or ``ambiguous`` (it
+    can do either), or none of them, and then it stays as text.
+    """
+    etoken = re.escape(token)
+    xstart = rf"(?:(?<=_)|(?<![\w{etoken}]))" if token != "_" else rf"(?<![\w{etoken}])"
+    xend = rf"(?:(?=_)|(?![\w{etoken}]))" if token != "_" else rf"(?![\w{etoken}])"
+    if smart:
+        pattern = rf"""(?x)
+                (?P<ambiguous>(?<!^)(?<![\s{etoken}]){xstart}{etoken}{{1,}}{xend}(?![\s{etoken}])(?!$))|
+                (?P<end>(?<!^)(?<![\s{etoken}]){etoken}{{1,}}{xend})|
+                (?P<start>{xstart}{etoken}{{1,}}(?![\s{etoken}])(?!$))
+                """
+    else:
+        pattern = rf"""(?x)
+                (?P<ambiguous>(?<!^)(?<![\s{etoken}]){etoken}{{1,}}(?![\s{etoken}])(?!$))|
+                (?P<end>(?<!^)(?<![\s{etoken}]){etoken}{{1,}})|
+                (?P<start>{etoken}{{1,}}(?![\s{etoken}])(?!$))
+                """
+    return re.compile(pattern, flags=re.UNICODE)
+
+
+_DELIMITERS = {
+    "*": _delimiter_boundary("*", smart=False),
+    "_": _delimiter_boundary("_", smart=True),
+}
 
 # The comment alternative of `HTML_RE`: an inline comment, as the inline pass reads it.
 _INLINE_COMMENT_RE = re.compile(r"<!--(?:(?!<!--|-->).)*-->", re.DOTALL)
@@ -275,6 +315,12 @@ _ESC_SHIFT = 0xE000
 # A blockquote marker the renderer strips before the inline patterns run, kept as a
 # character so offsets survive and read as nothing at all.
 _GONE = "\x02"
+# What the emphasis pass sees where an earlier pattern left a placeholder. The renderer's
+# placeholders open with STX and close with ETX: neither a word character, a space nor a
+# delimiter, and this stands for both. A link or reference whose text holds a bracket is
+# marked apart (see `_emphasis_hazard`).
+_STASHED = "\x04"
+_BRACKETED = "\x05"
 
 
 def _blank_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
@@ -489,6 +535,18 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
         cur = _Unit(i, i, level)
         units.append(cur)
 
+    def setext(i: int) -> bool:
+        """Whether line ``i``, which opens a block, is a setext title."""
+        line, nxt = lines[i], lines[i + 1] if i + 1 < len(lines) else None
+        return bool(
+            line.depth == open_
+            and fresh <= line.depth
+            and not line.body.startswith(" " * _TAB)
+            and nxt is not None
+            and nxt.depth == line.depth
+            and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body)
+        )
+
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -501,6 +559,8 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
             cur, fresh, open_ = None, min(fresh, open_ + 1), depth
         atx = _HASH_HEADER_RE.fullmatch(body)
         rule = _HR_RE.fullmatch(body)
+        if rule and cur is None and setext(i):
+            rule = None  # `SetextHeaderProcessor` runs first: `___` over `===` is a heading
         if i in tables and (atx or rule):
             problem(line.start, "a heading or rule line inside a table-like block")
             atx = rule = None
@@ -519,15 +579,7 @@ def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
             i += 1
             continue
         if cur is None:
-            nxt = lines[i + 1] if i + 1 < len(lines) else None
-            if (
-                depth == open_
-                and fresh <= depth
-                and not body.startswith(" " * _TAB)
-                and nxt is not None
-                and nxt.depth == depth
-                and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body)
-            ):
+            if setext(i):
                 units.append(_Unit(i, i, depth, heading=body.strip()))
                 fresh = min(fresh, depth)
                 i += 2
@@ -1302,6 +1354,11 @@ def _doc(path: Path) -> _Doc:
     for offset in hazards:
         if offset not in placed:  # in a raw HTML block, a heading or a stashed comment
             problem(offset, hazard)
+    for unit in units:
+        if unit.heading is not None:
+            why = _heading_read(unit.heading, definitions)[1]
+            if why is not None:
+                problem(lines[unit.first].start, why)
     headings = tuple(u.heading for u in units if u.heading is not None)
     return _Doc(
         path,
@@ -1330,21 +1387,90 @@ def _slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value)
 
 
-def _heading_text(raw: str, definitions: frozenset[str]) -> str:
-    """The plain text the toc extension slugifies: the heading as rendered, tags stripped.
+def _emphasis_pairs(scope: str, nested: bool = False) -> tuple[str | None, list[int]]:
+    """How the emphasis pass pairs ``scope``'s markers: the offsets it consumes, or why not.
 
-    The inline structure is read with the passes a paragraph gets: code spans, escapes and
-    the link patterns, by ``_inline``, the page pass's own routine. A link, or a reference
-    whose key is defined, reduces to its text; an image, of either kind, renders no text. An
-    undefined reference stays on the page as written, brackets and all, and so in the slug.
+    ``scope`` is one string the pass runs over, as it sees it: the heading's text, or a
+    link's text, with each match of an earlier pattern as one ``_STASHED`` character. Every
+    run of ``*`` or ``_`` is read by its token's ``_DELIMITERS`` pattern. The model follows
+    the pass where its pairs are flat (#1385): one pair open at a time, opened by a run that
+    can open, three long at most, and closed by the next run of its token that can close,
+    if that run is as long. A run that matches no side stays as text, and so does a closer
+    with nothing of its token open, which the pass skips; so does an opener left open at
+    the end, as ``_`` in ``_a_b``. Anything else is refused: ``DelimiterProcessor``
+    (3.11.3) pairs both tokens in one pass and builds the elements from offsets it caches,
+    and for nested or uneven runs those offsets can cut letters and placeholders out of
+    the text or leave a placeholder's name in it: ``*a**b*`d``` slugs ``abklzzwxh0000``.
     """
+    paired: list[int] = []
+    open_: tuple[str, int, int] | None = None  # the open run: its token and span
+    for m in re.finditer(r"\*+|_+", scope):
+        token, (start, end) = m.group()[0], m.span()
+        side = _DELIMITERS[token].match(scope, start)
+        kind = side.lastgroup if side else None
+        if kind is None or (kind == "end" and (open_ is None or open_[0] != token)):
+            continue
+        if open_ is None and kind in ("start", "ambiguous") and end - start <= 3:
+            open_ = (token, start, end)
+        elif (
+            open_ is not None
+            and open_[0] == token
+            and kind in ("end", "ambiguous")
+            and end - start == open_[2] - open_[1]
+        ):
+            # ``InlineProcessor.run`` reads what an emphasis element holds a second time
+            # with every pattern, as it reads the text of a node nested in a link; in a
+            # link's own text, ``nested``, it reads what follows the element too.
+            again = scope[open_[2] : len(scope) if nested else start]
+            if "[" in again or _BRACKETED in again:
+                return "a bracket inside emphasis in a heading, which the renderer reads twice", []
+            paired += [*range(open_[1], open_[2]), *range(start, end)]
+            open_ = None
+        else:
+            return "emphasis markers in a heading that may nest or pair unevenly", []
+    return None, paired
+
+
+def _heading_read(raw: str, definitions: frozenset[str]) -> tuple[str, str | None]:
+    """The heading's slug text, as ``_heading_text`` says, and why it is refused, or None."""
     view, spans = _mask_code(raw)
     view = _mask_escapes(view)
     nodes, _ = _inline(view, definitions)
+    # A comment is stripped whole, with whatever the link patterns made inside it (#1013).
+    # It is found as in a paragraph, with each node stashed: a `<!--` in an image's alt or
+    # a link's text opens none.
+    comments = _inline_comments(view, 0, len(view), nodes)
+    hazards: list[str] = []
+    gone: list[int] = []  # the offsets of the `_` markers the emphasis pass pairs
+
+    def emphasis(nodes: tuple[_Node, ...] | list[_Node], a: int, b: int, nested: bool) -> None:
+        """Pair the markers of ``view[a:b]``, then of each node's text, as the pass runs."""
+        chars, at = [], a  # (character, offset in view), each node stashed
+        for node in nodes:
+            chars += [(view[i], i) for i in range(at, node.begin)]
+            text = view[node.text[0] : node.text[1]]
+            chars.append((_BRACKETED if "[" in text else _STASHED, node.begin))
+            at = node.stop
+            if not node.kind.startswith(("image", "short_image")):
+                emphasis(node.children, *node.text, nested=True)
+        chars += [(view[i], i) for i in range(at, b)]
+        chars = [(c, i) for c, i in chars if c != _GONE]
+        # Each match of a later pattern is one placeholder too: a code span, an escape, a
+        # mail link, an HTML tag or comment, an entity.
+        for pattern in (re.compile(f"{_CODE}+|{_ESC}.", re.DOTALL), _AUTOMAIL_RE, _HTML_RE):
+            chars = _stash(chars, pattern)
+        chars = _stash(chars, _ENTITY_RE)
+        hazard, paired = _emphasis_pairs("".join(c for c, _ in chars), nested)
+        if hazard is not None:
+            hazards.append(hazard)
+        gone.extend(chars[k][1] for k in paired if chars[k][0] == "_")
+
+    emphasis(nodes, 0, len(raw), nested=False)
+    for i in gone:
+        view = view[:i] + "*" + view[i + 1 :]  # read as a `*`, which the slug drops
 
     def prose(a: int, b: int) -> str:
         text = _HTML_RE.sub("", view[a:b]).replace("*", "")
-        text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)  # emphasis, not snake_case
         return html.unescape(_unescape(text))
 
     def plain(a: int, b: int) -> str:
@@ -1357,11 +1483,6 @@ def _heading_text(raw: str, definitions: frozenset[str]) -> str:
                 pos = end
         return "".join(out) + prose(pos, b)
 
-    # A comment is stripped whole, with whatever the link patterns made inside it (#1013).
-    # It is found as in a paragraph, with each node stashed: a `<!--` in an image's alt or
-    # a link's text opens none.
-    comments = _inline_comments(view, 0, len(view), nodes)
-
     def text_of(nodes: tuple[_Node, ...] | list[_Node], a: int, b: int) -> str:
         out, pos = [], a
         for node in nodes:
@@ -1373,7 +1494,29 @@ def _heading_text(raw: str, definitions: frozenset[str]) -> str:
             pos = node.stop
         return "".join(out) + plain(pos, b)
 
-    return text_of(nodes, 0, len(raw))
+    return text_of(nodes, 0, len(raw)), (hazards[0] if hazards else None)
+
+
+def _stash(chars: list[tuple[str, int]], pattern: re.Pattern[str]) -> list[tuple[str, int]]:
+    """``chars`` with each match of ``pattern`` in their text made one ``_STASHED``."""
+    text, out, pos = "".join(c for c, _ in chars), [], 0
+    for m in pattern.finditer(text):
+        out += [*chars[pos : m.start()], (_STASHED, chars[m.start()][1])]
+        pos = m.end()
+    return out + chars[pos:]
+
+
+def _heading_text(raw: str, definitions: frozenset[str]) -> str:
+    """The plain text the toc extension slugifies: the heading as rendered, tags stripped.
+
+    The inline structure is read with the passes a paragraph gets: code spans, escapes and
+    the link patterns, by ``_inline``, the page pass's own routine. A link, or a reference
+    whose key is defined, reduces to its text; an image, of either kind, renders no text. An
+    undefined reference stays on the page as written, brackets and all, and so in the slug.
+    Every ``*`` is dropped, as ``toc.slugify`` drops it, and a ``_`` is dropped where the
+    emphasis pass pairs it and kept where it stays as text, by ``_emphasis_pairs`` (#1385).
+    """
+    return _heading_read(raw, definitions)[0]
 
 
 @cache
@@ -2021,7 +2164,7 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
     ], out
 
 
-# --- one row per closed gap (#1013) ------------------------------------------------------
+# --- one row per closed gap (#1013) and per emphasis form (#1385) ----------------------
 # Each row is a page, the checker's verdict on it, and a piece of what Python-Markdown
 # 3.11.3 renders for it (`toc`, `tables`, `fenced_code`, as MkDocs configures them). The
 # verdict was read off that render; `test_the_gap_rows_render_as_python_markdown_does`
@@ -2122,6 +2265,59 @@ _GAP_ROWS = [
         '<h2 id="a-b-c">A <img alt="&lt;!--" src="#a" /> <a href="#a">B</a> --&gt; C</h2>',
         id="gap-10-delimiters-in-an-image-in-a-heading",
     ),
+    # Emphasis markers in heading slugs (#1385).
+    pytest.param(
+        # The first `_` can open but nothing closes it, and the second sits inside a word,
+        # so both stay: the id is `_a_b`, where the slug once dropped the first one.
+        "# _a_b\n\n[ok](#_a_b) [bad](#a_b)\n",
+        ["docs/a.md:5: link to '#a_b': no heading or HTML anchor '#a_b' in docs/a.md"],
+        '<h1 id="_a_b">_a_b</h1>',
+        id="1385-an-unpaired-underscore",
+    ),
+    pytest.param(
+        # The `*` can open but nothing closes it, and the `_` after it can only close, with
+        # nothing open: both stay as text. The slug drops the `*` and keeps the `_`, where
+        # it once dropped both.
+        "# k *_ x\n\n[ok](#k-_-x) [bad](#k-x)\n",
+        ["docs/a.md:5: link to '#k-x': no heading or HTML anchor '#k-x' in docs/a.md"],
+        '<h1 id="k-_-x">k *_ x</h1>',
+        id="1385-an-unpaired-asterisk",
+    ),
+    pytest.param(
+        # A flat pair is dropped and the `_` inside a word is kept.
+        "# _a_ b_c\n\n[ok](#a-b_c) [bad](#_a_-b_c)\n",
+        ["docs/a.md:5: link to '#_a_-b_c': no heading or HTML anchor '#_a_-b_c' in docs/a.md"],
+        '<h1 id="a-b_c"><em>a</em> b_c</h1>',
+        id="1385-a-flat-pair",
+    ),
+    pytest.param(
+        # Uneven runs: the 3.11.3 pass leaves the code span's placeholder name in the id.
+        "# *a**b*`d`\n",
+        [
+            f"docs/a.md:3: {_UNSUPPORTED}: emphasis markers in a heading that may nest or "
+            "pair unevenly"
+        ],
+        '<h1 id="abklzzwxh0000">',
+        id="1385-uneven-runs-are-refused",
+    ),
+    pytest.param(
+        # A bracket inside emphasis is read a second time, so its pairing is not followed.
+        "# *a [t][k]*\n",
+        [
+            f"docs/a.md:3: {_UNSUPPORTED}: a bracket inside emphasis in a heading, which the "
+            "renderer reads twice",
+            f"docs/a.md:3: reference-style link [t][k] has no [k]: {_REF}",
+        ],
+        '<h1 id="a-tk"><em>a [t][k]</em></h1>',
+        id="1385-a-bracket-inside-emphasis-is-refused",
+    ),
+    pytest.param(
+        # A rule over a setext underline is a heading: the title stays as text.
+        "___\n===\n\n[ok](#___)\n",
+        [],
+        '<h1 id="___">___</h1>',
+        id="1385-a-rule-as-a-setext-title",
+    ),
 ]
 
 
@@ -2186,6 +2382,8 @@ def test_raw_html_ids_do_not_seed_heading_deduplication(
 _MARKDOWN_VERSION = "3.11.3"
 _FUZZ_SEED = 1013
 _FUZZ_PAGES = 4000
+#: The share of a heading's pieces that are emphasis markers (#1385).
+_FUZZ_EMPHASIS = 0.15
 
 
 def _fuzz_page(rng: random.Random) -> str:
@@ -2194,8 +2392,7 @@ def _fuzz_page(rng: random.Random) -> str:
     Inline link targets are ``L<n>.md`` and definition targets ``D<n>.md``. A comment that
     does not open a line holds only the key ``zz`` and targets ``C<n>.md``: the model does
     not check what such a comment hides (gap 10), so the comparison leaves those out of the
-    render's side. Emphasis is not generated: its markers in a heading slug are out of the
-    model's scope.
+    render's side. Headings also hold emphasis markers, paired and unpaired (#1385).
     """
     serial = iter(range(10**6))
     words = ("a", "b", "k", "K", "t", "x y", "a_b")
@@ -2233,18 +2430,34 @@ def _fuzz_page(rng: random.Random) -> str:
         lambda: f"<!-- [{w()}][zz] [{w()}](C{next(serial)}.md) -->",
     )
 
-    def line() -> str:
-        return "".join(rng.choice(atoms)() for _ in range(rng.randint(1, 8)))
+    # Emphasis markers, paired and unpaired, go in headings alone: elsewhere they change no
+    # slug and no link target, and they are outside the model there (#1385).
+    emphasis = (
+        lambda: "*",
+        lambda: "**",
+        lambda: "_",
+        lambda: "__",
+        lambda: f"*{w()}*",
+        lambda: f"**{w()}**",
+        lambda: f"_{w()}_",
+        lambda: f"_{w()}",
+    )
+
+    def atom(heading: bool) -> str:
+        return rng.choice(emphasis if heading and rng.random() < _FUZZ_EMPHASIS else atoms)()
+
+    def line(heading: bool = False) -> str:
+        return "".join(atom(heading) for _ in range(rng.randint(1, 8)))
 
     out = []
     for _ in range(rng.randint(1, 7)):
         kind = rng.random()
         if kind < 0.22:
-            out.append("#" * rng.randint(1, 3) + " " + line())
+            out.append("#" * rng.randint(1, 3) + " " + line(heading=True))
         elif kind < 0.27:
             out.append(rng.choice(("## Same", "## Same", "## Same_1")))
         elif kind < 0.30:
-            out += ["", line(), rng.choice(("===", "---"))]
+            out += ["", line(heading=True), rng.choice(("===", "---"))]
         elif kind < 0.38:
             out.append(f"[{rng.choice(words)}]: D{next(serial)}.md")
         elif kind < 0.45:
@@ -2287,14 +2500,21 @@ class _Rendered(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.anchors: set[str] = set()
         self.links: list[str] = []
+        self.heading = 0
+        self.loose_emphasis = False  # an emphasis element outside a heading
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.heading += tag in ("h1", "h2", "h3", "h4", "h5", "h6")
+        self.loose_emphasis |= tag in ("em", "strong") and not self.heading
         found = dict(attrs)
         if found.get("id"):
             self.anchors.add(found["id"])
         if tag == "a" and found.get("name"):
             self.anchors.add(found["name"])
         self.links += [v for k, v in attrs if k in ("href", "src") and v and v.startswith("L")]
+
+    def handle_endtag(self, tag: str) -> None:
+        self.heading -= tag in ("h1", "h2", "h3", "h4", "h5", "h6")
 
     handle_startendtag = handle_starttag
 
@@ -2315,6 +2535,12 @@ def test_the_model_matches_python_markdown(tmp_path: Path, monkeypatch: pytest.M
         f"the docs build uses Python-Markdown {markdown.__version__}; the model follows "
         f"{_MARKDOWN_VERSION}. Re-check the model against the new version, then update both."
     )
+    # The emphasis patterns the slug model copies are the renderer's own (#1385).
+    delimiters = markdown.Markdown().delimiters.delimiters
+    assert {t: d.boundary.pattern for t, d in delimiters.items()} == {
+        t: d.pattern for t, d in _DELIMITERS.items()
+    }
+    assert (_ENTITY_RE.pattern, _AUTOMAIL_RE.pattern) == (inline.ENTITY_RE, inline.AUTOMAIL_RE)
     tried: list[str] = []
     handle = inline.ReferenceInlineProcessor.handleMatch
 
@@ -2348,10 +2574,14 @@ def test_the_model_matches_python_markdown(tmp_path: Path, monkeypatch: pytest.M
             model = _model_reading(page)
             if model is None:
                 continue
-            read += 1
             tried.clear()
             rendered = _Rendered()
             rendered.feed(markdown.markdown(source, extensions=["toc", "tables", "fenced_code"]))
+            if rendered.loose_emphasis:
+                # A heading line the renderer did not read as one put emphasis in a
+                # paragraph, which is outside the model (#1385): skipped, as a refusal is.
+                continue
+            read += 1
             real = (
                 sorted(rendered.anchors),
                 sorted(k for k in tried if "zz" not in k),

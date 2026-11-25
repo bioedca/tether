@@ -199,6 +199,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0147](0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md) | cellSens `.vsi` movies are read by Bio-Formats in an isolated fourth stack | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §4.1 (technology stack), §9.1 (isolated dependency locks) |
 | [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
+| [0150](0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md) | Tether reads SIF with its own reader, and only movies of raw counts | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 
