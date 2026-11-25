@@ -100,6 +100,11 @@ _TETHER_IMPORT_LINE_RE = re.compile(
     r"""|\b(?:import_module|__import__)\s*\(\s*[rRuU]?["']tether\b"""
 )
 
+#: A literal dynamic import whose string may follow on a later line, past session prompts.
+_SPLIT_DYNAMIC_IMPORT_RE = re.compile(
+    r"""\b(?:import_module|__import__)\s*\((?:\s|\.\.\. )*[rRuU]?["']tether\b"""
+)
+
 
 def _page_text(path: Path) -> str:
     """The page as ``NormalizeWhitespace`` hands it on: newlines unified, tabs expanded."""
@@ -401,6 +406,15 @@ def _unchecked_import_lines() -> list[str]:
                 and _TETHER_IMPORT_LINE_RE.search(line)
             ):
                 missed.append(f"{rel}:{number}: {line.strip()}")
+                reported.add(number)
+        # A dynamic import's call and its string may sit on separate lines inside the
+        # parentheses, which no backslash joins, so the page is searched whole for it as well.
+        lines = page.split("\n")
+        for m in _SPLIT_DYNAMIC_IMPORT_RE.finditer(page):
+            number = page.count("\n", 0, m.start()) + 1
+            if number not in reported and (rel, number) not in checked:
+                missed.append(f"{rel}:{number}: {lines[number - 1].strip()}")
+                reported.add(number)
     return missed
 
 
@@ -875,6 +889,28 @@ def test_a_backslash_that_ends_a_comment_hides_no_import(
     untagged = "# A\n\n```\n# Example path: C:\\\nimport tether.no_such_module\n```\n"
     _page(tmp_path, monkeypatch, untagged)
     assert _unchecked_import_lines() == ["docs/a.md:5: import tether.no_such_module"]
+
+
+def test_a_dynamic_import_split_across_lines_is_seen_by_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Greptile on PR #1391: no backslash joins the call to its string inside parentheses."""
+    untagged = '# A\n\n```\nm = importlib.import_module(\n    "tether.no_such_module"\n)\n```\n'
+    _page(tmp_path, monkeypatch, untagged)
+    assert _unchecked_import_lines() == ["docs/a.md:4: m = importlib.import_module("]
+
+
+def test_a_split_dynamic_import_in_a_python_fence_is_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = (
+        "# A\n\n```python\nimport importlib\n"
+        'm = importlib.import_module(\n    "tether.no_such_module"\n)\n```\n'
+    )
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 5)]
+    assert _unchecked_import_lines() == []
 
 
 def test_a_continued_import_in_a_python_fence_is_checked(
