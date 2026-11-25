@@ -1190,6 +1190,67 @@ committed. On 2026-11-24 sif_parser 0.3.6 read four of its files (64 x 64 x 64; 
 0.1 s kinetic cycle; 3 x 4 x 6 with 2 x 4 binning; a flag line of `0`) to the written frames and
 kinetic cycle times. **License:** `GPL-3.0-or-later` (REUSE blanket).
 
+## MASH-FRET SIRA movies for the SIRA adapter (#905, ADR-0152)
+
+Tether reads SIRA with its own reader (`src/tether/io/sira.py`), so each check below compares it
+with files in the MASH-FRET repository and with **MASH-FRET's own code**:
+**RNA-FRETools/MASH-FRET** at commit `2877992d246acbe65148ef1c948578f623a518b2` (2026-11-09),
+GPL-3.0 (the repository gives the version 3 text with no "or later" statement, so
+`GPL-3.0-only`). Its format description is `docs/output-files/sira-mash-video.md`; its reader is
+`MASH-FRET/source/mod-video-processing/graphic-files/readSira.m` (with `getSiraDat.m`) and its
+writer `writeSiraFile.m`. `scripts/make_sira_reference.py` runs them under **GNU Octave 8.4.0**
+(Ubuntu `octave` 8.4.0-1build5, `gnuplot-nox` for the invisible figure), headless in MASH-FRET's
+own `mute_actions` mode; it gives Octave a MATLAB-equivalent `contains`, which Octave 8 lacks and
+`getSiraDat.m` calls. The frames were saved with NumPy 2.1.3 and tifffile 2026.6.1. **Accessed:**
+2026-11-25.
+
+### The test movies of MASH-FRET — **GPL-3.0-only**
+
+Two `download` entries of the manifest, so the weekly `reference-data` job reads them; neither is
+committed whole:
+
+| Manifest id | File in the repository | Size | SHA-256 |
+|---|---|---|---|
+| `mash-fret-1chan1exc-sira` | `MASH-FRET/source/routines/mod_trace_processing/assets/1chan1exc/1chan1exc.sira`: 200 frames of 64 x 64, frame time 0.1 s, header version `dummy` | 3,277,670 B | `86b94e36d00d3df70552a68b5e7b051ebb8e7647c63a304e7158e1b1196f38df` |
+| `mash-fret-2020-sira` | `MASH-FRET/source/routines/mod_video_processing/assets/2020.sira`: 20 frames of 256 x 256, frame time 0.10107 s, header version `1.1.2 (prev. commit: 352a251)` | 5,243,053 B | `41a99340abc891812600aba7936830f43ed91eb248505c53dc61968d73a889ea` |
+
+Every offset in both is 0 and every pixel a whole number. The pixel SHA-256 of each movie as
+`readSira.m` reads it (C-order little-endian `float32`), from `python
+scripts/make_sira_reference.py reference FILE --mash MASH-FRET/source --digest`, is in
+`tests/fixtures/sira/reference.json`:
+`406ce9c74477870ea42827601b471ce6af006a0fbae85dd2d1ecf9d2c5709b5c` and
+`15173c65fd0e72cde473872ee3d755552976298047a3216ea3dda583362676ff`.
+
+The committed files:
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/sira/1chan1exc_16.sira` | the first 16 frames of `1chan1exc.sira`: header line and frame bytes unchanged, the header's frame count set to 16 (`python scripts/make_sira_reference.py extract 1chan1exc.sira 1chan1exc_16.sira --frames 16`) | 262,278 B | `5b89c03b209b1e2866099d163b96d00ac4818815038c5d6630d1f499e1f95b24` |
+| `tests/fixtures/sira/1chan1exc_16_reference.tif` | its 16 frames as `readSira.m` reads them, an uncompressed `float32` TYX TIFF (`python scripts/make_sira_reference.py reference 1chan1exc_16.sira 1chan1exc_16_reference.tif --mash MASH-FRET/source`) | 265,086 B | `086993a1a37fb6572683245f67a45331fb52f0480b724ab002588b8926dd281b` |
+
+**License:** GPL-3.0-only — annotated in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+### The offsets that MASH-FRET's writer stores — Tether's own frames
+
+`tests/fixtures/sira/mash_offsets.sira` (326 B, SHA-256
+`7c4ad070b6c6030b0c17a643caa8fcfb494a4d89de28b8417614aa8cfd2ba68b`) is three 4 x 5 frames in halves that Tether chose
+(`offset_frames()` of the script), two with negative values, written by MASH-FRET's
+`writeSiraFile.m` (`python scripts/make_sira_reference.py offsets mash_offsets.sira --mash
+MASH-FRET/source`). The writer stored the offsets 3.5, 4.5 and 0. Read one frame at a time
+(`readSira(file, n, …)`), MASH-FRET gives back the written frames: it takes the offset off. Read
+whole (`readSira(file, 'all', …)`), it gives the written frames plus twice the offset: that path
+adds the offset to the stored values (its line `fread(…) + fread(f,1,…)`), where the one-frame path
+and the writer subtract it. Tether takes the offset off, as the writer means and as the one-frame
+read does (ADR-0152); on a file whose offsets are all 0, as in both test movies above, the two
+paths agree. The frames are Tether's, so the file keeps the REUSE blanket licence
+(`GPL-3.0-or-later`).
+
+### The synthetic SIRA files
+
+`tests/_sira_synth.py` writes the conformance movie and each variant at test time; nothing is
+committed. It writes the layout of `writeSiraFile.m`, offsets included. **License:**
+`GPL-3.0-or-later` (REUSE blanket).
+
 ## Update-verifier attestation answer and `gh` report (#333)
 
 Two JSON files the update verifier's tests (`tests/test_update_verify.py`) replay byte for byte, so
