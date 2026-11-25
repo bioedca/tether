@@ -330,7 +330,7 @@ threshold-reject.
 
 Nothing you do here deletes a molecule or a decision. Every accept, reject, un-reject and undo is
 added to the project's [curation log](../reference/tether-format.md#labels-the-append-only-curation-log),
-so the history survives a reversal. An undo adds the rows that restore the earlier state; it
+so the history survives a reversal. An undo adds the rows that restore the earlier state. It
 removes no row.
 
 ## Change a key
