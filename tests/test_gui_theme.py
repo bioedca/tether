@@ -367,11 +367,12 @@ def test_the_system_mode_follows_a_change_of_the_os_scheme(qapp, qtbot, system_s
 def test_view_theme_recolours_the_open_window_and_plots(qapp, qtbot, system_scheme) -> None:
     from pyqtgraph.Qt import QtGui
 
-    from tether.gui.histogram_dock import HistogramDock
     from tether.gui.overlap_dock import OverlapDock
     from tether.gui.shell import TetherShell
 
-    with TetherShell() as shell, HistogramDock() as hist, OverlapDock() as overlap:
+    # The population-histogram dock left with #374: the Analyze section previews the export
+    # figure, which keeps its own white background in every theme (ADR-0124).
+    with TetherShell() as shell, OverlapDock() as overlap:
         qtbot.addWidget(shell.window)
         dock = shell.trace_dock
         for name in ("dark", "light", "dark"):
@@ -379,7 +380,7 @@ def test_view_theme_recolours_the_open_window_and_plots(qapp, qtbot, system_sche
             t = theme.theme(name)
             assert theme.mode() == name
             assert _window_colour(qapp) == t.color("window")
-            for graphics in (dock.graphics, hist.graphics, overlap.graphics):
+            for graphics in (dock.graphics, overlap.graphics):
                 assert _background(graphics) == t.color("plot-background")
             axis = dock.fret_plot.getAxis("left")
             assert axis.textPen().color().name() == t.color("plot-axis")
@@ -390,9 +391,8 @@ def test_view_theme_recolours_the_open_window_and_plots(qapp, qtbot, system_sche
             }
             for token, pen in pens.items():
                 assert QtGui.QPen(pen).color().name() == t.trace(token)
-            assert hist.curve.opts["pen"].color().name() == t.trace("fret")
         shell.theme_actions["light"].trigger()
-        for graphics in (dock.graphics, hist.graphics, overlap.graphics):
+        for graphics in (dock.graphics, overlap.graphics):
             assert _background(graphics) != "#000000"  # no black plot in the light theme
 
 

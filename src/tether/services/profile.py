@@ -107,11 +107,12 @@ class ExtractionFields:
         The donor and acceptor rectangles of a ``rectangles`` layout, each
         ``[y1, x1, y2, x2]`` in px (1-based, inclusive), or ``None``.
     detection_mode
-        Particle-detection method: ``wavelet``, ``intensity`` or ``bandpass``; ``None``
+        Particle-detection method: ``wavelet``, ``intensity``, ``bandpass`` or ``zmw``;
+        ``None``
         for no explicit choice.
     detection_threshold
         Detection threshold as a fraction of the detection-image maximum, in ``[0, 1)``
-        (dimensionless; intensity and bandpass modes only). ``None`` uses the mode's own.
+        (dimensionless; intensity, bandpass and zmw modes only). ``None`` uses the mode's own.
     detection_block
         Moving-average block size for the detection image, in frames.
     min_separation

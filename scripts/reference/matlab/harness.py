@@ -115,6 +115,11 @@ def verify_clone(tool: str, clone: Path, pins: dict) -> dict:
             got = sha256(path) if path.is_file() else "missing"
             if got != want:
                 raise HarnessError(f"{tool} script {name} has SHA-256 {got}, the pin is {want}")
+            # MATLAB's `run` executes a same-name P-file in the same folder in place of the .m
+            # file, also when given the .m path, so the hash would name code that did not run.
+            pcode = path.with_suffix(".p")
+            if path.suffix == ".m" and pcode.exists():
+                raise HarnessError(f"{tool} has {pcode.name} beside {name}; MATLAB would run it")
         # The record carries the citation with the hashes: the scripts have no URL to name.
         return {"name": tool, "citation": pin["citation"], "files": dict(pin["files"])}
     raise HarnessError(f"unknown pin kind {pin['kind']!r} for {tool}")

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from os import PathLike
     from types import TracebackType
 
-__all__ = ["TIFF_ADAPTER", "MovieReader", "open_movie"]
+__all__ = ["EXTRACTED_CONTAINERS", "TIFF_ADAPTER", "MovieReader", "open_movie"]
 
 # TIFF compression schemes that can discard information. Conversion cannot recover
 # values that a lossy stream lost, and the Compression tag does not say whether a
@@ -416,6 +416,15 @@ TIFF_ADAPTER = MovieAdapter(
 )
 """The built-in adapter for uncompressed multi-page TIFF, the first in the registry."""
 
+EXTRACTED_CONTAINERS: tuple[str, ...] = (TIFF_ADAPTER.name, "ND2")
+"""The names of the adapters whose movies extraction reads (#1388, ADR-0149).
+
+[`tether.io.frames.open_extraction_movie`][] refuses a movie of any other adapter, and a
+folder or a pattern given to ``tether batch`` contributes only the files of these
+readers. An adapter enters this list once its movies extract to the same traces as
+their TIFF export.
+"""
+
 
 def open_movie(path: str | PathLike[str]) -> MovieReader:
     """Open ``path`` as a lazy [`MovieReader`][], through the adapter registry.
@@ -423,15 +432,15 @@ def open_movie(path: str | PathLike[str]) -> MovieReader:
     The registry chooses the adapter ([`tether.io.adapters.select_adapter`][]), so a
     file that is not a TIFF raises [`tether.io.adapters.UnsupportedContainerError`][]
     with the list of containers Tether reads. The callers of this function use the
-    TIFF reader's memory map ([`MovieReader.data`][]); a source from another adapter
-    is therefore refused here until those callers read through
-    [`tether.io.adapters.MovieSource.read_frames`][].
+    TIFF reader's memory map ([`MovieReader.data`][]), so a source from another adapter
+    is refused here. Extraction and the movie panel do not call it: they read every
+    reader in [`EXTRACTED_CONTAINERS`][] through [`tether.io.frames`][] (#1388).
     """
     source = open_movie_source(path)
     if not isinstance(source, MovieReader):
         source.close()
         raise UnsupportedContainerError(
-            f"{path}: this container opens, but extraction reads only TIFF today; "
+            f"{path}: this container opens, but this step reads only TIFF; "
             "export the movie to uncompressed TIFF."
         )
     return source

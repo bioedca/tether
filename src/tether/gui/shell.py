@@ -35,7 +35,10 @@ The user moves between the sections in two ways (#897). **Direct navigation**: t
 section bar under the menu bar, **View → Section**, and ``Ctrl+1``, ``Ctrl+2``, ...
 (``Cmd`` on macOS) open any visible section at any time. The **guided mode**: the same bar
 shows the next step that ``tether status`` gives for the open project, and **Go to** opens
-its section. A project made from imported traces opens in Curate and correct.
+its section. A project made from imported traces opens in Curate and correct. A control
+that needs an earlier stage declares it with
+[`TetherShell.require`][tether.gui.shell.TetherShell.require] (#898): it is disabled, it
+names the missing step, and it offers **Go to this step** ([`tether.gui.requirements`][]).
 
 The menu bar and the curation keymap follow the section too (#342). The menus of each
 section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
@@ -83,6 +86,7 @@ from tether.gui.curation import (
     Keymap,
     KeymapError,
 )
+from tether.gui.requirements import RequirementGate
 from tether.gui.sections import (
     DockArea,
     DockSpec,
@@ -109,13 +113,14 @@ if TYPE_CHECKING:
     import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
-    from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
+    from tether.gui.generation_reconcile import GenerationReconcilePage
     from tether.gui.keymap_editor import KeymapEditor
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
+    from tether.project.generation_reconcile import ConfirmResult
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.services.curation import StoredMolecule
 
@@ -124,13 +129,6 @@ if TYPE_CHECKING:
     #: shell's ``I`` handler draws the result on the dock; `make_store_idealizer`
     #: is the store-backed default that runs the real one-click vbFRET pipeline.
     Idealizer = Callable[[str], np.ndarray | None]
-
-    #: Recompute + return the pooled population apparent-E `Histogram1D` the
-    #: shell's ``&Analysis`` menu draws, or ``None`` when there is nothing to show.
-    #: `make_store_histogram` is the store-backed default that runs the real
-    #: `tether.analysis.histogram.population_apparent_e_histogram` each call,
-    #: so the histogram reflects the current curation state (§7.5/§7.7).
-    HistogramSeam = Callable[[], Histogram1D | None]
 
     #: Resolve a molecule_key to its static-overlap-view payload — the cached patch
     #: + nearest-neighbour distance + apertures-overlap flag — or ``None`` for an
@@ -172,7 +170,6 @@ __all__ = [
     "TetherShell",
     "launch",
     "make_store_handoff",
-    "make_store_histogram",
     "make_store_idealizer",
     "make_store_overlap",
 ]
@@ -198,7 +195,7 @@ _LOCK_RELEASE_RETRY_MS = 1000
 #: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
-#: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
+#: Coalesce rapid curation keystrokes before the Analyze section draws its plot again (#374).
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
 #: After a write that can change a stage (a curation decision, a fit, a return leg), the
@@ -633,7 +630,6 @@ class TetherShell:
         categories: list[str] | None = None,
         idealizer: Idealizer | None = None,
         handoff: HandoffSeam | None = None,
-        histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
         advance_after_curation: bool = True,
@@ -699,13 +695,12 @@ class TetherShell:
         # project) makes the &Hand-off menu report that a project must be loaded;
         # make_store_handoff(project) wires the real tether.project.handoff pipeline.
         self._handoff = handoff
-        # The population-histogram seam. None (no project) makes the &Analysis menu
-        # report that a project must be loaded; make_store_histogram(project) wires
-        # the real population_apparent_e_histogram. The dock is built lazily on the
-        # first show_histogram so the default shell stays light.
-        self._histogram_seam = histogram
-        self._histogram_dock: Any | None = None
-        self._histogram_dock_widget: Any | None = None
+        # The page of the Analyze section (#374): the plot registry, the layer list and
+        # the Matplotlib preview. load_project points it at the open project; it imports
+        # Matplotlib only when it first draws a figure, so the default shell stays light.
+        from tether.gui.analysis_section import AnalysisSection
+
+        self._analysis_section = AnalysisSection(status=lambda text: self._status(text))
         # The static overlap-view seam: molecule_key -> patch + NN distance. None (no
         # project) leaves the dock unbuilt; make_store_overlap(project) wires the real
         # per-molecule neighbour report. The dock is built lazily on the first
@@ -780,10 +775,10 @@ class TetherShell:
         self._lock_recovery_timer = QtCore.QTimer()
         self._lock_recovery_timer.setSingleShot(True)
         self._lock_recovery_timer.timeout.connect(self._recheck_lock_recovery)
-        self._histogram_refresh_timer = QtCore.QTimer()
-        self._histogram_refresh_timer.setSingleShot(True)
-        self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
-        self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
+        self._analysis_refresh_timer = QtCore.QTimer()
+        self._analysis_refresh_timer.setSingleShot(True)
+        self._analysis_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
+        self._analysis_refresh_timer.timeout.connect(self._run_queued_analysis_refresh)
         self._readiness_refresh_timer = QtCore.QTimer()
         self._readiness_refresh_timer.setSingleShot(True)
         self._readiness_refresh_timer.setInterval(_READINESS_REFRESH_DEBOUNCE_MS)
@@ -798,6 +793,8 @@ class TetherShell:
         self._project_path: Path | None = None
         # The readiness of each stage of the open project (#896), read on each open.
         self._readiness: Any | None = None
+        # The controls that declare a stage as their requirement (#898), in the order made.
+        self._requirement_gates: list[RequirementGate] = []
         # The intensity_quantity that open used, so a lock recovery reopens the same
         # trace layer rather than load_project's default (#1097).
         self._intensity_quantity = "corrected"
@@ -891,6 +888,8 @@ class TetherShell:
         # QStackedWidget with one page per registered section, and each dock belongs to
         # one section and shows only while that section is current. A section switch
         # changes only which page and which docks show; it never touches the session lock.
+        # The reconciliation page of a new trace generation (#923), while it is open.
+        self._generation_page: GenerationReconcilePage | None = None
         self._sections = self._build_sections()
         self._section_stack = QtWidgets.QStackedWidget()
         self._section_pages: dict[str, Any] = {}
@@ -1166,7 +1165,6 @@ class TetherShell:
             (self._act_hand_off, "hand-off"),
             (self._act_import, "import"),
             (self._act_import_deeplasi, "import"),
-            (self._act_histogram, "analyze"),
             (self._act_validate_conditions, "conditions"),
         ]
         self._apply_menu_icons(theme.current())
@@ -1283,8 +1281,43 @@ class TetherShell:
         self.set_section(step.section)
         return step.section
 
+    def require(self, control: Any, stage: str) -> RequirementGate:
+        """Disable ``control`` until the stage ``stage`` of the readiness record is done (#898).
+
+        ``control`` is a ``QWidget`` or a ``QAction`` of a section; ``stage`` is a key of
+        [`REQUIREMENTS`][tether.gui.requirements.REQUIREMENTS]. The returned
+        [`RequirementGate`][tether.gui.requirements.RequirementGate] owns the enabled state,
+        the tooltip and the accessible description of the control, and its **Go to this
+        step** opens the section of the stage. It follows each read of the readiness.
+        """
+        gate = RequirementGate(
+            control,
+            stage,
+            go_to=self.set_section,
+            section_title=self._shown_section_title,
+        )
+        self._requirement_gates.append(gate)
+        gate.update(self._readiness)
+        return gate
+
+    @property
+    def requirement_gates(self) -> tuple[RequirementGate, ...]:
+        """The gates that [`require`][] made, in the order made (#898)."""
+        return tuple(self._requirement_gates)
+
+    def _shown_section_title(self, section_id: str) -> str | None:
+        """The title of a section the shell shows, or ``None`` for a hidden or unknown one."""
+        if section_id not in self._sections or not self._sections.get(section_id).visible:
+            return None
+        return self._sections.get(section_id).title
+
     def _sync_guided(self) -> None:
-        """Show the next step of the readiness record on the section bar (#897)."""
+        """Show the next step of the readiness record on the section bar (#897).
+
+        The gated controls (#898) follow the same record.
+        """
+        for gate in self._requirement_gates:
+            gate.update(self._readiness)
         step = guided_step(self._readiness, self._sections)
         if step is None:
             self._next_step_label.setText("Next step: open or import a project")
@@ -1364,6 +1397,9 @@ class TetherShell:
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
         self._section = section_id
         self._sync_section_menus()
+        if section_id == "analyze":
+            # A fit made in another section may have added a model: read the choices again.
+            self._analysis_section.refresh()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea
@@ -1420,9 +1456,10 @@ class TetherShell:
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
 
         Each section also declares its menus (#342): Import and Calibration (#353) in
-        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
-        Analyze. Only Curate and correct declares the curation keymap scope, so the
-        curation keys act only there.
+        Prepare; Curation, Hand-off and Conditions in Curate and correct. Analyze has no
+        menu: its page is the plot builder (#374), which replaced the one-action Analysis
+        menu. Only Curate and correct declares the curation keymap scope, so the curation
+        keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1487,19 +1524,8 @@ class TetherShell:
                     id=ANALYZE_SECTION,
                     title="Analyze",
                     order=3,
-                    central=lambda _host: _guide_page(
-                        "Analyze",
-                        "To see the population histogram of the open project, choose "
-                        "Analysis → Population histogram…. It shows below this text.",
-                    ),
+                    central=lambda _host: self._analysis_section.widget,
                     writes_project=True,
-                    menus=(
-                        MenuSpec(
-                            id="analysis",
-                            title="&Analysis",
-                            populate=lambda _host, menu: self._populate_analysis_menu(menu),
-                        ),
-                    ),
                 ),
                 SectionSpec(
                     id=DEPOSIT_SECTION,
@@ -1558,6 +1584,8 @@ class TetherShell:
         self._act_edit_shortcuts.triggered.connect(self.show_keymap_editor)
         self._act_assign_category = menu.addAction("Assign category (&overflow)…")
         self._act_assign_category.triggered.connect(self.show_overflow_picker)
+        self._act_reconcile_generation = menu.addAction("Reconcile trace &generations…")
+        self._act_reconcile_generation.triggered.connect(self.show_generation_reconcile)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -1580,12 +1608,6 @@ class TetherShell:
         self._conditions_menu = menu
         self._act_validate_conditions = menu.addAction("Validate &conditions…")
         self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
-
-    def _populate_analysis_menu(self, menu: Any) -> None:
-        """Analyze's Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1)."""
-        self._analysis_menu = menu
-        self._act_histogram = menu.addAction("Population &histogram…")
-        self._act_histogram.triggered.connect(self.show_histogram)
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -1856,7 +1878,7 @@ class TetherShell:
         try:
             dock.set_molecule(info)
         except Exception as exc:  # noqa: BLE001 - a malformed payload must not crash
-            # Mirror show_histogram: a seam that resolves but returns a shape-invalid
+            # A seam that resolves but returns a shape-invalid
             # patch surfaces as a status message, never an uncaught exception out of
             # a selection change. A dock that fails its very first draw is discarded
             # so no blank dock is ever attached; an already-shown dock is kept.
@@ -2309,7 +2331,7 @@ class TetherShell:
     def _section_hidden_docks(self) -> list[str]:
         """The docks hidden only because their section is not current (by object name)."""
         names = {dock.objectName() for dock, shown in self._dock_restore.items() if shown}
-        # A dock not built in this session (Overlap, Population histogram) keeps the stored
+        # A dock not built in this session (Overlap, Movie) keeps the stored
         # answer, since Qt keeps its stored place and visibility for the next launch too.
         built = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
         return sorted(names | (self._stored_section_hidden - built))
@@ -2369,7 +2391,7 @@ class TetherShell:
         self._window.restoreState(self._default_state)
         self._stored_section_hidden = set()
         # The default state does not know a dock built after it was captured (Overlap,
-        # Population histogram), so restoring it leaves such a dock where the user put it.
+        # Movie), so restoring it leaves such a dock where the user put it.
         for dock, area in self._dock_default_area.items():
             if dock not in self._default_docks:
                 dock.setFloating(False)
@@ -2439,7 +2461,7 @@ class TetherShell:
         """Open a produced / extracted ``.tether`` live in this shell (§7.8, FR-LEGACY).
 
         Re-wires the running shell's store-backed seams onto ``path`` — the one-click
-        idealize (``I``), the population histogram (``&Analysis``), the standalone-tMAVEN
+        idealize (``I``), the Analyze section's plots (#374), the standalone-tMAVEN
         hand-off (``&Hand-off``), the per-molecule overlap view, and the ``&Conditions``
         validation target — then loads the store's molecules into the browser + trace
         dock ([`set_molecules`][]). This is the general store↔shell hookup (the
@@ -2521,7 +2543,6 @@ class TetherShell:
             marker = read_analysis_only_marker(proj_path)
             analysis_only = marker is not None
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
-            histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
             # The movie panel's data (#356): the /movies rows with their spots, and the
             # stored aperture radius the overlap view uses too. An analysis-only project
@@ -2658,7 +2679,6 @@ class TetherShell:
         self._lock_refusal = refusal
         self._set_lock_recovery(recovery)
         self._idealizer = idealizer
-        self._histogram_seam = histogram
         self._handoff = handoff
         self._overlap_seam = overlap
         self._conditions = project if writable else None
@@ -2670,11 +2690,13 @@ class TetherShell:
             if session_project is not None:
                 self._lock_release_timer.start()
         # Drop any docks built against a prior project so they rebuild fresh against the
-        # new store (no stale histogram / overlap leaking across a re-open).
+        # new store (no stale overlap view leaking across a re-open).
         self._reset_store_docks()
+        self._close_generation_page()
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self._analysis_section.set_project(self._project_path)
         self.refresh_readiness()
         # A project made from imported traces starts in Curate and correct (#897).
         entry = entry_section(self._readiness)
@@ -3063,14 +3085,11 @@ class TetherShell:
             return True
 
     def _reset_store_docks(self) -> None:
-        """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
-        self._histogram_refresh_timer.stop()
+        """Discard the lazily-built overlap / movie docks so a re-open rebuilds them."""
+        self._analysis_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
         self._reset_movie_panel()
-        for dock_attr, widget_attr in (
-            ("_histogram_dock", "_histogram_dock_widget"),
-            ("_overlap_dock", "_overlap_dock_widget"),
-        ):
+        for dock_attr, widget_attr in (("_overlap_dock", "_overlap_dock_widget"),):
             widget = getattr(self, widget_attr)
             if widget is not None:
                 self._detach_section_dock(widget)
@@ -3134,7 +3153,24 @@ class TetherShell:
             except Exception:  # noqa: BLE001 - an open never fails on this read
                 self._readiness = None
         self._sync_guided()
+        self._reload_generation_page()
         return self._readiness
+
+    def _reload_generation_page(self) -> None:
+        """Read the lists of the open reconciliation page again after a write (#923).
+
+        An accept or reject in the trace view also confirms a carried molecule, so the page
+        must not keep showing it as waiting.
+        """
+        page = self._generation_page
+        if page is None or self._project_path is None:
+            return
+        from tether.services.reconcile import read_reconciliations
+
+        try:
+            page.set_reconciliations(read_reconciliations(self._project_path))
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Reconcile trace generations: the lists could not be read: {exc}")
 
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.
@@ -3153,17 +3189,18 @@ class TetherShell:
         name = self._project_path.name
         self._remember_position()
         self._reject_active_conditions_dialog()
+        self._close_generation_page()
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
         self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
-        self._histogram_seam = None
         self._overlap_seam = None
         self._conditions = None
         self._reset_store_docks()
         self._project_path = None
+        self._analysis_section.set_project(None)
         self._readiness = None
         self._sync_guided()
         self._act_close_project.setEnabled(False)
@@ -3697,111 +3734,40 @@ class TetherShell:
         """Menu entry: run the Deep-LASI re-analysis wizard (intake → import), §7.8."""
         self.import_deeplasi_bundle()
 
-    # --- analysis (population apparent-E histogram, §7.7) --------------------
+    # --- analysis (the Analyze section's plot builder, §7.7, #374) -----------
 
     @property
-    def analysis_menu(self) -> QtWidgets.QMenu:
-        """The ``&Analysis`` menu (population histogram)."""
-        return self._analysis_menu
+    def analysis_section(self) -> Any:
+        """The page of the Analyze section (#374).
 
-    @property
-    def histogram_dock(self) -> Any | None:
-        """The population-histogram dock, or ``None`` until first shown."""
-        return self._histogram_dock
-
-    def show_histogram(self) -> Any | None:
-        """Compute + display the population apparent-E histogram (§7.7, §9 M2).
-
-        Runs the injected ``histogram`` seam ([`make_store_histogram`][] wires the
-        real
-        [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram]
-        over
-        the bound project, recomputed each call so it tracks curation), draws the
-        result in a bottom [`HistogramDock`][tether.gui.histogram_dock.HistogramDock] (built
-        lazily on first use), and returns the dock. No wired seam, a failing
-        computation, or a ``None`` result each surface as a status message and
-        return ``None`` — the shell never crashes on analysis. An *empty* histogram
-        (zero accepted molecules) is still drawn: a flat baseline is the honest "no
-        data" answer, not an error.
+        An [`AnalysisSection`][tether.gui.analysis_section.AnalysisSection]: the plot
+        registry, the layer list and the preview.
         """
-        if self._histogram_seam is None:
-            self._status("Histogram: load a project with extracted molecules first")
-            return None
-        try:
-            hist = self._histogram_seam()
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Histogram failed: {exc}")
-            return None
-        if hist is None:
-            self._status("Histogram: nothing to pool")
-            return None
-        dock = self._histogram_dock
-        newly_built = dock is None
-        if newly_built:
-            from tether.gui.histogram_dock import HistogramDock
+        return self._analysis_section
 
-            dock = HistogramDock()
-        try:
-            dock.set_histogram(hist)
-        except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
-            # Mirrors _finish_idealize: an injected seam returning a shape-invalid
-            # Histogram1D surfaces as a status message, never an uncaught exception
-            # out of the &Analysis menu action. A dock that fails its very first draw
-            # is discarded, so no blank dock is ever adopted/attached to the window
-            # (consistent with the no-seam / seam-raises / None-result paths); an
-            # already-shown dock is kept, so a later failure leaves the last good view.
-            self._status(f"Histogram failed: {exc}")
-            if newly_built:
-                dock.close()
-            return None
-        # The histogram is a dock of the Analyze section (#341), so showing it shows that
-        # section; View → Section returns to Curate and correct.
-        self.set_section(ANALYZE_SECTION)
-        if newly_built:
-            self._histogram_dock = dock
-            self._attach_histogram_dock()
-        self._histogram_dock_widget.show()
-        self._histogram_dock_widget.raise_()
-        n_mol = hist.n_molecules if hist.n_molecules is not None else 0
-        self._status(f"Population histogram — {n_mol} molecule(s), {hist.n_samples} frame(s)")
-        return dock
+    def _queue_analysis_refresh(self) -> None:
+        """Draw the Analyze plot again once a burst of curation writes ends.
 
-    def _refresh_open_histogram(self) -> str | None:
-        """Recompute an already-open population view after a successful curation write."""
-        dock = self._histogram_dock
-        if dock is None or self._histogram_seam is None:
-            return None
-        try:
-            hist = self._histogram_seam()
-            if hist is None:
-                dock.clear()
-            else:
-                dock.set_histogram(hist)
-        except Exception as exc:  # noqa: BLE001 - curation succeeded; keep the GUI alive
-            return str(exc)
-        return None
-
-    def _queue_open_histogram_refresh(self) -> None:
-        """Debounce a project-wide refresh so curation keystrokes remain responsive."""
-        if self._histogram_dock is not None and self._histogram_seam is not None:
-            self._histogram_refresh_timer.start()
+        The single-shot timer of ``_HISTOGRAM_REFRESH_DEBOUNCE_MS`` coalesces the writes, so
+        a run of curation keystrokes draws the plot once, not once per key. A layer list
+        with no series has nothing to draw again.
+        """
+        section = self._analysis_section
+        if section.project is not None and section.series:
+            self._analysis_refresh_timer.start()
 
     def _queue_readiness_refresh(self) -> None:
         """Read the guided next step again once a burst of writes ends (#897)."""
         if self._project_path is not None:
             self._readiness_refresh_timer.start()
 
-    def _run_queued_histogram_refresh(self) -> None:
-        """Apply one coalesced refresh and surface a delayed failure without crashing."""
-        error = self._refresh_open_histogram()
-        if error:
-            self._status(f"Histogram refresh failed: {error}")
+    def _run_queued_analysis_refresh(self) -> None:
+        """Apply one coalesced refresh of the Analyze plot; a failure shows in its preview.
 
-    def _attach_histogram_dock(self) -> None:
-        """Dock the (already-built, successfully-drawn) histogram at the bottom, in Analyze."""
-        self._histogram_dock_widget = self._attach_section_dock(
-            ANALYZE_SECTION, "Population histogram", self._histogram_dock.widget, DockArea.BOTTOM
-        )
+        The redraw posts its summary only while Analyze shows, so it never replaces the
+        curation result that queued it in the status bar (as the old histogram refresh).
+        """
+        self._analysis_section.refresh(announce=self._section == ANALYZE_SECTION)
 
     # --- handlers ------------------------------------------------------------
 
@@ -3859,7 +3825,7 @@ class TetherShell:
             return
 
         target = trace.name or trace.molecule_key
-        self._queue_open_histogram_refresh()
+        self._queue_analysis_refresh()
         self._queue_readiness_refresh()
         if action is CurationAction.UNREJECT or not self._advance_after_curation:
             self._status(f"{completed} {target}")
@@ -3900,12 +3866,12 @@ class TetherShell:
             "the next trace; Un-reject and the category keys keep the same trace."
         )
 
-    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
-        """The writable project, list row, trace and lock nonce a curation write acts on.
+    def _writable_project(self, verb: str) -> tuple[Project, str] | None:
+        """The writable project and lock nonce a project write acts on, or ``None``.
 
-        Refuses writes during background idealization, in a read-only project,
-        or without a selected project molecule. Pass the returned lock nonce to
-        [`_guard_session_write`][] immediately before writing.
+        Refuses writes during background idealization and in a read-only project, with
+        a status message. Pass the returned lock nonce to [`_guard_session_write`][]
+        immediately before writing.
         """
         if self._idealization_blocks_write(verb):
             return None
@@ -3924,12 +3890,98 @@ class TetherShell:
             prefix = "project is read-only: " if self._curation_read_only_reason else ""
             self._status(f"{verb} unavailable: {prefix}{reason}")
             return None
+        return project, nonce
+
+    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
+        """The writable project, list row, trace and lock nonce a curation write acts on.
+
+        Refuses writes during background idealization, in a read-only project,
+        or without a selected project molecule. Pass the returned lock nonce to
+        [`_guard_session_write`][] immediately before writing.
+        """
+        writable = self._writable_project(verb)
+        if writable is None:
+            return None
+        project, nonce = writable
         row = self._molecule_list.currentRow()
         trace = self._traces[row] if 0 <= row < len(self._traces) else None
         if trace is None or trace.molecule_key is None:
             self._status(f"{verb} failed: select a project molecule first")
             return None
         return project, row, trace, nonce
+
+    # --- the reconciliation of a new trace generation (#923) ------------------
+
+    def show_generation_reconcile(self) -> GenerationReconcilePage | None:
+        """Show the carried, new and lost molecules of each movie extracted again.
+
+        Curation → Reconcile trace generations…. Returns the page, or ``None`` when no
+        project is open or its lists cannot be read (each said on the status bar). The
+        page is not modal: a molecule it opens is selected in the trace view.
+        """
+        from tether.gui.generation_reconcile import GenerationReconcilePage
+        from tether.services.reconcile import read_reconciliations
+
+        path = self._project_path
+        if path is None:
+            self._status("Reconcile trace generations: open a project first")
+            return None
+        try:
+            reconciliations = read_reconciliations(path)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Reconcile trace generations failed: {exc}")
+            return None
+        self._close_generation_page()
+        page = GenerationReconcilePage(
+            reconciliations,
+            confirm=self._confirm_carried,
+            open_molecule=self.select_molecule,
+            reload=lambda: read_reconciliations(path),
+            parent=self._window,
+        )
+        self._generation_page = page
+        page.show()
+        return page
+
+    @property
+    def generation_page(self) -> GenerationReconcilePage | None:
+        """The reconciliation page while it is open, else ``None``."""
+        return self._generation_page
+
+    def _close_generation_page(self) -> None:
+        """Close the reconciliation page: its lists belong to the project it was opened on."""
+        if self._generation_page is not None:
+            self._generation_page.dialog.close()
+            self._generation_page = None
+
+    def _confirm_carried(self, keys: list[str]) -> ConfirmResult | None:
+        """Confirm carried molecules under the session's writer lock; ``None`` if refused."""
+        writable = self._writable_project("Confirm")
+        if writable is None:
+            return None
+        project, nonce = writable
+        try:
+            self._guard_session_write(project, nonce)
+            result = project.confirm_carried(keys, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._status(f"Confirm failed: {exc}")
+            return None
+        self._queue_readiness_refresh()
+        self._status(f"Confirmed {len(result.confirmed)} carried molecule(s)")
+        return result
+
+    def select_molecule(self, molecule_key: str) -> bool:
+        """Select the molecule ``molecule_key`` in the trace view; return whether it is there.
+
+        The Curate and correct section is shown first, so the trace view is in sight.
+        """
+        for row, trace in enumerate(self._traces):
+            if trace.molecule_key == molecule_key:
+                if CURATE_SECTION in self._sections:
+                    self.set_section(CURATE_SECTION)
+                self._molecule_list.setCurrentRow(row)
+                return True
+        return False
 
     def _guard_session_write(self, project: Project, nonce: str) -> None:
         """Require the lock epoch ``nonce`` [`_writable_selection`][] read, just before a write.
@@ -4127,7 +4179,7 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
-        self._queue_open_histogram_refresh()
+        self._queue_analysis_refresh()
         self._queue_readiness_refresh()
         try:
             by_row = self._show_stored_windows(project.path, (key,))
@@ -4321,7 +4373,7 @@ class TetherShell:
         self._event_filter.remove()
         self._lock_refresh_timer.stop()
         self._lock_release_timer.stop()
-        self._histogram_refresh_timer.stop()
+        self._analysis_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
         future = self._idealize_future
         writable_project = self._curation_project
@@ -4366,8 +4418,7 @@ class TetherShell:
             # even though the visible shell has already closed.
             self._retry_session_release()
         self._tasks.shutdown()
-        if self._histogram_dock is not None:
-            self._histogram_dock.close()
+        self._analysis_section.close()
         if self._overlap_dock is not None:
             self._overlap_dock.close()
         self._reset_movie_panel()
@@ -4434,25 +4485,6 @@ def make_store_idealizer(
     return _idealize
 
 
-def make_store_histogram(project: Project | str | PathLike[str], **kwargs: Any) -> HistogramSeam:
-    """Build the store-backed population-histogram seam for a [`TetherShell`][].
-
-    Returns a ``() -> Histogram1D`` that runs
-    [`tether.analysis.histogram.population_apparent_e_histogram`][] over
-    ``project`` **each time it is called**, so re-opening the histogram reflects the
-    current curation state (rejected molecules excluded by default, §7.5). Keyword
-    arguments (``molecule_keys`` / ``intensity_quantity`` / ``bins`` /
-    ``value_range`` / ``density`` / ``per_molecule_equal_weight`` /
-    ``include_rejected``) pass straight through to that function.
-    """
-    from tether.analysis.histogram import population_apparent_e_histogram
-
-    def _histogram() -> Histogram1D:
-        return population_apparent_e_histogram(project, **kwargs)
-
-    return _histogram
-
-
 def _stored_disk_radius(path: str | PathLike[str]) -> float | None:
     """The experiment's stored aperture ``disk_radius`` (``/settings/extraction``).
 
@@ -4485,7 +4517,7 @@ def make_store_overlap(
     (confined per movie, §5.2), and returns a ``molecule_key -> OverlapInfo`` lookup
     the shell refreshes on selection. The geometry is static — spot coordinates
     never change with curation — so it is computed once, not per call (unlike the
-    histogram seam). ``aperture_radius`` defaults to the experiment's stored
+    Analyze section's plots). ``aperture_radius`` defaults to the experiment's stored
     extraction ``disk_radius``, falling back to
     [`DEFAULT_APERTURE_RADIUS`][tether.analysis.overlap.DEFAULT_APERTURE_RADIUS] when absent, so the
     overlap threshold is never a hardcoded literal. An analysis-only project with no
@@ -4721,8 +4753,8 @@ def traces_from_store(
     decoded ``molecule_key`` (so the idealize / overlap seams resolve the store row) and
     its ``frame_time`` from the linked ``/movies`` row (``0.0``/movie-less → ``None``).
 
-    Rejected molecules are **included** (a curator revisits rejects); the histogram /
-    analysis seams still exclude them by their own default. ``intensity_quantity`` selects
+    Rejected molecules are **included** (a curator revisits rejects); the Analyze
+    section's plots still exclude them by their own default. ``intensity_quantity`` selects
     the ``/traces`` layer via the frozen
     [`INTENSITY_QUANTITY_LAYERS`][tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS] map —
     ``"corrected"``
@@ -4847,16 +4879,6 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         path[trace.n_frames // 2 :] = 0.7
         return path
 
-    def _demo_histogram() -> Any:
-        # Pool the synthetic traces' apparent E for the &Analysis smoke ONLY — the
-        # real menu uses make_store_histogram(project) over population_apparent_e_histogram.
-        from dataclasses import replace
-
-        from tether.analysis.histogram import apparent_e_histogram
-
-        pooled = np.concatenate([t.apparent_e for t in traces])
-        return replace(apparent_e_histogram(pooled), n_molecules=len(traces))
-
     # A tiny on-disk demo project so the &Conditions menu opens a populated dialog for
     # the live smoke: two acquisitions of one condition (T-box) across two files + a
     # near-miss (Tbox), left unsynced so the rows show as «dangling» until the curator
@@ -4891,9 +4913,7 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         demo_table.resize((len(specs),))
         demo_table[:] = demo_rows
 
-    shell = TetherShell(
-        idealizer=_demo_idealizer, histogram=_demo_histogram, conditions=Project(demo_path)
-    )
+    shell = TetherShell(idealizer=_demo_idealizer, conditions=Project(demo_path))
     shell.set_molecules(traces)
     shell.show()
     app.exec()

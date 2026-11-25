@@ -105,7 +105,8 @@ def test_each_menu_item_shows_its_icon_and_its_text(qapp, qtbot, scheme) -> None
     with TetherShell() as shell:
         qtbot.addWidget(shell.window)
         names = {name for _action, name in shell.menu_icons}
-        assert names == {"project", "curate", "hand-off", "import", "analyze", "conditions"}
+        # The analyze icon left with the one-action Analysis menu (#374): Analyze has no menu.
+        assert names == {"project", "curate", "hand-off", "import", "conditions"}
         for action, name in shell.menu_icons:
             assert action.text().strip("&"), name  # the text stays
             assert theme.icon_renders(action.icon()), name

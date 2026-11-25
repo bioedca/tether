@@ -1,0 +1,37 @@
+{
+  "about": "Reference values for the ND2 reader tests (#902, ADR-0148). See tests/fixtures/PROVENANCE.md, section 'Public ND2 files'.",
+  "files": {
+    "221012-Exp-1-A1-1-BF.nd2": {
+      "source": "Zenodo record 17487086, doi:10.5281/zenodo.17487086 (Bakker H., 'Glyco-PAINT reference', 2025), CC-BY-4.0",
+      "sha256": "b940f0363b99c986bb2ccd4b563c518d5d963ea264b52b75336301a5113b522d",
+      "size_bytes": 708608,
+      "nd2_version": "Ver3.0",
+      "shape": [1, 512, 512],
+      "pixel_type": "<u2",
+      "pixels_sha256": "2806dc93e8f93c847eb8ff2ff67af8c388a416d8ed6f3ee0c31306982bccf143",
+      "pixels_sha256_of": "the C-order little-endian uint16 bytes of the (1, 512, 512) array of the reference TIFF export",
+      "reference_export": {
+        "tool": "Bio-Formats bfconvert (loci.formats.tools.ImageConverter) 7.3.1, build 41e12f630ad7349caa0293cba23948c17d22732b, 11 July 2024",
+        "jar": "bioformats_package.jar from the python-bioformats 4.1.0 wheel (PyPI), jar sha256 289af1d5c9b34766fccea1fc7deb072b2e8ce445b6fe9a5677bce2e95bdc8cc9",
+        "command": "java -cp bioformats_package.jar loci.formats.tools.ImageConverter -nogroup -overwrite 221012-Exp-1-A1-1-BF.nd2 bf_reference.tif",
+        "tiff_sha256": "17c22d24b0d1bc2f9f95bd8fb34912faacf88e8038c9fcb7c214823a6ff85cea",
+        "tiff_size_bytes": 528690,
+        "made": "2026-11-24",
+        "cross_check": "nd2 0.12.0 (PyPI, BSD-3-Clause) nd2.imread gives the same pixels_sha256"
+      },
+      "metadata": {
+        "frame_time": {"value": null, "origin": "unknown", "why": "one frame: no interval between two acquisition times"},
+        "pixel_size": {"value": 0.160325079653625, "origin": "file", "agrees_with": "Bio-Formats PhysicalSizeX/Y and nd2 voxel_size().x"},
+        "channels": {"value": ["Empty"], "origin": "file", "agrees_with": "Bio-Formats Channel Name and nd2 metadata.channels[0].channel.name"}
+      }
+    },
+    "ZC.nd2": {
+      "source": "Zenodo record 24363428, doi:10.5281/zenodo.24363428 (Chiaruttini N., 'nd2 files documenting Bio-Formats PR https://github.com/ome/bioformats/pull/4511', 2026), CC-BY-4.0",
+      "sha256": "bb8e4581c0e38e4a8a793eed3a223ee0a7df5db933e9d3dc41aea268ea6324ae",
+      "size_bytes": 495616,
+      "nd2_version": "Ver3.0",
+      "content": "2 Z planes x 2 channels (Cy5, Cy3), 32 x 32, uint16 (nd2 0.12.0 sizes {'Z': 2, 'C': 2, 'Y': 32, 'X': 32})",
+      "expected": "refused: the file holds Z planes, not one time series"
+    }
+  }
+}

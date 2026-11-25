@@ -82,8 +82,9 @@ def test_gui_entry_point_is_declared_and_not_the_smoke_helper() -> None:
 def _assert_no_project_is_open(shell) -> None:
     """The shell holds no project: no molecules, and the project menus say so."""
     assert shell.molecule_list.count() == 0
-    assert shell.show_histogram() is None  # no histogram seam without a project
-    assert "load a project" in shell.status_message
+    # the Analyze section has no project to read
+    assert shell.analysis_section.project is None
+    assert shell.analysis_section.empty_text == "Open a project to draw a plot."
     shell.conditions_menu.actions()[0].trigger()
     assert shell.status_message == "Conditions: load a project first"
 

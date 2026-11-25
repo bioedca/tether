@@ -3,15 +3,16 @@
 """End-to-end native extraction pipeline (PRD §7.11, Appendix E; FR-EXTRACT, FR-BATCH).
 
 Orchestrates the M1 imaging primitives into a single headless call that turns a
-dual-channel TIFF movie into a populated ``.tether`` project::
+dual-channel movie (a TIFF, or a movie of any reader in
+[`tether.io.movie.EXTRACTED_CONTAINERS`][]) into a populated ``.tether`` project::
 
-    open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
+    open_extraction_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
     -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
 The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
-``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
-PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
+``intensity``, ``bandpass``, ``zmw``} with an optional ``options.detection_threshold``;
+PRD §11.2, ADR-0021, ADR-0143) so a movie can be extracted with the Deep-LASI ``findPart``
 method it was actually detected with. The default ``wavelet`` reproduces the
 historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies both
 the mode (``temp/ParticleDetectionMode``) and the mapping-reference channel's
@@ -141,8 +142,8 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
+from tether.io.frames import open_extraction_movie
 from tether.io.generations import Generation
-from tether.io.movie import open_movie
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
     guarded_project_write,
@@ -234,8 +235,8 @@ class ExtractOptions:
                 f"detection_mode must be one of {DETECTION_MODES}, got {self.detection_mode!r}"
             )
         # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
-        # by the intensity/bandpass detectors; ``None`` lets each mode use its own
-        # faithful default (intensity 0.5, bandpass 0.98 — PRD §11.2). When supplied
+        # by the intensity/bandpass/zmw detectors; ``None`` lets each mode use its own
+        # faithful default (intensity 0.5, bandpass 0.98, zmw 0.5 — PRD §11.2). When supplied
         # it must lie in the detectors' own [0, 1) domain (a fraction of the
         # detection-image max). It is recorded but inert under the wavelet mode.
         if self.detection_threshold is not None and not 0.0 <= self.detection_threshold < 1.0:
@@ -244,7 +245,7 @@ class ExtractOptions:
                 f"max), got {self.detection_threshold}"
             )
         # ``min_separation`` is optional: ``None`` (default) lets each detection mode
-        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass
+        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass/zmw
         # 3 px; ADR-0022). When supplied it overrides that for every mode and must be
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
@@ -695,13 +696,14 @@ def _run_pipeline(
         # ExtractionError) and re-stat after extraction to catch a mid-run change,
         # so the persisted MovieMetadata describes exactly the bytes extracted.
         sha256, file_size, mtime = identity if identity is not None else _hash_movie(movie_path)
-        with open_movie(movie_path) as reader:
+        with open_extraction_movie(movie_path) as reader:
             n_frames, height, width = reader.shape
             pixel_dtype = str(reader.dtype)
             byteorder = reader.byteorder
-            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The
-            # ImageJ finterval tag is the only source: the .tdat/.mat decode reads no
-            # FrameTime, so a legacy import cannot supply one later either.
+            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The movie
+            # file is the only source (a TIFF's ImageJ finterval tag, an ND2's frame
+            # times): the .tdat/.mat decode reads no FrameTime, so a legacy import
+            # cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
             pixel_size_um = reader.pixel_size_um
 
@@ -1137,7 +1139,7 @@ def count_molecules_by_rule(
     _check_inputs(movie_path, tmap, tdat, map_path)
     options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
     try:
-        with open_movie(movie_path) as reader:
+        with open_extraction_movie(movie_path) as reader:
             stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
             for stage in stages:
                 if stage.outcome == OUTCOME_FAILED:
