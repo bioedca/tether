@@ -399,6 +399,49 @@ def test_guarded_writer_stages_outside_canonical_project(tmp_path) -> None:
     assert not list(tmp_path.glob(".guarded.tether.*.idealization.tmp"))
 
 
+def test_a_held_lock_lost_during_the_staged_write_keeps_the_successors_save(tmp_path) -> None:
+    """With a caller's guard and ``require_held_lock``, both checks hold at every staged boundary.
+
+    The caller's guard alone (a cancel check, #625) passes, so it is the composed
+    held-lock check that must refuse the replace once a successor owns and saves.
+    """
+    from tether.project.lock import LockedError
+
+    proj, _ = _build_store(
+        tmp_path / "held.tether",
+        _step_trace(2, 20),
+        _step_trace(2, 20),
+    )
+    stolen = False
+
+    def cancel_check_only() -> None:
+        nonlocal stolen
+        if not stolen and list(tmp_path.glob(".held.tether.*.idealization.tmp")):
+            # A successor takes the project over and saves while the model is staged.
+            proj.lock_path.unlink()
+            with h5py.File(proj.path, "r+") as store:
+                store["settings"].attrs["successor_sentinel"] = "preserve"
+            stolen = True
+
+    proj.acquire_lock()
+    try:
+        with pytest.raises(LockedError):
+            idealize_molecules(
+                proj,
+                nstates=2,
+                require_held_lock=True,
+                write_guard=cancel_check_only,
+                _runner=_make_runner({2: -1.0}, []),
+            )
+    finally:
+        proj.release_lock()
+    assert stolen
+    assert list_idealizations(proj) == []
+    with h5py.File(proj.path, "r") as store:
+        assert store["settings"].attrs["successor_sentinel"] == "preserve"
+    assert not list(tmp_path.glob(".held.tether.*.idealization.tmp"))
+
+
 def test_input_hash_matches_windowed_corrected_trace(tmp_path) -> None:
     n, t = 2, 24
     donor = _step_trace(n, t)
