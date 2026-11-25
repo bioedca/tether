@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -441,6 +442,56 @@ def test_main_measures_per_trace_vbfret_on_the_small_fixtures(
     assert sorted(artifact["spread_by_fixture"]) == ["smd_2mol", "smd_4mol"]
     # Per-trace vbFRET is not a population method: it has no transition-matrix term.
     assert "transition_matrix" not in artifact
+    # Evidence only: no frozen row (ADR-0110, CodeRabbit review of #1374).
+    assert artifact["freeze_status"] == "not_frozen"
+    assert "tolerance" not in artifact
+
+
+def test_main_writes_per_trace_evidence_as_strict_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An infinite per-trace spread value becomes ``null``; the file is strict JSON."""
+    out_path, _calls = _configure_per_trace(monkeypatch, tmp_path)
+    inf = {
+        "state_count_fraction": SpreadSummary("state_count_fraction", "floor", [0.0]),
+        "state_mean_abs_delta": SpreadSummary("state_mean_abs_delta", "ceiling", [math.inf]),
+        "viterbi_agreement": SpreadSummary("viterbi_agreement", "floor", [0.0]),
+        "relative_elbo": SpreadSummary("relative_elbo", "ceiling", [0.5]),
+    }
+    monkeypatch.setattr(
+        measure,
+        "measure_spread",
+        lambda smd, **kw: (inf, [ParityMetrics(0.0, math.inf, 0.0, 0.5, 2, 3)]),
+    )
+
+    assert measure.main() == 0
+
+    text = out_path.read_text(encoding="utf-8")
+    artifact = json.loads(text, parse_constant=lambda c: pytest.fail(f"non-strict {c}"))
+    assert artifact["pooled_worst"]["state_mean_abs_delta"] is None
+
+
+@pytest.mark.parametrize("out", [None, "schema/parity_tolerance.json"])
+def test_main_refuses_to_write_per_trace_into_the_tolerance_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    out: str | None,
+) -> None:
+    """``vbfret`` without ``--out``, or with the canonical file, stops before any fit."""
+    _out, calls = _configure_per_trace(monkeypatch, tmp_path)
+    argv = list(sys.argv)
+    i = argv.index("--out")
+    del argv[i : i + 2]
+    if out is not None:
+        argv += ["--out", out]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as stopped:
+        measure.main()
+
+    assert stopped.value.code == 2
+    assert calls == []
 
 
 def test_main_refuses_a_fixture_the_per_trace_table_does_not_configure(

@@ -332,9 +332,10 @@ def _state_paths_from_model(model: StateModel) -> dict[int, np.ndarray]:
     shared ``means`` ([`states_from_idealized`][]). A **per-trace** model (one whose
     ensemble ``means`` are all NaN and which carries ``trace_level``, as
     ``model_type="vbfret"`` writes) has no shared states: each molecule's row maps to
-    the nearest of **that trace's own** means, so its state indices are labels of
-    that trace alone. A molecule with no per-trace model, or whose per-trace model has
-    no finite mean, gets no path. Returns ``{}`` when the model has no
+    the nearest of **that trace's own** finite means, and each state index is the
+    index of that mean in the trace's ``means`` (a NaN mean is never chosen). A
+    molecule with no per-trace model, or whose per-trace model has no finite mean,
+    gets no path. Returns ``{}`` when the model has no
     ``idealized`` array.
     """
     if model.idealized is None or not model.means.size:
@@ -351,10 +352,12 @@ def _state_paths_from_model(model: StateModel) -> dict[int, np.ndarray]:
             if trace is None:
                 continue
             means = np.asarray(trace.means, dtype="float64").reshape(-1)
-            means = means[np.isfinite(means)]
-            if not means.size:
+            finite = np.flatnonzero(np.isfinite(means))
+            if not finite.size:
                 continue
-            paths[mol_idx] = states_from_idealized(idealized[mol_idx][None, :], means)[0]
+            # Nearest of the finite means, then back to its index in ``trace.means``.
+            local = states_from_idealized(idealized[mol_idx][None, :], means[finite])[0]
+            paths[mol_idx] = np.where(local == NO_STATE, NO_STATE, finite[np.maximum(local, 0)])
         return paths
     all_paths = states_from_idealized(idealized, ensemble)
     for mol_idx in ran.tolist():

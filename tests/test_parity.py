@@ -971,6 +971,24 @@ def test_state_paths_of_a_per_trace_model_use_each_trace_s_own_means():
     assert sorted(_state_paths_from_model(model)) == [0]
 
 
+def test_per_trace_state_indices_index_the_trace_s_own_means_past_a_nan_mean():
+    # A NaN mean inside a trace's means is never chosen, and the indices after it stay
+    # indices into ``trace.means`` (CodeRabbit review of #1374).
+    from tether.idealize.driver import _state_paths_from_model
+
+    row = [0.2, 0.8, 0.8, NAN]
+    trace = StateModel(
+        model_type="vb HMM_tracelevel",
+        nstates=3,
+        means=np.asarray([0.2, NAN, 0.8]),
+        elbo=-1.0,
+        idealized=np.asarray(row),
+    )
+    model = _per_trace([trace])
+    model.idealized = np.asarray([row])
+    assert _state_paths_from_model(model)[0].tolist() == [0, 2, 2, NO_STATE]
+
+
 def test_state_paths_of_an_ensemble_model_use_the_shared_means():
     from tether.idealize.driver import _state_paths_from_model
 

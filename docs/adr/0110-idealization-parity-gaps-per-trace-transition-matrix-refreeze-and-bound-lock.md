@@ -95,7 +95,7 @@ not take the model: `/idealization` keeps one set of state means per model, so
 persists a model with no finite state mean.
 
 **Measured on the pinned build, it does not reproduce across seeds.** `scripts/measure_parity.py
---n-runs 20 --model-type vbfret` (2026-11-15; tMAVEN `10f4230b`, CPython 3.12.13; 19 comparisons
+--n-runs 20 --model-type vbfret --out <evidence file>` (2026-11-15; tMAVEN `10f4230b`, CPython 3.12.13; 19 comparisons
 per fixture, anchored on run 00):
 
 | Fixture | state count, worst / mean | Viterbi, worst / mean | per-state ΔE, worst | relative ELBO, worst / mean |
@@ -121,7 +121,9 @@ So, by the maintainer's decision of 2026-11-15: **no per-trace row is frozen.** 
 test `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that the fit carries a
 per-trace model for every molecule and that one seed gives one model value for value (the guard
 of ADR-0075), and writes the cross-seed agreement of seeds 1 and 2 to the job log without
-asserting it. `"vbFRET (per-trace, M2)"` stays in `$.coverage.applied_to` (decision of
+asserting it. `scripts/measure_parity.py --model-type vbfret` likewise writes the spread as
+evidence only (`"freeze_status": "not_frozen"`, no `tolerance`) and refuses to write
+`schema/parity_tolerance.json`. `"vbFRET (per-trace, M2)"` stays in `$.coverage.applied_to` (decision of
 2026-11-14); the coverage note says no test asserts a per-trace fit against that row. The §9.6
 row for per-trace vbFRET parity stays open, restated with this finding, and points to
 [#949](https://github.com/bioedca/tether/issues/949), the parity evidence for the per-trace HMMs.

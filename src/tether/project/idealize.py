@@ -462,7 +462,9 @@ def idealize_molecules(
         order; a duplicate ``molecule_key`` (§7.10) idealizes each matching row.
     model_type:
         A sidecar model key (default ``"vbconhmm"``; see
-        [`tether.idealize.run_vbfret`][]).
+        [`tether.idealize.run_vbfret`][]). A per-trace key (``"vbfret"``) is
+        refused: ``/idealization`` keeps one set of state means per model. Fit it
+        with [`tether.idealize.run_vbfret`][] instead.
     nstates:
         Fixed state count. ``None`` (default) selects it by maximum ELBO over
         ``nstates_grid`` [Bronson2009].
@@ -511,8 +513,9 @@ def idealize_molecules(
     Raises
     ------
     ValueError
-        Empty selection, unknown ``intensity_quantity``, or a store without the
-        requested trace layer.
+        Empty selection, unknown ``intensity_quantity``, a store without the
+        requested trace layer, a per-trace ``model_type`` (``"vbfret"``, refused
+        before any fit), or a fitted model with no finite state mean.
     KeyError
         A requested ``molecule_key`` absent from ``/molecules``.
     FileExistsError
