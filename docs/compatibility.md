@@ -73,9 +73,10 @@ Tether reads
 the image with the most time points, at full resolution. It refuses two movies of the same
 length in one file, and a movie of several channels or focal planes. It also refuses color
 pixels and frames stored with JPEG or JPEG 2000. The pixel size, the frame time and the channel
-name come from the file when Bio-Formats finds them, and are *unknown* otherwise. Extraction
-reads a `.vsi` movie as it reads an ND2: it copies the frames to the temporary folder in blocks,
-and then the same steps as for a TIFF give the same traces (ADR-0149).
+name come from the file when Bio-Formats finds them, and are *unknown* otherwise.
+
+Extraction reads a `.vsi` movie as it reads an ND2. It copies the frames to the temporary folder
+in blocks. Then the same steps as for a TIFF give the same traces (ADR-0149).
 
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,
