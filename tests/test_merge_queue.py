@@ -199,10 +199,14 @@ def test_join_refuses_a_pull_request_that_cannot_merge(world: World, change, rea
     assert not [call for call in world.calls if call[0] != "GET"]
 
 
-def test_join_refuses_a_short_head_and_an_unknown_number(world: World, tmp_path: Path) -> None:
+def test_join_refuses_a_short_head_an_empty_message_and_an_unknown_number(
+    world: World, tmp_path: Path
+) -> None:
     head = world.pull(7, {"a.txt": "a\n"})
     with pytest.raises(mq.Refused, match="40-hex"):
         mq.join(world.github, 7, head[:12], "message")
+    with pytest.raises(mq.Refused, match="the squash message is empty"):
+        mq.join(world.github, 7, head, " \n")
     with pytest.raises(mq.Refused, match="#8 is not a pull request"):
         mq.join(world.github, 8, head, "message")
     (tmp_path / "message.txt").write_text("message\n", encoding="utf-8")

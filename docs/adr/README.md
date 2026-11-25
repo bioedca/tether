@@ -198,6 +198,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0145](0145-the-analyze-section-is-the-plot-builder-and-the-histogram-dock-is-retired.md) | The Analyze section's page is the plot builder, and the population-histogram dock is retired | accepted; changes one consequence of [ADR-0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) (the histogram dock no longer keeps pyqtgraph) and the Analyze part of [ADR-0116](0116-the-shell-hosts-its-sections-in-one-stack.md) (Analyze has no dock and no menu); their other decisions govern unchanged | §7.7 FR-PLOT (composed plots), §7.11 (the application calls the service layer) |
 | [0148](0148-tether-reads-nd2-with-its-own-reader-and-no-reader-package.md) | Tether reads ND2 with its own reader and no reader package | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0149](0149-extraction-reads-every-registered-reader-through-read-frames.md) | Extraction reads every registered reader through read_frames | accepted | §7.1 FR-EXTRACT, Appendix A (input formats), §11.2 |
+| [0150](0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md) | Tether reads SIF with its own reader, and only movies of raw counts | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0151](0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md) | A movie pair is one /movies row named by the checksum of both files | accepted | §5 (data model), §7.1 FR-EXTRACT, Appendix E stage 1 |
 
 <!-- gen:adr-index end -->
