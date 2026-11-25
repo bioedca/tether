@@ -10,8 +10,10 @@ window and a script cannot disagree on what the next step is.
 The read is the one of ``tether info`` (#655): the project is opened read-only and no lock
 is taken. It reads [`tether.project.summary.read_project_summary`][] with the stale check,
 the stored jobs and stale marks of ADR-0126 ([`tether.project.jobs`][]) and the correction
-state of G03 ([`tether.project.correction_states`][]). A stage whose issue has not landed
-yet is reported as [`NOT_AVAILABLE_TEXT`][], never as ready or as missing.
+state of G03 ([`tether.project.correction_states`][]), and the carried, new and lost
+molecules of each movie extracted again
+([`tether.project.generation_reconcile.reconciliation_counts`][], #923). A stage whose
+issue has not landed yet is reported as [`NOT_AVAILABLE_TEXT`][], never as ready or as missing.
 
 [`ProjectReadiness.to_dict`][] is the documented, versioned JSON layout
 ([`READINESS_FORMAT_VERSION`][]); ``docs/cli.md`` lists its keys.
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
     from os import PathLike
 
     from tether.project.correction_states import CorrectionStatus
+    from tether.project.generation_reconcile import ReconciliationCounts
     from tether.project.jobs import JobRecord
     from tether.project.summary import ProjectSummary
 
@@ -235,6 +238,9 @@ class ProjectReadiness:
     stale: tuple[StaleItem, ...]
     jobs: tuple[JobStatus, ...]
     next_step: NextStep
+    #: The carried, new and lost molecules of the movies extracted again (#923), or
+    #: ``None`` when the store was not read for them.
+    reconciliation: ReconciliationCounts | None = None
 
     def stage(self, key: str) -> StageReadiness:
         """Return the stage ``key``; raise ``KeyError`` for a name that is not a stage."""
@@ -252,6 +258,9 @@ class ProjectReadiness:
             "stale": [s.to_dict() for s in self.stale],
             "jobs": [j.to_dict() for j in self.jobs],
             "next_step": self.next_step.to_dict(),
+            "reconciliation": None
+            if self.reconciliation is None
+            else self.reconciliation.to_dict(),
         }
 
 
@@ -516,6 +525,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
     """
     from tether.project import correction_states, jobs  # noqa: PLC0415
     from tether.project import dependency_graph as graph  # noqa: PLC0415
+    from tether.project.generation_reconcile import reconciliation_counts  # noqa: PLC0415
     from tether.project.summary import read_project_summary  # noqa: PLC0415
 
     given = os.fspath(path)
@@ -534,6 +544,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         stored_jobs = jobs.read_jobs(store)
         job_records = tuple(_job_status(j) for j in stored_jobs)
         marks = _outstanding(jobs.read_stale_marks(store), jobs.read_recorded_inputs(store))
+        reconciliation = reconciliation_counts(store)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise ProjectReadinessError(f"{store}: could not be read ({exc})") from exc
 
@@ -593,4 +604,5 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         stale=tuple(stale),
         jobs=job_records,
         next_step=_next_step(stage_tuple, stored_jobs),
+        reconciliation=reconciliation,
     )
