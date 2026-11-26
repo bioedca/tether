@@ -185,6 +185,27 @@ The builder takes `dt` from `/movies.frame_time` of the movies its series read, 
   drawn on a **frame-index axis whose label says so**, and its rates are per frame.
 - The `dt` used is recorded in the export's provenance for each series.
 
+### The composition file (amended 2026-11-26, #1438)
+
+The builder's save and open (#1438) need a file form of a whole composition, which the record
+above does not fix. It is this:
+
+- A composition file is one JSON object with exactly six keys: `format`
+  (`"tether-plot-composition"`), `version` (an integer, `1` today), `plot` (the `id` of a registry
+  entry), `project_path` (the resolved project the plot reads), `series` and `parameters`. It
+  holds no trace data. `series` is the layer list in drawing order; each entry is `label` and
+  `selection`: the `SavedSelection` form above, or `null` for every molecule of the project.
+  `parameters` is `model_name` and `states` (each state option the plot takes, by name).
+- A reader refuses another `version`, an unknown key and a repeated label, with a message. A
+  later field (#375's staleness choice, #376's frame time) is added with a new version, not
+  read past.
+- Opening checks each series against the project: a series whose project cannot be found, or
+  that names a molecule the project does not have, is named with what is missing and is left
+  out of the layer list. It is never drawn from a guess. The builder reads one project, so a
+  composition of a project other than the open one changes nothing.
+- Saving and opening are the `save-composition` and `open-composition` service commands
+  (`tether.services.compositions`), each with a command-line route (ADR-0100).
+
 ### Consequences
 
 - Good: the builder has one type to put in a layer list, today, and #934's version drops into the
@@ -203,7 +224,9 @@ The builder takes `dt` from `/movies.frame_time` of the movies its series read, 
 ## More information
 
 - Code: `src/tether/analysis/saved_selection.py`; tests:
-  `tests/test_analysis_saved_selection.py` (run without a `QApplication`).
+  `tests/test_analysis_saved_selection.py` (run without a `QApplication`). The composition file:
+  `src/tether/services/compositions.py`; tests: `tests/test_services_compositions.py` and
+  `tests/test_analysis_section.py`.
 - Related: [ADR-0044](0044-matplotlib-base-plot-export-backend.md) (the Matplotlib export and
   `matplotlib-base`), [ADR-0042](0042-a1-model-gaussian-overlay.md) (the overlay is the model's
   own Gaussians), [ADR-0103](0103-the-project-dependency-graph-and-the-stale-rules.md) (stale),

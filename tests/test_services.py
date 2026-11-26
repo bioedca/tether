@@ -57,6 +57,17 @@ _SAMPLE_ARGV: dict[str, list[str]] = {
     "idealize": ["idealize", "p.tether"],
     "map": ["map", "create", "beads.tif", "-o", "beads.npz"],
     "approve": ["approve", "p.tether", "gamma.approve", "--subject", "c1", "--report", "r.json"],
+    "save-composition": [
+        "save-composition",
+        "c.json",
+        "--project",
+        "p.tether",
+        "--plot",
+        "population_raw_fret_cloud",
+        "--series",
+        "all",
+    ],
+    "open-composition": ["open-composition", "c.json"],
 }
 _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
     "extract": {"movie": "movie.tif", "output": "out.tether"},
@@ -70,6 +81,13 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
         "subject": "c1",
         "report": "r.json",
     },
+    "save-composition": {
+        "path": "c.json",
+        "project": "p.tether",
+        "plot": "population_raw_fret_cloud",
+        "series": ("all",),
+    },
+    "open-composition": {"path": "c.json"},
 }
 
 
@@ -78,7 +96,16 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
 
 def test_the_registry_names_each_command_once_with_its_types() -> None:
     names = [entry.name for entry in services.COMMANDS]
-    assert names == ["extract", "reextract", "batch", "idealize", "map", "approve"]
+    assert names == [
+        "extract",
+        "reextract",
+        "batch",
+        "idealize",
+        "map",
+        "approve",
+        "save-composition",
+        "open-composition",
+    ]
     assert len(set(names)) == len(names)
     for entry in services.COMMANDS:
         assert issubclass(entry.request_type, base.Request)

@@ -19,6 +19,12 @@ things:
   export's white background in a dark theme for the same reason.
 
 Each change of the plot, the model, a state or the layer list draws the plot again, once.
+*Save composition…* writes the plot, its project, the layer list and the plot parameters to
+a file through the ``save-composition`` service command, and *Open composition…* reads one
+back through ``open-composition`` to the same layer list (#1438,
+[`tether.services.compositions`][]). A series whose project or molecules cannot be found is
+named under the buttons and left out of the layer list; nothing is drawn from a guess.
+
 When the plot cannot be drawn the preview shows why — no project, no series, no
 idealization model, a state the model does not have, or the refusal of the population
 function or the renderer — and never a placeholder result.
@@ -33,6 +39,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tether.services.base import ServiceError
+from tether.services.compositions import (
+    OpenCompositionRequest,
+    OpenCompositionResult,
+    SaveCompositionRequest,
+    SaveCompositionResult,
+    series_text,
+)
 from tether.services.plots import (
     ALL_MOLECULES,
     PLOTS,
@@ -54,6 +68,9 @@ if TYPE_CHECKING:
 
 __all__ = ["AnalysisSection"]
 
+#: The file filter of the composition dialogs.
+_COMPOSITION_FILTER = "Plot composition (*.json);;All files (*)"
+
 #: The words of each state option's spin box.
 _STATE_LABELS = {"state": "State", "init_state": "From state", "final_state": "To state"}
 
@@ -66,6 +83,16 @@ def _unique(label: str, taken: set[str]) -> str:
     while f"{label} ({k})" in taken:
         k += 1
     return f"{label} ({k})"
+
+
+def _same_file(a: str | PathLike[str], b: str | PathLike[str]) -> bool:
+    """Say whether ``a`` and ``b`` name one file (by path when either cannot be read)."""
+    import os  # noqa: PLC0415
+
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(Path(a).resolve()) == os.path.normcase(Path(b).resolve())
 
 
 def _drawn_message(outcome: PlotOutcome) -> str:
@@ -93,6 +120,9 @@ class AnalysisSection:
         self._outcome: PlotOutcome = PlotOutcome(PLOTS[0].id, missing="")
         self._canvas: Any | None = None
         self._closed = False
+        # The model an opened composition names (``None``: none), held until a person
+        # chooses one, so a rebuilt model list never picks a model in its place.
+        self._pinned_model: tuple[str | None] | None = None
 
         self._widget = QtWidgets.QWidget()
         self._widget.setObjectName("analysis-section")
@@ -141,6 +171,17 @@ class AnalysisSection:
         self._remove_button = QtWidgets.QPushButton("Remove")
         buttons.addWidget(self._remove_button)
         form.addLayout(buttons)
+
+        files = QtWidgets.QHBoxLayout()
+        self._save_button = QtWidgets.QPushButton("Save composition…")
+        files.addWidget(self._save_button)
+        self._open_button = QtWidgets.QPushButton("Open composition…")
+        files.addWidget(self._open_button)
+        form.addLayout(files)
+        self._notice = QtWidgets.QLabel()
+        self._notice.setObjectName("analysis-composition-notice")
+        self._notice.setWordWrap(True)
+        form.addWidget(self._notice)
         row.addWidget(controls)
 
         self._preview = QtWidgets.QStackedWidget()
@@ -157,9 +198,12 @@ class AnalysisSection:
 
         self._plot_combo.currentIndexChanged.connect(self._on_plot_changed)
         self._model_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        self._model_combo.activated.connect(self._unpin_model)
         for box in self._state_boxes.values():
             box.valueChanged.connect(lambda _v: self.refresh())
         self._remove_button.clicked.connect(self.remove_selected)
+        self._save_button.clicked.connect(lambda _c=False: self._ask_save())
+        self._open_button.clicked.connect(lambda _c=False: self._ask_open())
         self._layers.currentRowChanged.connect(lambda _r: self._sync_buttons())
         self._add_menu.aboutToShow.connect(self._rebuild_add_menu)
 
@@ -208,6 +252,21 @@ class AnalysisSection:
     def remove_button(self) -> QtWidgets.QPushButton:
         """Removes the selected series from the layer list."""
         return self._remove_button
+
+    @property
+    def save_button(self) -> QtWidgets.QPushButton:
+        """*Save composition…*: without a project or a series it says which is missing."""
+        return self._save_button
+
+    @property
+    def open_button(self) -> QtWidgets.QPushButton:
+        """*Open composition…*: reads a composition file back to the layer list."""
+        return self._open_button
+
+    @property
+    def notice_text(self) -> str:
+        """What the last save or open said: the file, or each series that was left out."""
+        return self._notice.text()
 
     @property
     def project(self) -> Path | None:
@@ -264,6 +323,7 @@ class AnalysisSection:
         outside its own project (ADR-0124), so keeping them would draw empty series.
         """
         self._project = None if project is None else Path(project)
+        self._pinned_model = None
         self._series.clear()
         self._layers.clear()
         self._reload_models(reset_states=True)
@@ -280,6 +340,7 @@ class AnalysisSection:
         index = self._model_combo.findText(model_name)
         if index < 0:
             raise KeyError(f"the project has no idealization model {model_name!r}")
+        self._pinned_model = None
         self._model_combo.setCurrentIndex(index)
 
     def add_series(self, series: PlotSeries) -> PlotSeries:
@@ -309,6 +370,126 @@ class AnalysisSection:
         if not 0 <= row < len(self._series):
             return None
         return self.remove_series(row)
+
+    # --- saving and opening a composition ------------------------------------
+
+    def save_composition(self, path: str | PathLike[str]) -> SaveCompositionResult | None:
+        """Write the current composition to ``path`` (``save-composition``), replacing it.
+
+        Returns the result, or ``None`` when the command refused or failed; the notice
+        under the buttons says which.
+        """
+        from tether.services import run  # noqa: PLC0415
+
+        if self._project is None:
+            self._notice.setText("Open a project to save a composition.")
+            return None
+        if not self._series:
+            self._notice.setText("Add a selection to the layer list to save a composition.")
+            return None
+        spec = plot_spec(self.plot_id)
+        request = SaveCompositionRequest(
+            path=str(path),
+            project=str(self._project),
+            plot=spec.id,
+            series=tuple(series_text(s) for s in self._series),
+            model=self.model_name if spec.needs_model else None,
+            states=tuple(f"{n}={self._state_boxes[n].value()}" for n in spec.states),
+            overwrite=True,
+        )
+        try:
+            result: SaveCompositionResult = run(request)
+        except ServiceError as exc:
+            self._notice.setText(f"The composition was not saved: {exc}")
+            return None
+        self._notice.setText(f"Saved the composition to {result.path.name}.")
+        return result
+
+    def open_composition(self, path: str | PathLike[str]) -> OpenCompositionResult | None:
+        """Read ``path`` (``open-composition``) and show its plot and layer list.
+
+        The layer list is replaced by the series of the file, in their order and with their
+        names. A series whose project or molecules cannot be found is left out and named
+        in the notice; a composition of a project other than the open one changes nothing.
+        Returns the result, or ``None`` when the file was refused.
+        """
+        from tether.services import run  # noqa: PLC0415
+
+        try:
+            result: OpenCompositionResult = run(OpenCompositionRequest(path=str(path)))
+        except ServiceError as exc:
+            self._notice.setText(f"The composition was not opened: {exc}")
+            return None
+        composition = result.composition
+        if self._project is None or not _same_file(self._project, composition.project_path):
+            lines = [
+                f"{Path(path).name} reads the project {composition.project_path}; "
+                "open that project first.",
+            ]
+            if result.missing:
+                lines.append(result.message())
+            self._notice.setText("\n".join(lines))
+            return result
+        too_large = [
+            f"{name} {value}"
+            for name, value in composition.states
+            if value > self._state_boxes[name].maximum()
+        ]
+        if too_large:
+            # The spin box would clamp the value and draw another state: refuse instead.
+            self._notice.setText(
+                f"{Path(path).name} was not opened: the section cannot show {', '.join(too_large)}."
+            )
+            return None
+        lines = [f"Opened {Path(path).name}."]
+        lines.extend(f"Left out {label}: {reason}" for label, reason in result.missing)
+        spec = plot_spec(composition.plot)
+        blocked = [self._plot_combo, self._model_combo, *self._state_boxes.values()]
+        previous = [w.blockSignals(True) for w in blocked]
+        try:
+            self._plot_combo.setCurrentIndex(self._plot_combo.findData(spec.id))
+            self._sync_plot_controls()
+            self._reload_models(reset_states=True)
+            self._pinned_model = None
+            if spec.needs_model:
+                # A composition that names no model draws none: never the model left chosen.
+                name = composition.model_name
+                self._pinned_model = (name,)
+                index = -1 if name is None else self._model_combo.findText(name)
+                self._model_combo.setCurrentIndex(index)
+                if name is not None and index < 0:
+                    lines.append(
+                        f"The project has no idealization model {composition.model_name!r}."
+                    )
+            for name, value in composition.states:
+                self._state_boxes[name].setValue(value)
+        finally:
+            for widget, was in zip(blocked, previous, strict=True):
+                widget.blockSignals(was)
+        self._series = list(result.found)
+        self._layers.clear()
+        self._layers.addItems([s.label for s in self._series])
+        self.refresh()
+        self._notice.setText("\n".join(lines))
+        return result
+
+    def _ask_save(self) -> None:
+        from pyqtgraph.Qt import QtWidgets  # noqa: PLC0415
+
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self._widget, "Save composition", "", _COMPOSITION_FILTER
+        )
+        if path:
+            self.save_composition(path)
+
+    def _ask_open(self) -> None:
+        from pyqtgraph.Qt import QtWidgets  # noqa: PLC0415
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self._widget, "Open composition", "", _COMPOSITION_FILTER
+        )
+        if path:
+            self.open_composition(path)
 
     # --- drawing -------------------------------------------------------------
 
@@ -387,6 +568,10 @@ class AnalysisSection:
         self._add_button.setEnabled(has_project)
         self._remove_button.setEnabled(0 <= self._layers.currentRow() < len(self._series))
 
+    def _unpin_model(self, _index: int) -> None:
+        """Release the opened composition's model: a person chose one."""
+        self._pinned_model = None
+
     def _reload_models(self, *, reset_states: bool) -> None:
         models: list[str] = []
         if self._project is not None:
@@ -401,8 +586,18 @@ class AnalysisSection:
             try:
                 self._model_combo.clear()
                 self._model_combo.addItems(models)
-                if current in models:
+                if self._pinned_model is not None:
+                    # An opened composition's model: chosen when the project has it, and
+                    # otherwise no model, even when a model was added since (#1465 review).
+                    (pinned,) = self._pinned_model
+                    index = models.index(pinned) if pinned in models else -1
+                    self._model_combo.setCurrentIndex(index)
+                elif current in models:
                     self._model_combo.setCurrentIndex(models.index(current))
+                elif listed:
+                    # A list that held models had a choice, or none on purpose (a composition
+                    # that names no model): never let Qt pick the first model in its place.
+                    self._model_combo.setCurrentIndex(-1)
             finally:
                 self._model_combo.blockSignals(blocker)
         if not reset_states:

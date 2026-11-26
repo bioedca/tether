@@ -1,0 +1,495 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""A plot composition saves to a file and opens again to the same layer list (#1438).
+
+``tether.services.compositions`` is Qt-free, so these run with no ``QApplication``. They
+check the acceptance criteria of #1438 on the record and its two service commands:
+
+* two series save and open again to the same plot, the same series in the same order with
+  the same names and molecule keys, and the same parameters;
+* the file holds the plot, the project, the series, the parameters and the format version,
+  and no trace data;
+* a series whose project or molecules are missing is named, with what is missing, and is
+  not among the series that can be drawn;
+* a file of another format version is refused;
+* both commands have command-line routes (``tether save-composition``, ``tether
+  open-composition``).
+"""
+
+from __future__ import annotations
+
+import json
+
+import numpy as np
+import pytest
+
+from tether.services import (
+    OpenCompositionRequest,
+    RequestRefused,
+    SaveCompositionRequest,
+    run,
+)
+from tether.services.compositions import (
+    COMPOSITION_VERSION,
+    PlotComposition,
+    series_text,
+)
+from tether.services.plots import ALL_MOLECULES, PlotSeries
+
+pytest.importorskip("h5py")
+
+MODEL = "vbconhmm"
+PLOT = "population_transition_prob_histogram"
+
+
+@pytest.fixture
+def modelled(tmp_path):
+    """A six-molecule store with a two-state model, and its molecule keys."""
+    from _analysis_store import build_store_with_model
+
+    n, t = 6, 60
+    states = np.array([[(j // (5 + i)) % 2 for j in range(t)] for i in range(n)])
+    project, keys = build_store_with_model(tmp_path, states, np.array([0.2, 0.8]), model_name=MODEL)
+    return project.path, list(keys)
+
+
+def _two(path, keys) -> tuple[PlotSeries, PlotSeries]:
+    from tether.analysis.saved_selection import SavedSelection
+
+    return (
+        PlotSeries("late", SavedSelection("late", path, keys[3:])),
+        PlotSeries("early", SavedSelection("early", path, keys[:3])),
+    )
+
+
+def _save(path, project, series, **fields):
+    request = SaveCompositionRequest(
+        path=str(path),
+        project=str(project),
+        plot=fields.pop("plot", PLOT),
+        series=tuple(s if isinstance(s, str) else series_text(s) for s in series),
+        **fields,
+    )
+    return run(request)
+
+
+def test_two_series_save_and_open_again_to_the_same_layer_list(modelled, tmp_path) -> None:
+    project, keys = modelled
+    late, early = _two(project, keys)
+    out = tmp_path / "two.json"
+    saved = _save(
+        out,
+        project,
+        [late, early],
+        model=MODEL,
+        states=("init_state=1", "final_state=0"),
+    )
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert opened.composition == saved.composition
+    composition = opened.composition
+    assert composition.plot == PLOT
+    assert [s.label for s in composition.series] == ["late", "early"]
+    assert [s.selection.molecule_keys for s in composition.series] == [
+        tuple(keys[3:]),
+        tuple(keys[:3]),
+    ]
+    assert composition.model_name == MODEL
+    assert dict(composition.states) == {"init_state": 1, "final_state": 0}
+    assert opened.missing == ()
+    assert opened.found == composition.series
+
+
+def test_the_record_round_trips_without_a_file() -> None:
+    from tether.analysis.saved_selection import SavedSelection
+
+    record = PlotComposition(
+        plot="population_dwell_times",
+        project_path="p.tether",
+        series=(
+            PlotSeries(ALL_MOLECULES, None),
+            PlotSeries("a", SavedSelection("a", "p.tether", ("m2", "m1"))),
+        ),
+        model_name=MODEL,
+        states=(("state", 1),),
+    )
+    assert PlotComposition.from_text(record.to_text()) == record
+
+
+def test_the_file_holds_no_trace_data(modelled, tmp_path) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, [*_two(project, keys), "all"], model=MODEL)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert set(data) == {"format", "version", "plot", "project_path", "series", "parameters"}
+    assert data["version"] == COMPOSITION_VERSION
+    assert set(data["parameters"]) == {"model_name", "states"}
+    for entry in data["series"]:
+        assert set(entry) == {"label", "selection"}
+    assert data["series"][2] == {"label": ALL_MOLECULES, "selection": None}
+    # Names of molecules, never a number of a trace: every leaf is short text or a flag.
+    assert out.stat().st_size < 4096
+
+
+def test_a_preset_series_is_frozen_against_the_project(modelled, tmp_path) -> None:
+    from tether.analysis.saved_selection import preset_selections
+
+    project, _keys = modelled
+    movie = preset_selections(project, "movie")[0]
+    value = movie.filter.group[1]
+    saved = _save(
+        tmp_path / "p.json", project, [f"movie={value}", "all"], plot="population_raw_fret_cloud"
+    )
+    first, everything = saved.composition.series
+    assert first.label == movie.name
+    assert first.selection.molecule_keys == movie.molecule_keys
+    assert everything == PlotSeries(ALL_MOLECULES, None)
+    with pytest.raises(RequestRefused, match="has no movie 'nope'"):
+        _save(tmp_path / "q.json", project, ["movie=nope"])
+    with pytest.raises(RequestRefused, match="is not a preset"):
+        _save(tmp_path / "q.json", project, ["tags=x"])
+    assert not (tmp_path / "q.json").exists()
+
+
+def test_missing_molecules_are_named_and_not_drawn(modelled, tmp_path) -> None:
+    from tether.analysis.saved_selection import SavedSelection
+
+    project, keys = modelled
+    ghost = PlotSeries("ghost", SavedSelection("ghost", project, [keys[0], "no-such-key"]))
+    late, _early = _two(project, keys)
+    out = tmp_path / "c.json"
+    _save(out, project, [late, ghost])
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert [label for label, _ in opened.missing] == ["ghost"]
+    assert "1 of its 2 molecules are not in" in opened.missing[0][1]
+    assert "no-such-key" in opened.missing[0][1]
+    assert [s.label for s in opened.found] == ["late"]
+
+
+def test_a_missing_project_is_named_for_every_series(modelled, tmp_path) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, [*_two(project, keys)])
+    data = json.loads(out.read_text(encoding="utf-8"))
+    gone = str(tmp_path / "moved.tether")
+    data["project_path"] = gone
+    out.write_text(json.dumps(data), encoding="utf-8")
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert [label for label, _ in opened.missing] == ["late", "early"]
+    assert all("moved.tether cannot be found" in reason for _, reason in opened.missing)
+    assert opened.found == ()
+
+
+@pytest.mark.parametrize("version", [0, 2, "1", None, True])
+def test_an_unknown_format_version_is_refused(modelled, tmp_path, version) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, [*_two(project, keys)])
+    data = json.loads(out.read_text(encoding="utf-8"))
+    data["version"] = version
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match="composition version .* is not supported"):
+        run(OpenCompositionRequest(path=str(out)))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("{", "not valid JSON"),
+        ('{"format": "other"}', "not a Tether plot composition"),
+        (None, "has no key \\['traces'\\]"),
+    ],
+)
+def test_a_file_that_is_not_a_composition_is_refused(modelled, tmp_path, text, message) -> None:
+    out = tmp_path / "c.json"
+    if text is None:
+        project, keys = modelled
+        _save(out, project, [*_two(project, keys)])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        data["traces"] = [[0.1, 0.2]]
+        text = json.dumps(data)
+    out.write_text(text, encoding="utf-8")
+    with pytest.raises(RequestRefused, match=message):
+        run(OpenCompositionRequest(path=str(out)))
+
+
+def test_save_refuses_before_any_write(modelled, tmp_path) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    with pytest.raises(RequestRefused, match="no plot 'nope'"):
+        _save(out, project, [*_two(project, keys)], plot="nope")
+    with pytest.raises(RequestRefused, match="takes no state option"):
+        _save(out, project, [*_two(project, keys)], states=("state=1",))
+    with pytest.raises(RequestRefused, match="names each series once"):
+        _save(out, project, ["all", "all"])
+    with pytest.raises(RequestRefused, match="cannot be found"):
+        _save(out, tmp_path / "none.tether", ["all"])
+    assert not out.exists()
+    _save(out, project, ["all"])
+    with pytest.raises(RequestRefused, match="exists; give --force"):
+        _save(out, project, ["all"])
+    _save(out, project, ["all"], overwrite=True)
+
+
+def test_the_command_line_saves_and_opens_a_composition(modelled, tmp_path, capsys) -> None:
+    from tether.cli import main
+
+    project, _keys = modelled
+    out = tmp_path / "cli.json"
+    argv = ["save-composition", str(out), "--project", str(project), "--plot", PLOT]
+    argv += ["--series", "all", "--model", MODEL, "--state", "final_state=0"]
+    assert main(argv) == 0
+    assert main(["open-composition", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert f"{PLOT} of" in printed and f"model: {MODEL}" in printed
+    assert "final_state: 0" in printed and f"series {ALL_MOLECULES}: all molecules" in printed
+    assert main(argv) == 2
+    data = json.loads(out.read_text(encoding="utf-8"))
+    data["series"].append(
+        {
+            "label": "ghost",
+            "selection": {
+                "version": 1,
+                "name": "ghost",
+                "project_path": str(project),
+                "molecule_keys": ["no-such-key"],
+                "filter": {},
+            },
+        }
+    )
+    out.write_text(json.dumps(data), encoding="utf-8")
+    assert main(["open-composition", str(out)]) == 1
+    assert "ghost: 1 of its 1 molecules are not in" in capsys.readouterr().err
+    data["version"] = 99
+    out.write_text(json.dumps(data), encoding="utf-8")
+    assert main(["open-composition", str(out)]) == 2
+
+
+def _saved_data(modelled, tmp_path) -> dict:
+    project, keys = modelled
+    out = tmp_path / "base.json"
+    _save(out, project, [*_two(project, keys)], model=MODEL)
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def _set(data: dict, path: tuple, value) -> dict:
+    node = data
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    return data
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        (("parameters",), [], "'parameters' must be an object"),
+        (("series",), {}, "'series' a list"),
+        (("parameters", "states"), {"init_state": "1"}, "map each option to an integer"),
+        (("parameters", "model_name"), 3, "'model_name' must be a string or null"),
+        (("series", 0), ["late"], "with 'label' and 'selection' only"),
+        (("series", 0, "selection"), "keys", "'selection' must be an object or null"),
+        (("plot",), "population_nope", "bad.json: no plot 'population_nope' in the plot"),
+    ],
+)
+def test_a_malformed_composition_is_refused(modelled, tmp_path, path, value, message) -> None:
+    data = _set(_saved_data(modelled, tmp_path), path, value)
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match=message):
+        run(OpenCompositionRequest(path=str(out)))
+
+
+def test_a_composition_missing_a_key_is_refused(modelled, tmp_path) -> None:
+    data = _saved_data(modelled, tmp_path)
+    del data["plot"]
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match="the composition is missing 'plot'"):
+        run(OpenCompositionRequest(path=str(out)))
+    with pytest.raises(RequestRefused, match="cannot read"):
+        run(OpenCompositionRequest(path=str(tmp_path / "none.json")))
+
+
+def test_many_missing_keys_are_counted_and_another_project_is_named(modelled, tmp_path) -> None:
+    from tether.analysis.saved_selection import SavedSelection
+
+    project, keys = modelled
+    many = PlotSeries("many", SavedSelection("many", project, [f"k{i}" for i in range(7)]))
+    elsewhere = tmp_path / "elsewhere.tether"
+    other = PlotSeries("other", SavedSelection("other", elsewhere, keys[:1]))
+    out = tmp_path / "c.json"
+    _save(out, project, [many, other])
+    opened = run(OpenCompositionRequest(path=str(out)))
+    reasons = dict(opened.missing)
+    assert "7 of its 7 molecules are not in" in reasons["many"]
+    assert reasons["many"].endswith("and 2 more")
+    assert "its molecules are of the project" in reasons["other"]
+    assert "many: " in opened.message() and "other: " in opened.message()
+
+
+def test_an_unreadable_project_is_named(modelled, tmp_path) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    data = json.loads(out.read_text(encoding="utf-8"))
+    broken = tmp_path / "broken.tether"
+    broken.write_text("not a project", encoding="utf-8")
+    data["project_path"] = str(broken)
+    out.write_text(json.dumps(data), encoding="utf-8")
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert opened.missing[0][0] == ALL_MOLECULES
+    assert "cannot be read" in opened.missing[0][1]
+
+
+def test_save_refuses_a_bad_state_and_fails_an_unwritable_path(modelled, tmp_path) -> None:
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="is not NAME=INTEGER"):
+        _save(tmp_path / "c.json", project, ["all"], states=("state=one",))
+    with pytest.raises(CommandFailed, match="cannot write"):
+        _save(tmp_path / "no-such-folder" / "c.json", project, ["all"])
+
+
+def test_a_selection_without_a_saved_form_cannot_be_saved() -> None:
+    with pytest.raises(TypeError, match="its selection cannot be saved"):
+        series_text(PlotSeries("odd", object()))
+
+
+# --- review findings on PR #1465 ---------------------------------------------------
+
+
+def test_a_save_never_replaces_the_project_or_any_other_file(modelled, tmp_path) -> None:
+    project, _keys = modelled
+    before = project.read_bytes()
+    with pytest.raises(RequestRefused, match="is the project the composition reads"):
+        _save(project, project, ["all"], overwrite=True)
+    assert project.read_bytes() == before
+    other = tmp_path / "notes.json"
+    other.write_text('{"kept": true}', encoding="utf-8")
+    with pytest.raises(RequestRefused, match="is not a plot composition"):
+        _save(other, project, ["all"], overwrite=True)
+    assert other.read_text(encoding="utf-8") == '{"kept": true}'
+    binary = tmp_path / "other.tether"
+    binary.write_bytes(before)
+    with pytest.raises(RequestRefused, match="is not a plot composition"):
+        _save(binary, project, ["all"], overwrite=True)
+    assert binary.read_bytes() == before
+
+
+def test_a_binary_file_is_refused_not_raised(modelled, tmp_path, capsys) -> None:
+    from tether.cli import main
+
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="cannot read"):
+        run(OpenCompositionRequest(path=str(project)))
+    assert main(["open-composition", str(project)]) == 2
+    assert "tether open-composition: cannot read" in capsys.readouterr().err
+
+
+def test_an_unconditioned_molecule_is_not_missing(modelled, tmp_path) -> None:
+    import h5py
+
+    from tether.analysis.saved_selection import SavedSelection
+    from tether.io.schema import TABLE
+
+    project, keys = modelled
+    with h5py.File(project, "r+") as f:
+        table = f["molecules"][TABLE]
+        rows = table[:]
+        rows["condition_id"][0] = b""
+        table[...] = rows
+    series = PlotSeries("first", SavedSelection("first", project, keys[:1]))
+    out = tmp_path / "c.json"
+    _save(out, project, [series])
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert opened.missing == ()
+    assert [s.label for s in opened.found] == ["first"]
+
+
+def test_a_negative_state_and_a_malformed_filter_are_refused(modelled, tmp_path) -> None:
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="a state is 0 or more"):
+        _save(
+            tmp_path / "c.json",
+            project,
+            ["all"],
+            states=("state=-1",),
+            plot="population_dwell_times",
+        )
+    data = _saved_data(modelled, tmp_path)
+    data["series"][0]["selection"]["filter"] = [1]
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match="its selection cannot be read"):
+        run(OpenCompositionRequest(path=str(out)))
+
+
+# --- review findings of the CodeRabbit review on PR #1465 --------------------------
+
+
+def test_an_unknown_parameter_and_a_repeated_state_are_refused(modelled, tmp_path) -> None:
+    data = _saved_data(modelled, tmp_path)
+    data["parameters"]["include_stale"] = True
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match=r"has no parameter \['include_stale'\]"):
+        run(OpenCompositionRequest(path=str(out)))
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="each state option is given once"):
+        _save(
+            tmp_path / "c.json",
+            project,
+            ["all"],
+            plot="population_dwell_times",
+            states=("state=1", "state=0"),
+        )
+
+
+def test_a_save_never_writes_through_a_link_at_a_temporary_name(modelled, tmp_path) -> None:
+    import os
+
+    project, _keys = modelled
+    before = project.read_bytes()
+    out = tmp_path / "c.json"
+    trap = tmp_path / ".c.json.tmp"
+    try:
+        trap.symlink_to(project)
+    except OSError:  # no symlink privilege (Windows without developer mode)
+        pytest.skip("symlinks are not available here")
+    _save(out, project, ["all"])
+    assert project.read_bytes() == before
+    assert trap.is_symlink()
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    leftovers = [p for p in os.listdir(tmp_path) if p.endswith(".tmp") and p != trap.name]
+    assert leftovers == []
+
+
+def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch) -> None:
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", refuse)
+    with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"])
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -> None:
+    import os
+    import stat
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    mode = stat.S_IMODE(out.stat().st_mode)
+    if hasattr(os, "fchmod"):
+        assert mode == 0o644  # not mkstemp's private 0600
+    else:  # Windows: no fchmod, and the file keeps its ordinary read-write default
+        assert mode & stat.S_IREAD and mode & stat.S_IWRITE

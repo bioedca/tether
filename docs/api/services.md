@@ -19,6 +19,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.batch
 
+::: tether.services.compositions
+
 ::: tether.services.corrections
 
 ::: tether.services.curation
@@ -28,6 +30,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.services.idealize
 
 ::: tether.services.maps
+
+::: tether.services.movie_locations
 
 ::: tether.services.movies
 
