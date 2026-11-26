@@ -145,11 +145,13 @@ The suite has four groups:
    not an oracle.
 3. **Forced for the tag** — `sidecar / parity` is required but path-filtered, so a pull request
    that touches no idealization path gets a "not applicable" pass without a fit. For the release
-   commit, a full `sidecar.yml` run is dispatched by hand. It runs the headline fits of (b) and
-   the live leg of (f), in which a Tether SMD opens in tMAVEN's own loader.
+   commit, a full `sidecar.yml` run is dispatched by hand. It runs the headline fits of (b), the
+   live leg of (f), in which a Tether SMD opens in tMAVEN's own loader, and the live leg of (g).
+   Oracle (c) is not a manual run: its fixture is in Git LFS and `large-fixtures.yml` runs it, so
+   a dispatch of that workflow on the release commit gives its advisory evidence.
 4. **Recorded manual runs for the tag** — the full-movie run of (a) on the machine that holds the
-   movie. Oracle (c), while no CI runner holds its gated slice. The deep-tier run, with its CUDA tests
-   executed and not skipped. The clean-machine checklist of the release-acceptance milestone.
+   movie. The deep-tier run, with its CUDA tests executed and not skipped. The clean-machine
+   checklist of the release-acceptance milestone.
 
 The oracles, with the fixture each one reads and the row of the specification's table of tunables
 that holds its tolerance:
@@ -160,9 +162,9 @@ that holds its tolerance:
 | (b) Idealization parity vs tMAVEN | `sidecar` | `tests/test_parity_sidecar.py`, and `tests/test_parity.py::test_frozen_artifact_covers_its_own_measured_evidence` on the required matrix | `tests/fixtures/smd_4mol.hdf5` and LFS `tests/fixtures/large/smd_281mol.hdf5` and `model_281mol.hdf5` | *Idealization parity tolerance* and its *transition-matrix ceiling*, frozen in `schema/parity_tolerance.json` |
 | (c) Kinetics vs kinSoftChallenge | `large`, advisory | `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread` | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | *kinSoftChallenge parity band* (≤ 12 % per rate), frozen in `schema/kinsoft_reference.json` |
 | (d) Ranker held-out cross-validation | required matrix | `tests/test_ml_prequential.py`, `tests/test_project_prequential.py` | synthetic multi-video project stores | *Ranker success target* (≥ 10 pts, `DEFAULT_SHIP_BAR_PTS`) |
-| (e) α / γ estimators | required matrix, and `workstation` for the α band | `tests/test_fret_leakage.py`, `tests/test_fret_gamma.py`, `tests/test_project_correct.py`, `tests/test_leakage_alpha_band.py` | synthetic known-α, known-γ and edge-case traces, and the lab's donor-only sample for the band | *Leakage acceptance ceiling* and *Leakage-α validation band* |
+| (e) α / γ estimators | required matrix, and `workstation` for the α band | `tests/test_fret_leakage.py`, `tests/test_fret_gamma.py`, `tests/test_project_correct.py`, `tests/test_leakage_alpha_band.py` | synthetic known-α, known-γ and edge-case traces, and the lab's donor-only sample for the band | *Leakage acceptance ceiling*, *Leakage-α validation band* and *γ acceptance ceiling* (γ ≤ 5, `GAMMA_CEILING`). The *γ-agreement tolerance*, γ within ±10 % of the Deep-LASI median, is withheld: no available file holds what it needs |
 | (f) Round-trip and schema integrity | required matrix and `schema-guard`, and `sidecar` for the live leg | `tests/test_schema.py`, `tests/test_smd_io.py`, `tests/test_trace_generations.py`, `tests/test_handoff_sidecar.py` | fresh `.tether` stores and `tests/fixtures/smd_4mol.hdf5` | no row: structural and additive-only, frozen in `schema/schema_frozen.json` ([ADR-0005](adr/0005-m0-schema-freeze.md)) |
-| (g) Photobleach detector | required matrix, and `sidecar` for the live leg | `tests/test_fret_photobleach.py`, `tests/test_project_photobleach.py`, `tests/test_fret_photobleach_sidecar.py` | synthesized known steps | *Bleach-frame tolerance* (±2 frames of a synthesized known step, [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)) |
+| (g) Photobleach detector | required matrix, and `sidecar` for the live leg | `tests/test_fret_photobleach.py`, `tests/test_project_photobleach.py`, `tests/test_fret_photobleach_sidecar.py` | synthesized known steps, and `tests/fixtures/smd_4mol.hdf5` for the live leg | *Bleach-frame tolerance* (±2 frames of a synthesized known step, [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)). The live leg is a parity check with no row: equal bleach frames and ensemble rate, and log evidence within a relative 1e-14 (the reference helpers) and 1e-12 (Tether) |
 
 The other rows of the tier table above, from (h) on, are regression checks against published
 data. They are not members of the suite, and they do not change what "runs end to end" means.
