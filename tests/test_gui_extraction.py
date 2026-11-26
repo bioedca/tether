@@ -579,6 +579,25 @@ def test_the_preview_reads_an_nd2_movie_through_the_extraction_reader(tmp_path) 
     movie.close()  # idempotent
 
 
+def test_a_tiff_preview_movie_is_a_movie_source_of_the_readers_memory_map(tmp_path) -> None:
+    from tether.io.adapters import MovieSource
+
+    movie, _preview = sp.run_preview(_write_movie(tmp_path / "movie.tif"), ExtractOptions())
+    with movie as source:
+        assert isinstance(source, MovieSource)
+        assert source.container == "TIFF"
+        assert source.path == tmp_path / "movie.tif"
+        assert source.n_frames == _N_FRAMES
+        assert source.pixel_type == ">u2"
+        assert isinstance(source.data, np.memmap)
+        # A TIFF written without a frame time or a resolution gives neither.
+        assert source.metadata.frame_time.origin == "unknown"
+        assert source.metadata.pixel_size.origin == "unknown"
+        with pytest.raises(IndexError, match="out of range"):
+            source.read_frames(0, _N_FRAMES + 1)
+    assert movie.closed
+
+
 def test_the_movie_filter_lists_every_extracted_container() -> None:
     from tether.io.adapters import registered_adapters
     from tether.io.movie import EXTRACTED_CONTAINERS
