@@ -182,7 +182,8 @@ Tether refuses the pair and names each difference. Tether does not align two mov
 `tether.imaging.beadmap.bead_map_pair_from_files`.
 
 Tether refuses a `.tmap` or a map of one camera frame for a pair. It also refuses a pair map for
-one movie. There is no command-line option for a pair yet.
+one movie. There is no command-line option for a pair yet. The movie panel does not show a pair
+yet; it lists the pair grayed out and names it (#1405).
 [ADR-0151](adr/0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md)
 records these rules.
 
