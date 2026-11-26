@@ -87,6 +87,9 @@ meets the ADR-0113 rule.
   with `InvalidPixelError`: its pixels are table indices, not the stored intensities.
 - 16-bit gray. No AVI FourCC for it is standard, and FFmpeg 6.1.1 refuses to write `gray16le` to
   AVI, so Tether has no writer to check a reading against.
+- A main header that sets `AVIF_MUSTUSEINDEX`: Microsoft's `AVIMAINHEADER` reference says the
+  index then gives the presentation order, which can differ from the order of the chunks in the
+  file, and Tether reads frames in file order (Codex on #1457).
 - Two or more video streams; a color-table change (`##pc`) inside the movie; a frame chunk of the
   wrong size; a frame chunk of no bytes (a dropped frame, which a player shows as a repeat of the
   one before, so the frame was not measured); fewer or more frames than the stream header's

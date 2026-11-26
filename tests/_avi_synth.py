@@ -87,6 +87,7 @@ def avi_bytes(
     extra: tuple[bytes, ...] = (),
     streams: tuple[bytes, ...] = (),
     chunk_id: bytes = b"00db",
+    flags: int = 0x10,
 ) -> bytes:
     """Return an AVI file of ``frames`` (``(n, height, width)``, ``uint8``) as bytes.
 
@@ -94,7 +95,8 @@ def avi_bytes(
     ``compression``, ``bits`` and ``table`` replace the format header's fields; ``length``
     the declared frame count; ``sizes`` cuts frame *k* to that many bytes; ``streams`` adds
     a stream of each kind (``b"vids"``, ``b"auds"``) after the first; ``extra`` adds chunks
-    after the frames in ``movi``; ``per_riff`` puts that many frames in each RIFF.
+    after the frames in ``movi``; ``flags`` is the main header's ``dwFlags``; ``per_riff``
+    puts that many frames in each RIFF.
     """
     n, h, w = frames.shape
     if fourcc is not None:
@@ -121,7 +123,7 @@ def avi_bytes(
     strls = [_strl(b"vids", fourcc or b"\x00" * 4, declared, w, height, bits, comp, tab)]
     for kind in streams:
         strls.append(_strl(kind, b"\x00" * 4, declared, w, height, 8, 0, GREY_TABLE))
-    avih = struct.pack("<14I", 100000, 0, 0, 0x10, n, 0, 1 + len(streams), 0, w, h, 0, 0, 0, 0)
+    avih = struct.pack("<14I", 100000, 0, 0, flags, n, 0, 1 + len(streams), 0, w, h, 0, 0, 0, 0)
     hdrl = _list(b"LIST", b"hdrl", _chunk(b"avih", avih), *strls)
     groups = (
         [chunks]

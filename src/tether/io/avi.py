@@ -22,10 +22,12 @@ It refuses, with [`tether.io.adapters.LossyCodecError`][], a codec that can be l
 color pixels (16-, 24- or 32-bit DIBs) and a color table that is not the gray ramp;
 and with [`tether.io.adapters.UnsupportedContainerError`][], a lossless codec that Tether
 does not decode (FFV1, HuffYUV, Lagarith, PNG, run-length DIBs), a codec it does not
-know, two or more video streams, a color-table change inside the movie, a frame of the
-wrong size or of no bytes (a dropped frame), and a file that holds fewer or more frames
-than its stream header declares or that ends inside a chunk (an incomplete copy). A
-movie larger than 1 GB in the OpenDML layout (``RIFF AVIX`` extensions) is read whole.
+know, two or more video streams, a file whose main header sets ``AVIF_MUSTUSEINDEX``
+(its index, not the file order, orders the frames), a color-table change inside the
+movie, a frame of the wrong size or of no bytes (a dropped frame), and a file that holds
+fewer or more frames than its stream header declares or that ends inside a chunk (an
+incomplete copy). A movie larger than 1 GB in the OpenDML layout (``RIFF AVIX``
+extensions) is read whole.
 
 The metadata, each value with origin ``"unknown"`` (ADR-0154):
 
@@ -65,6 +67,8 @@ _CHUNK = struct.Struct("<4sI")
 _STRH = struct.Struct("<4s4sIHHIIIII")
 _BIH = struct.Struct("<IiiHHIIiiII")
 _BI_RGB, _BI_RLE8, _BI_RLE4, _BI_BITFIELDS = 0, 1, 2, 3
+# AVIMAINHEADER.dwFlags: the index, not the file order, gives the order of the frames.
+_AVIF_MUSTUSEINDEX = 0x20
 # The 8-bit gray FourCCs, rows top-down and not padded.
 _GREY = frozenset({b"Y800", b"Y8  ", b"GREY"})
 # FourCCs of codecs that can be lossy, upper-cased; the name is for the message.
@@ -266,6 +270,15 @@ def _find_stream(path: Path, fh: BinaryIO, hdrl: tuple[int, int]) -> _Stream:
     video = []
     index = 0
     for cid, offset, size in _children(path, fh, hdrl[0] + 4, hdrl[0] + hdrl[1]):
+        if cid == b"avih" and size >= 16:
+            (flags,) = struct.unpack("<I", _read_exact(fh, offset + 12, 4))
+            if flags & _AVIF_MUSTUSEINDEX:
+                raise _refuse(
+                    path,
+                    "sets AVIF_MUSTUSEINDEX, so its index and not the order in the file gives "
+                    "the order of its frames, and Tether reads frames in file order",
+                )
+            continue
         if cid != b"LIST" or _list_type(fh, offset, size) != b"strl":
             continue
         parts = {c: (o, s) for c, o, s in reversed(_children(path, fh, offset + 4, offset + size))}

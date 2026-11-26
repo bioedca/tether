@@ -223,6 +223,8 @@ Tether refuses these files, and the message names the reason:
 - Color pixels (a DIB of 16, 24 or 32 bits).
 - An 8-bit DIB whose color table is not the gray ramp. Its pixels are table indices, not the
   stored intensities. FFmpeg's `pal8` export is one example.
+- A file whose header says that its index, not the order in the file, gives the order of the
+  frames (`AVIF_MUSTUSEINDEX`). Tether reads the frames in file order.
 - Two or more video streams, or a color table that changes inside the movie. Tether leaves out an
   audio stream, and the audio does not stop the read.
 - A frame of the wrong size, or a frame of no bytes. A frame of no bytes is a dropped frame, which

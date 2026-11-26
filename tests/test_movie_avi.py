@@ -159,6 +159,7 @@ def test_an_odd_width_frame_is_padded_in_a_dib_and_not_in_y800(tmp_path: Path) -
         ({"sizes": {1: 0}}, UnsupportedContainerError, "no bytes for frame 1"),
         ({"sizes": {2: 17}}, UnsupportedContainerError, "stores frame 2 in 17 bytes"),
         ({"streams": (b"vids",)}, UnsupportedContainerError, "2 video streams"),
+        ({"flags": 0x10 | 0x20}, UnsupportedContainerError, "sets AVIF_MUSTUSEINDEX"),
         (
             {"extra": (b"00pc" + b"\x04\x00\x00\x00" + b"\x00" * 4,)},
             UnsupportedContainerError,
