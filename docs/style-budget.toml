@@ -225,10 +225,10 @@ retired = 0
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 12.4
-semicolons = 22
-long_paragraphs = 1
-retired = 1
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"

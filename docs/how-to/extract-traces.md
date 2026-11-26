@@ -195,7 +195,9 @@ a line starting `detection: mode`. Each line names what was applied. Then check 
 The **Prepare** section of the application window does the same extraction, with a preview of
 each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1.
 
-1. Choose the movie with **Choose…** beside **Movie**.
+1. Choose the movie with **Choose…** beside **Movie**. The dialog lists every movie container
+   that extraction reads, and **Preview** reads the movie the same way as **Extract…**. A
+   movie that extraction refuses gives the same message on both, under the form.
 2. Choose the registration: a native fit, a saved channel map file (`.npz`), or a Deep-LASI
    `.tmap`. A map file or a `.tmap` needs its file in **Map file**.
 3. Set the options. There is one row for each field of an
