@@ -198,8 +198,10 @@ def _check_format(path: Path, bih: bytes) -> tuple[int, int, int, bool]:
         count = used or 256
         table = bih[size : size + 4 * count] if size >= _BIH.size else b""
         ramp = np.repeat(np.arange(256, dtype="u1"), 3).reshape(256, 3)
-        entries = np.frombuffer(table, dtype="u1").reshape(-1, 4)[:, :3]
-        if count != 256 or len(table) != 4 * count or not np.array_equal(entries, ramp):
+        # A short or odd-sized table is refused here, before it is read as 4-byte entries.
+        whole = count == 256 and len(table) == 4 * count
+        entries = np.frombuffer(table, dtype="u1").reshape(-1, 4)[:, :3] if whole else None
+        if entries is None or not np.array_equal(entries, ramp):
             raise InvalidPixelError(
                 f"{path}: the pixels are indices into a color table that is not the gray "
                 "ramp (entry i = gray level i), so they are not the stored intensities. "
@@ -302,14 +304,27 @@ def _find_stream(path: Path, fh: BinaryIO, hdrl: tuple[int, int]) -> _Stream:
 
 
 def _collect_frames(
-    path: Path, fh: BinaryIO, stream: _Stream, start: int, end: int, offsets: list[int]
+    path: Path,
+    fh: BinaryIO,
+    stream: _Stream,
+    start: int,
+    end: int,
+    offsets: list[int],
+    *,
+    in_rec: bool = False,
 ) -> None:
-    """Append the data offset of each frame chunk from ``start`` to ``end``, in file order."""
+    """Append the data offset of each frame chunk from ``start`` to ``end``, in file order.
+
+    A ``rec`` list groups chunks directly under ``movi``; one inside another is not AVI and
+    is refused, so a crafted file cannot nest them without bound.
+    """
     frame_bytes = stream.stride * stream.height
     for cid, o, s in _children(path, fh, start, end):
         if cid == b"LIST":
             if _list_type(fh, o, s) == b"rec ":
-                _collect_frames(path, fh, stream, o + 4, o + s, offsets)
+                if in_rec:
+                    raise _refuse(path, "has a rec list inside another rec list")
+                _collect_frames(path, fh, stream, o + 4, o + s, offsets, in_rec=True)
             continue
         if cid[:2] != stream.tag:
             continue  # another stream, an OpenDML index (ix##) or JUNK

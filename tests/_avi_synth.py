@@ -11,8 +11,10 @@ frame, then the index ``idx1``. With ``per_riff`` it splits the frames over Open
 bytes, and the gray FourCCs store them top-down and unpadded. The keywords write each
 variant the adapter refuses.
 
-The committed files of ``tests/fixtures/avi/`` were written by FFmpeg, not by this module
-(``scripts/make_avi_fixtures.py``), so the reader is checked on another writer as well.
+``scripts/make_avi_fixtures.py`` uses this module to write the committed
+``gray_dib_bottom_up_37x23x8.avi`` (FFmpeg writes no bottom-up DIB, and only decodes it for its
+reference TIFF). FFmpeg writes every other committed file of ``tests/fixtures/avi/``, so the
+reader is checked on another writer as well.
 """
 
 from __future__ import annotations

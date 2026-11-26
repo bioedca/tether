@@ -160,6 +160,7 @@ def test_an_odd_width_frame_is_padded_in_a_dib_and_not_in_y800(tmp_path: Path) -
         ({"sizes": {2: 17}}, UnsupportedContainerError, "stores frame 2 in 17 bytes"),
         ({"streams": (b"vids",)}, UnsupportedContainerError, "2 video streams"),
         ({"flags": 0x10 | 0x20}, UnsupportedContainerError, "sets AVIF_MUSTUSEINDEX"),
+        ({"table": b"\x01\x01\x01"}, InvalidPixelError, "not the gray ramp"),
         (
             {"extra": (b"00pc" + b"\x04\x00\x00\x00" + b"\x00" * 4,)},
             UnsupportedContainerError,
@@ -218,3 +219,26 @@ def test_repr_names_the_file_and_geometry(tmp_path: Path) -> None:
     path = write_avi(tmp_path / "movie.avi", _frames())
     with AviMovie(path) as source:
         assert repr(source) == "AviMovie('movie.avi', frames=3, height=5, width=7, dtype='|u1')"
+
+
+def test_a_rec_list_inside_a_rec_list_is_refused(tmp_path: Path) -> None:
+    """CodeRabbit on #1457: a nested rec list is refused with a reason, not a RecursionError."""
+    import struct
+
+    data = avi_bytes(_frames(n=1))
+    frame_at = data.index(b"00db")
+    frame = data[frame_at : frame_at + 8 + 5 * 8]  # 5 rows of 8 bytes (7 padded to 8)
+
+    def _rec(body: bytes) -> bytes:
+        return b"LIST" + struct.pack("<I", 4 + len(body)) + b"rec " + body
+
+    nested = _rec(_rec(frame))
+    movi_at = data.index(b"movi") - 8
+    (movi_size,) = struct.unpack("<I", data[movi_at + 4 : movi_at + 8])
+    movi = b"LIST" + struct.pack("<I", 4 + len(nested)) + b"movi" + nested
+    rebuilt = data[:movi_at] + movi + data[movi_at + 8 + movi_size :]
+    riff = b"RIFF" + struct.pack("<I", len(rebuilt) - 8) + rebuilt[8:]
+    path = tmp_path / "movie.avi"
+    path.write_bytes(riff)
+    with pytest.raises(UnsupportedContainerError, match="rec list inside another rec list"):
+        open_movie_source(path)
