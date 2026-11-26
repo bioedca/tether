@@ -344,3 +344,41 @@ def test_a_vsi_movie_whose_frames_are_not_on_this_disk_is_not_opened(
 
     assert _labels(shell) == ["scan.vsi (file not on this disk)"]
     assert opened == []
+
+
+def test_a_local_copy_replaces_a_vsi_whose_frames_are_not_on_this_disk(
+    section_shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    # Codex closing review of #1459: the placeholder guard must run before the location
+    # lookup, or a verified local copy of such a movie is never used.
+    from _movie_locate_store import project_with_movies
+    from tether.project.sources import file_sha256
+
+    def vsi(folder: Path) -> tuple[Path, Path]:
+        header = folder / "scan.vsi"
+        frames = folder / "_scan_" / "stack1" / "frame_t.ets"
+        frames.parent.mkdir(parents=True)
+        header.write_bytes(b"vsi header")
+        frames.write_bytes(b"frames" * 100)
+        return header, frames
+
+    movie, cloud_frames = vsi(tmp_path / "raw")
+    path = project_with_movies(tmp_path, [movie])
+    with h5py.File(path, "r+") as handle:  # the content checksum covers the frames too
+        table = handle["movies"]["table"][:]
+        table["sha256"][0] = file_sha256(movie).sha256
+        handle["movies"]["table"][:] = table
+    copy, _frames = vsi(tmp_path / "local")
+    _offline(monkeypatch, cloud_frames)
+    prefs = tmp_path / "prefs.json"
+    shell = _open(section_shell, path, preferences_file=prefs)
+    assert _labels(shell) == ["scan.vsi (file not on this disk)"]
+
+    assert shell.locate_movie("mov-1", copy)
+    _wait(qtbot, shell)
+
+    assert shell.unavailable_movies() == []
+    assert shell._project_movies[0].path == copy.absolute()
+    shell.close()
+    again = _open(section_shell, path, preferences_file=prefs)
+    assert again.unavailable_movies() == []

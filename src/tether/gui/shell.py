@@ -2471,6 +2471,10 @@ class TetherShell:
             locatable,
         )
 
+        # A .vsi movie whose frame files are not on this disk is not opened (PRD §5.4). It is
+        # marked before the lookup, so a verified local copy can take its place, and the
+        # result is guarded again, since a remembered copy can be a placeholder too.
+        movies = guard_placeholders(movies)
         found: dict[str, Any] = {}
         for movie in movies.movies:
             if not locatable(movie):
@@ -2488,7 +2492,6 @@ class TetherShell:
                     where = MovieLocation(*stored)
             if where is not None:
                 found[movie.movie_id] = where
-        # A .vsi movie whose frame files are not on this disk is not opened (PRD §5.4).
         return guard_placeholders(apply_locations(movies, found))
 
     def unavailable_movies(self) -> list[Any]:
