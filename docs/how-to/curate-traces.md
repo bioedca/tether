@@ -66,8 +66,8 @@ movie shows `(file not on this disk)`. Make the file available on this computer,
 project again. A project imported without spot coordinates has no movie panel.
 
 A project extracted from a movie pair keeps the donor and the acceptor in two files. The movie
-panel cannot show a pair yet, so the movie shows grayed out with the name of the acceptor file,
-for example `(movie pair with cam2_acceptor.tif: the view of a pair is not available yet)`.
+panel cannot show a pair yet. Such a movie shows grayed out and names the acceptor file, for
+example `(movie pair with cam2_acceptor.tif: the view of a pair is not available yet)`.
 Tether never shows the donor file as if it held both channels.
 
 A [round-trip reconstruction](../io/legacy-import.md#round-trip-reconstruction) of a
