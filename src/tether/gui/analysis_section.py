@@ -576,6 +576,10 @@ class AnalysisSection:
                 self._model_combo.addItems(models)
                 if current in models:
                     self._model_combo.setCurrentIndex(models.index(current))
+                elif listed:
+                    # A list that held models had a choice, or none on purpose (a composition
+                    # that names no model): never let Qt pick the first model in its place.
+                    self._model_combo.setCurrentIndex(-1)
             finally:
                 self._model_combo.blockSignals(blocker)
         if not reset_states:

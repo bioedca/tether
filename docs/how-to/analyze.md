@@ -75,8 +75,9 @@ come back to the same plot later.
   and the plot. It names each series with its molecules, and the model and the states. It
   holds no trace data. A later change of the project does not change it.
 - **Open composition…** reads a file back. The plot, the model and the states are as you saved
-  them. The layer list has the same series in the same order. Each series keeps its name and
-  its molecules.
+  them. The layer list has the same series in the same order. Each series keeps its name. A
+  selection keeps the molecules it held when you saved it. **All molecules** has no fixed
+  list. It is every molecule of the project when you open the file, also one added later.
 
 Open the project of the composition first. When the file reads another project, the section
 says so and changes nothing. A series can name molecules that are no longer in the project.

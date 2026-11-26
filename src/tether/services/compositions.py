@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
@@ -55,6 +56,7 @@ COMPOSITION_FORMAT = "tether-plot-composition"
 COMPOSITION_VERSION = 1
 
 _TOP_KEYS = frozenset({"format", "version", "plot", "project_path", "series", "parameters"})
+_PARAMETER_KEYS = frozenset({"model_name", "states"})
 _PRESET_BYS = ("condition", "movie", "source_file")
 #: How many missing molecule keys a message lists before it says how many more there are.
 _KEYS_SHOWN = 5
@@ -90,6 +92,10 @@ class PlotComposition:
         unknown = sorted(name for name, _ in self.states if name not in spec.states)
         if unknown:
             raise ValueError(f"{spec.title} takes no state option {unknown}")
+        names = [name for name, _ in self.states]
+        twice = sorted({name for name in names if names.count(name) > 1})
+        if twice:
+            raise ValueError(f"each state option is given once; repeated: {twice}")
         negative = sorted(name for name, value in self.states if int(value) < 0)
         if negative:
             raise ValueError(f"a state is 0 or more; {negative} is not")
@@ -138,6 +144,9 @@ class PlotComposition:
             series = data["series"]
             if not isinstance(parameters, Mapping) or not isinstance(series, list):
                 raise ValueError("'parameters' must be an object and 'series' a list")
+            extra = sorted(set(parameters) - _PARAMETER_KEYS)
+            if extra:
+                raise ValueError(f"a version {version} composition has no parameter {extra}")
             states = parameters.get("states") or {}
             if not isinstance(states, Mapping) or not all(type(v) is int for v in states.values()):
                 raise ValueError("the parameter 'states' must map each option to an integer")
@@ -270,9 +279,20 @@ def _is_composition_file(path: Path) -> bool:
 
 def _write(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` through a sibling temporary file, so no half file stays."""
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    # A unique file, created exclusively: never a fixed name that a link could point
+    # elsewhere, or that a second save to the same path would share.
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        # mkstemp makes the file private (0600); a composition holds no data, so give it the
+        # mode an ordinary new file has.
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:

@@ -465,3 +465,29 @@ def test_a_state_the_section_cannot_show_is_refused_not_clamped(
     assert section.open_composition(out) is None
     assert "cannot show state 150" in section.notice_text
     assert section.series_labels == ["kept"]
+
+
+def test_no_model_stays_no_model_when_the_model_list_changes(
+    section, modelled, tmp_path, monkeypatch
+) -> None:
+    import tether.gui.analysis_section as page
+    from tether.services import SaveCompositionRequest, run
+    from tether.services.compositions import series_text
+
+    path, keys = modelled
+    out = tmp_path / "c.json"
+    series = series_text(_saved(path, "early", keys[:2]))
+    run(
+        SaveCompositionRequest(
+            path=str(out), project=str(path), plot="population_state_number", series=(series,)
+        )
+    )
+    section.set_project(path)
+    section.open_composition(out)
+    assert section.model_name is None
+    # A fit writes a second model: the list is rebuilt, and the choice stays empty.
+    monkeypatch.setattr(page, "idealization_models", lambda _p: ["another", MODEL])
+    section.refresh()
+    assert section.model_combo.count() == 2
+    assert section.model_name is None
+    assert not section.outcome.drawn

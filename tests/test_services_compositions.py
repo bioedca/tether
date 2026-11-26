@@ -423,3 +423,59 @@ def test_a_negative_state_and_a_malformed_filter_are_refused(modelled, tmp_path)
     out.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(RequestRefused, match="its selection cannot be read"):
         run(OpenCompositionRequest(path=str(out)))
+
+
+# --- review findings of the CodeRabbit review on PR #1465 --------------------------
+
+
+def test_an_unknown_parameter_and_a_repeated_state_are_refused(modelled, tmp_path) -> None:
+    data = _saved_data(modelled, tmp_path)
+    data["parameters"]["include_stale"] = True
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match=r"has no parameter \['include_stale'\]"):
+        run(OpenCompositionRequest(path=str(out)))
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="each state option is given once"):
+        _save(
+            tmp_path / "c.json",
+            project,
+            ["all"],
+            plot="population_dwell_times",
+            states=("state=1", "state=0"),
+        )
+
+
+def test_a_save_never_writes_through_a_link_at_a_temporary_name(modelled, tmp_path) -> None:
+    import os
+
+    project, _keys = modelled
+    before = project.read_bytes()
+    out = tmp_path / "c.json"
+    trap = tmp_path / ".c.json.tmp"
+    try:
+        trap.symlink_to(project)
+    except OSError:  # no symlink privilege (Windows without developer mode)
+        pytest.skip("symlinks are not available here")
+    _save(out, project, ["all"])
+    assert project.read_bytes() == before
+    assert trap.is_symlink()
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    leftovers = [p for p in os.listdir(tmp_path) if p.endswith(".tmp") and p != trap.name]
+    assert leftovers == []
+
+
+def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch) -> None:
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", refuse)
+    with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"])
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
