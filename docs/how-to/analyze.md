@@ -66,6 +66,31 @@ survival (B2)** in **Plot** to see the other two plots over the same series. If 
 no fit yet, the section says so in place of the figure. To save a plot as a figure, use the
 script below. **View → Section → Curate and correct** takes you back to the traces.
 
+### Stale fits
+
+A fit is *stale* for a molecule when the molecule's inputs changed after the fit, for example a
+new α or γ or a new extraction. A plot that reads a fit leaves the stale molecules of each
+series out. Each series that left molecules out says how many beside its name in **Layers**,
+for example:
+
+```text
+All molecules — 3 stale excluded (inputs changed since the fit)
+```
+
+The status bar says it beside the series' count too. To draw the stale molecules of one series
+anyway, select the series and check **Include stale fits in the selected series**. The row then
+says `includes 3 stale`. The choice is per series. An export of the figure records it for each
+series in its provenance file (`include_stale`, `stale_excluded` and `stale_included`), so a
+figure drawn over stale fits says so. A composition file does not keep the choice: an opened
+composition leaves the stale molecules out again.
+
+The **FRET-efficiency histogram with model Gaussians (A1)** draws the model's own curves. They
+come from the fit of every molecule the model was fitted on, the stale ones too. So when a
+series has stale molecules, a warning above the figure says so. The histogram under the curves
+leaves the stale molecules out unless you check the box.
+
+The better fix is to [fit the stale molecules again](idealize.md#after-you-change-the-project).
+
 ### Save the composition and open it again
 
 A *composition* is the plot, its idealization model and states, and its layer list. Save it to

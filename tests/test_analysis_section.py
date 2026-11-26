@@ -12,7 +12,10 @@ Headless ``pytest-qt`` tests (``QT_QPA_PLATFORM=offscreen``). The section builds
 * a model-derived plot on a project with no model shows what is missing, never a figure;
 * the model choice and the state boxes show only for a plot that reads them;
 * *Save composition…* and *Open composition…* give back the same layer list, name a series
-  whose molecules are missing and leave it out, and refuse a file of another version (#1438).
+  whose molecules are missing and leave it out, and refuse a file of another version (#1438);
+* a model-derived plot badges each series that left stale fits out, the opt-out of one series
+  draws them and says so, and the model-Gaussian overlay over stale fits shows a warning
+  above the figure (#375).
 """
 
 from __future__ import annotations
@@ -522,3 +525,109 @@ def test_no_model_stays_no_model_when_a_first_model_is_fitted(
     # A person's choice ends the pin.
     section.set_model(MODEL)
     assert section.model_name == MODEL
+
+
+# --- stale fits (#375) ----------------------------------------------------------
+
+
+@pytest.fixture
+def stale_modelled(tmp_path):
+    """A four-molecule store with a two-state model whose molecules 1 and 3 are stale."""
+    from _analysis_store import build_store_with_model
+
+    n, t = 4, 40
+    states = np.array([[(j // (4 + i)) % 2 for j in range(t)] for i in range(n)])
+    project, keys = build_store_with_model(
+        tmp_path,
+        states,
+        np.array([0.25, 0.75]),
+        stale=[False, True, False, True],
+        model_name=MODEL,
+    )
+    return project.path, keys
+
+
+def _row_texts(section) -> list[str]:
+    layers = section.layers
+    return [layers.item(i).text() for i in range(layers.count())]
+
+
+def test_a_series_that_left_stale_fits_out_carries_a_badge(section, stale_modelled) -> None:
+    path, keys = stale_modelled
+    messages: list[str] = []
+    section._status = messages.append
+    section.set_project(path)
+    section.set_plot("population_state_number")
+    section.add_series(_saved(path, "early", keys[:2]))
+    section.add_series(_saved(path, "fresh", keys[2:3]))
+    assert section.outcome.drawn
+    assert _row_texts(section) == [
+        "early — 1 stale excluded (inputs changed since the fit)",
+        "fresh",
+    ]
+    assert section.series_labels == ["early", "fresh"]
+    assert "early: 1 molecule(s), 1 stale excluded" in messages[-1]
+
+
+def test_the_opt_out_of_one_series_draws_its_stale_fits_and_says_so(
+    section, stale_modelled
+) -> None:
+    path, keys = stale_modelled
+    section.set_project(path)
+    section.set_plot("population_state_number")
+    section.add_series(_saved(path, "early", keys[:2]))
+    section.add_series(_saved(path, "late", keys[2:]))
+    box = section.stale_box
+    assert box.isVisibleTo(section.widget) and not box.isChecked()
+    before = [r.n_molecules for _, r in section.outcome.results]
+    section.layers.setCurrentRow(0)
+    box.click()  # the person's opt-out, for the selected series only
+    assert box.isChecked()
+    assert [s.include_stale for s in section.series] == [True, False]
+    after = [r.n_molecules for _, r in section.outcome.results]
+    assert before == [1, 1] and after == [2, 1]
+    assert _row_texts(section)[0] == "early — includes 1 stale (inputs changed since the fit)"
+    assert section.outcome.export_parameters()["series"][0]["include_stale"] is True
+    # Selecting the other series shows its own choice.
+    section.layers.setCurrentRow(1)
+    assert not box.isChecked()
+    section.set_include_stale(0, False)
+    assert [r.n_molecules for _, r in section.outcome.results] == [1, 1]
+
+
+def test_the_opt_out_shows_only_for_a_plot_that_reads_a_model(section, stale_modelled) -> None:
+    path, keys = stale_modelled
+    section.set_project(path)
+    section.set_plot("population_apparent_e_histogram")
+    assert not section.stale_box.isVisibleTo(section.widget)
+    section.set_plot("population_transition_density")
+    assert section.stale_box.isVisibleTo(section.widget)
+    assert not section.stale_box.isEnabled()  # no series is selected yet
+
+
+def test_the_overlay_over_stale_fits_shows_a_warning(section, stale_modelled) -> None:
+    path, keys = stale_modelled
+    section.set_project(path)
+    section.set_plot("population_model_gaussian_overlay")
+    section.add_series(_saved(path, "fresh", [keys[0], keys[2]]))
+    assert section.outcome.drawn and section.stale_warning_text is None
+    section.add_series(_saved(path, "mixed", keys[:2]))
+    assert section.outcome.drawn
+    assert section.stale_warning_text.startswith("'mixed' has 1 molecule(s) whose fit")
+    from pyqtgraph.Qt import QtWidgets
+
+    warning = section.widget.findChild(QtWidgets.QLabel, "analysis-stale-warning")
+    assert warning is not None and warning.isVisibleTo(section.widget)
+
+
+def test_saving_says_the_opt_out_is_not_kept(section, stale_modelled, tmp_path) -> None:
+    path, keys = stale_modelled
+    section.set_project(path)
+    section.set_plot("population_state_number")
+    section.add_series(_saved(path, "early", keys[:2]))
+    section.set_include_stale(0, True)
+    out = tmp_path / "c.json"
+    assert section.save_composition(out) is not None
+    assert "does not keep the choice to include stale fits" in section.notice_text
+    section.open_composition(out)
+    assert [s.include_stale for s in section.series] == [False]
