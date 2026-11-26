@@ -354,3 +354,54 @@ def test_save_refuses_a_bad_state_and_fails_an_unwritable_path(modelled, tmp_pat
 def test_a_selection_without_a_saved_form_cannot_be_saved() -> None:
     with pytest.raises(TypeError, match="its selection cannot be saved"):
         series_text(PlotSeries("odd", object()))
+
+
+# --- review findings on PR #1465 ---------------------------------------------------
+
+
+def test_a_save_never_replaces_the_project_or_any_other_file(modelled, tmp_path) -> None:
+    project, _keys = modelled
+    before = project.read_bytes()
+    with pytest.raises(RequestRefused, match="is the project the composition reads"):
+        _save(project, project, ["all"], overwrite=True)
+    assert project.read_bytes() == before
+    other = tmp_path / "notes.json"
+    other.write_text('{"kept": true}', encoding="utf-8")
+    with pytest.raises(RequestRefused, match="is not a plot composition"):
+        _save(other, project, ["all"], overwrite=True)
+    assert other.read_text(encoding="utf-8") == '{"kept": true}'
+    binary = tmp_path / "other.tether"
+    binary.write_bytes(before)
+    with pytest.raises(RequestRefused, match="is not a plot composition"):
+        _save(binary, project, ["all"], overwrite=True)
+    assert binary.read_bytes() == before
+
+
+def test_a_binary_file_is_refused_not_raised(modelled, tmp_path, capsys) -> None:
+    from tether.cli import main
+
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="cannot read"):
+        run(OpenCompositionRequest(path=str(project)))
+    assert main(["open-composition", str(project)]) == 2
+    assert "tether open-composition: cannot read" in capsys.readouterr().err
+
+
+def test_an_unconditioned_molecule_is_not_missing(modelled, tmp_path) -> None:
+    import h5py
+
+    from tether.analysis.saved_selection import SavedSelection
+    from tether.io.schema import TABLE
+
+    project, keys = modelled
+    with h5py.File(project, "r+") as f:
+        table = f["molecules"][TABLE]
+        rows = table[:]
+        rows["condition_id"][0] = b""
+        table[...] = rows
+    series = PlotSeries("first", SavedSelection("first", project, keys[:1]))
+    out = tmp_path / "c.json"
+    _save(out, project, [series])
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert opened.missing == ()
+    assert [s.label for s in opened.found] == ["first"]

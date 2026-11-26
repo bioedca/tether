@@ -251,6 +251,15 @@ def _states(items: Sequence[str]) -> tuple[tuple[str, int], ...]:
     return tuple(states)
 
 
+def _is_composition_file(path: Path) -> bool:
+    """Say whether ``path`` holds a composition, so a save never replaces another file."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # a binary file, such as a project, is a UnicodeDecodeError
+        return False
+    return isinstance(data, Mapping) and data.get("format") == COMPOSITION_FORMAT
+
+
 def _write(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` through a sibling temporary file, so no half file stays."""
     tmp = path.with_name(f".{path.name}.tmp")
@@ -261,10 +270,17 @@ def _write(path: Path, text: str) -> None:
 def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
     """Freeze the series, check the record and write the file; refuse before any write."""
     path = Path(request.path)
-    if path.exists() and not request.overwrite:
-        raise RequestRefused(f"{request.path} exists; give --force to replace it")
     if not Path(request.project).exists():
         raise RequestRefused(f"the project {request.project} cannot be found")
+    if path.exists():
+        if os.path.samefile(path, request.project):  # both exist
+            raise RequestRefused(f"{request.path} is the project the composition reads")
+        if not request.overwrite:
+            raise RequestRefused(f"{request.path} exists; give --force to replace it")
+        if not _is_composition_file(path):
+            raise RequestRefused(
+                f"{request.path} is not a plot composition; only a composition file is replaced"
+            )
     series = []
     try:
         for item in request.series:
@@ -331,12 +347,15 @@ class OpenCompositionResult:
 
 def _project_keys(project: str) -> frozenset[str] | str:
     """Return the molecule keys of ``project``, or the reason it cannot be read."""
-    from tether.analysis.query import query_molecules  # noqa: PLC0415
+    from tether.imaging.extract import read_molecules  # noqa: PLC0415
 
     if not Path(project).exists():
         return f"the project {project} cannot be found"
     try:
-        return frozenset(query_molecules(project).molecule_keys)
+        # Every row of /molecules, with no condition filter: a saved selection can name an
+        # unconditioned molecule, which a condition query leaves out.
+        column = read_molecules(project)["molecule_key"]
+        return frozenset(k.decode() if isinstance(k, bytes) else str(k) for k in column)
     except (OSError, ValueError, KeyError) as exc:
         return f"the project {project} cannot be read: {exc}"
 
@@ -375,7 +394,7 @@ def run_open(request: OpenCompositionRequest) -> OpenCompositionResult:
     path = Path(request.path)
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RequestRefused(f"cannot read {request.path}: {exc}") from exc
     try:
         composition = PlotComposition.from_text(text)

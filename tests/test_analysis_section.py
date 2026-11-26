@@ -419,3 +419,24 @@ def test_a_file_of_an_unknown_version_is_refused_with_a_message(
     assert "The composition was not opened" in section.notice_text
     assert "version 7 is not supported" in section.notice_text
     assert section.series_labels == ["early"]
+
+
+def test_a_composition_with_no_model_draws_with_no_model(section, modelled, tmp_path) -> None:
+    from tether.services import SaveCompositionRequest, run
+    from tether.services.compositions import series_text
+
+    path, keys = modelled
+    out = tmp_path / "c.json"
+    series = series_text(_saved(path, "early", keys[:2]))
+    run(
+        SaveCompositionRequest(
+            path=str(out), project=str(path), plot="population_state_number", series=(series,)
+        )
+    )
+    section.set_project(path)
+    section.set_model(MODEL)
+    section.open_composition(out)
+    assert section.plot_id == "population_state_number"
+    assert section.model_name is None
+    assert not section.outcome.drawn
+    assert "needs an idealization model" in section.empty_text

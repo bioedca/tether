@@ -433,10 +433,12 @@ class AnalysisSection:
             self._plot_combo.setCurrentIndex(self._plot_combo.findData(spec.id))
             self._sync_plot_controls()
             self._reload_models(reset_states=True)
-            if composition.model_name is not None:
-                index = self._model_combo.findText(composition.model_name)
+            if spec.needs_model:
+                # A composition that names no model draws none: never the model left chosen.
+                name = composition.model_name
+                index = -1 if name is None else self._model_combo.findText(name)
                 self._model_combo.setCurrentIndex(index)
-                if index < 0:
+                if name is not None and index < 0:
                     lines.append(
                         f"The project has no idealization model {composition.model_name!r}."
                     )
