@@ -77,6 +77,7 @@ import contextlib
 import errno
 import getpass
 import json
+import math
 import os
 import stat
 import tempfile
@@ -628,7 +629,12 @@ def _movie_locations(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
             and size >= 0
             and type(mtime) in (int, float)
         ):
-            out[key] = {"path": path, "file_size": size, "mtime": float(mtime)}
+            try:
+                seconds = float(mtime)  # a JSON integer too large for a float overflows
+            except OverflowError:
+                continue
+            if math.isfinite(seconds):
+                out[key] = {"path": path, "file_size": size, "mtime": seconds}
     return out
 
 

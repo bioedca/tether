@@ -410,3 +410,52 @@ def test_the_download_size_skips_a_file_that_cannot_be_examined(tmp_path) -> Non
     from tether.services.movie_locations import download_size
 
     assert download_size(tmp_path / "gone.tif") == 0
+
+
+def test_a_file_replaced_after_its_read_is_not_remembered(tmp_path, monkeypatch) -> None:
+    # CodeRabbit review of #1459: the signature remembered must be the one of the file read.
+    import dataclasses
+
+    from tether.project import sources
+    from tether.project.sources import SourceReplaced
+    from tether.services.movie_locations import check_relocated
+
+    movie = _tiff(tmp_path / "a.tif", 1)
+    real = sources.file_sha256
+
+    def read_then_replaced(path, **kwargs):
+        digest = real(path, **kwargs)
+        return dataclasses.replace(digest, mtime_ns=digest.mtime_ns - 1)
+
+    monkeypatch.setattr(sources, "file_sha256", read_then_replaced)
+
+    with pytest.raises(SourceReplaced):
+        check_relocated(movie, _sha256(movie))
+
+
+def test_a_vsi_movie_with_frames_not_on_this_disk_is_marked(tmp_path, monkeypatch) -> None:
+    # CodeRabbit review of #1459: a local .vsi header with cloud-only frames is not available.
+    from tether.project import condition_model
+    from tether.services.movie_locations import guard_placeholders
+    from tether.services.movies import read_project_movies
+
+    movie = tmp_path / "raw" / "scan.vsi"
+    movie.parent.mkdir()
+    movie.write_bytes(b"vsi header")
+    frames = tmp_path / "raw" / "_scan_" / "stack1" / "frame_t.ets"
+    frames.parent.mkdir(parents=True)
+    frames.write_bytes(b"frames")
+    path = _project(tmp_path, [movie])
+    movies = read_project_movies(path)
+    assert movies.movies[0].available
+    real = condition_model._file_attributes
+    offline = condition_model._FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+    monkeypatch.setattr(
+        condition_model,
+        "_file_attributes",
+        lambda p: offline if Path(p) == frames else real(p),
+    )
+
+    (guarded,) = guard_placeholders(movies).movies
+
+    assert guarded.unavailable == "file not on this disk"

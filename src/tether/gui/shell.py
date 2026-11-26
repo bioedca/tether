@@ -2467,6 +2467,7 @@ class TetherShell:
             MovieLocation,
             apply_locations,
             expected_movie_sha256,
+            guard_placeholders,
         )
 
         found: dict[str, Any] = {}
@@ -2486,7 +2487,8 @@ class TetherShell:
                     where = MovieLocation(*stored)
             if where is not None:
                 found[movie.movie_id] = where
-        return apply_locations(movies, found)
+        # A .vsi movie whose frame files are not on this disk is not opened (PRD §5.4).
+        return guard_placeholders(apply_locations(movies, found))
 
     def unavailable_movies(self) -> list[Any]:
         """The open project's movies that cannot be shown here, in switcher order (#638)."""

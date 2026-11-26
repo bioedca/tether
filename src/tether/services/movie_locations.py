@@ -55,6 +55,7 @@ __all__ = [
     "download_movie",
     "download_size",
     "expected_movie_sha256",
+    "guard_placeholders",
     "is_placeholder",
     "locate_in_folder",
     "movie_files",
@@ -174,7 +175,7 @@ def check_relocated(
     OSError
         If the file cannot be read.
     """
-    from tether.project.sources import RelinkRefused, file_sha256, same_file
+    from tether.project.sources import RelinkRefused, SourceReplaced, file_sha256, same_file
 
     path = Path(candidate).absolute()
     if not expected_sha256:
@@ -185,8 +186,13 @@ def check_relocated(
     digest = file_sha256(path, cancel=cancel, progress=progress)
     if not (rule or same_file)(expected_sha256, digest.sha256):
         raise RelinkRefused(f"{path.name} is not the project's movie: its checksum is different")
-    digest.check_path(path)
+    # The signature remembered is the one of the file that was read: taken before the path
+    # check, and compared with the read's own, so a file replaced after the check is never
+    # remembered under this checksum.
     st = path.stat()
+    if st.st_size != digest.size or st.st_mtime_ns != digest.mtime_ns:
+        raise SourceReplaced(f"{path.name} changed while its checksum was read")
+    digest.check_path(path)
     return MovieLocation(path=path, file_size=int(st.st_size), mtime=float(st.st_mtime))
 
 
@@ -337,6 +343,23 @@ def download_movie(
                 if progress is not None:
                     progress(done, total)
     return done
+
+
+def guard_placeholders(movies: ProjectMovies) -> ProjectMovies:
+    """Return ``movies`` with each movie whose files are not all on this disk marked so.
+
+    The movie panel's own check reads a movie file's attributes only, so a cellSens ``.vsi``
+    movie whose header is local but whose ``.ets`` frame files are cloud placeholders reads
+    as available, and opening it would download frames. This marks such a movie
+    ``"file not on this disk"`` ([`is_placeholder`][], metadata only) so that only the
+    explicit **Download and open** reads it (PRD §5.4).
+    """
+    out = []
+    for movie in movies.movies:
+        if movie.available and movie.path is not None and is_placeholder(movie.path):
+            movie = replace(movie, unavailable="file not on this disk")
+        out.append(movie)
+    return replace(movies, movies=tuple(out))
 
 
 def apply_locations(movies: ProjectMovies, locations: Mapping[str, MovieLocation]) -> ProjectMovies:

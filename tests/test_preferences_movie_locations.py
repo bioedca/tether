@@ -60,3 +60,21 @@ def test_only_the_most_recent_locations_are_kept(tmp_path, monkeypatch) -> None:
 
     assert preferences.movie_location(keys[0], prefs) is None
     assert preferences.movie_location(keys[2], prefs) is not None
+
+
+@pytest.mark.parametrize("mtime", ["1" + "0" * 400, "NaN", "Infinity"])
+def test_an_mtime_that_is_not_a_finite_number_reads_as_unknown(tmp_path, mtime) -> None:
+    # CodeRabbit review of #1459: one such entry must not break every lookup.
+    prefs = tmp_path / "preferences.json"
+    other = "cd" * 32
+    bad = (tmp_path / "a.tif").as_posix()
+    good = (tmp_path / "b.tif").as_posix()
+    prefs.write_text(
+        '{"schema": 1, "movie_locations": {'
+        f'"{SHA}": {{"path": "{bad}", "file_size": 1, "mtime": {mtime}}},'
+        f'"{other}": {{"path": "{good}", "file_size": 1, "mtime": 2.0}}'
+        "}}"
+    )
+
+    assert preferences.movie_location(SHA, prefs) is None
+    assert preferences.movie_location(other, prefs) is not None

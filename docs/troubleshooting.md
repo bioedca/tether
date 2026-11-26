@@ -909,7 +909,9 @@ spots are off. Curation does not need the movie.
    file is refused, and nothing changes.
 2. **Locate movie folder…** Choose one folder. Tether looks under it, in every folder below,
    for a file with each missing movie's name, and checks each one by its checksum. The status
-   bar says which movies it found and why it did not find the others.
+   bar says which movies it found and why it did not find the others. The search does not
+   follow links to other folders, and it stops after 200 000 files. For a very large folder,
+   or a movie behind a link, choose a narrower folder or the folder the link points to.
 3. **Download and open movie…** For a movie that is not on this disk. Tether names the file's
    size and asks first. A file that you point to with **Locate movie…** and that is not on
    this disk is asked about in the same way.

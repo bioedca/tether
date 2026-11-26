@@ -320,3 +320,27 @@ def test_two_missing_movies_of_one_name_are_told_apart_in_the_picker(
     (labels,) = shown
     assert len(set(labels)) == 2
     assert started == [("mov-2", str(tmp_path / "x.tif"))]
+
+
+def test_a_vsi_movie_whose_frames_are_not_on_this_disk_is_not_opened(
+    section_shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    # CodeRabbit review of #1459: opening must not read cloud-only .ets frame files.
+    from _movie_locate_store import project_with_movies
+    from tether.io import adapters
+
+    movie = tmp_path / "raw" / "scan.vsi"
+    movie.parent.mkdir()
+    movie.write_bytes(b"vsi header")
+    frames = tmp_path / "raw" / "_scan_" / "stack1" / "frame_t.ets"
+    frames.parent.mkdir(parents=True)
+    frames.write_bytes(b"frames")
+    path = project_with_movies(tmp_path, [movie])
+    _offline(monkeypatch, frames)
+    opened: list[object] = []
+    monkeypatch.setattr(adapters, "open_movie_source", lambda p, *a, **k: opened.append(p))
+
+    shell = _open(section_shell, path)
+
+    assert _labels(shell) == ["scan.vsi (file not on this disk)"]
+    assert opened == []
