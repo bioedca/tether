@@ -262,3 +262,95 @@ def test_the_command_line_saves_and_opens_a_composition(modelled, tmp_path, caps
     data["version"] = 99
     out.write_text(json.dumps(data), encoding="utf-8")
     assert main(["open-composition", str(out)]) == 2
+
+
+def _saved_data(modelled, tmp_path) -> dict:
+    project, keys = modelled
+    out = tmp_path / "base.json"
+    _save(out, project, [*_two(project, keys)], model=MODEL)
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def _set(data: dict, path: tuple, value) -> dict:
+    node = data
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    return data
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        (("parameters",), [], "'parameters' must be an object"),
+        (("series",), {}, "'series' a list"),
+        (("parameters", "states"), {"init_state": "1"}, "map each option to an integer"),
+        (("parameters", "model_name"), 3, "'model_name' must be a string or null"),
+        (("series", 0), ["late"], "with 'label' and 'selection' only"),
+        (("series", 0, "selection"), "keys", "'selection' must be an object or null"),
+        (("plot",), "population_nope", "bad.json: no plot 'population_nope' in the plot"),
+    ],
+)
+def test_a_malformed_composition_is_refused(modelled, tmp_path, path, value, message) -> None:
+    data = _set(_saved_data(modelled, tmp_path), path, value)
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match=message):
+        run(OpenCompositionRequest(path=str(out)))
+
+
+def test_a_composition_missing_a_key_is_refused(modelled, tmp_path) -> None:
+    data = _saved_data(modelled, tmp_path)
+    del data["plot"]
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match="the composition is missing 'plot'"):
+        run(OpenCompositionRequest(path=str(out)))
+    with pytest.raises(RequestRefused, match="cannot read"):
+        run(OpenCompositionRequest(path=str(tmp_path / "none.json")))
+
+
+def test_many_missing_keys_are_counted_and_another_project_is_named(modelled, tmp_path) -> None:
+    from tether.analysis.saved_selection import SavedSelection
+
+    project, keys = modelled
+    many = PlotSeries("many", SavedSelection("many", project, [f"k{i}" for i in range(7)]))
+    elsewhere = tmp_path / "elsewhere.tether"
+    other = PlotSeries("other", SavedSelection("other", elsewhere, keys[:1]))
+    out = tmp_path / "c.json"
+    _save(out, project, [many, other])
+    opened = run(OpenCompositionRequest(path=str(out)))
+    reasons = dict(opened.missing)
+    assert "7 of its 7 molecules are not in" in reasons["many"]
+    assert reasons["many"].endswith("and 2 more")
+    assert "its molecules are of the project" in reasons["other"]
+    assert "many: " in opened.message() and "other: " in opened.message()
+
+
+def test_an_unreadable_project_is_named(modelled, tmp_path) -> None:
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    data = json.loads(out.read_text(encoding="utf-8"))
+    broken = tmp_path / "broken.tether"
+    broken.write_text("not a project", encoding="utf-8")
+    data["project_path"] = str(broken)
+    out.write_text(json.dumps(data), encoding="utf-8")
+    opened = run(OpenCompositionRequest(path=str(out)))
+    assert opened.missing[0][0] == ALL_MOLECULES
+    assert "cannot be read" in opened.missing[0][1]
+
+
+def test_save_refuses_a_bad_state_and_fails_an_unwritable_path(modelled, tmp_path) -> None:
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="is not NAME=INTEGER"):
+        _save(tmp_path / "c.json", project, ["all"], states=("state=one",))
+    with pytest.raises(CommandFailed, match="cannot write"):
+        _save(tmp_path / "no-such-folder" / "c.json", project, ["all"])
+
+
+def test_a_selection_without_a_saved_form_cannot_be_saved() -> None:
+    with pytest.raises(TypeError, match="its selection cannot be saved"):
+        series_text(PlotSeries("odd", object()))

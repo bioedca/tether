@@ -141,15 +141,20 @@ class PlotComposition:
             model = parameters.get("model_name")
             if model is not None and not isinstance(model, str):
                 raise ValueError("the parameter 'model_name' must be a string or null")
+            plot = str(data["plot"])
+            project_path = str(data["project_path"])
+        except KeyError as exc:
+            raise ValueError(f"the composition is missing {exc.args[0]!r}") from None
+        try:
             return cls(
-                plot=str(data["plot"]),
-                project_path=str(data["project_path"]),
+                plot=plot,
+                project_path=project_path,
                 series=tuple(_series_from(entry) for entry in series),
                 model_name=model,
                 states=tuple(states.items()),
             )
-        except KeyError as exc:
-            raise ValueError(f"the composition is missing {exc.args[0]!r}") from None
+        except KeyError as exc:  # an unknown plot id
+            raise ValueError(exc.args[0]) from None
 
     @classmethod
     def from_text(cls, text: str) -> PlotComposition:
@@ -158,10 +163,7 @@ class PlotComposition:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise ValueError(f"the file is not valid JSON: {exc}") from None
-        try:
-            return cls.from_dict(data)
-        except KeyError as exc:  # an unknown plot id
-            raise ValueError(exc.args[0]) from None
+        return cls.from_dict(data)
 
 
 def _series_dict(series: PlotSeries) -> dict[str, Any]:
