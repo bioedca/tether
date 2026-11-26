@@ -226,3 +226,27 @@ def test_a_failed_insufficient_evidence_event_publishes_nothing(
         assert len(read_calibration_window_log(path)) == 1
     finally:
         proj.release_lock()
+
+
+def test_a_failed_review_event_publishes_no_analysis_window(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _to(project, S.ANALYSIS_READY)
+    key = _key(project.path, 3)
+    before = read_molecules(project.path)["analysis_window"].copy()
+    real_send = cs.send_event
+
+    def send(proj: Project, sent: object, *args: object, **kwargs: object) -> object:
+        if sent is E.EDIT_WINDOWS_OR_CURATION:
+            raise OSError("the transition log could not be written")
+        return real_send(proj, sent, *args, **kwargs)
+
+    monkeypatch.setattr(cs, "send_event", send)
+    with pytest.raises(OSError):
+        project.set_analysis_window(key, START + 2, ACC, labeler="tester")
+    assert cs.read_correction_state(project.path).state is S.ANALYSIS_READY
+    np.testing.assert_array_equal(read_molecules(project.path)["analysis_window"], before)
+
+    monkeypatch.setattr(cs, "send_event", real_send)  # a retry stores both
+    assert len(project.set_analysis_window(key, START + 2, ACC, labeler="tester")) == 1
+    assert cs.read_correction_state(project.path).state is S.CORRECTED_REVIEW

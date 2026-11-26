@@ -692,8 +692,8 @@ class Project:
         self._assert_writable()
         return self._window_edit(
             labeler,
-            lambda: molecule_edits.set_analysis_window(
-                self.path,
+            lambda path: molecule_edits.set_analysis_window(
+                path,
                 molecule_key,
                 start,
                 stop,
@@ -721,8 +721,8 @@ class Project:
         self._assert_writable()
         return self._window_edit(
             labeler,
-            lambda: molecule_edits.reset_analysis_window(
-                self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+            lambda path: molecule_edits.reset_analysis_window(
+                path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
             ),
         )
 
@@ -746,8 +746,8 @@ class Project:
         self._assert_writable()
         return self._window_edit(
             labeler,
-            lambda: molecule_edits.restore_analysis_windows(
-                self.path,
+            lambda path: molecule_edits.restore_analysis_windows(
+                path,
                 molecule_key,
                 windows,
                 labeler=labeler,
@@ -756,28 +756,40 @@ class Project:
             ),
         )
 
-    def _window_edit(self, labeler: str | None, write: Callable[[], np.ndarray]) -> np.ndarray:
+    def _window_edit(self, labeler: str | None, write: Callable[[Path], np.ndarray]) -> np.ndarray:
         """Run an analysis-window ``write``; in ANALYSIS_READY a change returns to review.
 
         G03's *edit analysis windows or curation* (#928, ADR-0156): a window that changed in
         ANALYSIS_READY sends the project to CORRECTED_REVIEW. The calibration windows and the
-        γ evidence are not touched. In that state the writer lock must be held before the
-        window is written, so the event cannot be refused after the write.
+        γ evidence are not touched. In that state the window is written into a staged copy,
+        the event is stored, and the copy (with the stored transition) is published: a failed
+        event publishes no window, and a window is never stored in ANALYSIS_READY.
         """
         from tether.project import correction_states as cs
+        from tether.project import lock
+        from tether.project._guarded_publish import guarded_project_write
+        from tether.project.calibration_windows import _copy_transitions
 
         with cs._transition_lock(self.path):
             ready = cs.read_correction_state(self.path).state is cs.CorrectionState.ANALYSIS_READY
-            if ready:
-                cs._held_nonce(self)
-            written = write()
-            if ready and len(written):
-                cs.send_event(
-                    self,
-                    cs.CorrectionEvent.EDIT_WINDOWS_OR_CURATION,
-                    cs.Actor.person(labeler),
-                    note=f"analysis window of {len(written)} row(s) changed",
-                )
+            if not ready:
+                return write(self.path)
+            epoch = cs._held_nonce(self)
+
+            def guard() -> None:
+                if cs._held_nonce(self) != epoch:
+                    raise lock.LockedError(lock.read_lock(self.path), path=self.lock_path)
+
+            with guarded_project_write(self.path, write_guard=guard, label="window") as staged:
+                written = write(staged)
+                if len(written):
+                    cs.send_event(
+                        self,
+                        cs.CorrectionEvent.EDIT_WINDOWS_OR_CURATION,
+                        cs.Actor.person(labeler),
+                        note=f"analysis window of {len(written)} row(s) changed",
+                    )
+                    _copy_transitions(self.path, staged)
         return written
 
     def restore_categories(
