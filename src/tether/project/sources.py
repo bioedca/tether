@@ -135,8 +135,16 @@ class FileDigest:
         ------
         SourceReplaced
             If the path names another file or no file, or the file's size or modification
-            time changed. Where the filesystem gives no inode number, both identities are
-            ``None`` and only the size and modification time are compared.
+            time changed.
+
+        Notes
+        -----
+        Where the filesystem gives no inode number (it reports 0), both identities are
+        ``None`` and only the size and modification time are compared (#1419). This is
+        deliberate: refusing would stop ``relink_source`` and the checksum job on such
+        filesystems (network shares, exFAT drives). A replacement with the same size and
+        modification time is then not seen. If only one side has an identity, the check
+        refuses.
         """
         try:
             now = os.stat(path)
