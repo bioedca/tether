@@ -560,3 +560,56 @@ def test_a_claim_reads_the_file_identity_under_the_registry_lock(monkeypatch, tm
         assert held == [True]
     finally:
         shell_mod._release_gui_project(key, token)
+
+
+def _fit_every_molecule(path) -> None:
+    """Write a one-state fit over every molecule, each with its *current* input hash.
+
+    So each row starts with a fresh fit; only a later change to its inputs makes it stale.
+    """
+    from _analysis_store import fresh_input_hashes
+    from tether.project.idealize import write_idealization_model
+
+    molecules = _molecules(path)
+    n = molecules.shape[0]
+    write_idealization_model(
+        path,
+        model_name="vbconhmm",
+        model_type="vbconhmm",
+        nstates=1,
+        dtype="FRET",
+        means=np.array([0.4]),
+        variances=np.array([0.01]),
+        tmatrix=None,
+        norm_tmatrix=None,
+        elbo=1.0,
+        idealized=np.full((n, N_FRAMES), 0.4),
+        state_paths=np.zeros((n, N_FRAMES), dtype="int64"),
+        molecule_keys=[_text(k) for k in molecules["molecule_key"]],
+        molecule_ids=[_text(x) for x in molecules["molecule_id"]],
+        input_hashes=fresh_input_hashes(path),
+        intensity_quantity="corrected",
+        selected_by="fixed",
+        elbo_by_nstates=None,
+        app_version="test",
+        created_utc="2026-01-01T00:00:00Z",
+        overwrite=True,
+        frac=np.array([1.0]),
+    )
+
+
+def test_the_molecule_list_shows_a_fit_the_pass_made_stale(shell, qtbot, tmp_path) -> None:
+    # The pass moves molecule 0 from apparent to corrected E, which changes its fit's
+    # inputs (#1423): its row must read stale once the pass is done, without a reopen.
+    project = _store(tmp_path)
+    _fit_every_molecule(project.path)
+    before = [_text(m) for m in _molecules(project.path)["correction_method"]]
+    assert shell.load_project(project.path) is not None
+    view = shell.molecule_view
+    assert all(s is not None and s.idealized and not s.stale for s in view.states)
+
+    _run(shell, qtbot)
+    after = [_text(m) for m in _molecules(project.path)["correction_method"]]
+    assert after[0] != before[0]  # the pass changed the fitted molecule's method
+    qtbot.waitUntil(lambda: view.state(0) is not None and view.state(0).stale, timeout=5_000)
+    assert view.state(0).idealized

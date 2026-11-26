@@ -4413,6 +4413,7 @@ class TetherShell:
             self._status(f"Correction pass failed: {outcome.error}", Level.ERROR)
             return
         self._queue_readiness_refresh()
+        self._queue_states_refresh()  # a changed correction method makes a fit stale (#1423)
         result = outcome.value
         if self._correction_summary is not None:
             self._correction_summary.close()
