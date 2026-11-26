@@ -483,3 +483,31 @@ def test_a_movie_pair_is_never_located_again(tmp_path) -> None:
 
     assert not locatable(pair)
     assert kept == pair
+
+
+def test_a_file_replaced_just_after_the_path_check_keeps_the_read_files_signature(
+    tmp_path, monkeypatch
+) -> None:
+    # CodeRabbit review of #1459 (follow-up on its thread): replace the file right after the
+    # path check; the location must carry the signature of the file that was read, so a later
+    # open sees the replacement as changed.
+    import os
+
+    from tether.project.sources import FileDigest
+    from tether.services.movie_locations import check_relocated
+
+    movie = _tiff(tmp_path / "a.tif", 1)
+    read = movie.stat()
+    real_check = FileDigest.check_path
+
+    def check_then_replace(self, path):
+        real_check(self, path)
+        Path(path).write_bytes(b"another file, written just after the check" * 100)
+        os.utime(path, ns=(read.st_atime_ns, read.st_mtime_ns + 5_000_000_000))
+
+    monkeypatch.setattr(FileDigest, "check_path", check_then_replace)
+
+    where = check_relocated(movie, _sha256(movie))
+
+    assert (where.file_size, where.mtime) == (read.st_size, read.st_mtime)
+    assert (where.file_size, where.mtime) != (movie.stat().st_size, movie.stat().st_mtime)
