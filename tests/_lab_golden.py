@@ -37,6 +37,7 @@ import _golden
 
 __all__ = [
     "EXPORT_ROUTES",
+    "GOLDEN_IDS",
     "LAB_ACQUISITIONS",
     "LAB_GOLDEN_DIR",
     "MAP_ROLE",
@@ -44,6 +45,10 @@ __all__ = [
     "QUANTITIES",
     "EXPORT_ROUTE_ROTATION",
     "TURNED_AGAINST_MAP",
+    "VSI_ACQUISITIONS",
+    "VSI_MAP_TURNS",
+    "VSI_ROLE",
+    "VSI_TIFF_ROLE",
     "compare_export_routes",
     "dump_lab_golden",
     "extract_project",
@@ -53,6 +58,7 @@ __all__ = [
     "movie_role",
     "rotate_movie",
     "validate_document",
+    "vsi_skip_reason",
 ]
 
 LAB_GOLDEN_DIR = _golden.GOLDEN_DIR / "workstation"
@@ -88,10 +94,30 @@ TURNED_AGAINST_MAP: frozenset[str] = frozenset({"lab-10", "lab-12"})
 LAB_ACQUISITIONS: tuple[str, ...] = tuple(
     f"lab-{i:02d}" for i in range(1, 14) if f"lab-{i:02d}" not in EXPORT_ROUTES.values()
 )
+#: The cellSens ``.vsi`` movies (#1433), each with the quarter turns (``numpy.rot90``) that put
+#: its frames in the orientation of its series' map file. Tether reads a ``.vsi`` as its ``.ets``
+#: frame files store it (#907), and that is correct. But the map of the series of ``vsi-01`` and
+#: ``vsi-02`` (the same file as the map of ``lab-03`` to ``lab-05``) was made from TIFFs that the
+#: maintainer made in ImageJ: the Bio-Formats importer opens the ``.vsi`` and a batch step turns
+#: it 90° clockwise before the TIFF is saved (maintainer statements, 2026-11-25). Every one of the
+#: 1700 frames of each ImageJ TIFF equals ``numpy.rot90(vsi_frame, k=3)``, with no mirror
+#: (workstation, main 3c7b466). Unturned, the ``.vsi`` with that map gives a normal molecule count
+#: and a negative median acceptor: each donor spot pairs with the wrong part of the frame, and an
+#: imported map has no registration error to warn of it. The turn depends on the map, not on the
+#: ``.vsi`` format, so it is recorded for each id here and never guessed at run time.
+VSI_MAP_TURNS: dict[str, int] = {"vsi-01": 3, "vsi-02": 3}
+#: The ``.vsi`` ids that have a golden file. They need the Bio-Formats stack (ADR-0147).
+VSI_ACQUISITIONS: tuple[str, ...] = tuple(sorted(VSI_MAP_TURNS))
+#: Every id that has a golden file: the TIFF acquisitions, then the ``.vsi`` movies.
+GOLDEN_IDS: tuple[str, ...] = LAB_ACQUISITIONS + VSI_ACQUISITIONS
 #: Role of the movie that the pipeline reads. An id whose mapping value is one file name has only
 #: the runner's default role ``file``, which then names the movie.
 MOVIE_ROLE = "movie"
 DEFAULT_ROLE = "file"
+#: Role of a cellSens ``.vsi`` movie, and of the TIFF made from it in ImageJ (#907). The name
+#: ``tiff_export`` stays, although no vendor software exported the TIFF.
+VSI_ROLE = "vsi"
+VSI_TIFF_ROLE = "tiff_export"
 #: Role of the Deep-LASI map file of the acquisition's series (D2: A).
 MAP_ROLE = "tmap"
 #: States of the native HMM whose means are frozen.
@@ -120,15 +146,29 @@ def map_turns(neutral_id: str) -> int:
     """The quarter turns (``numpy.rot90``) that put the movie of an id in its map's orientation.
 
     ``0`` for every acquisition whose movie the map fits as it is; the turn that undoes
-    :data:`EXPORT_ROUTE_ROTATION` for the ids of :data:`TURNED_AGAINST_MAP`.
+    :data:`EXPORT_ROUTE_ROTATION` for the ids of :data:`TURNED_AGAINST_MAP`; the recorded turn
+    of :data:`VSI_MAP_TURNS` for a ``.vsi`` movie.
     """
+    if neutral_id in VSI_MAP_TURNS:
+        return VSI_MAP_TURNS[neutral_id]
     return -EXPORT_ROUTE_ROTATION if neutral_id in TURNED_AGAINST_MAP else 0
 
 
 def movie_role(roles: Iterable[str]) -> str:
-    """The role that names the movie of an id: ``movie``, else the default role ``file``."""
+    """The role that names the movie of an id: ``vsi`` or ``movie``, else the default ``file``."""
     roles = set(roles)
+    if VSI_ROLE in roles:
+        return VSI_ROLE
     return MOVIE_ROLE if MOVIE_ROLE in roles or DEFAULT_ROLE not in roles else DEFAULT_ROLE
+
+
+def vsi_skip_reason() -> str | None:
+    """Why a ``.vsi`` movie cannot be read here, or ``None`` when the Bio-Formats stack is set."""
+    from tether.io.bioformats import BIOFORMATS_PYTHON_ENV, bioformats_python  # noqa: PLC0415
+
+    if bioformats_python() is None:
+        return f"the Bio-Formats stack is not installed (${BIOFORMATS_PYTHON_ENV} is not set)"
+    return None
 
 
 def extract_project(movie: Path, tmap: Path | None, workdir: Path) -> tuple[int, Path | None]:
@@ -157,14 +197,46 @@ def rotate_movie(src: Path, dst: Path, k: int) -> Path:
 
     The copy is the uncompressed big-endian TIFF that the extractor reads; only the pixel
     layout changes. ``dst`` keeps the name of ``src`` when it is a folder, so a name-derived
-    tag of the movie stays the same.
+    tag of the movie stays the same; a source that is not a TIFF (a cellSens ``.vsi``, read
+    through the movie adapters, #1433) keeps its stem and takes the suffix ``.tif``.
     """
     import tifffile  # noqa: PLC0415
 
-    dst = dst / src.name if dst.is_dir() else dst
+    is_tiff = src.suffix.casefold() in {".tif", ".tiff"}
+    if dst.is_dir():
+        dst = dst / (src.name if is_tiff else f"{src.stem}.tif")
+    if not is_tiff:
+        return _rotate_through_adapter(src, dst, k)
     frames = np.asarray(tifffile.memmap(src, mode="r"))
     turned = np.ascontiguousarray(np.rot90(frames, k=k, axes=(1, 2)), dtype=">u2")
     tifffile.imwrite(dst, turned, photometric="minisblack", byteorder=">")
+    return dst
+
+
+#: Frames read, turned and written at a time when the source is not a TIFF.
+_CHUNK = 64
+
+
+def _rotate_through_adapter(src: Path, dst: Path, k: int) -> Path:
+    """:func:`rotate_movie` for a source the adapters read, a block of frames at a time."""
+    import tifffile  # noqa: PLC0415
+
+    from tether.io.adapters import open_movie_source  # noqa: PLC0415
+
+    with open_movie_source(src) as source:
+        pixel = np.dtype(source.pixel_type)
+        if pixel.kind != "u" or pixel.itemsize > 2:
+            raise ValueError(f"a {pixel} movie does not fit the 16-bit TIFF the extractor reads")
+        with tifffile.TiffWriter(dst, byteorder=">") as writer:
+            for start in range(0, source.n_frames, _CHUNK):
+                stop = min(start + _CHUNK, source.n_frames)
+                block = np.rot90(np.asarray(source.read_frames(start, stop)), k=k, axes=(1, 2))
+                for frame in block:
+                    writer.write(
+                        np.ascontiguousarray(frame, dtype=">u2"),
+                        photometric="minisblack",
+                        contiguous=True,
+                    )
     return dst
 
 
