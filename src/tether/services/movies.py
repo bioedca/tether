@@ -40,6 +40,14 @@ project-relative file does not exist, the same relative path is tried from the c
 folder, and taken only when it matches the recorded fast signature (size and
 modification time). Every movie file's size and modification time are checked against that
 signature before it is shown; a mismatch is flagged, never trusted (PRD §5.4).
+
+**A movie pair.** A project can hold the donor and the acceptor of one acquisition in two
+files (#909): one ``/movies`` row whose ``uri`` names the donor file, and two source records
+([`tether.project.sources.read_sources`][]) whose acquisition carries the ``pair_role``
+``donor`` and ``acceptor``. The movie panel shows one file as one dual-channel frame, so it
+would show only the donor movie and draw the acceptor spots on donor-camera pixels. Until
+the panel can show each channel from its own file, such a row is listed as not available,
+with a reason that names the pair (#1405), and [`open_project_movie`][] refuses it.
 """
 
 from __future__ import annotations
@@ -95,7 +103,9 @@ class ProjectMovie:
         ``None`` when the file can be opened; otherwise a short reason in plain words:
         ``"file missing"``, ``"file not on this disk"``, ``"file unreadable"``,
         ``"file changed since extraction"`` (its size or modification time differs from the
-        recorded fast signature, PRD §5.4) or ``"no movie file recorded"``.
+        recorded fast signature, PRD §5.4), ``"no movie file recorded"``, or, for a movie
+        pair, ``"movie pair with <acceptor file>: the view of a pair is not available
+        yet"`` (#1405).
     donor_xy, acceptor_xy:
         ``(N, 2)`` ``[x, y]`` spot centres of this movie's molecules, in pixels of the
         whole camera frame (see [`subimage_to_frame`][]). A molecule whose stored
@@ -324,12 +334,43 @@ def _aperture_radius(handle: object) -> float:
     return float(DEFAULT_APERTURE_RADIUS)
 
 
+def _pair_partners(project_path: Path) -> dict[str, str]:
+    """Return ``{movie_id: acceptor file name}`` for each movie that is a movie pair (#909).
+
+    A movie is a pair when any of its source records carries a ``pair_role`` in its
+    acquisition; the name is that of the record whose role is ``acceptor`` (empty when the
+    registry holds none). Reads the source registry only, never a movie file.
+    """
+    from tether.io.pair import PAIR_ROLE_KEY
+    from tether.project.sources import read_sources
+
+    partners: dict[str, str] = {}
+    for record in read_sources(project_path):
+        role = record.acquisition.get(PAIR_ROLE_KEY) if record.role == "movie" else None
+        if not role or not record.movie_id:
+            continue
+        name = record.original_name or _movie_name(record.relative_path)
+        if role == "acceptor":
+            partners[record.movie_id] = name
+        else:
+            partners.setdefault(record.movie_id, "")
+    return partners
+
+
+def _pair_refusal(acceptor_name: str) -> str:
+    """Return the ``unavailable`` reason of a movie pair, naming the acceptor file (#1405)."""
+    pair = f"movie pair with {acceptor_name}" if acceptor_name else "movie pair"
+    return f"{pair}: the view of a pair is not available yet"
+
+
 def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
     """Read every ``/movies`` row of the project at ``path``, with its molecules' spots.
 
     Opens the project read-only with ``h5py`` and takes no lock. A project with no
     ``/movies`` table (an analysis-only import) gives no movies. A ``/molecules`` row whose
-    ``movie_id`` names no ``/movies`` row (a subset export) belongs to no movie.
+    ``movie_id`` names no ``/movies`` row (a subset export) belongs to no movie. A movie
+    pair (donor and acceptor in two files, #909) is listed as not available, with a reason
+    that names the pair, and is never offered as one dual-channel movie (#1405).
 
     Raises ``OSError`` when the project cannot be read.
     """
@@ -351,6 +392,8 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
             if molecules_group is not None and TABLE in molecules_group
             else None
         )
+
+    partners = _pair_partners(project_path)
 
     if molecules is not None and len(molecules):
         mol_movie = np.array([_to_str(m) for m in molecules["movie_id"]])
@@ -384,7 +427,11 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 movie_id=movie_id,
                 name=_movie_name(uri) if uri else movie_id,
                 path=resolved,
-                unavailable=_unavailable(resolved, file_size, mtime),
+                unavailable=(
+                    _pair_refusal(partners[movie_id])
+                    if movie_id in partners
+                    else _unavailable(resolved, file_size, mtime)
+                ),
                 donor_xy=donor_xy,
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,
