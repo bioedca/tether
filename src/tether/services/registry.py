@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import approve, batch, extract, idealize, maps, reextract
+from tether.services import approve, batch, compositions, extract, idealize, maps, reextract
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -97,6 +97,20 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         result_type=approve.ApproveResult,
         run=approve.run,
         summary="record that a person approved a step that needs a person",
+    ),
+    ServiceCommand(
+        name="save-composition",
+        request_type=compositions.SaveCompositionRequest,
+        result_type=compositions.SaveCompositionResult,
+        run=compositions.run_save,
+        summary="save a plot composition of the plot builder to a file (no trace data)",
+    ),
+    ServiceCommand(
+        name="open-composition",
+        request_type=compositions.OpenCompositionRequest,
+        result_type=compositions.OpenCompositionResult,
+        run=compositions.run_open,
+        summary="open a saved plot composition and name each series that cannot be found",
     ),
 )
 
