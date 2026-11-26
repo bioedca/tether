@@ -4,42 +4,59 @@ description: "Cite Tether by its concept DOI or by the version DOI of the releas
 
 # Citing Tether
 
-**Who this page is for.** Anyone publishing results produced with Tether. It gives the
-citation for Tether itself and, for each part of the pipeline you ran, the principal
-upstream papers behind the methods that part implements, which you should cite alongside it.
+**Who this page is for.** Anyone who publishes results that Tether produced. The page gives the
+citation for Tether itself. For each part of the pipeline, it also gives the upstream papers that
+you cite with Tether.
+
+## How to read this page
+
+Each entry on this page uses one of these forms:
+
+| Kind of entry | Form |
+|---|---|
+| A row of a table of methods | The part of Tether that you ran, then **Cite**: the keys of the papers to cite, separated by semicolons. |
+| A reference | The key in bold, the authors, the title, the journal, the volume, issue and pages, the year and the DOI link. |
+
+A key is the first author's family name and the year, for example `Lee 2005`. Every key in a
+**Cite** cell has an entry under [References](#references). The [Background](#background) section
+at the end gives the reasons for some of the rules.
 
 ## Cite Tether
 
-Tether is archived on Zenodo. Its **concept DOI** always resolves to the newest archived
-version:
+Tether is archived on Zenodo. Its **concept DOI** always resolves to the newest archived version:
 
 > Campos-Chávez E, Mondragón A. *Tether*. Zenodo.
 > [https://doi.org/10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397)
 
-The same metadata is in
-[`CITATION.cff`](https://github.com/bioedca/tether/blob/main/CITATION.cff), which is what
-GitHub's **Cite this repository** button on the repository page reads; it exports APA and
-BibTeX.
+[`CITATION.cff`](https://github.com/bioedca/tether/blob/main/CITATION.cff) holds the same
+metadata. GitHub's **Cite this repository** button on the repository page reads that file. The
+button exports APA and BibTeX.
 
-Every release archived on Zenodo also has its own **version DOI**. To cite the exact
-version you ran, open the concept DOI above, pick that version from the record's version
-list, and cite the DOI shown on that version's record. Archiving started with
-`v1.0.0-rc2`, so `v1.0.0-rc1` has no version DOI: if you ran it, cite the concept DOI and
-give the version number in the text.
+Each release on Zenodo also has its own **version DOI**. Do these steps to cite the exact version
+that you ran:
+
+1. Open the concept DOI above.
+2. In the version list of the record, select the version that you ran.
+3. Cite the DOI on the record of that version.
+
+> **Cite the concept DOI for `v1.0.0-rc1`.** Archiving started with `v1.0.0-rc2`, so
+> `v1.0.0-rc1` has no version DOI. If you ran `v1.0.0-rc1`, cite the concept DOI and give the
+> version number in the text.
 
 ## Also cite the methods you used
 
-Tether reimplements or wraps published methods, and the authors of those methods should be
-credited for the parts you used. Find the rows that match your analysis.
+Tether reimplements or wraps published methods. Find the rows that match your analysis, and cite
+the papers in their **Cite** cells.
 
 ### Idealization
 
-The idealization backend is the `type` attribute of the model's group under
-`/idealization/` in your `.tether` project. The group itself is named after the backend
-unless a different name was chosen when the model was written. A model imported from
-tMAVEN keeps tMAVEN's own label in `type` (for example `vb Consensus HMM` or `vbFRET`)
-rather than one of Tether's seven backend keys. `vbFRET` has its own row below; for any
-other label, find the row that describes the same method and cite that.
+The idealization backend is the `type` attribute of the model group under `/idealization/` in your
+`.tether` project. The group has the name of the backend, unless the model was written with a
+different name.
+
+A model imported from tMAVEN keeps the tMAVEN label in `type`, not one of the seven Tether backend
+keys. Examples are `vb Consensus HMM` and `vbFRET`. The label `vbFRET` has its own row below. For
+a different label, find the row that describes the same method, and cite the papers of that row.
 
 | Backend (model type) | What it is | Cite |
 |---|---|---|
@@ -54,11 +71,11 @@ other label, find the row that describes the same method and cite that.
 
 ### The rest of the pipeline
 
-Native extraction has three spot detectors, and they come from different papers. The one
-that ran is the `detection_mode` key of the JSON text in the `profile_json` attribute of
-`/settings/extraction` in your `.tether` project (see
-[the parameter reference](reference/parameters.md#param-detection-mode)). It is `wavelet`
-unless you chose another mode or a Deep-LASI `.tdat` file supplied one.
+Native extraction has three spot detectors, and they come from different papers. The
+`detection_mode` key tells you which detector ran. It is in the JSON text of the `profile_json`
+attribute of `/settings/extraction` in your `.tether` project. See
+[the parameter reference](reference/parameters.md#param-detection-mode). The value is `wavelet`,
+unless you chose a different mode or a Deep-LASI `.tdat` file supplied one.
 
 | What you ran | Cite |
 |---|---|
@@ -130,27 +147,40 @@ unless you chose another mode or a Deep-LASI `.tdat` file supplied one.
   129(4):1167–1175 (2025).
   [https://doi.org/10.1021/acs.jpcb.4c05276](https://doi.org/10.1021/acs.jpcb.4c05276)
 
-These are the papers the tables above cite. The `references:` list in `CITATION.cff` holds
-them all, plus works Tether credits that a citing user does not need here (MASH-FRET and the
-kinSoftChallenge benchmark and dataset used in Tether's own tests). Licensing credit for the
-projects Tether builds on is in
-[`NOTICE`](https://github.com/bioedca/tether/blob/main/NOTICE).
+The tables above cite these papers, and no others. The `references:` list in `CITATION.cff`
+holds all of them. See [What `CITATION.cff` also holds](#what-citationcff-also-holds).
 
 ## Reporting a Tether analysis
 
-Quote the version that produced the results you report, not the version you have installed
-today. When you run an analysis that you will publish, write down the output of
-`tether --version` (see the [command-line reference](cli.md)). Not every step records a
-version in the project, so your own note is the dependable record.
+Quote the version that produced the results that you report. Do not quote the version that you
+have installed today. When you run an analysis that you will publish, write down the output of
+`tether --version` (see the [command-line reference](cli.md)). Not every step records a version
+in the project, so your own note is the dependable record.
 
-Cite Tether with the concept DOI in [Cite Tether](#cite-tether). If one exact release
-matters, cite the version DOI of that release instead. Then cite the papers in
-[Also cite the methods you used](#also-cite-the-methods-you-used) for each step that you ran.
+Cite Tether with the concept DOI in [Cite Tether](#cite-tether). If one exact release matters,
+cite the version DOI of that release instead. Then, for each step that you ran, cite the papers in
+[Also cite the methods you used](#also-cite-the-methods-you-used).
 
 [Reproducibility and reporting](reproducibility.md) is the one page for the rest. It lists
-[the version and settings stamps](reproducibility.md#what-is-recorded) on each pipeline
-stage and export, and [the steps and settings with no stamp](reproducibility.md#what-is-not-recorded).
-It gives [a script that reads the stamps back](reproducibility.md#how-to-read-it-back) and
+[the version and settings stamps](reproducibility.md#what-is-recorded) on each pipeline stage and
+export. It also lists [the steps and settings with no stamp](reproducibility.md#what-is-not-recorded).
+
+The same page gives [a script that reads the stamps back](reproducibility.md#how-to-read-it-back) and
 [a sample Methods paragraph](reproducibility.md#a-sample-methods-paragraph). Start from that
-paragraph. It says which correction factors were estimated, and that the trajectories were
-idealized on the apparent FRET efficiency.
+paragraph. It says which correction factors were estimated. It also says that the trajectories
+were idealized on the apparent FRET efficiency.
+
+## Background
+
+### Why you cite the upstream methods
+
+Tether reimplements or wraps methods that other authors published. A citation of Tether alone does
+not credit those authors. The tables above name the papers for each part that you ran.
+
+### What `CITATION.cff` also holds
+
+The `references:` list in `CITATION.cff` holds every paper on this page. It also holds works that
+Tether credits but that a citing user does not need here. These are MASH-FRET and the
+kinSoftChallenge benchmark and dataset that Tether's own tests use. Licensing credit for the
+projects that Tether builds on is in
+[`NOTICE`](https://github.com/bioedca/tether/blob/main/NOTICE).
