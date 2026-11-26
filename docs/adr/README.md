@@ -207,6 +207,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0151](0151-a-movie-pair-is-one-movies-row-named-by-the-checksum-of-both-files.md) | A movie pair is one /movies row named by the checksum of both files | accepted | §5 (data model), §7.1 FR-EXTRACT, Appendix E stage 1 |
 | [0152](0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md) | Tether reads SIRA with its own reader, and only the current layout | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0153](0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md) | A cellSens .vsi movie's checksum covers its frame files | accepted | §5 (data model, `/movies.sha256`), §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0154](0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md) | Tether reads AVI with its own reader, and only uncompressed 8-bit gray | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 
 <!-- gen:adr-index end -->
 

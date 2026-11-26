@@ -115,6 +115,7 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
         "SIF",
         "cellSens VSI",
         "SIRA",
+        "AVI",
         "Later",
     ]
 
@@ -142,6 +143,7 @@ def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
         "SIF",
         "cellSens VSI",
         "SIRA",
+        "AVI",
     ]
 
 
@@ -171,6 +173,7 @@ def test_a_failure_part_way_through_the_builtins_leaves_none_of_them(
         "SIF",
         "cellSens VSI",
         "SIRA",
+        "AVI",
     ]
 
 
@@ -189,7 +192,7 @@ def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) ->
         th.start()
     for th in threads:
         th.join()
-    assert seen == [("TIFF", "CZI", "ND2", "SIF", "cellSens VSI", "SIRA")] * 8
+    assert seen == [("TIFF", "CZI", "ND2", "SIF", "cellSens VSI", "SIRA", "AVI")] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:

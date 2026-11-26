@@ -322,6 +322,8 @@ optics, never the date. An old map with the same optics is as good as a new one
 | The optics text: the map's `--optics`, and the movie's `--optics`. | Refused, unless you confirm with `--confirm-optics`. |
 | A value that one side does not know. | Not compared. The project records it as *not compared*. |
 
+A count with `--count-only` runs the same check, so it refuses what the extraction would refuse.
+
 ```console
 $ tether map create beads.tif -o beads.npz --optics "60x TIRF, Cy3/Cy5, EMCCD 1x1" --pixel-size 0.267
 $ tether extract movie.tif -o movie.tether --map beads.npz --optics "100x TIRF, Cy3/Cy5"

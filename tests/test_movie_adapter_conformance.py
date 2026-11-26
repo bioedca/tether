@@ -106,6 +106,14 @@ def _sira_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
     return write_sira(tmp / "movie.sira", frames), frames
 
 
+def _avi_synthetic(tmp: Path) -> tuple[Path, np.ndarray]:
+    """An AVI movie of ``tests/_avi_synth.py`` (#906): uncompressed 8-bit gray, bottom-up."""
+    from _avi_synth import write_avi
+
+    frames = _frames("u1")
+    return write_avi(tmp / "movie.avi", frames), frames
+
+
 _FAKE_RUNNER = Path(__file__).resolve().with_name("_fake_bioformats_runner.py")
 
 
@@ -151,6 +159,7 @@ CASES = [
         id="vsi-fake-runner",
     ),
     pytest.param(Case("SIRA", _sira_synthetic), id="sira-synthetic"),
+    pytest.param(Case("AVI", _avi_synthetic), id="avi-synthetic"),
 ]
 
 
