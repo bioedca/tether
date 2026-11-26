@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from tether.services.movies import ProjectMovie, ProjectMovies
 
 __all__ = [
+    "MAX_FILES_WALKED",
     "FolderSearch",
     "MovieLocation",
     "apply_locations",
