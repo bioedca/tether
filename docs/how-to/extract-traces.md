@@ -200,10 +200,9 @@ each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1
    movie that extraction refuses gives the same message on both, under the form.
 2. Choose the registration: a native fit, a saved channel map file (`.npz`), or a Deep-LASI
    `.tmap`. A map file or a `.tmap` needs its file in **Map file**. **Preview** and
-   **Extract…** put a map file through the same
-   [reuse check](../cli.md#reuse-a-map-file) with the movie's pixel size: a map made at
-   another pixel size is refused on both with the same message, under the form. The page has
-   no optics field, so it gives no optics text and the check does not compare the optics; use
+   **Extract…** run the same [reuse check](../cli.md#reuse-a-map-file) on a map file. A map
+   made at another pixel size is refused on both, with the same message under the form. The
+   page has no optics field, so the check does not compare the optics. Use
    `tether extract --optics` for that.
 3. Set the options. There is one row for each field of an
    [extraction profile](../cli.md#extraction-profiles), with the same name and the same default. A value that
