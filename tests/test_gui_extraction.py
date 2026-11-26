@@ -551,3 +551,119 @@ def test_the_page_is_the_prepare_section_of_the_shell(section_shell) -> None:
     assert shell.extraction.busy is False
     # The page scrolls inside itself, so it does not raise the window's minimum size.
     assert shell.section_page("prepare").minimumSizeHint().width() < 200
+
+
+# --- every container extraction reads (#1415) -------------------------------------------
+
+
+def _write_nd2(path):
+    from _nd2_synth import write_nd2
+
+    return write_nd2(path, _movie_array().astype(np.uint16))
+
+
+def test_the_preview_reads_an_nd2_movie_through_the_extraction_reader(tmp_path) -> None:
+    movie, preview = sp.run_preview(_write_nd2(tmp_path / "movie.nd2"), ExtractOptions())
+    try:
+        assert movie.container == "ND2"
+        assert preview.completed
+        assert movie.shape == (_N_FRAMES, *_SHAPE)
+        # The frames are the ones the TIFF of the same movie gives.
+        np.testing.assert_array_equal(movie.read_frames(0, _N_FRAMES), _movie_array())
+        assert movie.metadata.frame_time.origin == "file"
+    finally:
+        movie.close()
+    assert movie.closed
+    with pytest.raises(ValueError, match="closed"):
+        movie.read_frames(0, 1)
+    movie.close()  # idempotent
+
+
+def test_the_movie_filter_lists_every_extracted_container() -> None:
+    from tether.io.adapters import registered_adapters
+    from tether.io.movie import EXTRACTED_CONTAINERS
+
+    patterns = ex.movie_filter().split(";;")[0]
+    for adapter in registered_adapters():
+        if adapter.name in EXTRACTED_CONTAINERS:
+            for suffix in adapter.extensions:
+                assert f"*{suffix}" in patterns, adapter.name
+    assert ex.movie_filter().endswith(";;All files (*)")
+
+
+@pytest.mark.gui
+@needs_qt
+def test_an_nd2_preview_fills_the_stages_and_the_two_overlays(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_nd2(tmp_path / "movie.nd2"))
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert page.error_label.text() == ""
+    assert [row[:2] for row in _table(page)] == [(name, "ok") for name in STAGES]
+    assert page.overlay_views == (_SPOTS, _RESIDUALS)
+    (panel,) = page.panels
+    assert all(reader.container == "ND2" for reader, _o, _n in panel.movies)
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_refused_container_says_the_same_on_preview_and_extract(
+    page, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.io import adapters
+    from tether.io.adapters import MovieAdapter
+
+    def _open(path):
+        raise AssertionError("an unlisted reader must not be opened")
+
+    fake = MovieAdapter("Fake", (".fake",), lambda head: head[:4] == b"FAKE", _open)
+    real = adapters.registered_adapters()
+    monkeypatch.setattr(adapters, "registered_adapters", lambda: (*real, fake))
+    path = tmp_path / "movie.fake"
+    path.write_bytes(b"FAKE" + b"\x00" * 32)
+    page.set_movie(path)
+    assert page.preview() is True
+    _wait(qtbot, page)
+    preview_text = page.error_label.text()
+    assert preview_text.startswith("Preview failed: ")
+    assert "extraction does not read Fake" in preview_text
+    assert "Traceback" not in preview_text
+    assert page.extract(tmp_path / "new.tether") is True
+    _wait(qtbot, page)
+    extract_text = page.result_label.text()
+    assert extract_text.startswith("Extraction failed: ")
+    assert preview_text.removeprefix("Preview failed: ") == extract_text.removeprefix(
+        "Extraction failed: "
+    )
+
+
+@pytest.mark.gui
+@needs_qt
+def test_the_movie_on_show_is_closed_when_the_page_lets_it_go(qtbot, tmp_path) -> None:
+    panels: list[_FakePanel] = []
+    section = ex.ExtractionSection(
+        status=lambda _m: None, panel_factory=lambda: panels.append(_FakePanel()) or panels[-1]
+    )
+    qtbot.addWidget(section.widget)
+
+    def shown():
+        section.set_movie(_write_nd2(tmp_path / "movie.nd2"))
+        assert section.preview() is True
+        _wait(qtbot, section)
+        (movie,) = {id(r): r for r, _o, _n in panels[0].movies}.values()
+        assert not movie.closed
+        return movie
+
+    try:
+        # Another preview closes the movie of the last one.
+        first = shown()
+        second = shown()
+        assert first.closed and not second.closed
+        # A cleared preview (refused before it starts) closes it.
+        section.set_movie("")
+        assert section.preview() is False
+        assert second.closed
+        # Closing the page closes it.
+        third = shown()
+    finally:
+        section.close()
+    assert third.closed

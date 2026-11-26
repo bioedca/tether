@@ -8,7 +8,10 @@ Deep-LASI ``.tmap``), sets the extraction options, and then:
 
 * **Preview** runs every stage of the headless stage preview
   ([`iter_extraction_stages`][tether.project.preview.iter_extraction_stages], #348) on a
-  background worker. The stage table shows the outcome of each stage, and the reason when a
+  background worker. It reads the movie through the extraction reader, so any movie that
+  **Extract…** reads previews too, and a movie it refuses gives the same message (#1415);
+  the movie on show stays open until the page clears the preview, previews another movie
+  or closes. The stage table shows the outcome of each stage, and the reason when a
   stage fails. The movie viewer then shows the detected spots and the control-point
   residuals, each as a [`MovieOverlay`][tether.gui.movie_panel.MovieOverlay] on the
   [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]; there is no new overlay type.
@@ -45,16 +48,17 @@ from tether.services import preview as preview_service
 if TYPE_CHECKING:
     from tether.gui.movie_panel import MovieOverlay
     from tether.gui.tasks import TaskOutcome
-    from tether.io.movie import MovieReader
     from tether.project.extract import ExtractOptions
     from tether.project.preview import ExtractionPreview
     from tether.services import ExtractResult
+    from tether.services.preview import PreviewMovie
     from tether.services.profile import ExtractionProfile
 
 __all__ = [
     "REGISTRATION_SOURCES",
     "VIEW_NAMES",
     "ExtractionSection",
+    "movie_filter",
     "preview_overlays",
 ]
 
@@ -66,7 +70,6 @@ _SOURCE_LABELS = {
     "tmap": "Deep-LASI .tmap",
 }
 _SOURCE_FILTERS = {"map-file": "Channel map (*.npz)", "tmap": "Deep-LASI map (*.tmap)"}
-_MOVIE_FILTER = "Movie (*.tif *.tiff);;All files (*)"
 _TETHER_FILTER = "Tether project (*.tether)"
 #: The interval of the main-thread poll of a running preview or extraction, in ms.
 _POLL_MS = 50
@@ -77,6 +80,20 @@ VIEW_NAMES = {
         "Control-point residuals (green: donor mapped by the fit, red: acceptor found)"
     ),
 }
+
+
+def movie_filter() -> str:
+    """Return the movie file filter of the page: every container extraction reads (#1415).
+
+    The patterns are the file suffixes of the readers in
+    [`EXTRACTED_CONTAINERS`][tether.io.movie.EXTRACTED_CONTAINERS]
+    ([`movie_file_suffixes`][tether.services.movies.movie_file_suffixes]), so a container
+    that joins that list joins the filter; "All files" follows.
+    """
+    from tether.services.movies import movie_file_suffixes
+
+    patterns = " ".join(f"*{suffix}" for suffix in movie_file_suffixes())
+    return f"Movie ({patterns});;All files (*)"
 
 
 def preview_overlays(
@@ -134,7 +151,7 @@ class ExtractionSection:
         self._panel_factory = panel_factory or _napari_panel
         self._tasks = TaskService(poll_ms=_POLL_MS)
         self._panel: Any = None
-        self._reader: MovieReader | None = None
+        self._reader: PreviewMovie | None = None
         self._preview: ExtractionPreview | None = None
         self._result: ExtractResult | None = None
         self._overlay_views: tuple[str, ...] = ()
@@ -432,7 +449,7 @@ class ExtractionSection:
                 self._stage_table.setItem(row, column, item)
 
     def _show_overlays(
-        self, reader: MovieReader, preview: ExtractionPreview, radius: float
+        self, reader: PreviewMovie, preview: ExtractionPreview, radius: float
     ) -> None:
         """Show the preview's overlays on the movie, replacing the last preview's."""
         frame_shape = tuple(int(n) for n in reader.shape[-2:])
@@ -570,7 +587,7 @@ class ExtractionSection:
         from pyqtgraph.Qt import QtWidgets
 
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self._window, "Movie to extract", "", _MOVIE_FILTER
+            self._window, "Movie to extract", "", movie_filter()
         )
         if path:
             self.set_movie(path)
