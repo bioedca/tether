@@ -63,8 +63,8 @@ Chosen option: **1**.
 - **When the rules run.** `tests/test_validation_evidence.py` checks the format on every pull
   request and checks in full every set that is committed (all eight records, one commit, every
   gate passed, (c) advisory). It requires no set. The `verify` job of `release.yml` runs
-  `check-release` for the tag it builds: the set of that tag must be complete and bind the tag
-  commit as above. It fails a stable tag that publishes; for a prerelease or a dry run it reports
+  `check-release` for the tag it builds: the set of that tag, read from the tag commit's own tree
+  and not from the checkout, must be complete and bind the tag commit as above. It fails a stable tag that publishes; for a prerelease or a dry run it reports
   and does not fail.
 
 ### Consequences

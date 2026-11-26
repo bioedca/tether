@@ -49,6 +49,7 @@ import math
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -169,6 +170,8 @@ def set_errors(directory: Path) -> list[str]:
     for oracle in ORACLES:
         path = directory / file_name(oracle)
         if not path.is_file():
+            if path.exists():
+                errors.append(f"{path.name}: not a file")
             continue
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -195,24 +198,59 @@ def release_commit(directory: Path) -> str:
     return str(record["commit"])
 
 
-def _git(*args: str) -> str:
+def _git(*args: str, root: Path = ROOT) -> str:
     return subprocess.run(
-        ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True
+        ["git", *args], cwd=root, check=True, capture_output=True, text=True
     ).stdout.strip()
 
 
-def binding_errors(tag: str, tag_commit: str) -> list[str]:
-    """Why the tag commit is not its release commit plus the files of its own set."""
-    rel = f"{RELEASE_DIR}/{tag}"
-    errors = set_errors(ROOT / rel)
-    if errors:
-        return errors
-    commit = release_commit(ROOT / rel)
+def _export(root: Path, commit: str, rel: str, dest: Path) -> Path:
+    """Copy the directory ``rel`` as it is in ``commit`` (not in the checkout) under ``dest``.
+
+    A tree entry becomes an empty directory, so a directory in place of a record is still seen.
+    """
+    target = dest / rel
+    listing = _git("ls-tree", "-z", f"{commit}:{rel}", root=root) if _has(root, commit, rel) else ""
+    target.mkdir(parents=True, exist_ok=True)
+    for entry in filter(None, listing.split("\0")):
+        meta, name = entry.split("\t", 1)
+        if meta.split()[1] == "blob":
+            blob = subprocess.run(
+                ["git", "show", f"{commit}:{rel}/{name}"], cwd=root, check=True, capture_output=True
+            ).stdout
+            (target / name).write_bytes(blob)
+        else:
+            (target / name).mkdir()
+    return target
+
+
+def _has(root: Path, commit: str, rel: str) -> bool:
     try:
-        _git("merge-base", "--is-ancestor", commit, tag_commit)
+        return _git("cat-file", "-t", f"{commit}:{rel}", root=root) == "tree"
+    except subprocess.CalledProcessError:
+        return False
+
+
+def binding_errors(tag: str, tag_commit: str, root: Path = ROOT) -> list[str]:
+    """Why the tag commit is not its release commit plus the files of its own set.
+
+    The set is read from the tag commit's own tree, never from the checkout, which on a
+    ``workflow_dispatch`` dry run is the dispatching branch and can hold files the tag lacks.
+    """
+    rel = f"{RELEASE_DIR}/{tag}"
+    if not _has(root, tag_commit, rel):
+        return [f"{rel}: no release set in the tag commit {tag_commit[:12]}"]
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = _export(root, tag_commit, rel, Path(scratch))
+        errors = set_errors(directory)
+        if errors:
+            return errors
+        commit = release_commit(directory)
+    try:
+        _git("merge-base", "--is-ancestor", commit, tag_commit, root=root)
     except subprocess.CalledProcessError:
         return [f"the release commit {commit} is not an ancestor of the tag commit {tag_commit}"]
-    changed = _git("diff", "--name-only", commit, tag_commit).splitlines()
+    changed = _git("diff", "--name-only", commit, tag_commit, root=root).splitlines()
     outside = [p for p in changed if not p.startswith(rel + "/")]
     if outside:
         return [f"the tag commit changes more than {rel}/ since {commit[:12]}: {outside}"]

@@ -15,6 +15,7 @@ import copy
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -211,3 +212,46 @@ def test_release_yml_runs_the_gate_for_a_stable_publishing_tag() -> None:
         "steps.resolve.outputs.prerelease"
         in text.split("check-release", 1)[0].rsplit("- name:", 1)[1]
     )
+
+
+def test_a_directory_in_place_of_a_record_fails(tmp_path: Path) -> None:
+    records = _complete()
+    del records["deep"]
+    directory = _write_set(tmp_path / "v9.9.9", records)
+    (directory / "deep.json").mkdir()
+    (directory / "deep.json" / "placeholder").write_text("{}", encoding="utf-8")
+    assert "deep.json: not a file" in ve.set_errors(directory)
+
+
+def _git(repo: Path, *args: str) -> str:
+    who = ["-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "commit.gpgsign=false"]
+    done = subprocess.run(
+        ["git", *who, *args], cwd=repo, check=True, capture_output=True, text=True
+    )
+    return done.stdout.strip()
+
+
+def test_the_release_gate_reads_the_set_from_the_tagged_tree(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "README").write_text("release commit\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "release commit")
+    release = _git(repo, "rev-parse", "HEAD")
+    records = {oracle: _record(oracle, commit=release) for oracle in ve.ORACLES}
+    # The tag commit carries no set; one written into the checkout afterwards must not count.
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "tag commit without its set")
+    bare_tag = _git(repo, "rev-parse", "HEAD")
+    _write_set(repo / ve.RELEASE_DIR / "v9.9.9", records)
+    assert any(
+        "no release set in the tag commit" in e for e in ve.binding_errors("v9.9.9", bare_tag, repo)
+    )
+    # Committed, the same set binds the commit that adds it, and nothing else.
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "the release set")
+    assert ve.binding_errors("v9.9.9", _git(repo, "rev-parse", "HEAD"), repo) == []
+    (repo / "README").write_text("a later change\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "another change")
+    errors = ve.binding_errors("v9.9.9", _git(repo, "rev-parse", "HEAD"), repo)
+    assert any("changes more than" in e for e in errors), errors
