@@ -97,7 +97,10 @@ panel. A tooltip on each names it (`CALIBRATION_WINDOW_TEXT`, `ANALYSIS_WINDOW_T
 - Bad / trade-off: a file stamped 4 does not open in an app that knows only 3 (PRD §5.4).
 - Bad / trade-off: in CALIBRATION_APPROVED the edit is refused rather than making the
   calibration stale, because G03 has no edge out of that state for changed evidence; apply the
-  correction version first. This is the rule of the contributor evidence (#927).
+  correction version first. This is the rule of the contributor evidence (#927). The
+  maintainer confirmed this reading of acceptance criterion 4 of #928 on 2026-11-26 at 23:06 UTC
+  ("after approval" means after the correction is applied; no new G03 edge):
+  [#928 comment](https://github.com/bioedca/tether/issues/928#issuecomment-7205357908).
 - Follow-up: a curation-label change in ANALYSIS_READY is the other half of the first event
   and is not part of #928; a subset export does not yet copy the table (#1471).
 - Gates: `tests/test_calibration_windows.py`, the dock test in `tests/test_trace_dock.py`, and
