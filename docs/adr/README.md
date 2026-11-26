@@ -208,6 +208,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0152](0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md) | Tether reads SIRA with its own reader, and only the current layout | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0153](0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md) | A cellSens .vsi movie's checksum covers its frame files | accepted | §5 (data model, `/movies.sha256`), §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0154](0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md) | Tether reads AVI with its own reader, and only uncompressed 8-bit gray | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
+| [0155](0155-the-release-set-of-validation-evidence.md) | The release set of validation evidence lives beside the tag, and its one-commit rule runs only in the release workflow | accepted | §9.3 Stable release acceptance, §9.5 (the validation suite), §12.7 |
 
 <!-- gen:adr-index end -->
 
