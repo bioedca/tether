@@ -54,9 +54,11 @@ __all__ = [
     "check_relocated",
     "download_movie",
     "download_size",
+    "FILE_REASONS",
     "expected_movie_sha256",
     "guard_placeholders",
     "is_placeholder",
+    "locatable",
     "locate_in_folder",
     "movie_files",
 ]
@@ -362,6 +364,25 @@ def guard_placeholders(movies: ProjectMovies) -> ProjectMovies:
     return replace(movies, movies=tuple(out))
 
 
+#: The reasons [`tether.services.movies`][] gives for a movie *file* that cannot be read
+#: here. Only a movie held back by one of these is located again; another reason (a movie
+#: pair, whose view is not available yet, #1405) is not about where the file is.
+FILE_REASONS = frozenset(
+    {
+        "file missing",
+        "file not on this disk",
+        "file unreadable",
+        "file changed since extraction",
+        "no movie file recorded",
+    }
+)
+
+
+def locatable(movie: ProjectMovie) -> bool:
+    """Whether ``movie`` is held back only by where its file is ([`FILE_REASONS`][])."""
+    return movie.unavailable in FILE_REASONS
+
+
 def apply_locations(movies: ProjectMovies, locations: Mapping[str, MovieLocation]) -> ProjectMovies:
     """Return ``movies`` with each movie that cannot be shown moved to its remembered location.
 
@@ -375,7 +396,7 @@ def apply_locations(movies: ProjectMovies, locations: Mapping[str, MovieLocation
     out = []
     for movie in movies.movies:
         where = locations.get(movie.movie_id)
-        if movie.available or where is None:
+        if not locatable(movie) or where is None:
             out.append(movie)
             continue
         out.append(

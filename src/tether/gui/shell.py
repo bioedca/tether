@@ -2468,11 +2468,12 @@ class TetherShell:
             apply_locations,
             expected_movie_sha256,
             guard_placeholders,
+            locatable,
         )
 
         found: dict[str, Any] = {}
         for movie in movies.movies:
-            if movie.available:
+            if not locatable(movie):
                 continue
             try:
                 sha256 = expected_movie_sha256(project_path, movie.movie_id)
@@ -2491,8 +2492,14 @@ class TetherShell:
         return guard_placeholders(apply_locations(movies, found))
 
     def unavailable_movies(self) -> list[Any]:
-        """The open project's movies that cannot be shown here, in switcher order (#638)."""
-        return [movie for movie in self._project_movies if not movie.available]
+        """The open project's movies whose file cannot be read here, in switcher order (#638).
+
+        A movie held back for another reason (a movie pair, #1405) is not listed: locating
+        its file would not make it showable.
+        """
+        from tether.services.movie_locations import locatable
+
+        return [movie for movie in self._project_movies if locatable(movie)]
 
     def _movie_by_id(self, feature: str, movie_id: str) -> Any | None:
         for movie in self._project_movies:

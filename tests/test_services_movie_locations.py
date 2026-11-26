@@ -459,3 +459,27 @@ def test_a_vsi_movie_with_frames_not_on_this_disk_is_marked(tmp_path, monkeypatc
     (guarded,) = guard_placeholders(movies).movies
 
     assert guarded.unavailable == "file not on this disk"
+
+
+def test_a_movie_pair_is_never_located_again(tmp_path) -> None:
+    # A movie pair is held back because its view is not available yet (#1405), not because
+    # of where its file is: a remembered location must not make it showable.
+    import dataclasses
+
+    from tether.services.movie_locations import apply_locations, check_relocated, locatable
+    from tether.services.movies import read_project_movies
+
+    movie = _tiff(tmp_path / "raw" / "donor.tif", 1)
+    path = _project(tmp_path, [movie])
+    movies = read_project_movies(path)
+    pair = dataclasses.replace(
+        movies.movies[0],
+        unavailable="movie pair with acceptor.tif: the view of a pair is not available yet",
+    )
+    movies = dataclasses.replace(movies, movies=(pair,))
+    where = check_relocated(movie, _sha256(movie))
+
+    (kept,) = apply_locations(movies, {"mov-1": where}).movies
+
+    assert not locatable(pair)
+    assert kept == pair
