@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 r"""What the application remembers between launches on this computer (#628, ADR-0122).
 
-The desktop application keeps five things from one session to the next:
+The desktop application keeps six things from one session to the next:
 
 * **Recent projects** — the last ten projects opened, newest first, for
   **File → Open recent**.
@@ -15,6 +15,9 @@ The desktop application keeps five things from one session to the next:
   before.
 * **Reopen at launch** — whether a launch with no project named opens the newest recent
   project, in the section of its next step (#1159). Unset means on.
+* **Movie locations** — where a project's movie was found again on this computer
+  (**Locate movie…**, #638), by the movie's SHA-256 checksum, so the project file itself is
+  never rewritten to point at it.
 
 **Not in the project file.** None of it is written into a ``.tether``: it describes this
 computer and this user, not the data. A project shared with a collaborator carries none of it.
@@ -37,8 +40,10 @@ that runs Tether from a shared account can use it to give each person their own 
 **The format.** One JSON object: ``schema`` (the integer 1), ``recent_projects`` (a list of
 absolute paths), ``resume`` (an object from a project identity to a ``molecule_key``),
 ``layout`` (an object with base64 ``geometry`` and ``state``, and the
-``section_hidden`` dock names), ``curator_name`` (a string) and ``reopen_last_project``
-(a boolean). Each key is checked on its own when read: a key that is missing or not in that
+``section_hidden`` dock names), ``curator_name`` (a string), ``reopen_last_project``
+(a boolean) and ``movie_locations`` (an object from a lower-case SHA-256 to an object with an
+absolute ``path``, an integer ``file_size`` and a number ``mtime``). Each key is checked on
+its own when read: a key that is missing or not in that
 form reads as its default, and the other keys still read. A file that is not a JSON object
 of this ``schema`` reads as empty. Reading never raises, never creates a file and never
 creates a folder.
@@ -72,6 +77,7 @@ import contextlib
 import errno
 import getpass
 import json
+import math
 import os
 import stat
 import tempfile
@@ -87,17 +93,21 @@ __all__ = [
     "PREFERENCES_FILENAME",
     "PREFERENCES_SCHEMA",
     "RECENT_PROJECTS_LIMIT",
+    "MOVIE_LOCATIONS_LIMIT",
     "RESUME_LIMIT",
     "StoredLayout",
+    "StoredMovieLocation",
     "add_recent_project",
     "clear_layout",
     "curator_name",
     "effective_curator_name",
     "login_name",
+    "movie_location",
     "preferences_path",
     "project_identity",
     "recent_projects",
     "record_layout",
+    "record_movie_location",
     "record_resume",
     "remove_recent_project",
     "reopen_last_project",
@@ -123,6 +133,9 @@ RECENT_PROJECTS_LIMIT = 10
 RESUME_LIMIT = 50
 """How many projects keep a resume position; the least recently closed one is dropped first."""
 
+MOVIE_LOCATIONS_LIMIT = 200
+"""How many movie locations are kept; the least recently located one is dropped first."""
+
 CURATOR_NAME_MAX_LENGTH = 100
 """The longest curator name accepted, in characters."""
 
@@ -136,6 +149,8 @@ _RESUME = "resume"
 _LAYOUT = "layout"
 _CURATOR = "curator_name"
 _REOPEN = "reopen_last_project"
+_MOVIES = "movie_locations"
+_SHA256_HEX = frozenset("0123456789abcdef")
 
 # The file holds up to RESUME_LIMIT paths plus Qt's layout bytes; anything far larger is
 # not a file this module wrote, and reads as empty rather than being parsed.
@@ -576,5 +591,89 @@ def set_reopen_last_project(on: bool, preferences_file: Path | None = None) -> P
 
     def mutate(data: dict[str, Any]) -> None:
         data[_REOPEN] = value
+
+    return _update(preferences_file, mutate)
+
+
+# --- movie locations (#638) ---------------------------------------------------------------
+
+
+class StoredMovieLocation(NamedTuple):
+    """Where a movie was found on this computer, and its file's size and modification time."""
+
+    path: Path
+    file_size: int
+    mtime: float
+
+
+def _sha256_key(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    key = value.lower()
+    return key if len(key) == 64 and set(key) <= _SHA256_HEX else None
+
+
+def _movie_locations(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    value = data.get(_MOVIES)
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, entry in value.items():
+        if _sha256_key(key) != key or not isinstance(entry, dict):
+            continue
+        path, size, mtime = entry.get("path"), entry.get("file_size"), entry.get("mtime")
+        if (
+            isinstance(path, str)
+            and Path(path).is_absolute()
+            and type(size) is int
+            and size >= 0
+            and type(mtime) in (int, float)
+        ):
+            try:
+                seconds = float(mtime)  # a JSON integer too large for a float overflows
+            except OverflowError:
+                continue
+            if math.isfinite(seconds):
+                out[key] = {"path": path, "file_size": size, "mtime": seconds}
+    return out
+
+
+def movie_location(sha256: str, preferences_file: Path | None = None) -> StoredMovieLocation | None:
+    """Return where the movie whose checksum is ``sha256`` was last found here, or ``None``."""
+    key = _sha256_key(sha256)
+    if key is None:
+        return None
+    entry = _movie_locations(_read(_resolve(preferences_file))).get(key)
+    if entry is None:
+        return None
+    return StoredMovieLocation(Path(entry["path"]), entry["file_size"], entry["mtime"])
+
+
+def record_movie_location(
+    sha256: str,
+    path: str | os.PathLike[str],
+    file_size: int,
+    mtime: float,
+    preferences_file: Path | None = None,
+) -> Path:
+    """Remember that the movie whose checksum is ``sha256`` is at ``path`` on this computer.
+
+    ``file_size`` and ``mtime`` are the file's signature when its checksum matched. The most
+    recently located movie is kept last, and only the last [`MOVIE_LOCATIONS_LIMIT`][] are
+    kept. Raises `ValueError` for a value that is not a SHA-256 or a path that is not absolute.
+    """
+    key = _sha256_key(sha256)
+    if key is None:
+        raise ValueError("a movie location is stored under the movie's SHA-256 checksum")
+    entry = os.fspath(path)
+    if not Path(entry).is_absolute():
+        raise ValueError("a movie location must be an absolute path")
+    value = {"path": entry, "file_size": int(file_size), "mtime": float(mtime)}
+
+    def mutate(data: dict[str, Any]) -> None:
+        locations = _movie_locations(data)
+        locations.pop(key, None)
+        locations[key] = value
+        data[_MOVIES] = dict(list(locations.items())[-MOVIE_LOCATIONS_LIMIT:])
 
     return _update(preferences_file, mutate)

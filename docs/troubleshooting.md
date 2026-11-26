@@ -51,6 +51,7 @@ file, with the result that confirms the entry.
 | `LockedError: … is locked`, or a read-only banner | [The project is locked by another user or machine](#the-project-is-locked-by-another-user-or-machine) |
 | `possible OneDrive/SharePoint conflict copies` | [A warning names a possible OneDrive/SharePoint conflict copy](#a-warning-names-a-possible-onedrivesharepoint-conflict-copy) |
 | `coordinates and patches absent; …` | [The spot and overlap views are unavailable](#the-spot-and-overlap-views-are-unavailable) |
+| `movie.tif (file missing)` or `(file not on this disk)` in the movie list | [The movie of a project is missing or not downloaded](#the-movie-of-a-project-is-missing-or-not-downloaded) |
 | *"Windows protected your PC"*, or *"Not Opened"* on macOS | [The installer is flagged as unsigned](#the-installer-is-flagged-as-unsigned) |
 | `torch.cuda.is_available()` is `False` | [The deep classifier does not see the GPU](#the-deep-classifier-does-not-see-the-gpu) |
 | A status bar message that went away before you read it | [A status bar message went away before you read it](#a-status-bar-message-went-away-before-you-read-it) |
@@ -884,6 +885,45 @@ molecule has the `round-trip-unavailable` tag
 ([ADR-0046](adr/0046-analysis-only-smd-import.md)). The
 [coordinate-availability matrix](io/legacy-import.md#coordinate-availability-matrix) shows
 which files give coordinates.
+
+### The movie of a project is missing or not downloaded
+
+**What you see.** A project opens and you can curate its traces, but the movie list names a
+movie with a reason, and that movie is not shown:
+
+```text
+movie_011.tif (file missing)
+movie_011.tif (file not on this disk)
+movie_011.tif (file changed since extraction)
+```
+
+**What it means.** A project records the path of each movie it was extracted from. On another
+computer that path is often wrong, and a movie on OneDrive can be a placeholder whose data is
+not on the disk. Tether checks each path when the project opens, without reading the file, and
+it never downloads a movie unless you ask. Only the movie panel and the jump to that movie's
+spots are off. Curation does not need the movie.
+
+**What to do.** In **Curation**:
+
+1. **Locate movie…** Choose the movie, then the file. Tether reads the file's checksum and
+   takes the file only when it is the checksum the project recorded at extraction. Another
+   file is refused, and nothing changes.
+2. **Locate movie folder…** Choose one folder. Tether looks under it, in every folder below,
+   for a file with each missing movie's name, and checks each one by its checksum. The status
+   bar says which movies it found and why it did not find the others. The search does not
+   follow links to other folders, and it stops after 200 000 files. For a very large folder,
+   or a movie behind a link, choose a narrower folder or the folder the link points to.
+3. **Download and open movie…** For a movie that is not on this disk. Tether names the file's
+   size and asks first. A file that you point to with **Locate movie…** and that is not on
+   this disk is asked about in the same way.
+
+**Why.** The project file is not changed. The new location is remembered for this computer,
+in the
+[preferences file](how-to/curate-traces.md#what-the-application-remembers-on-this-computer).
+So the project keeps one writer and its provenance.
+
+A file name or a size can match by chance, and a checksum cannot. A movie whose project records no checksum cannot be found again this
+way. A routine open never downloads a cloud file.
 
 ### The installer is flagged as unsigned
 
