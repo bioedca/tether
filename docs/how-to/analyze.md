@@ -68,21 +68,23 @@ script below. **View → Section → Curate and correct** takes you back to the 
 
 ### Stale fits
 
-A fit is *stale* for a molecule when the molecule's inputs changed after the fit, for example a
-new α or γ or a new extraction. A plot that reads a fit leaves the stale molecules of each
-series out. Each series that left molecules out says how many beside its name in **Layers**,
-for example:
+A fit is *stale* for a molecule when the molecule's inputs changed after the fit. A new α or γ
+does that, and so does a new extraction. A plot that reads a fit leaves the stale molecules of
+each series out. Each series that left molecules out says how many beside its name in
+**Layers**, for example:
 
 ```text
 All molecules — 3 stale excluded (inputs changed since the fit)
 ```
 
-The status bar says it beside the series' count too. To draw the stale molecules of one series
-anyway, select the series and check **Include stale fits in the selected series**. The row then
-says `includes 3 stale`. The choice is per series. An export of the figure records it for each
-series in its provenance file (`include_stale`, `stale_excluded` and `stale_included`), so a
-figure drawn over stale fits says so. A composition file does not keep the choice: an opened
-composition leaves the stale molecules out again.
+The status bar says it beside the series' count too. You can draw the stale molecules of one
+series anyway. Select the series and check **Include stale fits in the selected series**. The
+row then says `includes 3 stale`.
+
+The choice is per series. An export of the figure records it for each series in its provenance
+file. The keys are `include_stale`, `stale_excluded` and `stale_included`, so a figure drawn
+over stale fits says so. A composition file does not keep the choice: an opened composition
+leaves the stale molecules out again.
 
 The **FRET-efficiency histogram with model Gaussians (A1)** draws the model's own curves. They
 come from the fit of every molecule the model was fitted on, the stale ones too. So when a

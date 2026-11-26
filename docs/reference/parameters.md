@@ -584,14 +584,14 @@ row. It chooses which state's analysis comes back, and does not change the fit o
       changes. The flag, with `molecule_keys` and `include_rejected`, therefore decides only
       **whether** Tether draws the overlay. Tether withholds it with an error when no selected,
       accepted and fresh molecule has an idealized analysis window in the model.
-    - The Analyze section of the application (#375) draws every series of a plot that reads a
-      model with this argument, `False` unless the series opts in, and passes the selection
-      on as it is rather than cutting it first. So the A2 heatmap above leaves a stale molecule
-      out even where its own guard does not catch the change. Each series shows how many stale
+    - The Analyze section of the application (#375) passes this argument for every series of a
+      plot that reads a model. It is `False` unless the series opts in. The section passes the
+      selection on as it is and does not cut it first. So the A2 heatmap above leaves a stale
+      molecule out even where its own guard does not catch the change. Each series shows how many stale
       molecules it left out beside its name, counted with `Project.stale_idealization_keys`
       among the selected molecules that curation accepts. The histogram under the model
-      Gaussians reads no model, so the section leaves the same stale molecules out of it, and
-      warns above the figure that the curves still include their fit.
+      Gaussians reads no model. So the section leaves the same stale molecules out of it. A
+      warning above the figure says that the curves still include their fit.
 7. A double or stretched form in place of a single exponential changes the reported rate constants,
    not only the quality of the fit. Choose the model on physical grounds, and report which model you
    used.

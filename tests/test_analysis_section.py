@@ -602,7 +602,10 @@ def test_the_opt_out_shows_only_for_a_plot_that_reads_a_model(section, stale_mod
     assert not section.stale_box.isVisibleTo(section.widget)
     section.set_plot("population_transition_density")
     assert section.stale_box.isVisibleTo(section.widget)
-    assert not section.stale_box.isEnabled()  # no series is selected yet
+    # With no series selected, a click changes nothing and says to select one.
+    section.stale_box.click()
+    assert not section.stale_box.isChecked()
+    assert "Select a series" in section.notice_text
 
 
 def test_the_overlay_over_stale_fits_shows_a_warning(section, stale_modelled) -> None:

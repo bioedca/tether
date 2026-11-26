@@ -301,8 +301,9 @@ class AnalysisSection:
     def stale_box(self) -> QtWidgets.QCheckBox:
         """*Include stale fits in the selected series*: the per-series opt-out (#375).
 
-        Shown for a plot that reads a model, enabled while a series is selected, and
-        checked when that series draws its stale fits.
+        Shown for a plot that reads a model, and checked when the selected series draws its
+        stale fits. It stays enabled (no disabled control without a declared requirement,
+        #898): with no series selected, a click changes nothing and says to select one.
         """
         return self._stale_box
 
@@ -648,7 +649,6 @@ class AnalysisSection:
         row = self._layers.currentRow()
         selected = 0 <= row < len(self._series)
         self._remove_button.setEnabled(selected)
-        self._stale_box.setEnabled(selected)
         blocker = self._stale_box.blockSignals(True)
         self._stale_box.setChecked(selected and self._series[row].include_stale)
         self._stale_box.blockSignals(blocker)
@@ -667,6 +667,11 @@ class AnalysisSection:
         row = self._layers.currentRow()
         if 0 <= row < len(self._series):
             self.set_include_stale(row, checked)
+            return
+        blocker = self._stale_box.blockSignals(True)
+        self._stale_box.setChecked(False)
+        self._stale_box.blockSignals(blocker)
+        self._notice.setText("Select a series in the layer list to include its stale fits.")
 
     def _unpin_model(self, _index: int) -> None:
         """Release the opened composition's model: a person chose one."""
