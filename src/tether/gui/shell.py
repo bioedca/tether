@@ -862,6 +862,9 @@ class TetherShell:
         self._project_movies: list[Any] = []
         self._movie_rows: dict[int, int] = {}
         self._movie_aperture_radius: float | None = None
+        # Movies found again on this computer (#638), by checksum, for this session; with a
+        # preferences file they are remembered there too.
+        self._movie_locations: dict[str, Any] = {}
         # The trace↔movie round-trip (#357, PRD §7.3): a RoundTripNavigator over the
         # panel, rebuilt with the molecule list. ``_roundtrip_rows`` maps a navigator
         # molecule index to its list row and ``_roundtrip_site_of_row`` the reverse; a
@@ -1373,6 +1376,9 @@ class TetherShell:
         # the GUI stays live and the overlay draw + status update happen on the main
         # thread. The service sets the wait cursor and drives the busy indicator.
         self._tasks = TaskService(poll_ms=_IDEALIZE_POLL_MS, indicator=self._busy_indicator)
+        # Locate / download a movie (#638) reads files only, never the project's lock, so it
+        # has a worker of its own: a long checksum read never holds up a curation write.
+        self._movie_tasks = TaskService(poll_ms=_IDEALIZE_POLL_MS, indicator=self._busy_indicator)
         self._curator_label = QtWidgets.QLabel()
         self._curator_label.setAccessibleName("Curator name")
         self._window.statusBar().addPermanentWidget(self._curator_label)
@@ -1818,6 +1824,13 @@ class TetherShell:
             "Move the movie with the trace's frame cursor, and the cursor with the movie"
         )
         self._act_link_frames.toggled.connect(self.set_frame_link_enabled)
+        # A movie that is missing or not on this disk (#638): find it, or download it.
+        self._act_locate_movie = menu.addAction("Locate &movie…")
+        self._act_locate_movie.triggered.connect(self._locate_movie_dialog)
+        self._act_locate_movie_folder = menu.addAction("Locate movie &folder…")
+        self._act_locate_movie_folder.triggered.connect(self._locate_movie_folder_dialog)
+        self._act_download_movie = menu.addAction("&Download and open movie…")
+        self._act_download_movie.triggered.connect(self._download_movie_dialog)
 
     def _populate_handoff_menu(self, menu: Any) -> None:
         """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
@@ -2440,6 +2453,284 @@ class TetherShell:
             self._status(f"Movie switch failed: {exc}")
             return
         self._status(f"Movie {self._project_movies[row].name}")
+
+    # --- a movie that is missing or not on this disk (#638, PRD §5.4) -----------
+
+    def _with_movie_locations(self, project_path: Path, movies: Any) -> Any:
+        """Return ``movies`` with each one that cannot be shown moved to where it was found here.
+
+        A movie is looked up by its recorded checksum: in this session's locations, then in
+        the preferences file. Reads the project only; a lookup that fails keeps the movie as
+        it is, so a bad lookup never fails an open.
+        """
+        from tether.services.movie_locations import (
+            MovieLocation,
+            apply_locations,
+            expected_movie_sha256,
+            guard_placeholders,
+            locatable,
+        )
+
+        # A .vsi movie whose frame files are not on this disk is not opened (PRD §5.4). It is
+        # marked before the lookup, so a verified local copy can take its place, and the
+        # result is guarded again, since a remembered copy can be a placeholder too.
+        movies = guard_placeholders(movies)
+        found: dict[str, Any] = {}
+        for movie in movies.movies:
+            if not locatable(movie):
+                continue
+            try:
+                sha256 = expected_movie_sha256(project_path, movie.movie_id)
+            except Exception:  # noqa: BLE001 - an unreadable checksum finds nothing
+                continue
+            if not sha256:
+                continue
+            where = self._movie_locations.get(sha256)
+            if where is None and self._preferences_file is not None:
+                stored = preferences.movie_location(sha256, self._preferences_file)
+                if stored is not None:
+                    where = MovieLocation(*stored)
+            if where is not None:
+                found[movie.movie_id] = where
+        return guard_placeholders(apply_locations(movies, found))
+
+    def unavailable_movies(self) -> list[Any]:
+        """The open project's movies whose file cannot be read here, in switcher order (#638).
+
+        A movie held back for another reason (a movie pair, #1405) is not listed: locating
+        its file would not make it showable.
+        """
+        from tether.services.movie_locations import locatable
+
+        return [movie for movie in self._project_movies if locatable(movie)]
+
+    def _movie_by_id(self, feature: str, movie_id: str) -> Any | None:
+        for movie in self._project_movies:
+            if movie.movie_id == movie_id:
+                return movie
+        self._unavailable(feature, f"the project has no movie {movie_id!r}")
+        return None
+
+    def locate_movie(self, movie_id: str, path: str | os.PathLike[str]) -> bool:
+        """Show the project movie ``movie_id`` from the file at ``path``, if it is that movie.
+
+        **Locate movie…** (#638). The file's checksum is read on a background worker and
+        must be the one the project records
+        ([`check_relocated`][tether.services.movie_locations.check_relocated]); another file
+        is refused and nothing changes. The location is remembered for this
+        computer, and the project file is not written. Returns whether the check started.
+        """
+        movie = self._movie_by_id("Locate movie", movie_id)
+        if movie is None:
+            return False
+        from tether.gui.movie_locate import locate_one
+
+        assert self._project_path is not None  # a movie implies an open project
+        return self._start_movie_job(
+            "Locate movie",
+            f"Checking {Path(path).name}",
+            locate_one,
+            self._project_path,
+            movie_id,
+            Path(path),
+        )
+
+    def locate_movie_folder(self, folder: str | os.PathLike[str]) -> bool:
+        """Find every movie that cannot be shown under ``folder``, in one step (#638).
+
+        **Locate movie folder…**. Each movie is looked for by its file name and
+        accepted only by its checksum; a cloud placeholder is never read. Returns whether
+        the search started.
+        """
+        feature = "Locate movie folder"
+        missing = self.unavailable_movies()
+        if not missing:
+            self._unavailable(feature, "every movie of this project is shown")
+            return False
+        from tether.gui.movie_locate import locate_folder
+
+        assert self._project_path is not None
+        return self._start_movie_job(
+            feature,
+            f"Looking for movies in {Path(folder).name}",
+            locate_folder,
+            self._project_path,
+            missing,
+            Path(folder),
+        )
+
+    def download_movie(self, movie_id: str) -> bool:
+        """Download the movie ``movie_id``, which is not on this disk, then show it (#638).
+
+        The explicit action of PRD §5.4: nothing else reads a cloud placeholder. The menu
+        entry states the file size and asks first. Returns whether the download started.
+        """
+        feature = "Download and open movie"
+        movie = self._movie_by_id(feature, movie_id)
+        if movie is None:
+            return False
+        if movie.unavailable != "file not on this disk" or movie.path is None:
+            self._unavailable(feature, f"{movie.name} is not a file waiting to be downloaded")
+            return False
+        from tether.gui.movie_locate import download
+
+        return self._start_movie_job(feature, f"Downloading {movie.name}", download, movie.path)
+
+    def _start_movie_job(self, feature: str, label: str, fn: Any, *args: Any) -> bool:
+        if self._project_path is None:
+            self._unavailable(feature, "no project is open")
+            return False
+        if self._movie_tasks.busy:
+            self._unavailable(feature, "another movie is being located")
+            return False
+        self._status(f"{label}…")
+        started = self._movie_tasks.start(
+            fn,
+            *args,
+            context=(feature, self._project_path),
+            label=label,
+            on_finished=self._finish_movie_job,
+            cancellable=True,
+            reports_progress=True,
+        )
+        return started is not None
+
+    def _stop_movie_job(self) -> None:
+        """Stop a running locate or download: its reads end and its outcome is not applied."""
+        self._movie_tasks.cancel()
+        self._movie_tasks.abandon()
+
+    def _finish_movie_job(self, outcome: Any) -> None:
+        """Remember what a locate found, show the movies again, and say what happened."""
+        from tether.gui.movie_locate import LocateResult
+        from tether.gui.tasks import TaskState
+        from tether.services.movies import read_project_movies
+
+        feature, project_path = outcome.context
+        if project_path != self._project_path:
+            return  # another project is open now
+        if outcome.state is TaskState.CANCELLED:
+            self._status(f"{feature} cancelled")
+            return
+        if outcome.state is not TaskState.DONE:
+            self._status(f"{feature} refused: {outcome.error}")
+            return
+        result = outcome.value
+        found = result.found if isinstance(result, LocateResult) else {}
+        for sha256, where in found.values():
+            self._movie_locations[sha256] = where
+            self._remember(
+                lambda s=sha256, w=where: preferences.record_movie_location(
+                    s, w.path, w.file_size, w.mtime, self._preferences_file
+                )
+            )
+        try:
+            movies = self._with_movie_locations(project_path, read_project_movies(project_path))
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"{feature}: the project's movies cannot be read again: {exc}")
+            return
+        row = self._molecule_list.currentRow()
+        self._reset_movie_panel()
+        note = self._wire_movies(movies)
+        self._wire_roundtrip()
+        if 0 <= row < len(self._traces):
+            self._focus_movie(row)
+            self._retarget_frame_link(row, lead="trace")
+        if isinstance(result, LocateResult):
+            parts = [f"{len(found)} movie(s) found"] + list(result.problems)
+        else:
+            parts = ["downloaded"]
+        if note:
+            parts.append(note)
+        self._status(f"{feature}: " + "; ".join(parts))
+
+    def _pick_unavailable_movie(self, feature: str, movies: list[Any]) -> Any | None:
+        """Ask which of ``movies`` to act on; the one movie when there is only one."""
+        from pyqtgraph.Qt import QtWidgets
+
+        if not movies:
+            self._unavailable(feature, "every movie of this project is shown")
+            return None
+        if len(movies) == 1:
+            return movies[0]
+        # The movie id keeps two movies of one file name and one reason apart.
+        labels = [f"{movie.name} ({movie.unavailable}) [{movie.movie_id}]" for movie in movies]
+        choice, ok = QtWidgets.QInputDialog.getItem(
+            self._window, feature, "Movie:", labels, 0, False
+        )
+        return movies[labels.index(choice)] if ok and choice in labels else None
+
+    def _confirm_download(self, feature: str, path: Path) -> bool:
+        """Ask before a file that is not on this disk is read, stating its size (PRD §5.4)."""
+        from pyqtgraph.Qt import QtWidgets
+
+        from tether.gui.movie_locate import format_size
+        from tether.services.movie_locations import download_size
+
+        # A .vsi movie's frame files are read (and downloaded) with it, so they count too.
+        size = format_size(download_size(path))
+        buttons = QtWidgets.QMessageBox.StandardButton
+        answer = QtWidgets.QMessageBox.question(
+            self._window,
+            feature,
+            f"{path.name} is not on this disk. Download it ({size}) and open it?",
+            buttons.Yes | buttons.No,
+            buttons.No,
+        )
+        return answer == buttons.Yes
+
+    def _locate_movie_dialog(self) -> None:
+        """Menu entry: choose a movie that cannot be shown, then the file that is it."""
+        from pyqtgraph.Qt import QtWidgets
+
+        from tether.services.movie_locations import is_placeholder
+        from tether.services.movies import movie_file_suffixes
+
+        feature = "Locate movie"
+        movie = self._pick_unavailable_movie(feature, self.unavailable_movies())
+        if movie is None:
+            return
+        patterns = " ".join(f"*{suffix}" for suffix in movie_file_suffixes())
+        start = str(movie.path.parent) if movie.path is not None else ""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self._window, f"Locate {movie.name}", start, f"Movies ({patterns});;All files (*)"
+        )
+        if not path:
+            self._status(f"{feature} cancelled")
+            return
+        if is_placeholder(path) and not self._confirm_download(feature, Path(path)):
+            self._status(f"{feature} cancelled: nothing was downloaded")
+            return
+        self.locate_movie(movie.movie_id, path)
+
+    def _locate_movie_folder_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        """Menu entry: choose a folder, then find every movie that cannot be shown under it."""
+        from pyqtgraph.Qt import QtWidgets
+
+        feature = "Locate movie folder"
+        if not self.unavailable_movies():
+            self._unavailable(feature, "every movie of this project is shown")
+            return
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self._window, feature)
+        if not folder:
+            self._status(f"{feature} cancelled")
+            return
+        self.locate_movie_folder(folder)
+
+    def _download_movie_dialog(self) -> None:
+        """Menu entry: choose a movie that is not on this disk, confirm its size, download it."""
+        feature = "Download and open movie"
+        waiting = [m for m in self.unavailable_movies() if m.unavailable == "file not on this disk"]
+        if not waiting:
+            self._unavailable(feature, "no movie of this project is waiting to be downloaded")
+            return
+        movie = self._pick_unavailable_movie(feature, waiting)
+        if movie is None:
+            return
+        if not self._confirm_download(feature, movie.path):
+            self._status(f"{feature} cancelled: nothing was downloaded")
+            return
+        self.download_movie(movie.movie_id)
 
     # --- the trace↔movie round-trip (#357, PRD §7.3, §5.2) ----------------------
 
@@ -3141,6 +3432,7 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Open project failed: {exc}")
             return None
+        movies = self._with_movie_locations(Path(proj_path), movies)
 
         recovery = None
         refusal = None
@@ -3672,6 +3964,7 @@ class TetherShell:
         """Discard the lazily-built overlap / movie docks so a re-open rebuilds them."""
         self._analysis_refresh_timer.stop()
         self._readiness_refresh_timer.stop()
+        self._stop_movie_job()
         self._reset_movie_panel()
         for dock_attr, widget_attr in (("_overlap_dock", "_overlap_dock_widget"),):
             widget = getattr(self, widget_attr)
@@ -5864,6 +6157,8 @@ class TetherShell:
             # even though the visible shell has already closed.
             self._retry_session_release()
         self._tasks.shutdown()
+        self._stop_movie_job()
+        self._movie_tasks.shutdown()
         self._analysis_section.close()
         if self._overlap_dock is not None:
             self._overlap_dock.close()
