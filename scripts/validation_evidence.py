@@ -341,7 +341,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "record":
-        evidence = {"run_url": args.run_url} if args.run_url else {"log_sha256": _sha256(args.log)}
+        evidence: dict[str, str] = {}
+        if args.run_url:
+            evidence["run_url"] = args.run_url
+        if args.log:
+            evidence["log_sha256"] = _sha256(args.log)
         return _write(
             {
                 "schema": SCHEMA,

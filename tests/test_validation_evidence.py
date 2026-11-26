@@ -297,3 +297,18 @@ def test_a_rename_out_of_another_release_set_is_seen(tmp_path: Path) -> None:
     _git(repo, "commit", "-q", "-m", "the new set, taking the old one's place")
     errors = ve.binding_errors("v9.9.9", _git(repo, "rev-parse", "HEAD"), repo)
     assert any("changes more than" in e and "v9.9.8" in e for e in errors), errors
+
+
+def test_the_record_command_writes_an_oracle_e_record_with_both_runs(tmp_path: Path) -> None:
+    out = tmp_path / "oracle-e.json"
+    argv = ["record", "--oracle", "e", "--commit", COMMIT, "--log", str(SCRIPT)]
+    argv += ["--run-url", "https://github.com/bioedca/tether/actions/runs/123456"]
+    argv += ["--measured", "alpha_median=0.09", "--tolerance", "Leakage acceptance ceiling"]
+    argv += ["--tolerance", "Leakage-α validation band", "--outcome", "passed"]
+    assert ve.main([*argv, "--out", str(out)]) == 0
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert ve.record_errors(record) == []
+    assert record["evidence"] == {
+        "run_url": "https://github.com/bioedca/tether/actions/runs/123456",
+        "log_sha256": ve._sha256(SCRIPT),
+    }
