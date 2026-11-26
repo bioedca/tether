@@ -183,3 +183,138 @@ def test_download_reads_every_byte(tmp_path) -> None:
     movie = _tiff(tmp_path / "a.tif", 1)
 
     assert download_movie(movie) == movie.stat().st_size
+
+
+def test_the_registry_checksum_wins_over_the_movies_row(tmp_path, monkeypatch) -> None:
+    import dataclasses
+
+    from tether.project import sources
+    from tether.services.movie_locations import expected_movie_sha256
+
+    movie = _tiff(tmp_path / "raw" / "a.tif", 1)
+    path = _project(tmp_path, [movie])
+    (record,) = sources.read_sources(path)
+    registered = dataclasses.replace(record, sha256="C" * 64, stored=True)
+    monkeypatch.setattr(sources, "read_sources", lambda _p: [registered])
+
+    assert expected_movie_sha256(path, "mov-1") == "c" * 64
+
+
+def test_a_project_with_no_movies_table_has_no_expected_checksum(tmp_path) -> None:
+    from tether.io.schema import create_project
+    from tether.services.movie_locations import expected_movie_sha256
+
+    path = tmp_path / "empty.tether"
+    create_project(path)
+
+    assert expected_movie_sha256(path, "mov-1") == ""
+
+
+def test_a_placeholder_is_told_by_its_attributes_only(tmp_path, monkeypatch) -> None:
+    from tether.project import condition_model
+    from tether.services.movie_locations import is_placeholder
+
+    movie = _tiff(tmp_path / "a.tif", 1)
+    assert not is_placeholder(movie)
+    assert not is_placeholder(tmp_path / "missing.tif")
+    monkeypatch.setattr(
+        condition_model,
+        "_file_attributes",
+        lambda _p: condition_model._FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+    )
+    assert is_placeholder(movie)
+
+
+def test_the_folder_walk_stops_at_its_limit(tmp_path, monkeypatch) -> None:
+    from tether.services import movie_locations
+    from tether.services.movies import read_project_movies
+
+    movie = _tiff(tmp_path / "raw" / "a.tif", 1)
+    path = _project(tmp_path, [movie])
+    folder = tmp_path / "big"
+    for i in range(3):
+        _tiff(folder / f"other_{i}.tif", 10 + i)
+    (folder / "zz").mkdir()
+    shutil.move(movie, folder / "zz" / "a.tif")  # walked after the limit is reached
+    monkeypatch.setattr(movie_locations, "MAX_FILES_WALKED", 1)
+
+    search = movie_locations.locate_in_folder(path, read_project_movies(path).movies, folder)
+
+    assert search.not_found == ("mov-1",)
+
+
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="no symbolic links")
+def test_a_namesake_that_cannot_be_read_is_refused_not_raised(tmp_path) -> None:
+    from tether.services.movie_locations import locate_in_folder
+    from tether.services.movies import read_project_movies
+
+    movie = _tiff(tmp_path / "raw" / "a.tif", 1)
+    path = _project(tmp_path, [movie])
+    movie.unlink()
+    folder = tmp_path / "links"
+    folder.mkdir()
+    try:
+        (folder / "a.tif").symlink_to(tmp_path / "nowhere.tif")
+    except OSError:
+        pytest.skip("this account cannot make symbolic links")
+
+    search = locate_in_folder(path, read_project_movies(path).movies, folder)
+
+    assert set(search.refused) == {"mov-1"}
+
+
+def test_a_download_reports_progress_and_stops_on_cancel(tmp_path) -> None:
+    from tether.project.jobs import CancelToken, JobCancelled
+    from tether.services.movie_locations import download_movie
+
+    movie = _tiff(tmp_path / "a.tif", 1)
+    seen: list[tuple[int, int]] = []
+    download_movie(movie, progress=lambda done, total: seen.append((done, total)))
+    assert seen[-1] == (movie.stat().st_size, movie.stat().st_size)
+
+    token = CancelToken()
+    token.cancel()
+    with pytest.raises(JobCancelled):
+        download_movie(movie, cancel=token)
+
+
+@pytest.mark.parametrize(
+    ("n_bytes", "text"),
+    [
+        (512, "512 bytes"),
+        (3_200_000, "3.2 MB"),
+        (2_500_000_000, "2.5 GB"),
+        (7 * 10**15, "7000.0 TB"),
+    ],
+)
+def test_a_size_is_written_for_a_person(n_bytes, text) -> None:
+    from tether.gui.movie_locate import format_size
+
+    assert format_size(n_bytes) == text
+
+
+def test_a_file_with_no_movies_group_has_no_expected_checksum(tmp_path, monkeypatch) -> None:
+    from tether.project import sources
+    from tether.services.movie_locations import expected_movie_sha256
+
+    path = tmp_path / "bare.h5"
+    with h5py.File(path, "w"):
+        pass
+    monkeypatch.setattr(sources, "read_sources", lambda _p: [])
+
+    assert expected_movie_sha256(path, "mov-1") == ""
+
+
+def test_a_folder_search_needs_no_progress_callback(tmp_path) -> None:
+    from tether.services.movie_locations import locate_in_folder
+    from tether.services.movies import read_project_movies
+
+    movie = _tiff(tmp_path / "raw" / "a.tif", 1)
+    path = _project(tmp_path, [movie])
+    folder = tmp_path / "copy"
+    folder.mkdir()
+    shutil.move(movie, folder / "a.tif")
+
+    search = locate_in_folder(path, read_project_movies(path).movies, folder)
+
+    assert set(search.found) == {"mov-1"}
