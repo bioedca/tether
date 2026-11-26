@@ -344,8 +344,8 @@ retired = 0
 
 [pages."docs/citing.md"]
 kind = "descriptive"
-long_share = 8.1
-semicolons = 2
+long_share = 1.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
