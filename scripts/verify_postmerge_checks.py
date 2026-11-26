@@ -121,18 +121,27 @@ def _recency_key(run: dict) -> tuple[str, str]:
     )
 
 
+def deciding_run(runs: list[dict], context: str) -> dict | None:
+    """The run that decides ``context``, by ``_recency_key``, or ``None`` when it has none.
+
+    The merge queue (``scripts/merge_queue.py``, #1268) imports this and ``accepted`` so
+    that a candidate and a release are judged by one rule.
+    """
+    named = [run for run in runs if run.get("name") == context]
+    return max(named, key=_recency_key) if named else None
+
+
+def accepted(context: str) -> frozenset[str]:
+    """The conclusions that pass ``context``: ``success``, and ``skipped`` for ``_SKIPPED_OK``."""
+    return _ACCEPTED | ({"skipped"} if context in _SKIPPED_OK else frozenset())
+
+
 def evaluate(runs: list[dict], contexts: list[str], commit: str, suite_count: int = 0) -> list[str]:
     """One verdict per required context; the returned list holds the violations."""
-    by_context: dict[str, list[dict]] = {}
-    for run in runs:
-        name = run.get("name")
-        if isinstance(name, str):
-            by_context.setdefault(name, []).append(run)
-
     violations: list[str] = []
     for context in contexts:
-        candidates = by_context.get(context)
-        if not candidates:
+        latest = deciding_run(runs, context)
+        if latest is None:
             # Never-reported IS a violation: v1.0.0-rc1 predates sidecar.yml's push
             # trigger, so `sidecar / parity` simply has no run at its commit — a guard
             # that read absence as anything but red would have passed it.
@@ -146,7 +155,6 @@ def evaluate(runs: list[dict], contexts: list[str], commit: str, suite_count: in
                 )
             violations.append(message)
             continue
-        latest = max(candidates, key=_recency_key)
         status = latest.get("status")
         if status != "completed":
             violations.append(
@@ -155,8 +163,7 @@ def evaluate(runs: list[dict], contexts: list[str], commit: str, suite_count: in
             )
             continue
         conclusion = latest.get("conclusion")
-        accepted = _ACCEPTED | ({"skipped"} if context in _SKIPPED_OK else frozenset())
-        if conclusion not in accepted:
+        if conclusion not in accepted(context):
             violations.append(
                 f"required context '{context}' latest completed run concluded "
                 f"'{conclusion}' at {commit}"

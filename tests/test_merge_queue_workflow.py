@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The safety rules of the merge-queue workflow and its candidate branches (#1267, ADR-0135).
+"""The safety rules of the merge-queue workflow and its candidate branches (#1267, #1268).
 
 The mode step runs here as the runner runs it. ``tests/test_merge_queue.py`` tests the script.
 """
@@ -19,9 +19,14 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 QUEUE = WORKFLOWS / "merge-queue.yml"
 REQUIRED = ("ci.yml", "sidecar.yml", "schema-guard.yml")
 KEY = "MERGE_QUEUE_APP_PRIVATE_KEY"
-#: Refs and branches, and read pull requests. No status, issue, label or merge (part 2, #1268).
+#: Observe, and every join or leave: refs and branches, and read pull requests. Nothing else.
 TOKEN = {"permission-contents": "write", "permission-workflows": "write"}
 TOKEN |= {"permission-pull-requests": "read"}
+#: Mode on (#1268): also the label and comment, the merge-queue status and the check runs. The
+#: docs page lists the same permissions with the call that needs each.
+TOKEN_ON = TOKEN | {"permission-pull-requests": "write", "permission-statuses": "write"}
+TOKEN_ON |= {"permission-checks": "read"}
+DOCS = WORKFLOWS.parents[1] / "docs" / "maintainers" / "merge-queue.md"
 
 
 def _load(path: Path) -> dict:
@@ -74,7 +79,7 @@ def test_the_queue_has_its_four_triggers_and_no_pull_request_one() -> None:
 
 def test_every_action_is_pinned_to_a_commit_with_its_version() -> None:
     uses = re.findall(r"^\s*(?:- )?uses: (.*)$", QUEUE.read_text(encoding="utf-8"), re.M)
-    assert len(uses) == 4
+    assert len(uses) == 5
     for use in uses:
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+(\.\d+)*", use), use
 
@@ -91,11 +96,32 @@ def test_the_workflow_token_is_read_only_and_the_key_stays_in_its_environment() 
         assert path == QUEUE or KEY not in path.read_text(encoding="utf-8"), path.name
 
 
-def test_the_app_token_writes_refs_and_nothing_else() -> None:
-    for job in (JOBS["record"], JOBS["reconcile"]):
-        (step,) = [s for s in job["steps"] if "create-github-app-token" in s.get("uses", "")]
-        given = {k: v for k, v in step["with"].items() if k not in ("client-id", "private-key")}
-        assert given == TOKEN
+def _tokens(job: dict) -> list[tuple[str | None, dict]]:
+    steps = [s for s in job["steps"] if "create-github-app-token" in s.get("uses", "")]
+    drop = ("client-id", "private-key")
+    return [(s.get("if"), {k: v for k, v in s["with"].items() if k not in drop}) for s in steps]
+
+
+def test_the_app_token_writes_refs_only_and_more_only_in_mode_on() -> None:
+    assert _tokens(JOBS["record"]) == [(None, TOKEN)], "join and leave write only the request"
+    assert _tokens(JOBS["reconcile"]) == [
+        ("${{ needs.mode.outputs.mode == 'observe' }}", TOKEN),
+        ("${{ needs.mode.outputs.mode == 'on' }}", TOKEN_ON),
+    ]
+    (step,) = [s for s in JOBS["reconcile"]["steps"] if "merge_queue.py" in s.get("run", "")]
+    assert step["env"]["GH_TOKEN"] == "${{ steps.app.outputs.token || steps.app_on.outputs.token }}"
+    assert step["env"]["MODE"] == "${{ needs.mode.outputs.mode }}"
+    assert 'build --mode "$MODE"' in step["run"]
+
+
+def test_the_docs_page_lists_the_permissions_mode_on_asks_for() -> None:
+    text = DOCS.read_text(encoding="utf-8")
+    section = text.split("## App permissions", 1)[1].split("\n## ", 1)[0]
+    rows = dict(re.findall(r"^\| (\w[\w ]*?) \| (read|write) \|", section, re.M))
+    names = {"contents": "Contents", "workflows": "Workflows", "pull-requests": "Pull requests"}
+    names |= {"statuses": "Commit statuses", "checks": "Checks"}
+    expected = {names[k.removeprefix("permission-")]: v for k, v in TOKEN_ON.items()}
+    assert rows == expected | {"Metadata": "read"}
 
 
 def test_reconcile_has_one_group_and_is_never_cancelled() -> None:
@@ -106,7 +132,7 @@ def test_reconcile_has_one_group_and_is_never_cancelled() -> None:
     assert record == {**reconcile, "group": "merge-queue-pr-${{ inputs.pr }}", "queue": "max"}
 
 
-def test_every_job_that_can_write_waits_for_the_observe_mode() -> None:
+def test_every_job_that_can_write_waits_for_observe_or_on() -> None:
     mode = JOBS["mode"]
     assert mode["permissions"] == {} and "environment" not in mode
     assert not any("uses" in step for step in mode["steps"]), "mode makes no token"
@@ -115,6 +141,7 @@ def test_every_job_that_can_write_waits_for_the_observe_mode() -> None:
             condition = " ".join(job["if"].split())
             assert "mode" in job["needs"], job_id
             assert "needs.mode.outputs.mode == 'observe'" in condition, job_id
+            assert "needs.mode.outputs.mode == 'on'" in condition, job_id
             assert "always()" not in condition, job_id
     assert "needs.mode.result == 'success'" in JOBS["reconcile"]["if"]
 
@@ -150,15 +177,49 @@ def _mode(tmp_path: Path, **env: str) -> tuple[int, str, str]:
         ({"MODE": "", "REF": "refs/heads/x"}, 0, "mode off, so this run writes nothing"),
         ({"MODE": " off "}, 0, "mode off"),
         ({"MODE": "observe"}, 0, "mode observe"),
-        ({"MODE": "on"}, 1, "#1268"),
+        ({"MODE": "on"}, 0, "mode on"),
         ({"MODE": "Observe"}, 1, "use off, observe or on"),
         ({"MODE": "observe", "REF": "refs/heads/mq/pr-1"}, 1, "only from main"),
     ],
 )
-def test_the_mode_job_lets_only_observe_on_main_reach_a_write(
+def test_the_mode_job_lets_only_observe_or_on_on_main_reach_a_write(
     tmp_path: Path, env: dict[str, str], status: int, said: str
 ) -> None:
     got, output, summary = _mode(tmp_path, **env)
     mode = (env["MODE"].strip() or "off") if status == 0 else ""
     assert (got, output) == (status, mode and f"mode={mode}\n"), "a failed job skips the rest"
     assert said in summary
+
+
+def _called(workflow: dict) -> list[dict]:
+    """``workflow`` and each local reusable workflow its jobs call."""
+    found = [workflow]
+    for job in workflow["jobs"].values():
+        if str(job.get("uses", "")).startswith("./.github/workflows/"):
+            found.append(_load(WORKFLOWS.parents[1] / job["uses"]))
+    return found
+
+
+def test_a_candidate_run_gets_no_secret_or_grant_its_pull_request_run_lacks() -> None:
+    """Criterion of #1268: a push to `mq/**` gets nothing a same-repository `pull_request` lacks.
+
+    It holds because these workflows name no secret but `GITHUB_TOKEN`, use no environment (whose
+    secrets a push could reach), and declare every permission as a literal, so it cannot differ
+    by event; and the one job that writes (the scheduled-failure report) acts on a push only
+    when the ref is the default branch, never on a candidate.
+    """
+    for name in REQUIRED:
+        for workflow in _called(_load(WORKFLOWS / name)):
+            text = yaml.safe_dump(workflow)
+            assert set(re.findall(r"secrets\.(\w+)", text)) <= {"GITHUB_TOKEN"}, name
+            for job_id, job in workflow["jobs"].items():
+                assert "environment" not in job, (name, job_id)
+                scopes = [workflow.get("permissions", {}), job.get("permissions", {})]
+                for scope in scopes:
+                    values = scope.values() if isinstance(scope, dict) else [scope]
+                    assert all(v in ("read", "write", "none") for v in values), (name, job_id)
+                # A caller job passes its grant on; the called job, checked too, holds the gate.
+                if "write" in (job.get("permissions") or {}).values() and "uses" not in job:
+                    condition = " ".join(str(job.get("if", "")).split())
+                    branch = "github.ref == format('refs/heads/{0}', github.event.repository"
+                    assert "github.event_name == 'push' && " + branch in condition, job_id

@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-# merge-queue (#1267, ADR-0135, docs/maintainers/merge-queue.md): MERGE_QUEUE_MODE off ends the
-# run in `mode`; observe builds the `mq/pr-N` candidates and writes no status, comment, label or
-# merge. The App token writes, because an event GITHUB_TOKEN causes starts no run.
+# merge-queue (#1267, #1268, ADR-0135, docs/maintainers/merge-queue.md): MERGE_QUEUE_MODE off ends
+# the run in `mode`; observe builds the `mq/pr-N` candidates and writes no status, comment, label
+# or merge; on also judges the candidates, merges the front of the train and removes. The App
+# token writes, because an event GITHUB_TOKEN causes starts no run.
 name: merge-queue
 
 on:
@@ -46,7 +47,6 @@ jobs:
           mode = env.get("MODE", "").strip() or "off"
           problems = {
               f"MERGE_QUEUE_MODE is {mode!r}; use off, observe or on": mode not in ("off", "observe", "on"),
-              "MERGE_QUEUE_MODE=on needs part 2 (#1268); use observe until it lands": mode == "on",
               f"the queue runs only from main, not {env.get('REF')!r}": env.get("REF") != "refs/heads/main",
           }
           # Off wins: a run that writes nothing may come from any ref.
@@ -62,7 +62,8 @@ jobs:
   record:
     needs: mode
     if: >-
-      ${{ needs.mode.outputs.mode == 'observe' && github.event_name == 'workflow_dispatch' &&
+      ${{ (needs.mode.outputs.mode == 'observe' || needs.mode.outputs.mode == 'on') &&
+      github.event_name == 'workflow_dispatch' &&
       (inputs.action == 'join' || inputs.action == 'leave') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -106,7 +107,8 @@ jobs:
     needs: [mode, record]
     # `record` is skipped on every event but a join or leave; a refused join changed nothing.
     if: >-
-      ${{ !cancelled() && needs.mode.result == 'success' && needs.mode.outputs.mode == 'observe' &&
+      ${{ !cancelled() && needs.mode.result == 'success' &&
+      (needs.mode.outputs.mode == 'observe' || needs.mode.outputs.mode == 'on') &&
       (needs.record.result == 'success' || needs.record.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -122,8 +124,9 @@ jobs:
           persist-credentials: false
           # merge-tree needs the merge bases, so the history must be whole.
           fetch-depth: 0
-      - name: Make the App token
+      - name: Make the App token (observe)
         id: app
+        if: ${{ needs.mode.outputs.mode == 'observe' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.MERGE_QUEUE_APP_CLIENT_ID }}
@@ -131,9 +134,22 @@ jobs:
           permission-contents: write
           permission-workflows: write
           permission-pull-requests: read
+      - name: Make the App token (on)
+        id: app_on
+        if: ${{ needs.mode.outputs.mode == 'on' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.MERGE_QUEUE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_QUEUE_APP_PRIVATE_KEY }}
+          permission-contents: write # push and delete candidates, delete requests, merge
+          permission-workflows: write # push a candidate whose tree changes a workflow file
+          permission-pull-requests: write # read pull requests; the label and the comment
+          permission-statuses: write # the merge-queue commit status
+          permission-checks: read # the check runs of a candidate
       - name: Build the candidates and print the plan
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token || steps.app_on.outputs.token }}
+          MODE: ${{ needs.mode.outputs.mode }}
         run: |
           set -euo pipefail
           # Git authenticates as the App through the environment, never through .git/config.
@@ -142,4 +158,4 @@ jobs:
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          python3 scripts/merge_queue.py --repo "$GITHUB_REPOSITORY" build
+          python3 scripts/merge_queue.py --repo "$GITHUB_REPOSITORY" build --mode "$MODE"

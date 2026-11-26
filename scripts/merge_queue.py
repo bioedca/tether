@@ -1,8 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Record merge-queue requests and build the train of candidates (issue #1266, ADR-0135).
+"""Record merge-queue requests, build the train of candidates and merge it (#1266, #1268).
 
-Part 1 runs on bare runner Python and writes only request refs and candidate branches.
+It runs on bare runner Python (ADR-0135). In ``observe`` mode it writes only request refs and
+candidate branches. In ``on`` mode the reconcile also judges the candidates, merges the front of
+the train, removes a pull request that cannot merge and writes the statuses, comments and label.
+The reconcile is the one owner of every write but the request ref: a ``leave`` deletes only that.
 """
 
 from __future__ import annotations
@@ -20,6 +23,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verify_postmerge_checks as checks  # noqa: E402  (a sibling script, standard library only)
 
 BASE = "main"
 REQUEST_PREFIX = "refs/merge-queue/pr-"
@@ -51,6 +57,11 @@ REPOSITORY_LOCATION_VARS = frozenset(
 CANDIDATE = "candidate"
 HELD = "held"
 REMOVE = "remove"
+
+OBSERVE, ON = "observe", "on"
+PASSED, FAILED, PENDING = "passed", "failed", "pending"
+CONTEXT = LABEL = "merge-queue"  # the commit status context and the label
+MAX_PASSES = 20  # a pass that merges or removes builds the train again; each pass changes one
 
 _SHA = re.compile(r"[0-9a-f]{40}")
 _NAME, _EMAIL = "tether-merge-queue", "tether-merge-queue@users.noreply.github.com"
@@ -91,6 +102,13 @@ class Step:
     paths: tuple[str, ...] = ()
 
 
+def run_url() -> str | None:
+    """Return the address of this workflow run, or ``None`` outside Actions."""
+    env = os.environ
+    parts = [env.get(k) for k in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID")]
+    return "{}/{}/actions/runs/{}".format(*parts) if all(parts) else None
+
+
 def urllib_transport(token: str | None) -> Transport:
     """Return the transport that calls the GitHub REST API with ``token``."""
 
@@ -104,7 +122,7 @@ def urllib_transport(token: str | None) -> Transport:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
-            return error.code, b""
+            return error.code, error.read()
         except urllib.error.URLError as error:
             raise QueueError(f"{method} {url} failed: {error.reason}") from error
 
@@ -151,12 +169,107 @@ class GitHub:
                 return pull
         raise QueueError(f"GitHub returned invalid pull request data for #{number}")
 
+    def tree_of(self, commit: str) -> str:
+        """Return the tree of ``commit`` as GitHub has it."""
+        tree = self._call("GET", f"/git/commits/{commit}")[1].get("tree")
+        if not isinstance(tree, dict) or not isinstance(tree.get("sha"), str):
+            raise QueueError(f"GitHub did not return a tree SHA for {commit}")
+        return tree["sha"]
+
+    def required_contexts(self) -> list[str]:
+        """Return the contexts the active rules of ``main`` require, without ``merge-queue``.
+
+        A failed read, or rules that require nothing, is an error: there is no verdict then.
+        """
+        rules = self._call("GET", f"/rules/branches/{BASE}?per_page=100", expect=list)[1]
+        contexts: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict) or rule.get("type") != "required_status_checks":
+                continue
+            listed = (rule.get("parameters") or {}).get("required_status_checks")
+            if not isinstance(listed, list):
+                raise QueueError("GitHub returned an invalid required_status_checks rule")
+            for item in listed:
+                if not isinstance(item, dict) or not isinstance(item.get("context"), str):
+                    raise QueueError("GitHub returned an invalid required status check")
+                if item["context"] != CONTEXT and item["context"] not in contexts:
+                    contexts.append(item["context"])
+        if not contexts:
+            raise QueueError(f"the active rules of {BASE} require no check; refusing a verdict")
+        return contexts
+
+    def check_runs(self, commit: str) -> list[dict[str, Any]]:
+        """Return every check run at ``commit``, all pages."""
+        runs: list[dict[str, Any]] = []
+        for page in range(1, 11):  # 1000 runs; the endpoint itself stops at 1000 suites
+            path = f"/commits/{commit}/check-runs?per_page=100&page={page}"
+            listed = self._call("GET", path)[1].get("check_runs")
+            if not isinstance(listed, list):
+                raise QueueError(f"GitHub returned invalid check runs for {commit}")
+            runs += [run for run in listed if isinstance(run, dict)]
+            if len(listed) < 100:
+                break
+        return runs
+
+    def set_status(self, commit: str, state: str, description: str) -> None:
+        """Write the commit status ``merge-queue`` on ``commit``."""
+        payload = {"state": state, "context": CONTEXT, "description": description[:140]}
+        if url := run_url():
+            payload["target_url"] = url
+        self._call("POST", f"/statuses/{commit}", payload, accept=(201,))
+
+    def comment(self, number: int, body: str) -> None:
+        self._call("POST", f"/issues/{number}/comments", {"body": body}, accept=(201,))
+
+    def add_label(self, number: int) -> None:
+        self._call("POST", f"/issues/{number}/labels", {"labels": [LABEL]}, expect=list)
+
+    def remove_label(self, number: int) -> None:
+        """Take the label ``merge-queue`` off ``number``; one it does not carry is no error."""
+        self._call("DELETE", f"/issues/{number}/labels/{LABEL}", accept=(200, 404), expect=None)
+
+    def labelled(self) -> list[int]:
+        """Return the pull requests and issues that carry the label ``merge-queue``."""
+        path = f"/issues?labels={LABEL}&state=all&per_page=100"
+        found = self._call("GET", path, expect=list)[1]
+        if not all(isinstance(i, dict) and isinstance(i.get("number"), int) for i in found):
+            raise QueueError("GitHub returned invalid labelled issues")
+        return [item["number"] for item in found]
+
+    def request_commit(self, number: int) -> str | None:
+        """Return the commit of the request ref of ``number`` now, or ``None``."""
+        ref = f"{REQUEST_PREFIX}{number}"
+        found = self._call("GET", f"/git/matching-refs/{ref.removeprefix('refs/')}", expect=list)[1]
+        for item in found:
+            if isinstance(item, dict) and item.get("ref") == ref:
+                sha = (item.get("object") or {}).get("sha")
+                if not isinstance(sha, str):
+                    raise QueueError(f"GitHub returned no commit for {ref}")
+                return sha
+        return None
+
+    def merge(self, number: int, head: str, title: str, message: str) -> tuple[str | None, str]:
+        """Squash-merge ``number`` pinned to ``head``: ``(new main commit, "")``, or ``(None,
+        GitHub's message)`` when GitHub refuses."""
+        payload = {"merge_method": "squash", "sha": head}
+        payload |= {"commit_title": title, "commit_message": message}
+        status, data = self._transport(
+            "PUT", f"{self._base}/pulls/{number}/merge", json.dumps(payload).encode("utf-8")
+        )
+        try:
+            reply = json.loads(data)
+        except ValueError:
+            reply = None
+        reply = reply if isinstance(reply, dict) else {}
+        if status == 200 and reply.get("merged") is True and isinstance(reply.get("sha"), str):
+            return reply["sha"], ""
+        if status in (405, 409, 422):
+            return None, str(reply.get("message") or f"HTTP {status}")
+        raise QueueError(f"PUT /pulls/{number}/merge returned HTTP {status}")
+
     def create_request(self, number: int, head: str, message: str) -> bool:
         """Record the request of pull request ``number``. ``False`` means it already has one."""
-        tree = self._call("GET", f"/git/commits/{head}")[1].get("tree")
-        if not isinstance(tree, dict) or not isinstance(tree.get("sha"), str):
-            raise QueueError(f"GitHub did not return a tree SHA for {head}")
-        payload = {"message": message, "tree": tree["sha"], "parents": [head]}
+        payload = {"message": message, "tree": self.tree_of(head), "parents": [head]}
         commit = self._call("POST", "/git/commits", payload)[1].get("sha")
         if not isinstance(commit, str):
             raise QueueError("GitHub did not return a SHA for the request commit")
@@ -302,13 +415,22 @@ def join(github: GitHub, number: int, head: str, message: str) -> None:
 
 
 def leave(github: GitHub, number: int) -> dict[str, bool]:
-    """Delete the request and the candidate of pull request ``number``, if they exist."""
-    refs = {"request": REQUEST_PREFIX, "candidate": f"refs/heads/{CANDIDATE_PREFIX}"}
-    return {name: github.delete_ref(f"{prefix}{number}") for name, prefix in refs.items()}
+    """Delete the request of pull request ``number``, if it exists.
+
+    The candidate branch, its status and the label are the reconcile's: the reconcile that
+    follows every ``leave`` deletes them. One owner means that a reconcile which read the
+    requests before the ``leave`` is followed by one that reads after it, and the last writer of
+    ``mq/pr-N`` is always a reconcile that saw the ``leave``.
+    """
+    return {"request": github.delete_ref(f"{REQUEST_PREFIX}{number}")}
 
 
 def plan(
-    git: Git, base: str, requests: Sequence[Request], pulls: Mapping[int, Mapping[str, Any] | None]
+    git: Git,
+    base: str,
+    requests: Sequence[Request],
+    pulls: Mapping[int, Mapping[str, Any] | None],
+    repo: str,
 ) -> list[Step]:
     """Decide one state for each request, in train order.
 
@@ -316,9 +438,10 @@ def plan(
     oldest first. ``pulls`` contains GitHub's response for each request, or ``None``.
 
     A request is removed with one reason, checked in this order: ``closed`` (closed, or GitHub
-    has no such pull request), ``retargeted`` (it no longer targets ``main``), ``draft`` (it was
-    converted to a draft), ``head-moved`` (its head is not the pinned head) and
-    ``conflict-with-main``. The requests behind a removed one are built without it.
+    has no such pull request), ``retargeted`` (it no longer targets ``main``), ``fork`` (its head
+    is not in this repository), ``draft`` (it was converted to a draft), ``head-moved`` (its head
+    is not the pinned head) and ``conflict-with-main``. The requests behind a removed one are
+    built without it.
     """
     steps: list[Step] = []
     train: list[tuple[int, str]] = []  # the candidates so far: (pull request, commit)
@@ -331,6 +454,9 @@ def plan(
         elif pull["base"]["ref"] != BASE:
             # A merge goes to the base branch, so a candidate of `main` is no evidence for it.
             step = Step(request.pr, REMOVE, request.head, reason="retargeted")
+        elif (pull["head"].get("repo") or {}).get("full_name") != repo:
+            # `join` checks this too; a candidate branch runs with this repository's rights.
+            step = Step(request.pr, REMOVE, request.head, reason="fork")
         elif pull.get("draft"):
             step = Step(request.pr, REMOVE, request.head, reason="draft")
         elif pull["head"]["sha"] != request.head:
@@ -355,10 +481,13 @@ def plan(
     return steps
 
 
-def build(git: Git, github: GitHub, steps: Sequence[Step], window: int) -> dict[str, list[int]]:
+def build(
+    git: Git, github: GitHub, steps: Sequence[Step], window: int, tips: dict[int, str] | None = None
+) -> dict[str, list[int]]:
     """Make the candidate branches match the first ``window`` candidates of the train.
 
     Keep branches whose trees match, with their runs, and remove branches outside the window.
+    ``tips``, when given, receives the commit each wanted branch holds now: its runs decide.
     """
     wanted = {s.pr: s for s in [s for s in steps if s.state == CANDIDATE][:window]}
     existing = git.candidates()
@@ -370,11 +499,163 @@ def build(git: Git, github: GitHub, steps: Sequence[Step], window: int) -> dict[
         elif step.commit is not None:
             git.push(step.commit, f"{CANDIDATE_PREFIX}{number}")
             built["pushed"].append(number)
+            tip = step.commit
+        if tips is not None and tip is not None:
+            tips[number] = tip
     for number in sorted(existing):
         if number not in wanted:
             github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{number}")
             built["deleted"].append(number)
     return built
+
+
+def verdict(
+    runs: Sequence[Mapping[str, Any]], contexts: Sequence[str]
+) -> tuple[str, list[tuple[str, str, str]]]:
+    """Judge one candidate: ``(passed | failed | pending, [(context, conclusion, url)])``.
+
+    The deciding run and the ``commitlint`` exemption are ``verify_postmerge_checks``'s. A
+    context with no run, or whose deciding run has not finished, is pending, never passed.
+    """
+    failed: list[tuple[str, str, str]] = []
+    pending = False
+    for context in contexts:
+        run = checks.deciding_run([dict(r) for r in runs], context)
+        if run is None or run.get("status") != "completed":
+            pending = True
+        elif run.get("conclusion") not in checks.accepted(context):
+            failed.append((context, str(run.get("conclusion")), str(run.get("html_url") or "")))
+    return (FAILED if failed else PENDING if pending else PASSED), failed
+
+
+def judge_train(raw: Sequence[str]) -> list[str]:
+    """Apply the train rule to raw verdicts, front first: a failure counts only when every
+    candidate ahead of it passed, because a failure can come from a pull request ahead."""
+    judged, clear = [], True
+    for state in raw:
+        judged.append(PENDING if state == FAILED and not clear else state)
+        clear = clear and state == PASSED
+    return judged
+
+
+REJOIN = (
+    "To rejoin, merge `main` into the branch, fix the cause, get the closing review on the new "
+    "head, then join again at that head with "
+    "`gh workflow run merge-queue.yml --ref main -f action=join -f pr={pr} -f sha=<new head> "
+    '-f message="<squash message>"`. The go-ahead you had still stands, and the pull requests '
+    "behind this one go on without it."
+)
+
+
+def removal_comment(step: Step, failed: Sequence[tuple[str, str, str]] = (), said: str = "") -> str:
+    """The one comment a removal writes: the reason, then the way back."""
+    if failed:
+        lines = [f"- `{c}` concluded `{how}`" + (url and f": {url}") for c, how, url in failed]
+        why = "its candidate failed these required checks:\n\n" + "\n".join(lines)
+    elif said:
+        why = "GitHub refused the merge: \n\n> " + said.replace("\n", "\n> ")
+    elif step.reason == "conflict-with-main":
+        why = "it conflicts with `main` in " + ", ".join(f"`{p}`" for p in step.paths)
+    elif step.reason == "head-moved":
+        why = f"its head moved after the join, which pinned `{step.head}`"
+    else:
+        why = {"retargeted": "it no longer targets `main`", "draft": "it became a draft"}.get(
+            step.reason or "", "its head is not in this repository"
+        )
+    return f"The merge queue removed this pull request: {why}\n\n" + REJOIN.format(pr=step.pr)
+
+
+def remove(github: GitHub, step: Step, comment: str | None) -> None:
+    """Remove ``step`` from the queue. ``comment`` is ``None`` for a closed pull request.
+
+    The request goes before the comment, so that a later run cannot comment a second time.
+    """
+    if comment is not None:
+        github.set_status(step.head, "failure", "removed from the merge queue; see the comment")
+    github.delete_ref(f"{REQUEST_PREFIX}{step.pr}")
+    if comment is not None:
+        github.comment(step.pr, comment)
+    github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{step.pr}")
+    github.remove_label(step.pr)
+
+
+def _pass(
+    git: Git, github: GitHub, contexts: Sequence[str], window: int, report: dict[str, Any]
+) -> bool:
+    """One pass of the ``on`` mode. Return whether it merged or removed, so the train changed."""
+    git.fetch()
+    base = git.rev(f"refs/remotes/{git.remote}/{BASE}")
+    if base is None:
+        raise QueueError(f"the remote has no {BASE}")
+    requests = read_requests(git)
+    pulls = {r.pr: github.pull(r.pr) for r in requests}
+    steps = plan(git, base, requests, pulls, github.repo)
+    report |= {"base": base, "steps": [asdict(s) for s in steps]}
+    removals = [s for s in steps if s.state == REMOVE]
+    for step in removals:
+        closed = step.reason == "closed"
+        remove(github, step, None if closed else removal_comment(step))
+        report["removed"].append({"pr": step.pr, "reason": step.reason})
+    if removals:
+        return True
+    tips: dict[int, str] = {}
+    report["built"] = build(git, github, steps, window, tips)
+    train = [s for s in steps if s.state == CANDIDATE]
+    raw = [
+        verdict(github.check_runs(tips[s.pr]), contexts) if s.pr in tips else (PENDING, [])
+        for s in train
+    ]
+    judged = judge_train([state for state, _ in raw])
+    report["verdicts"] = {s.pr: state for s, state in zip(train, judged, strict=True)}
+    for place, step in enumerate(steps, start=1):
+        pull = pulls[step.pr] or {}
+        if LABEL not in [label.get("name") for label in pull.get("labels") or []]:
+            github.add_label(step.pr)
+        if step.state == HELD:
+            github.set_status(step.head, "pending", f"held: waits for #{step.blocked_by}")
+        elif not (train and step is train[0] and judged[0] != PENDING):
+            github.set_status(step.head, "pending", f"place {place} of {len(steps)} in the train")
+    if not train or judged[0] == PENDING:
+        return False
+    front, request = train[0], next(r for r in requests if r.pr == train[0].pr)
+    if judged[0] == FAILED:
+        remove(github, front, removal_comment(front, failed=raw[0][1]))
+        report["removed"].append({"pr": front.pr, "reason": "failed-checks"})
+        return True
+    if github.request_commit(front.pr) is None:
+        return True  # it left after this pass read the requests; build again without it
+    github.set_status(front.head, "success", "its candidate passed every required check")
+    title = f"{(pulls[front.pr] or {}).get('title') or 'merge queue'} (#{front.pr})"
+    merged, said = github.merge(front.pr, front.head, title, request.message)
+    if merged is None:
+        remove(github, front, removal_comment(front, said=said))
+        report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
+        return True
+    github.delete_ref(f"{REQUEST_PREFIX}{front.pr}")
+    github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{front.pr}")
+    github.remove_label(front.pr)
+    report["merged"].append({"pr": front.pr, "commit": merged})
+    landed = github.tree_of(merged)
+    if landed != front.tree:
+        raise QueueError(
+            f"the tree of {BASE} commit {merged} is {landed}, but candidate {tips[front.pr]} of "
+            f"#{front.pr} has {front.tree}; merging nothing more in this run"
+        )
+    return True
+
+
+def run_on(git: Git, github: GitHub, window: int) -> dict[str, Any]:
+    """Reconcile in ``on`` mode: judge, merge the front, remove, and build again until stable."""
+    contexts = github.required_contexts()  # no contexts, no verdict: this raises first
+    report: dict[str, Any] = {"mode": ON, "contexts": contexts, "merged": [], "removed": []}
+    for _ in range(MAX_PASSES):
+        if not _pass(git, github, contexts, window, report):
+            break
+    queued = {step["pr"] for step in report.get("steps", [])}
+    for number in github.labelled():  # a pull request that left keeps no label
+        if number not in queued:
+            github.remove_label(number)
+    return report
 
 
 def _summary(report: Mapping[str, Any]) -> str:
@@ -391,16 +672,22 @@ def _summary(report: Mapping[str, Any]) -> str:
         lines.append(f"| #{step['pr']} | {step['state']} | {detail} |")
     for key, numbers in report.get("built", {}).items():
         lines.append(f"\nCandidates {key}: " + (", ".join(f"#{n}" for n in numbers) or "none"))
+    for key in ("merged", "removed"):
+        if key in report:
+            done = ", ".join(f"#{item['pr']}" for item in report[key]) or "none"
+            lines.append(f"\n{key.capitalize()}: {done}")
     return "\n".join(lines) + "\n"
 
 
-def _reconcile(git: Git, github: GitHub, window: int | None) -> dict[str, Any]:
+def _reconcile(git: Git, github: GitHub, window: int | None, mode: str) -> dict[str, Any]:
+    if mode == ON and window is not None:
+        return run_on(git, github, window)
     git.fetch()
     base = git.rev(f"refs/remotes/{git.remote}/{BASE}")
     if base is None:
         raise QueueError(f"the remote has no {BASE}")
     requests = read_requests(git)
-    steps = plan(git, base, requests, {r.pr: github.pull(r.pr) for r in requests})
+    steps = plan(git, base, requests, {r.pr: github.pull(r.pr) for r in requests}, github.repo)
     report: dict[str, Any] = {"base": base, "steps": [asdict(s) for s in steps]}
     if window is not None:
         report["built"] = build(git, github, steps, window)
@@ -423,6 +710,9 @@ def main(
     commands.add_parser("plan", help="print the train; write nothing")
     building = commands.add_parser("build", help="plan, then push and delete candidates")
     building.add_argument("--window", type=int, default=DEFAULT_WINDOW)
+    building.add_argument(
+        "--mode", choices=(OBSERVE, ON), default=OBSERVE, help="on judges, merges and removes"
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -439,7 +729,8 @@ def main(
             report = {"left": args.pr, **leave(github, args.pr)}
         else:
             window = args.window if args.command == "build" else None
-            report = _reconcile(git or Git(), github, window)
+            mode = getattr(args, "mode", OBSERVE)
+            report = _reconcile(git or Git(), github, window, mode)
             summary = os.environ.get("GITHUB_STEP_SUMMARY")
             if summary:
                 with open(summary, "a", encoding="utf-8") as handle:
