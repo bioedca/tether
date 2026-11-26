@@ -2641,7 +2641,8 @@ class TetherShell:
             return None
         if len(movies) == 1:
             return movies[0]
-        labels = [f"{movie.name} ({movie.unavailable})" for movie in movies]
+        # The movie id keeps two movies of one file name and one reason apart.
+        labels = [f"{movie.name} ({movie.unavailable}) [{movie.movie_id}]" for movie in movies]
         choice, ok = QtWidgets.QInputDialog.getItem(
             self._window, feature, "Movie:", labels, 0, False
         )
@@ -2652,11 +2653,10 @@ class TetherShell:
         from pyqtgraph.Qt import QtWidgets
 
         from tether.gui.movie_locate import format_size
+        from tether.services.movie_locations import download_size
 
-        try:
-            size = format_size(path.stat().st_size)
-        except OSError:
-            size = "unknown size"
+        # A .vsi movie's frame files are read (and downloaded) with it, so they count too.
+        size = format_size(download_size(path))
         buttons = QtWidgets.QMessageBox.StandardButton
         answer = QtWidgets.QMessageBox.question(
             self._window,

@@ -53,9 +53,11 @@ __all__ = [
     "apply_locations",
     "check_relocated",
     "download_movie",
+    "download_size",
     "expected_movie_sha256",
     "is_placeholder",
     "locate_in_folder",
+    "movie_files",
 ]
 
 _CHUNK = 1 << 20
@@ -137,7 +139,6 @@ def is_placeholder(path: str | os.PathLike[str]) -> bool:
     only, never their bytes, with the definition the movie panel uses (PRD §5.4). ``False``
     for a file that does not exist or cannot be examined.
     """
-    from tether.io.movie_identity import frame_files
     from tether.project.condition_model import _OFFLINE_ATTRIBUTES, _file_attributes
 
     def offline(file: Path) -> bool:
@@ -146,11 +147,7 @@ def is_placeholder(path: str | os.PathLike[str]) -> bool:
         except OSError:
             return False
 
-    try:
-        frames = frame_files(path)
-    except OSError:
-        frames = ()
-    return any(offline(file) for file in (Path(path), *frames))
+    return any(offline(file) for file in movie_files(path))
 
 
 def check_relocated(
@@ -284,27 +281,61 @@ def locate_in_folder(
     )
 
 
+def movie_files(path: str | os.PathLike[str]) -> tuple[Path, ...]:
+    """Return every file a movie's checksum reads: ``path``, then a ``.vsi`` movie's frame files.
+
+    The frame files are the ``.ets`` files of [`frame_files`][tether.io.movie_identity.frame_files];
+    a frame folder that cannot be listed gives none. Reads directory entries only.
+    """
+    from tether.io.movie_identity import frame_files
+
+    try:
+        frames = frame_files(path)
+    except OSError:
+        frames = ()
+    return (Path(path), *frames)
+
+
+def download_size(path: str | os.PathLike[str]) -> int:
+    """Return the bytes [`download_movie`][] would read: every file of [`movie_files`][].
+
+    A placeholder reports its full size without its data being on the disk, so this reads
+    the files' attributes only. A file that cannot be examined counts as zero bytes.
+    """
+    total = 0
+    for file in movie_files(path):
+        try:
+            total += file.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
 def download_movie(
     path: str | os.PathLike[str],
     *,
     cancel: CancelToken | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> int:
-    """Read every byte of the file at ``path``, which makes a cloud placeholder local.
+    """Read every byte of the movie at ``path``, which makes a cloud placeholder local.
 
     The explicit "Download and open" of a movie that is not on this disk (PRD §5.4): a sync
-    client such as OneDrive fetches a placeholder's data when it is read. The bytes are not
-    kept. Returns the number of bytes read; ``cancel`` is asked between 1 MiB blocks.
+    client such as OneDrive fetches a placeholder's data when it is read. Every file of
+    [`movie_files`][] is read, so a ``.vsi`` movie's frame files come down with its header.
+    The bytes are not kept. Returns the number of bytes read; ``cancel`` is asked between
+    1 MiB blocks and ``progress(read, total)`` counts every file.
     """
+    files = movie_files(path)
+    total = download_size(path)
     done = 0
-    with open(path, "rb") as handle:
-        total = os.fstat(handle.fileno()).st_size
-        for block in iter(lambda: handle.read(_CHUNK), b""):
-            if cancel is not None:
-                cancel.raise_if_cancelled()
-            done += len(block)
-            if progress is not None:
-                progress(done, total)
+    for file in files:
+        with open(file, "rb") as handle:
+            for block in iter(lambda handle=handle: handle.read(_CHUNK), b""):
+                if cancel is not None:
+                    cancel.raise_if_cancelled()
+                done += len(block)
+                if progress is not None:
+                    progress(done, total)
     return done
 
 

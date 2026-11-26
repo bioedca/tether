@@ -286,3 +286,37 @@ def test_a_locate_finishing_after_the_project_closed_is_not_applied(
 
     assert shell.movie_switcher.count() == 0
     assert shell._movie_locations == {}
+
+
+def test_two_missing_movies_of_one_name_are_told_apart_in_the_picker(
+    section_shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    # Codex review of #1459: identical labels resolved the second choice to the first movie.
+    from pyqtgraph.Qt import QtWidgets
+
+    from _movie_locate_store import project_with_movies
+
+    first = _tiff(tmp_path / "raw" / "day1" / "scan.tif", 1)
+    second = _tiff(tmp_path / "raw" / "day2" / "scan.tif", 2)
+    path = project_with_movies(tmp_path, [first, second])
+    first.unlink()
+    second.unlink()
+    shown: list[list[str]] = []
+
+    def get_item(_parent, _title, _label, labels, *_args):
+        shown.append(list(labels))
+        return labels[1], True
+
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getItem", get_item)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName", lambda *_a, **_k: (str(tmp_path / "x.tif"), "")
+    )
+    shell = _open(section_shell, path)
+    started: list[tuple[str, str]] = []
+    monkeypatch.setattr(shell, "locate_movie", lambda movie_id, p: started.append((movie_id, p)))
+
+    shell._locate_movie_dialog()
+
+    (labels,) = shown
+    assert len(set(labels)) == 2
+    assert started == [("mov-2", str(tmp_path / "x.tif"))]

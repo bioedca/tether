@@ -389,3 +389,24 @@ def test_frame_files_that_cannot_be_listed_leave_the_header_to_decide(
     monkeypatch.setattr(movie_identity, "frame_files", _unlistable)
 
     assert not is_placeholder(movie)
+
+
+def test_a_vsi_download_counts_and_reads_its_frame_files(tmp_path) -> None:
+    # Codex review of #1459: the size asked about must be what the download reads.
+    from tether.services.movie_locations import download_movie, download_size, movie_files
+
+    movie = tmp_path / "scan.vsi"
+    movie.write_bytes(b"h" * 10)
+    frames = tmp_path / "_scan_" / "stack1" / "frame_t.ets"
+    frames.parent.mkdir(parents=True)
+    frames.write_bytes(b"f" * 1000)
+
+    assert movie_files(movie) == (movie, frames)
+    assert download_size(movie) == 1010
+    assert download_movie(movie) == 1010
+
+
+def test_the_download_size_skips_a_file_that_cannot_be_examined(tmp_path) -> None:
+    from tether.services.movie_locations import download_size
+
+    assert download_size(tmp_path / "gone.tif") == 0
