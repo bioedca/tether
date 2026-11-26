@@ -66,6 +66,28 @@ survival (B2)** in **Plot** to see the other two plots over the same series. If 
 no fit yet, the section says so in place of the figure. To save a plot as a figure, use the
 script below. **View → Section → Curate and correct** takes you back to the traces.
 
+### Save the composition and open it again
+
+A *composition* is the plot, its idealization model and states, and its layer list. Save it to
+come back to the same plot later.
+
+- **Save composition…** writes the composition to a `.json` file. The file names the project
+  and the plot. It names each series with its molecules, and the model and the states. It
+  holds no trace data. A later change of the project does not change it.
+- **Open composition…** reads a file back. The plot, the model and the states are as you saved
+  them. The layer list has the same series in the same order. Each series keeps its name and
+  its molecules.
+
+Open the project of the composition first. When the file reads another project, the section
+says so and changes nothing. A series can name molecules that are no longer in the project.
+The section then names the series and what is missing under the buttons. It leaves that
+series out and never draws it from a guess. A file of an unknown format version is refused
+with a message.
+
+The command line has the same two actions:
+[`tether save-composition`](../cli.md#tether-save-composition) and
+[`tether open-composition`](../cli.md#tether-open-composition).
+
 ## 2. Make and save all three plots
 
 1. Save the script below as `plots.py` beside the project.

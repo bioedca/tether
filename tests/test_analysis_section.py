@@ -10,7 +10,9 @@ Headless ``pytest-qt`` tests (``QT_QPA_PLATFORM=offscreen``). The section builds
   one draws the plot again without it;
 * the preview canvas holds the very ``Figure`` the registry's renderer drew (one renderer);
 * a model-derived plot on a project with no model shows what is missing, never a figure;
-* the model choice and the state boxes show only for a plot that reads them.
+* the model choice and the state boxes show only for a plot that reads them;
+* *Save composition…* and *Open composition…* give back the same layer list, name a series
+  whose molecules are missing and leave it out, and refuse a file of another version (#1438).
 """
 
 from __future__ import annotations
@@ -314,3 +316,103 @@ def test_the_successive_frame_cloud_is_drawn_and_exported_with_its_numbers(
     assert analysis["analysis"] == "successive_frame_cloud"
     assert analysis["parameters"]["molecule_keys"] == [str(k) for k in keys]
     assert analysis["n_pairs"] == cloud.n_pairs
+
+
+# --- Save composition… and Open composition… (#1438) ----------------------------------
+
+
+def test_a_saved_composition_opens_again_to_the_same_layer_list(
+    section, modelled, tmp_path, qtbot, monkeypatch
+) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    path, keys = modelled
+    section.set_project(path)
+    assert not section.save_button.isEnabled()
+    section.add_series(_saved(path, "late", keys[2:]))
+    section.add_series(_saved(path, "early", keys[:2]))
+    section.set_plot("population_transition_prob_histogram")
+    section.set_model(MODEL)
+    section.state_boxes["init_state"].setValue(1)
+    section.state_boxes["final_state"].setValue(0)
+    assert section.save_button.isEnabled()
+    out = tmp_path / "composition.json"
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    qtbot.mouseClick(section.save_button, QtCore.Qt.MouseButton.LeftButton)
+    assert out.is_file(), section.notice_text
+    assert "Saved the composition" in section.notice_text
+    saved = [(s.label, s.selection.molecule_keys) for s in section.series]
+
+    # Change everything, then open the file again.
+    section.set_project(path)
+    section.set_plot("population_apparent_e_histogram")
+    section.add_series(PlotSeries(ALL_MOLECULES, None))
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName", lambda *a, **k: (str(out), ""))
+    qtbot.mouseClick(section.open_button, QtCore.Qt.MouseButton.LeftButton)
+    assert section.notice_text.startswith("Opened composition.json"), section.notice_text
+    assert section.plot_id == "population_transition_prob_histogram"
+    assert section.model_name == MODEL
+    assert section.state_boxes["init_state"].value() == 1
+    assert section.state_boxes["final_state"].value() == 0
+    layers = section.layers
+    assert [layers.item(i).text() for i in range(layers.count())] == ["late", "early"]
+    assert [(s.label, s.selection.molecule_keys) for s in section.series] == saved
+    assert section.outcome.drawn
+    assert [label for label, _ in section.outcome.results] == ["late", "early"]
+
+
+def test_opening_names_missing_molecules_and_draws_nothing_for_them(
+    section, modelled, tmp_path
+) -> None:
+    path, keys = modelled
+    section.set_project(path)
+    section.add_series(_saved(path, "kept", keys[:2]))
+    section.add_series(_saved(path, "ghost", [keys[2], "no-such-key"]))
+    out = tmp_path / "c.json"
+    assert section.save_composition(out) is not None
+    section.set_project(path)
+    result = section.open_composition(out)
+    assert result is not None
+    assert "Left out ghost: 1 of its 2 molecules are not in" in section.notice_text
+    assert "no-such-key" in section.notice_text
+    assert section.series_labels == ["kept"]
+    assert [label for label, _ in section.outcome.results] == ["kept"]
+
+
+def test_a_composition_of_another_project_changes_nothing(section, modelled, tmp_path) -> None:
+    from _analysis_store import build_store_with_model
+
+    path, keys = modelled
+    section.set_project(path)
+    section.add_series(_saved(path, "early", keys[:2]))
+    out = tmp_path / "c.json"
+    section.save_composition(out)
+    states = np.array([[0, 1] * 10 for _ in range(2)])
+    (tmp_path / "other").mkdir()
+    other, other_keys = build_store_with_model(
+        tmp_path / "other", states, np.array([0.25, 0.75]), model_name=MODEL
+    )
+    section.set_project(other.path)
+    section.add_series(_saved(other.path, "theirs", other_keys))
+    section.open_composition(out)
+    assert "open that project first" in section.notice_text
+    assert section.series_labels == ["theirs"]
+
+
+def test_a_file_of_an_unknown_version_is_refused_with_a_message(
+    section, modelled, tmp_path
+) -> None:
+    import json
+
+    path, keys = modelled
+    section.set_project(path)
+    section.add_series(_saved(path, "early", keys[:2]))
+    out = tmp_path / "c.json"
+    section.save_composition(out)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    data["version"] = 7
+    out.write_text(json.dumps(data), encoding="utf-8")
+    assert section.open_composition(out) is None
+    assert "The composition was not opened" in section.notice_text
+    assert "version 7 is not supported" in section.notice_text
+    assert section.series_labels == ["early"]

@@ -63,11 +63,15 @@ from tether.services import (
     IdealizeResult,
     MapCreateRequest,
     MapCreateResult,
+    OpenCompositionRequest,
+    OpenCompositionResult,
     ReextractRequest,
     ReextractResult,
     Request,
     RequestError,
     RequestRefused,
+    SaveCompositionRequest,
+    SaveCompositionResult,
     SidecarUnavailable,
 )
 from tether.services import run as run_service
@@ -1194,6 +1198,115 @@ def _run_approve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_save_composition_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``save-composition`` subcommand (a plot composition to a file, #1438)."""
+    save = subparsers.add_parser(
+        "save-composition",
+        help=summary,
+        description=(
+            "Write a plot composition of the plot builder to a file: the plot, the project, "
+            "the series in order and the plot parameters, and no trace data. Each preset "
+            "series is frozen against the project now. Exit codes: 0 written, 1 the write "
+            "failed, 2 refused (nothing written)."
+        ),
+    )
+    save.add_argument("path", help="the composition file to write (.json)")
+    save.add_argument("--project", required=True, help="the .tether project the plot reads")
+    save.add_argument("--plot", required=True, help="the plot: the name of a population function")
+    save.add_argument(
+        "--series",
+        action="append",
+        required=True,
+        metavar="SPEC",
+        help="a series, in drawing order: all, condition=VALUE, movie=VALUE or source_file=VALUE",
+    )
+    save.add_argument("--model", default=None, help="the idealization model the plot reads")
+    save.add_argument(
+        "--state",
+        action="append",
+        default=None,
+        metavar="NAME=K",
+        help="a state option of the plot: state, init_state or final_state",
+    )
+    save.add_argument("--force", action="store_true", help="replace an existing file")
+
+
+def _save_composition_request(args: argparse.Namespace) -> SaveCompositionRequest:
+    """Build the ``save-composition`` request from the parsed options."""
+    return SaveCompositionRequest(
+        path=args.path,
+        project=args.project,
+        plot=args.plot,
+        series=tuple(args.series),
+        model=args.model,
+        states=tuple(args.state or ()),
+        overwrite=args.force,
+    )
+
+
+def _run_save_composition(args: argparse.Namespace) -> int:
+    """Handle ``tether save-composition``; exit 2 on a refused request, 1 on a failed write."""
+    try:
+        result: SaveCompositionResult = run_service(_save_composition_request(args))
+    except RequestRefused as exc:
+        print(f"tether save-composition: {exc}", file=sys.stderr)
+        return 2
+    except CommandFailed as exc:
+        print(f"tether save-composition: {exc}", file=sys.stderr)
+        return 1
+    labels = ", ".join(s.label for s in result.composition.series)
+    print(f"{result.path}: {result.composition.plot} over {labels}")
+    return 0
+
+
+def _add_open_composition_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``open-composition`` subcommand (read a plot composition, #1438)."""
+    opened = subparsers.add_parser(
+        "open-composition",
+        help=summary,
+        description=(
+            "Read a plot composition file, print its plot, project, parameters and layer "
+            "list, and name each series whose project or molecules cannot be found. "
+            "Exit codes: 0 every series can be drawn, 1 at least one cannot, 2 the file "
+            "was refused (unreadable, not a composition, or of another format version)."
+        ),
+    )
+    opened.add_argument("path", help="the composition file to read")
+
+
+def _open_composition_request(args: argparse.Namespace) -> OpenCompositionRequest:
+    """Build the ``open-composition`` request from the parsed options."""
+    return OpenCompositionRequest(path=args.path)
+
+
+def _run_open_composition(args: argparse.Namespace) -> int:
+    """Handle ``tether open-composition``; exit 1 when a series cannot be drawn."""
+    try:
+        result: OpenCompositionResult = run_service(_open_composition_request(args))
+    except RequestRefused as exc:
+        print(f"tether open-composition: {exc}", file=sys.stderr)
+        return 2
+    composition = result.composition
+    print(f"{result.path}: {composition.plot} of {composition.project_path}")
+    if composition.model_name is not None:
+        print(f"  model: {composition.model_name}")
+    for name, value in composition.states:
+        print(f"  {name}: {value}")
+    gone = dict(result.missing)
+    for series in composition.series:
+        n = (
+            "all molecules"
+            if series.selection is None
+            else f"{series.selection.n_molecules} molecule(s)"
+        )
+        note = f"  (missing: {gone[series.label]})" if series.label in gone else ""
+        print(f"  series {series.label}: {n}{note}")
+    if result.missing:
+        print(f"tether open-composition: {result.message()}", file=sys.stderr)
+        return 1
+    return 0
+
+
 #: Exit code of every ``tether`` command that stopped because a person must act
 #: (ADR-0102 §2); no command uses ``4`` for another meaning.
 EXIT_APPROVAL_NEEDED = 4
@@ -1348,6 +1461,12 @@ _ROUTES: dict[str, _Route] = {
     "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
     "map": _Route(_add_map_parser, _map_request, _run_map),
     "approve": _Route(_add_approve_parser, _approve_request, _run_approve),
+    "save-composition": _Route(
+        _add_save_composition_parser, _save_composition_request, _run_save_composition
+    ),
+    "open-composition": _Route(
+        _add_open_composition_parser, _open_composition_request, _run_open_composition
+    ),
 }
 
 
