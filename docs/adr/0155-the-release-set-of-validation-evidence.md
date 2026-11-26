@@ -49,8 +49,9 @@ the set live, which commit does it name, and when does the one-commit rule run?
 Chosen option: **1**.
 
 - **Format.** One JSON record per oracle (a) to (g) and one for the deep-tier run, schema
-  `tether-validation-record/1`: the oracle, its tier, the commit, exactly one of a run URL of this
-  repository or the SHA-256 of a local-run log, the measured numbers (names and numbers only), the
+  `tether-validation-record/1`: the oracle, its tier, the commit, a run URL of this repository, the
+  SHA-256 of a local-run log, or both (oracle (e) needs both: its required matrix and its
+  workstation α band), the measured numbers (names and numbers only), the
   §11.2 rows or frozen files they are compared with, and the outcome. The deep record also shows
   its CUDA tests executed and not skipped (§9.5). `scripts/validation_evidence.py` writes and
   checks them; the record of (a) is made from the #699 record and the hash of the workstation

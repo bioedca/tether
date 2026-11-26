@@ -37,14 +37,19 @@ def _record(oracle: str, commit: str = COMMIT, outcome: str = "passed") -> dict:
     measured: dict[str, float | int] = {"metric": 0.97}
     if oracle == "deep":
         measured = {"cuda_tests_executed": 4, "cuda_tests_skipped": 0}
+    evidence = {"run_url": "https://github.com/bioedca/tether/actions/runs/123456"}
+    tolerance = sorted(ve.ORACLES[oracle]["tolerance"])[:1]
+    if oracle == "e":  # the required matrix and the workstation α band (#1466 review)
+        evidence["log_sha256"] = "a" * 64
+        tolerance = ["Leakage acceptance ceiling", "Leakage-α validation band"]
     return {
         "schema": ve.SCHEMA,
         "oracle": oracle,
         "tier": ve.ORACLES[oracle]["tier"],
         "commit": commit,
-        "evidence": {"run_url": "https://github.com/bioedca/tether/actions/runs/123456"},
+        "evidence": evidence,
         "measured": measured,
-        "tolerance": sorted(ve.ORACLES[oracle]["tolerance"])[:1],
+        "tolerance": tolerance,
         "outcome": outcome,
     }
 
@@ -112,7 +117,8 @@ def test_a_well_formed_record_has_no_errors(oracle: str) -> None:
         (lambda r: r.update(commit="abc1234"), "40-character"),
         (lambda r: r.update(outcome="advisory"), "outcome must be"),
         (lambda r: r.update(evidence={"run_url": "https://example.org/run/1"}), "run URL"),
-        (lambda r: r.update(evidence={"log_sha256": "0" * 64, "run_url": "x"}), "exactly one"),
+        (lambda r: r.update(evidence={"log_sha256": "0" * 64, "run_url": "x"}), "run URL"),
+        (lambda r: r.update(evidence={}), "at least one"),
         (lambda r: r.update(evidence={"log_path": "C:/Users/lab/run.log"}), "run URL"),
         (lambda r: r.update(measured={"movie": "lab-file.tif"}), "not a number"),
         (lambda r: r.update(measured={"Path C:/x": 1.0}), "snake_case"),
@@ -255,3 +261,39 @@ def test_the_release_gate_reads_the_set_from_the_tagged_tree(tmp_path: Path) -> 
     _git(repo, "commit", "-q", "-am", "another change")
     errors = ve.binding_errors("v9.9.9", _git(repo, "rev-parse", "HEAD"), repo)
     assert any("changes more than" in e for e in errors), errors
+
+
+def test_the_oracle_e_record_carries_the_workstation_alpha_band_run() -> None:
+    record = _record("e")
+    del record["evidence"]["log_sha256"]
+    assert any("α-band" in e for e in ve.record_errors(record))
+    record = _record("e")
+    record["tolerance"] = ["Leakage acceptance ceiling"]
+    assert any("Leakage-α validation band" in e for e in ve.record_errors(record))
+
+
+def test_a_rename_out_of_another_release_set_is_seen(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    old = repo / ve.RELEASE_DIR / "v9.9.8"
+    old.mkdir(parents=True)
+    for oracle in ve.ORACLES:
+        text = json.dumps(_record(oracle), indent=2) + "\n"
+        (old / ve.file_name(oracle)).write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "release commit, holding an older set")
+    release = _git(repo, "rev-parse", "HEAD")
+    new = repo / ve.RELEASE_DIR / "v9.9.9"
+    new.mkdir(parents=True)
+    for oracle in ve.ORACLES:  # the older set is moved, its commit rewritten: a near rename
+        source = old / ve.file_name(oracle)
+        record = json.loads(source.read_text(encoding="utf-8"))
+        record["commit"] = release
+        # indent=2, as the script writes a record: a one-line change keeps a near rename.
+        (new / source.name).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        source.unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "the new set, taking the old one's place")
+    errors = ve.binding_errors("v9.9.9", _git(repo, "rev-parse", "HEAD"), repo)
+    assert any("changes more than" in e and "v9.9.8" in e for e in errors), errors

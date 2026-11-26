@@ -196,7 +196,7 @@ and neutral ids, never a file name, a private path or a machine name:
 | `oracle` | `a` to `g`, or `deep` |
 | `tier` | the tier of the oracle's headline assertion, from the table above (`workstation`, `sidecar`, `large`, `required` or `deep`) |
 | `commit` | the 40-character SHA that the run was made at |
-| `evidence` | exactly one of `run_url` (a GitHub Actions run of this repository) or `log_sha256` (the SHA-256 of the log or result file of a local run; the file itself is not committed) |
+| `evidence` | `run_url` (a GitHub Actions run of this repository), `log_sha256` (the SHA-256 of the log or result file of a local run; the file itself is not committed), or both |
 | `measured` | the measured numbers, as `snake_case` names and numbers |
 | `tolerance` | the rows of the table of tunables, or the frozen files, that the numbers are compared with |
 | `outcome` | `passed` or `failed` |
@@ -215,6 +215,11 @@ a green `deep-gpu.yml` run with its CUDA tests skipped is not the evidence.
   for each number, one `--tolerance` for each row or file, `--outcome` and `--out`. The runs are
   the forced `sidecar.yml` run for (b), `large-fixtures.yml` for (c), the required matrix of the
   release commit for (d) to (g), and the deep-tier run.
+- Oracle (e) has two runs: the required matrix and the `workstation` run of the α band on the
+  lab's donor-only sample. Make its record with both `--run-url <the matrix run>` and
+  `--log <the α-band log>`, and name `Leakage-α validation band` among its tolerances. The
+  command refuses an (e) record without both. It does not check which numbers you record, so
+  record the numbers of both runs.
 
 The command refuses a record that breaks the format, and names the tolerances that each oracle may
 name.

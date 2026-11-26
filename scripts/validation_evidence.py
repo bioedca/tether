@@ -10,8 +10,9 @@ schema ``tether-validation-record/1``. It holds summary numbers and neutral ids 
 * ``oracle`` — ``a`` to ``g``, or ``deep``;
 * ``tier`` — the tier of that oracle's headline assertion (``docs/validation.md``);
 * ``commit`` — the 40-character SHA the run was made at;
-* ``evidence`` — exactly one of ``run_url`` (a GitHub Actions run of this repository) or
-  ``log_sha256`` (the SHA-256 of the local run's log or result file, which is not committed);
+* ``evidence`` — ``run_url`` (a GitHub Actions run of this repository), ``log_sha256`` (the
+  SHA-256 of the local run's log or result file, which is not committed), or both; the (e)
+  record gives both, for its required matrix and its workstation α band;
 * ``measured`` — the measured numbers, a flat map of ``snake_case`` names to numbers;
 * ``tolerance`` — the rows of the specification's table of tunables (§11.2) or the frozen files
   the numbers are compared with;
@@ -93,6 +94,7 @@ ORACLES: dict[str, dict[str, object]] = {
     "g": {"tier": "required", "tolerance": {"Bleach-frame tolerance"}},
     "deep": {"tier": "deep", "tolerance": {"schema/deep_classifier_reference.json"}},
 }
+ALPHA_BAND = "Leakage-α validation band"
 # §9.5: a green deep-gpu.yml run alone is not the deep evidence; the CUDA tests must have run.
 DEEP_MEASURED = ("cuda_tests_executed", "cuda_tests_skipped")
 
@@ -122,13 +124,18 @@ def record_errors(record: object) -> list[str]:
     if not (isinstance(record.get("commit"), str) and SHA40.fullmatch(record["commit"])):
         errors.append("commit must be a 40-character lower-case SHA")
     evidence = record.get("evidence")
-    if not isinstance(evidence, dict) or len(evidence) != 1:
-        errors.append("evidence must hold exactly one of run_url or log_sha256")
+    if not isinstance(evidence, dict) or not evidence:
+        errors.append("evidence must hold at least one of run_url or log_sha256")
     else:
-        ((kind, value),) = evidence.items()
-        pattern = {"run_url": RUN_URL, "log_sha256": SHA64}.get(kind)
-        if pattern is None or not (isinstance(value, str) and pattern.fullmatch(value)):
-            errors.append(f"evidence {kind!r} is not a run URL of this repository or a SHA-256")
+        for kind, value in evidence.items():
+            pattern = {"run_url": RUN_URL, "log_sha256": SHA64}.get(kind)
+            if pattern is None or not (isinstance(value, str) and pattern.fullmatch(value)):
+                errors.append(f"evidence {kind!r} is not a run URL of this repository or a SHA-256")
+        # (e) has two runs (docs/validation.md): the required matrix and the workstation α band.
+        if oracle == "e" and set(evidence) != {"run_url", "log_sha256"}:
+            errors.append(
+                "the (e) record gives the required-matrix run_url and the α-band log_sha256"
+            )
     measured = record.get("measured")
     if not isinstance(measured, dict) or not measured:
         errors.append("measured must be a non-empty map of names to numbers")
@@ -153,6 +160,8 @@ def record_errors(record: object) -> list[str]:
         unknown = [t for t in tolerance if t not in spec["tolerance"]]
         if unknown:
             errors.append(f"oracle ({oracle}) does not compare with {unknown}")
+        if oracle == "e" and ALPHA_BAND not in tolerance:
+            errors.append(f"the (e) record names {ALPHA_BAND!r}, the workstation α band")
     if record.get("outcome") not in OUTCOMES:
         errors.append(f"outcome must be one of {sorted(OUTCOMES)}")
     return errors
@@ -250,7 +259,9 @@ def binding_errors(tag: str, tag_commit: str, root: Path = ROOT) -> list[str]:
         _git("merge-base", "--is-ancestor", commit, tag_commit, root=root)
     except subprocess.CalledProcessError:
         return [f"the release commit {commit} is not an ancestor of the tag commit {tag_commit}"]
-    changed = _git("diff", "--name-only", commit, tag_commit, root=root).splitlines()
+    # --no-renames: a set moved into this one must show its old paths as deleted (#1466 review).
+    changed = _git("diff", "--no-renames", "--name-only", commit, tag_commit, root=root)
+    changed = changed.splitlines()
     outside = [p for p in changed if not p.startswith(rel + "/")]
     if outside:
         return [f"the tag commit changes more than {rel}/ since {commit[:12]}: {outside}"]
@@ -312,9 +323,8 @@ def main(argv: list[str] | None = None) -> int:
     rec = sub.add_parser("record", help="write one record from a run")
     rec.add_argument("--oracle", required=True, choices=sorted(ORACLES))
     rec.add_argument("--commit", required=True)
-    group = rec.add_mutually_exclusive_group(required=True)
-    group.add_argument("--run-url")
-    group.add_argument("--log", type=Path, help="local-run log; only its SHA-256 is recorded")
+    rec.add_argument("--run-url")
+    rec.add_argument("--log", type=Path, help="local-run log; only its SHA-256 is recorded")
     rec.add_argument("--measured", action="append", default=[], metavar="NAME=VALUE")
     rec.add_argument("--tolerance", action="append", required=True)
     rec.add_argument("--outcome", required=True, choices=sorted(OUTCOMES))

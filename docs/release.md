@@ -188,6 +188,7 @@ refuses to build without a signature on it that GitHub verified. That signature 
     1. Choose the release commit, a commit on `main`. Run the oracles at it: the forced
        `sidecar.yml` run, `large-fixtures.yml`, the workstation run of (a) and the deep-tier run.
        The required matrix of that commit gives (d) to (g).
+       Oracle (e) also needs the workstation run of its α band at that commit.
     2. Write the eight records with `scripts/validation_evidence.py`, and check them with
        `python scripts/validation_evidence.py check-set docs/validation/release/<tag>`.
     3. Merge a pull request that adds only those eight files, while no other pull request merges.
