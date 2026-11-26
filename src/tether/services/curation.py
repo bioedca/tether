@@ -303,7 +303,8 @@ def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:
     One read of ``/molecules`` gives the curation state and the category. For the
     idealization marks each model's staleness stamp is read and checked against the
     current traces, by the rule of
-    [`stale_row_ids`][tether.project.idealize.stale_row_ids]; the join is on the unique
+    [`stale_row_ids`][tether.project.idealize.stale_row_ids], from one read of the traces
+    for all models (#1410); the join is on the unique
     ``molecule_id``, so two rows that share a ``molecule_key`` keep their own marks.
     """
     import h5py  # noqa: PLC0415
@@ -312,7 +313,7 @@ def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:
     from tether.project.idealize import (  # noqa: PLC0415
         list_idealizations,
         read_staleness_stamp,
-        stale_row_ids,
+        stale_row_ids_each,
     )
 
     path = Path(project_path)
@@ -325,12 +326,12 @@ def molecule_states(project_path: str | Path) -> tuple[MoleculeState, ...]:
         movies = [_text(k) for k in table.fields("movie_id")[:]]
         categories = [_text(k) for k in table.fields("category")[:]]
         labels = [int(v) for v in table.fields("curation_label")[:]]
+    stamps = [read_staleness_stamp(path, model) for model in list_idealizations(path)]
     fitted: set[str] = set()
     stale: set[str] = set()
-    for model in list_idealizations(path):
-        stamp = read_staleness_stamp(path, model)
+    for stamp, stale_ids in zip(stamps, stale_row_ids_each(path, stamps), strict=True):
         fitted.update(stamp.molecule_ids)
-        stale.update(stale_row_ids(path, stamp))
+        stale.update(stale_ids)
     return tuple(
         MoleculeState(
             row=row,
