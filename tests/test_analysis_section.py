@@ -327,15 +327,18 @@ def test_a_saved_composition_opens_again_to_the_same_layer_list(
     from pyqtgraph.Qt import QtCore, QtWidgets
 
     path, keys = modelled
+    assert section.save_composition(tmp_path / "none.json") is None
+    assert section.notice_text == "Open a project to save a composition."
     section.set_project(path)
-    assert not section.save_button.isEnabled()
+    assert section.save_composition(tmp_path / "none.json") is None
+    assert "Add a selection" in section.notice_text
+    assert not (tmp_path / "none.json").exists()
     section.add_series(_saved(path, "late", keys[2:]))
     section.add_series(_saved(path, "early", keys[:2]))
     section.set_plot("population_transition_prob_histogram")
     section.set_model(MODEL)
     section.state_boxes["init_state"].setValue(1)
     section.state_boxes["final_state"].setValue(0)
-    assert section.save_button.isEnabled()
     out = tmp_path / "composition.json"
     monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
     qtbot.mouseClick(section.save_button, QtCore.Qt.MouseButton.LeftButton)

@@ -251,7 +251,7 @@ class AnalysisSection:
 
     @property
     def save_button(self) -> QtWidgets.QPushButton:
-        """*Save composition…*: disabled until a project is open and a series is listed."""
+        """*Save composition…*: without a project or a series it says which is missing."""
         return self._save_button
 
     @property
@@ -377,6 +377,9 @@ class AnalysisSection:
 
         if self._project is None:
             self._notice.setText("Open a project to save a composition.")
+            return None
+        if not self._series:
+            self._notice.setText("Add a selection to the layer list to save a composition.")
             return None
         spec = plot_spec(self.plot_id)
         request = SaveCompositionRequest(
@@ -542,7 +545,6 @@ class AnalysisSection:
     def _sync_buttons(self) -> None:
         has_project = self._project is not None
         self._add_button.setEnabled(has_project)
-        self._save_button.setEnabled(has_project and bool(self._series))
         self._remove_button.setEnabled(0 <= self._layers.currentRow() < len(self._series))
 
     def _reload_models(self, *, reset_states: bool) -> None:
