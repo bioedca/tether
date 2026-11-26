@@ -63,7 +63,7 @@ import hashlib
 import json
 import math
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -112,6 +112,7 @@ __all__ = [
     "reidealize",
     "stale_molecule_keys",
     "stale_row_ids",
+    "stale_row_ids_each",
     "write_idealization_model",
 ]
 
@@ -1175,13 +1176,37 @@ def stale_row_ids(
     Unlike the key list, this counts molecules: two stale rows that share a quantized
     ``molecule_key`` (§7.10) are two ids here and one key there.
     """
+    return stale_row_ids_each(project, (stored,))[0]
+
+
+def stale_row_ids_each(
+    project: Project | str | PathLike[str],
+    models: Sequence[StoredIdealization | StalenessStamp],
+) -> list[list[str]]:
+    """[`stale_row_ids`][] of each of ``models``, in the given order, from one store read (#1410).
+
+    ``/molecules`` and ``/traces`` are read once however many models there are, so a
+    caller that checks every model (the molecule list, #630) does not read the whole
+    trace store once per model. Each model's list is exactly what [`stale_row_ids`][]
+    returns for it; with no models the store is not read at all.
+    """
     from tether.project.core import Project as _Project
 
+    if not models:
+        return []
     path = project.path if isinstance(project, _Project) else Path(project)
-    donor_key, acceptor_key = _resolve_quantity(stored.intensity_quantity)
-
     molecules = read_molecules(path)
     traces = read_traces(path)
+    return [_stale_rows(molecules, traces, stored) for stored in models]
+
+
+def _stale_rows(
+    molecules: np.ndarray,
+    traces: dict[str, np.ndarray],
+    stored: StoredIdealization | StalenessStamp,
+) -> list[str]:
+    """The stale ``molecule_id`` of one model against an already-read store (#1410)."""
+    donor_key, acceptor_key = _resolve_quantity(stored.intensity_quantity)
     row_by_id = {_to_str(mid): i for i, mid in enumerate(molecules["molecule_id"])}
     donor_all = np.asarray(traces.get(donor_key), dtype="float64") if donor_key in traces else None
     acceptor_all = (

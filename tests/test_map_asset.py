@@ -188,6 +188,33 @@ def test_a_version_2_file_without_a_record_array_is_refused(tmp_path, fitted) ->
         load_map_asset(tmp_path / "no-optics.npz")
 
 
+def test_load_map_refuses_a_version_2_file_without_its_record(tmp_path, fitted) -> None:
+    # #1414: ADR-0146 refuses such a file, so load_map does too and names what is missing.
+    _, _, reg_map = fitted
+    path = save_map_asset(_asset(reg_map), tmp_path / "m.npz")
+    with np.load(path, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files if k not in ("optics", "map_id")}
+    np.savez(tmp_path / "no-record.npz", **arrays)
+    with pytest.raises(
+        MapFileError,
+        match=r"no-record.npz is a version-2 map file that lacks \['map_id', 'optics'\]",
+    ):
+        calibrate.load_map(tmp_path / "no-record.npz")
+
+
+@pytest.mark.parametrize("raw", ["[]", "3", '"side-by-side"'])
+def test_a_channel_layout_that_is_not_an_object_is_refused(tmp_path, fitted, raw) -> None:
+    # #1414: valid JSON that is not an object or null is a MapFileError, not an AttributeError.
+    _, _, reg_map = fitted
+    path = save_map_asset(_asset(reg_map), tmp_path / "m.npz")
+    with np.load(path, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files}
+    arrays["channel_layout_json"] = np.array(raw)
+    np.savez(tmp_path / "bad-layout.npz", **arrays)
+    with pytest.raises(MapFileError, match="channel_layout_json must hold one JSON object"):
+        load_map_asset(tmp_path / "bad-layout.npz")
+
+
 @pytest.mark.parametrize("version", [None, 1])
 def test_an_older_map_file_reads_with_a_derived_record(tmp_path, fitted, version) -> None:
     _, _, reg_map = fitted
@@ -410,7 +437,9 @@ def test_a_tmap_becomes_an_asset_of_origin_tmap_with_no_quality(monkeypatch, tmp
 
     tmap = tmp_path / "run.tmap"
     tmap.write_bytes(b"a stand-in for the .tmap bytes")
-    monkeypatch.setattr(register_module, "read_tmap", lambda path: _tmap_channels())
+    monkeypatch.setattr(
+        register_module, "read_tmap", lambda path, *, content=None: _tmap_channels()
+    )
     asset = map_asset_from_tmap(tmap, optics="60x")
     assert asset.origin == MAP_ORIGIN_TMAP
     assert asset.quality is None
@@ -421,6 +450,42 @@ def test_a_tmap_becomes_an_asset_of_origin_tmap_with_no_quality(monkeypatch, tmp
         ChannelGeometry(crop=(1, 1, 64, 48)),
         ChannelGeometry(crop=(1, 49, 64, 96)),
     )
+
+
+def test_a_tmap_transform_is_decoded_from_the_bytes_its_source_id_names(
+    monkeypatch, tmp_path
+) -> None:
+    # #1414: one snapshot. The stand-in decoder records the bytes it was given and then
+    # replaces the file, as another writer might between two reads of it.
+    from test_extract_preview import _tmap_channels
+
+    tmap = tmp_path / "run.tmap"
+    tmap.write_bytes(b"the first .tmap bytes")
+    seen: list[bytes | None] = []
+
+    def decoder(path, *, content=None):
+        seen.append(content)
+        tmap.write_bytes(b"other bytes written by another writer")
+        return _tmap_channels()
+
+    monkeypatch.setattr(register_module, "read_tmap", decoder)
+    asset = map_asset_from_tmap(tmap)
+    assert seen == [b"the first .tmap bytes"]
+    assert asset.source_ids == (f"sha256:{hashlib.sha256(seen[0]).hexdigest()}",)
+
+
+def test_read_tmap_decodes_the_bytes_it_is_given(monkeypatch, tmp_path) -> None:
+    # #1414: given ``content``, read_tmap decodes those bytes and never opens ``path``.
+    got = []
+
+    def loadmat(source):
+        got.append(source.read())
+        return {}
+
+    monkeypatch.setattr(register_module.sio, "loadmat", loadmat)
+    with pytest.raises(ValueError, match="not a Deep-LASI .tmap"):
+        register_module.read_tmap(tmp_path / "absent.tmap", content=b"tmap bytes")
+    assert got == [b"tmap bytes"]
 
 
 # --- AC 6: an existing project opens unchanged, and its map can be saved -------------
