@@ -20,6 +20,7 @@ for a movie are still the movie file's own.
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -68,6 +69,7 @@ def content_sha256(
     *,
     frames: tuple[Path, ...] | None = None,
     on_block: Callable[[int], None] | None = None,
+    on_open: Callable[[Path, os.stat_result], None] | None = None,
 ) -> str:
     """Return the content checksum of the movie at ``path``, whose own SHA-256 is ``file_sha256``.
 
@@ -79,7 +81,9 @@ def content_sha256(
 
     ``frames`` is the result of [`frame_files`][] when the caller already has it.
     ``on_block(n)`` is called after each block of ``n`` bytes of a frame file is read (a
-    caller checks a cancel there and reports progress).
+    caller checks a cancel there and reports progress). ``on_open(frame, info)`` is called
+    when a frame file is opened, with the ``os.fstat`` of the handle its bytes are read
+    from, so a caller can check later that the path still names that file (#1429).
     """
     if frames is None:
         frames = frame_files(path)
@@ -92,14 +96,20 @@ def content_sha256(
     digest.update(file_sha256.lower().encode("ascii"))
     for frame in frames:
         name = frame.relative_to(folder).as_posix()
-        digest.update(b"\0" + name.encode("utf-8") + b"\0" + _sha256(frame, on_block))
+        digest.update(b"\0" + name.encode("utf-8") + b"\0" + _sha256(frame, on_block, on_open))
     return digest.hexdigest()
 
 
-def _sha256(path: Path, on_block: Callable[[int], None] | None) -> bytes:
+def _sha256(
+    path: Path,
+    on_block: Callable[[int], None] | None,
+    on_open: Callable[[Path, os.stat_result], None] | None = None,
+) -> bytes:
     """Return the SHA-256 of the file at ``path`` as ASCII hex, read in 1 MiB blocks."""
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
+        if on_open is not None:
+            on_open(path, os.fstat(handle.fileno()))
         for block in iter(lambda: handle.read(_CHUNK), b""):
             digest.update(block)
             if on_block is not None:
