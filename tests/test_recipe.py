@@ -513,14 +513,18 @@ def test_a_printed_windows_command_passes_each_value_unchanged_through_cmd_exe(
     script.write_text("import json, sys\nprint(json.dumps(sys.argv[1:]))\n", encoding="utf-8")
     program = [sys.executable, str(script)]
     assert not any(sign in word for word in program for sign in '"%')
+    environment = {**os.environ, "TETHER_1354": "expanded"}
     if through_launcher:
+        # #1417: cmd.exe reads a batch file in the console's code page, so the two paths,
+        # which may hold a letter outside ASCII, go in the environment and not in the text.
+        environment |= {"TETHER_1417_PYTHON": program[0], "TETHER_1417_SCRIPT": program[1]}
         launcher = tmp_path / "tether.bat"
         launcher.write_text(
-            f'@echo off\r\nsetlocal\r\n"{program[0]}" "{program[1]}" %*\r\n', encoding="ascii"
+            '@echo off\r\nsetlocal\r\n"%TETHER_1417_PYTHON%" "%TETHER_1417_SCRIPT%" %*\r\n',
+            encoding="ascii",
         )
         program = [str(launcher)]
     line = _command_line(*program, *_CMD_EXE_VALUES, windows=True)
-    environment = {**os.environ, "TETHER_1354": "expanded"}
     done = subprocess.run(  # noqa: S603 - a fixed cmd.exe and a line this test built
         f'cmd.exe /d /s /c "{line}"',
         capture_output=True,
