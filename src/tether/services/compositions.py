@@ -90,6 +90,9 @@ class PlotComposition:
         unknown = sorted(name for name, _ in self.states if name not in spec.states)
         if unknown:
             raise ValueError(f"{spec.title} takes no state option {unknown}")
+        negative = sorted(name for name, value in self.states if int(value) < 0)
+        if negative:
+            raise ValueError(f"a state is 0 or more; {negative} is not")
         object.__setattr__(self, "project_path", _resolved(self.project_path))
         object.__setattr__(self, "series", tuple(self.series))
         object.__setattr__(self, "states", tuple(sorted((str(k), int(v)) for k, v in self.states)))
@@ -181,7 +184,12 @@ def _series_from(entry: Any) -> PlotSeries:
     selection = entry["selection"]
     if selection is not None and not isinstance(selection, Mapping):
         raise ValueError(f"series {entry['label']!r}: 'selection' must be an object or null")
-    saved = None if selection is None else SavedSelection.from_dict(selection)
+    try:
+        saved = None if selection is None else SavedSelection.from_dict(selection)
+    except (TypeError, AttributeError) as exc:  # a nested field of the wrong shape
+        raise ValueError(
+            f"series {entry['label']!r}: its selection cannot be read: {exc}"
+        ) from None
     return PlotSeries(entry["label"], saved)
 
 

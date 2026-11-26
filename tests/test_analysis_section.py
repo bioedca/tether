@@ -440,3 +440,28 @@ def test_a_composition_with_no_model_draws_with_no_model(section, modelled, tmp_
     assert section.model_name is None
     assert not section.outcome.drawn
     assert "needs an idealization model" in section.empty_text
+
+
+def test_a_state_the_section_cannot_show_is_refused_not_clamped(
+    section, modelled, tmp_path
+) -> None:
+    from tether.services import SaveCompositionRequest, run
+    from tether.services.compositions import series_text
+
+    path, keys = modelled
+    out = tmp_path / "c.json"
+    run(
+        SaveCompositionRequest(
+            path=str(out),
+            project=str(path),
+            plot="population_dwell_times",
+            series=(series_text(_saved(path, "early", keys[:2])),),
+            model=MODEL,
+            states=("state=150",),
+        )
+    )
+    section.set_project(path)
+    section.add_series(_saved(path, "kept", keys))
+    assert section.open_composition(out) is None
+    assert "cannot show state 150" in section.notice_text
+    assert section.series_labels == ["kept"]

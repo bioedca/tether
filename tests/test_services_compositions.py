@@ -405,3 +405,21 @@ def test_an_unconditioned_molecule_is_not_missing(modelled, tmp_path) -> None:
     opened = run(OpenCompositionRequest(path=str(out)))
     assert opened.missing == ()
     assert [s.label for s in opened.found] == ["first"]
+
+
+def test_a_negative_state_and_a_malformed_filter_are_refused(modelled, tmp_path) -> None:
+    project, _keys = modelled
+    with pytest.raises(RequestRefused, match="a state is 0 or more"):
+        _save(
+            tmp_path / "c.json",
+            project,
+            ["all"],
+            states=("state=-1",),
+            plot="population_dwell_times",
+        )
+    data = _saved_data(modelled, tmp_path)
+    data["series"][0]["selection"]["filter"] = [1]
+    out = tmp_path / "bad.json"
+    out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RequestRefused, match="its selection cannot be read"):
+        run(OpenCompositionRequest(path=str(out)))

@@ -424,6 +424,17 @@ class AnalysisSection:
                 lines.append(result.message())
             self._notice.setText("\n".join(lines))
             return result
+        too_large = [
+            f"{name} {value}"
+            for name, value in composition.states
+            if value > self._state_boxes[name].maximum()
+        ]
+        if too_large:
+            # The spin box would clamp the value and draw another state: refuse instead.
+            self._notice.setText(
+                f"{Path(path).name} was not opened: the section cannot show {', '.join(too_large)}."
+            )
+            return None
         lines = [f"Opened {Path(path).name}."]
         lines.extend(f"Left out {label}: {reason}" for label, reason in result.missing)
         spec = plot_spec(composition.plot)
