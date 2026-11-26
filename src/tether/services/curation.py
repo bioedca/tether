@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    import numpy as np
+
     from tether.io.filename import ConditionKey
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     "condition_key",
     "curation_snapshot",
     "curation_state",
+    "calibration_windows",
     "molecule_states",
     "resolved_frame_range",
     "resolved_window",
@@ -120,6 +123,18 @@ def resolved_window(analysis_window: Any, frame_range: tuple[int, int]) -> tuple
     """
     start, stop = int(analysis_window[0]), int(analysis_window[1])
     return frame_range if stop <= start else (start, stop)
+
+
+def calibration_windows(path: Any) -> np.ndarray:
+    """Return the absolute calibration window of each ``/molecules`` row, in row order (#928).
+
+    The windows γ reads its acceptor-bleach step from, apart from the analysis window
+    ([`tether.project.calibration_windows`][]); a row with none stored has its default.
+    """
+    from tether.project.calibration_windows import read_calibration_windows  # noqa: PLC0415
+
+    windows, _ = read_calibration_windows(path)
+    return windows
 
 
 def _text(value: object) -> str:
