@@ -39,7 +39,7 @@ Design notes
   role, and for a derived file its original and the recipe between them. A file stamped
   1 or 2 lacks it and is still complete; [`upgrade_skeleton`][] adds every table a newer
   version declares when a writer first needs one.
-* **Version 4 adds ``/calibration_windows/table``** (#928, ADR-XXXX): the calibration window
+* **Version 4 adds ``/calibration_windows/table``** (#928, ADR-0156): the calibration window
   of a trace, the frames whose bleach step is the γ evidence, kept apart from its
   ``analysis_window``. A row with no stored window reads the default from its
   ``frame_range`` and ``bleach_frames``, so an older store needs no rewrite.
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 #: change (ADR + regenerated golden, PRD §12.6); the guard refuses a decrement.
 #: Version 2 adds the ``/generations`` table of trace generations (#921, ADR-0136).
 #: Version 3 adds the ``/sources`` table, the source registry (#912, ADR-0140).
-#: Version 4 adds the ``/calibration_windows`` table (#928, ADR-XXXX).
+#: Version 4 adds the ``/calibration_windows`` table (#928, ADR-0156).
 SCHEMA_VERSION = 4
 
 #: The first ``schema_version`` whose skeleton has the ``/generations`` table. A store
@@ -241,7 +241,7 @@ SOURCES_DTYPE = np.dtype(
 )
 
 #: ``/calibration_windows/table`` — the calibration windows a person or a recipe policy set
-#: (#928, ADR-XXXX), append-only: one row for each change of one ``/molecules`` row. The
+#: (#928, ADR-0156), append-only: one row for each change of one ``/molecules`` row. The
 #: latest row of a ``molecule_id`` holds. ``window`` is ``[start, stop)`` in absolute frames;
 #: ``(-1, -1)`` gives the row back its default, read from ``frame_range`` and
 #: ``bleach_frames``. ``by`` is ``person`` or ``policy`` and ``actor`` its name.
@@ -349,7 +349,7 @@ def upgrade_skeleton(f: h5py.File) -> None:
 
     Called by a writer that is about to record into a table a newer version added (the
     generations of ADR-0136, the source registry of ADR-0140, the calibration windows of
-    ADR-XXXX). It creates each missing
+    ADR-0156). It creates each missing
     empty table and stamps the file with [`SCHEMA_VERSION`][], so an app that predates
     them refuses it rather than ignoring the records, and a file stamped 4 always has
     every table up to 4. No existing data is rewritten.

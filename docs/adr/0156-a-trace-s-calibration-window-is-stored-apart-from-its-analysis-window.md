@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# XXXX — A trace's calibration window is stored apart from its analysis window
+# 0156 — A trace's calibration window is stored apart from its analysis window
 
 - **Status:** accepted
 - **Date:** 2026-11-26

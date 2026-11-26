@@ -759,7 +759,7 @@ class Project:
     def _window_edit(self, labeler: str | None, write: Callable[[], np.ndarray]) -> np.ndarray:
         """Run an analysis-window ``write``; in ANALYSIS_READY a change returns to review.
 
-        G03's *edit analysis windows or curation* (#928, ADR-XXXX): a window that changed in
+        G03's *edit analysis windows or curation* (#928, ADR-0156): a window that changed in
         ANALYSIS_READY sends the project to CORRECTED_REVIEW. The calibration windows and the
         γ evidence are not touched. In that state the writer lock must be held before the
         window is written, so the event cannot be refused after the write.

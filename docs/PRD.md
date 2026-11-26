@@ -361,7 +361,7 @@ uses the three words only in these meanings:
   latest row of a molecule holds; a molecule with no row has the default from its `frame_range` and
   `bleach_frames`, so an older store keeps its γ. An analysis-window edit in ANALYSIS_READY returns to
   CORRECTED_REVIEW and leaves the γ evidence alone; a calibration-window edit is *calibration evidence changes*
-  (ADR-XXXX).
+  (ADR-0156).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the

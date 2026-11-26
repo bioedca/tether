@@ -266,7 +266,7 @@ def _compute_gamma(
 
         table = f[_MOLECULES][TABLE][:]  # full copy; only the gamma column is mutated
         frame_range = table["frame_range"]
-        # The step is read inside each row's calibration window (#928, ADR-XXXX), not its
+        # The step is read inside each row's calibration window (#928, ADR-0156), not its
         # analysis window; the default is the frames a pass read before calibration windows.
         calibration, _ = resolved_calibration_windows(f, table)
         bleach_frames = table["bleach_frames"]

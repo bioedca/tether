@@ -5,7 +5,7 @@
 G03 has two different events. *Edit analysis windows or curation* takes ANALYSIS_READY back
 to CORRECTED_REVIEW; *calibration evidence changes* makes the calibration stale. Note 03 of
 G03 says the calibration windows are distinct from the FRET-analysis windows: the evidence
-after the acceptor bleach stays available for the calibration (PRD §7.2, ADR-XXXX). So a
+after the acceptor bleach stays available for the calibration (PRD §7.2, ADR-0156). So a
 trace has two windows:
 
 * ``/molecules.analysis_window`` — the frames the analysis reads

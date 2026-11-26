@@ -150,7 +150,7 @@ payload as normal.
 `schema_version` is now **`4`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
 Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)),
 version 3 the `/sources` table ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)),
-and version 4 the `/calibration_windows` table (ADR-XXXX).
+and version 4 the `/calibration_windows` table ([ADR-0156](../adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)).
 A store stamped `1` has none of them, a store stamped `2` has no `/sources` table, and a store
 stamped `3` has no `/calibration_windows` table.
 
@@ -892,7 +892,7 @@ the curator shown is still the person who set it.
 ## `/calibration_windows` — the calibration windows
 
 Group holding `/calibration_windows/table` (`CALIBRATION_WINDOWS_DTYPE`, 8 fields), new in
-`schema_version` 4 (ADR-XXXX). A trace has two windows. Its `/molecules.analysis_window` is
+`schema_version` 4 ([ADR-0156](../adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)). A trace has two windows. Its `/molecules.analysis_window` is
 the frames the analysis reads. Its **calibration window** is the `[start, stop)` frames that
 `compute_gamma` reads the acceptor-bleach step from, the γ evidence. The module is
 `src/tether/project/calibration_windows.py` (`read_calibration_windows`,

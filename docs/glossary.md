@@ -215,7 +215,7 @@ It is kept apart from the [analysis window](#analysis-window) (#928).
 By default it runs from the trace start to the donor's first-bleach frame. So it keeps the
 frames after the acceptor bleach, which the analysis window leaves out. A person or a recipe
 policy can set it. An edit of it is the G03 event *calibration evidence changes*, and an edit of
-the analysis window is not. Stored in `/calibration_windows/table` (ADR-XXXX). The trace view
+the analysis window is not. Stored in `/calibration_windows/table` ([ADR-0156](adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)). The trace view
 draws it as a shaded band, and the analysis window as two dashed lines.
 
 ### window (always with a qualifier)
@@ -661,7 +661,7 @@ The number only goes up (`tether.io.schema`). The skeleton was frozen in ADR-000
 changes only in a versioned step with an ADR and a migration test. Version 2 added
 [trace generations](#trace-generation) ([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)),
 3 the `/sources` registry ([ADR-0140](adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md))
-and 4 the [calibration windows](#calibration-window) (ADR-XXXX).
+and 4 the [calibration windows](#calibration-window) ([ADR-0156](adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)).
 A `schema-guard` CI gate refuses a change that removes, renames or retypes a frozen field.
 
 ---
