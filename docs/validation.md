@@ -15,6 +15,10 @@ compared, against which reference data, where the frozen tolerance lives, what w
 measured, and which committed test enforces it. Every number below names the file,
 constant or test it comes from, so any claim can be spot-checked with `grep`.
 
+The tier tables below are the definition of **the validation suite** that a stable release must
+run end to end: [The validation suite](#the-validation-suite) names its members, its four groups
+and, for each oracle, the tier, the enforcing test, the fixture and the tolerance.
+
 Two things this page is *not*. It is not a claim that every oracle runs on every pull
 request — several are gated to tiers that do not gate `main`, and the table below says
 which. And it is not the [seven-plot parity gallery](analysis/parity-gallery.md), which
@@ -119,6 +123,58 @@ Which tier each oracle's *headline* assertion lives in:
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 | Published analysis of the 2024 T-box paper | `reference_download` — and **advisory**, never a gate | the method (rounding bound, window search, dwell inversion) on data built in the test |
 | Extraction vs MASH-FRET simulated truth | required matrix | yes |
+
+## The validation suite
+
+**This section defines the validation suite.** "The validation suite" that the specification's
+*Stable release acceptance* bar requires to run end to end is the tier table above, read with the
+table of oracles below: nothing outside them is a member, and every member is in one of the four
+groups that follow. A change to a member, a tier or a tolerance is made here first, and the
+specification's summary is changed in the same pull request.
+
+The suite has four groups:
+
+1. **Runs in CI on every pull request** — the required matrix of `ci.yml` on Ubuntu, macOS and
+   Windows: oracles (d), (e), (f) (with the required `schema-guard` job) and (g), and the
+   required-matrix legs of (a) (the scorer unit tests, the committed 4-molecule slice and the
+   registration RMS gate) and of (b) (the frozen artifact checked against its own recorded
+   evidence).
+2. **Gated, large and deep tiers, which do not gate `main`** — the headline assertion of (a),
+   a `workstation` test, because the ≈0.9 GB movie is on no runner. Oracle (c) in `large-fixtures.yml`,
+   which is **advisory** and never a gate. The deep add-on in `deep.yml` and `deep-gpu.yml`, which is
+   not an oracle.
+3. **Forced for the tag** — `sidecar / parity` is required but path-filtered, so a pull request
+   that touches no idealization path gets a "not applicable" pass without a fit. For the release
+   commit, a full `sidecar.yml` run is dispatched by hand. It runs the headline fits of (b) and
+   the live leg of (f), in which a Tether SMD opens in tMAVEN's own loader.
+4. **Recorded manual runs for the tag** — the full-movie run of (a) on the machine that holds the
+   movie. Oracle (c), while no CI runner holds its gated slice. The deep-tier run, with its CUDA tests
+   executed and not skipped. The clean-machine checklist of the release-acceptance milestone.
+
+The oracles, with the fixture each one reads and the row of the specification's table of tunables
+that holds its tolerance:
+
+| Oracle | Tier of the headline assertion | Enforcing test | Fixture | Tolerance (table of tunables) |
+| --- | --- | --- | --- | --- |
+| (a) Extraction vs Deep-LASI | `workstation` | `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`, and `tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance` on the required matrix | the UCKOPSB `.tdat`/`.tmap`/`.mat` and movie (private, workstation) and the committed 4-molecule slice | *Registration RMS-residual gate* (≤ 0.5 px). The recall and Pearson bars are the specification's extraction gate, reframed by [ADR-0022](adr/0022-m1-acceptance-reframe-and-close.md), with constants in `src/tether/project/oracle.py` |
+| (b) Idealization parity vs tMAVEN | `sidecar` | `tests/test_parity_sidecar.py`, and `tests/test_parity.py::test_frozen_artifact_covers_its_own_measured_evidence` on the required matrix | `tests/fixtures/smd_4mol.hdf5` and LFS `tests/fixtures/large/smd_281mol.hdf5` and `model_281mol.hdf5` | *Idealization parity tolerance* and its *transition-matrix ceiling*, frozen in `schema/parity_tolerance.json` |
+| (c) Kinetics vs kinSoftChallenge | `large`, advisory | `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread` | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | *kinSoftChallenge parity band* (≤ 12 % per rate), frozen in `schema/kinsoft_reference.json` |
+| (d) Ranker held-out cross-validation | required matrix | `tests/test_ml_prequential.py`, `tests/test_project_prequential.py` | synthetic multi-video project stores | *Ranker success target* (≥ 10 pts, `DEFAULT_SHIP_BAR_PTS`) |
+| (e) α / γ estimators | required matrix, and `workstation` for the α band | `tests/test_fret_leakage.py`, `tests/test_fret_gamma.py`, `tests/test_project_correct.py`, `tests/test_leakage_alpha_band.py` | synthetic known-α, known-γ and edge-case traces, and the lab's donor-only sample for the band | *Leakage acceptance ceiling* and *Leakage-α validation band* |
+| (f) Round-trip and schema integrity | required matrix and `schema-guard`, and `sidecar` for the live leg | `tests/test_schema.py`, `tests/test_smd_io.py`, `tests/test_trace_generations.py`, `tests/test_handoff_sidecar.py` | fresh `.tether` stores and `tests/fixtures/smd_4mol.hdf5` | no row: structural and additive-only, frozen in `schema/schema_frozen.json` ([ADR-0005](adr/0005-m0-schema-freeze.md)) |
+| (g) Photobleach detector | required matrix, and `sidecar` for the live leg | `tests/test_fret_photobleach.py`, `tests/test_project_photobleach.py`, `tests/test_fret_photobleach_sidecar.py` | synthesized known steps | *Bleach-frame tolerance* (±2 frames of a synthesized known step, [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)) |
+
+The other rows of the tier table above, from (h) on, are regression checks against published
+data. They are not members of the suite, and they do not change what "runs end to end" means.
+
+**The Intel Mac (`osx-64`) is not a required check.** The required matrix runs on `macos-latest`,
+which is Apple silicon (`osx-arm64`). The `osx-64` installer is built, and its install smoke test
+runs, on `macos-15-intel` in `packaging.yml` (manual dispatch) and in `release.yml` (each `v*`
+tag). The maintainer decided on 2026-11-25 ([#1445](https://github.com/bioedca/tether/issues/1445))
+to keep that leg advisory and not to add it to the required checks. The reason is that the release
+already depends on it: the `release` job of `release.yml` needs every leg of its `build` matrix,
+the `osx-64` leg included, so no release is published without a passing Intel-Mac build and
+install smoke test.
 
 ## (a) Extraction vs Deep-LASI
 

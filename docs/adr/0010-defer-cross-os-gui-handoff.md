@@ -59,6 +59,12 @@ unaffected.
   "exported SMD opens in standalone tMAVEN GUI with coordinate metadata intact;
   guided setup runs clean on ≥2 OSes (Windows + macOS/Linux)." This ADR is the
   logged-decision the deferral requires.
+- Note (2026-11-26, [#1445](https://github.com/bioedca/tether/issues/1445)): this follow-up was
+  done by [#543](https://github.com/bioedca/tether/issues/543) on Windows 11 and on
+  Ubuntu 24.04 (WSL2), and both runs passed on 2026-11-09. They are recorded in
+  [the standalone-tMAVEN cross-OS record](../maintainers/standalone-tmaven-cross-os-record.md).
+  The release-acceptance milestone, M18, keeps the live check that an exported SMD opens in
+  tMAVEN as part of the validation suite (`docs/validation.md`, *The validation suite*).
 
 ## More information
 
