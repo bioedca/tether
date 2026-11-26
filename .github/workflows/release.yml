@@ -263,6 +263,23 @@ jobs:
                 --publish-mode "$PUBLISH" \
                 --suite-count "$suites"
 
+      - name: Require the validation evidence of a stable release
+        # PRD §9.5 (#1439, ADR-0155): a stable tag publishes only when its release set,
+        # docs/validation/release/<tag>/, holds one passing record per gate oracle and the
+        # deep run, all naming one commit, and the tag commit differs from that commit only by
+        # the set's own files. A prerelease or a dry run reports the result and does not fail.
+        # No `if:`, so a dry run rehearses the same check; the committed script owns the
+        # verdict, and needs only the standard library and the full history fetched above.
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          PUBLISH: ${{ steps.resolve.outputs.publish }}
+          PRERELEASE: ${{ steps.resolve.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          required="false"
+          if [ "$PUBLISH" = "true" ] && [ "$PRERELEASE" = "false" ]; then required="true"; fi
+          python3 scripts/validation_evidence.py check-release --tag "$TAG" --required "$required"
+
   # ---------------------------------------------------------------------------
   # 2) Build the 3-OS installers (the PR-1 constructor recipe).
   # ---------------------------------------------------------------------------
