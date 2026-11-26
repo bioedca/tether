@@ -73,12 +73,21 @@ end
 """
 
 
+def _octave_str(path: Path) -> str:
+    """Return ``path`` as an Octave single-quoted string literal (#1425).
+
+    Octave ends a single-quoted string at the first apostrophe, and its escape for one inside is a
+    doubled apostrophe, so ``/home/o'brien`` becomes ``'/home/o''brien'``.
+    """
+    return "'" + path.as_posix().replace("'", "''") + "'"
+
+
 def _octave(work: Path, call: str) -> str:
     (work / "sira_reference.m").write_text(_DRIVER)
     (work / "sira_write.m").write_text(_WRITER)
     (work / "contains.m").write_text(_CONTAINS)
     done = subprocess.run(
-        ["octave-cli", "--no-gui", "--quiet", "--eval", f"addpath('{work.as_posix()}'); {call}"],
+        ["octave-cli", "--no-gui", "--quiet", "--eval", f"addpath({_octave_str(work)}); {call}"],
         check=True,
         capture_output=True,
         text=True,
@@ -103,8 +112,8 @@ def write_offsets(out: Path, mash: Path) -> None:
         shape = "[" + " ".join(str(v) for v in frames.shape) + "]"
         _octave(
             work,
-            f"sira_write('{mash.resolve().as_posix()}', '{(work / 'frames.raw').as_posix()}', "
-            f"{shape}, '{out.resolve().as_posix()}')",
+            f"sira_write({_octave_str(mash.resolve())}, {_octave_str(work / 'frames.raw')}, "
+            f"{shape}, {_octave_str(out.resolve())})",
         )
 
 
@@ -116,8 +125,8 @@ def reference_frames(path: Path, mash: Path):  # noqa: ANN201 - numpy is importe
         work = Path(tmp)
         raw = work / "frames.raw"
         call = (
-            f"sira_reference('{mash.resolve().as_posix()}', '{path.resolve().as_posix()}', "
-            f"'{raw.as_posix()}')"
+            f"sira_reference({_octave_str(mash.resolve())}, {_octave_str(path.resolve())}, "
+            f"{_octave_str(raw)})"
         )
         n, h, w = (int(v) for v in _octave(work, call).split()[-3:])
         return np.fromfile(raw, dtype="<f4").reshape(n, h, w)
