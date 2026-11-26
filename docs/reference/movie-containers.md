@@ -1,5 +1,5 @@
 ---
-description: "The movie containers Tether reads (TIFF, CZI, ND2, SIF, cellSens VSI, SIRA), what each refuses, and where the frame time, pixel size and channels come from."
+description: "The movie containers Tether reads (TIFF, CZI, ND2, SIF, cellSens VSI, SIRA, AVI), what each refuses, and the source of the frame time, pixel size and channels."
 ---
 
 <!--
@@ -27,6 +27,7 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | SIF (Andor Solis) | `.sif` | Tether ([ADR-0150](../adr/0150-tether-reads-sif-with-its-own-reader-and-only-raw-counts.md)) |
 | cellSens VSI (Olympus/Evident) | `.vsi` | Bio-Formats 8.0.0, in the optional Bio-Formats stack ([ADR-0147](../adr/0147-cellsens-vsi-movies-are-read-by-bio-formats-in-an-isolated-fourth-stack.md)) |
 | SIRA (MASH-FRET) | `.sira` | Tether ([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)) |
+| AVI, uncompressed 8-bit gray | `.avi` | Tether ([ADR-0154](../adr/0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md)) |
 
 Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI, ND2 and
 cellSens VSI ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
@@ -35,9 +36,9 @@ that the reader refuses (for example, two channels) fails with the reader's own 
 movie needs the optional Bio-Formats stack. Without it, extraction fails with the message that
 says how to install it.
 
-A SIF or SIRA movie opens through its reader, but extraction refuses it. The message is "this SIF
-movie opens, but extraction does not read SIF yet", or the same for SIRA. SIF and SIRA each need a
-change of their own. Until then, export the movie to uncompressed TIFF.
+A SIF, SIRA or AVI movie opens through its reader, but extraction refuses it. The message is "this
+SIF movie opens, but extraction does not read SIF yet", or the same for SIRA or AVI. SIF, SIRA and
+AVI each need a change of their own. Until then, export the movie to uncompressed TIFF.
 
 ## TIFF
 
@@ -197,3 +198,47 @@ The SIRA reader is checked on the test movies of the MASH-FRET repository
 64 x 64 movie of 200 frames and a 256 x 256 movie of 20 frames are checked. Each equals, bit for
 bit, MASH-FRET's own reader `readSira.m` run under GNU Octave 8.4.0. A movie that MASH-FRET's writer stored with
 offsets gives back the frames that were written.
+
+## AVI
+
+An AVI file can hold its frames in many codecs. Most of them, such as Motion JPEG, MPEG-4 and
+H.264, can be lossy. Then the pixel values are not the values that the camera measured. So Tether
+reads an AVI file **only when its frames are not compressed and each pixel is one 8-bit gray
+level**. Two forms are read:
+
+- An uncompressed 8-bit DIB (`BI_RGB`). ImageJ and most Windows programs write this form. Its
+  color table must be the gray ramp, in which entry *i* is the gray level *i*.
+- The 8-bit gray FourCCs `Y800`, `Y8` and `GREY`. FFmpeg writes `Y800` for its `gray` format.
+
+Each pixel is the stored byte, so the pixel type is `|u1`. A DIB with a positive height stores its
+rows bottom-up. Tether turns them over, so frame row 0 is the top row of the picture. A movie
+larger than 1 GB holds its frames in OpenDML extensions (`RIFF AVIX`). Tether reads it whole.
+
+Tether refuses these files, and the message names the reason:
+
+- A codec that can be lossy, such as Motion JPEG, MPEG-4, DivX, Xvid, H.264, H.265, VP8, VP9,
+  AV1, Cinepak, Indeo or DV. The message says "which can be lossy".
+- A lossless codec that Tether does not decode, such as FFV1, HuffYUV, Lagarith, PNG, Ut Video,
+  MagicYUV, zlib or a run-length DIB. Any codec that Tether does not know is refused too.
+- Color pixels (a DIB of 16, 24 or 32 bits).
+- An 8-bit DIB whose color table is not the gray ramp. Its pixels are table indices, not the
+  stored intensities. FFmpeg's `pal8` export is one example.
+- Two or more video streams, or a color table that changes inside the movie. Tether leaves out an
+  audio stream, and the audio does not stop the read.
+- A frame of the wrong size, or a frame of no bytes. A frame of no bytes is a dropped frame, which
+  a player shows as a repeat.
+- Fewer or more frames than the stream header declares, or a file that ends inside a chunk. An
+  incomplete copy is refused for one of these reasons.
+
+| Value | Where it comes from | When it is `unknown` |
+| --- | --- | --- |
+| Frame time (s) | not read | always. The frame rate in an AVI is the rate at which a player shows the movie. The program that writes the file chooses it, often by default: ImageJ uses 7 frames a second and FFmpeg 25. It is not the acquisition interval ([ADR-0154](../adr/0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md)) |
+| Pixel size (µm) | not read | always. The file does not record it |
+| Channels | not read | always. The file names none |
+
+Give the frame time and the pixel size yourself. Tether then records them with the origin `user`.
+
+The AVI reader is checked on three committed movies of 8 frames of 37 x 23. FFmpeg 6.1.1 wrote a
+`Y800` movie and a top-down DIB. Tether's test writer wrote a bottom-up DIB. The frames of each
+equal, bit for bit, the frames that FFmpeg 6.1.1 decodes from the same file. Tether refuses each
+of four other files that FFmpeg wrote (FFV1, Motion JPEG, `pal8` and 24-bit color) by name.
