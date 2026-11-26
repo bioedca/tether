@@ -8,7 +8,8 @@ message; the stage rows give every stage an outcome; the overlays put the spots 
 control-point residuals in the raw camera frame; and the donor-side note is the one
 ``tether extract`` prints. The ``pytest-qt``
 tests then drive the page: a preview on a small synthetic movie, a failed stage, a refused
-input, an extraction and its donor-side result, and the page inside the shell's Prepare
+input, a map file the reuse check refuses or passes (#1434), an extraction and its
+donor-side result, and the page inside the shell's Prepare
 section. A fake movie viewer stands in for napari, so those run on every operating system;
 the one test with the real napari viewer carries ``needs_gl``. No test reads a pixel.
 """
@@ -456,6 +457,115 @@ def test_a_map_file_preview_skips_the_fit(page, qtbot, tmp_path) -> None:
     page.set_registration("map-file", map_path)
     assert page.preview() is True
     _wait(qtbot, page)
+    assert [row[1] for row in _table(page)] == ["ok", "ok", "skipped", "skipped", "ok", "ok", "ok"]
+    assert page.overlay_views == (_SPOTS,)
+
+
+def _write_movie_at(path, pixel_um: float):
+    """The synthetic movie, with a pixel size in its file."""
+    tifffile.imwrite(
+        path,
+        _movie_array(),
+        imagej=True,
+        resolution=(1 / pixel_um, 1 / pixel_um),
+        metadata={"axes": "TYX", "unit": "um"},
+    )
+    return path
+
+
+def _map_at(path, pixel_um: float):
+    """A map file fitted on the synthetic movie, made at ``pixel_um``."""
+    from tether.imaging.map_asset import MapAsset, save_map_asset
+
+    registration = preview_extraction(_movie_array()).registration
+    return save_map_asset(
+        MapAsset.from_registration_map(registration, pixel_size_um=pixel_um), path
+    )
+
+
+def test_a_preview_refuses_a_map_of_another_pixel_size_as_extraction_does(tmp_path) -> None:
+    from tether.project.extract import ExtractionError, extract_movie
+
+    map_path = _map_at(tmp_path / "beads.npz", 0.267)
+    movie = _write_movie_at(tmp_path / "movie.tif", 0.16)
+    with pytest.raises(ExtractionError) as by_extract:
+        extract_movie(movie, tmp_path / "out.tether", map_path=map_path)
+    with pytest.raises(ExtractionError) as by_preview:
+        sp.run_preview(movie, ExtractOptions(), map_path=map_path)
+    # One shared check, so one reason (#1434).
+    assert str(by_preview.value) == str(by_extract.value)
+    assert "pixel size: the map has 0.267 um; the movie has 0.16" in str(by_preview.value)
+
+
+def test_a_refused_map_closes_the_preview_movie(tmp_path, monkeypatch) -> None:
+    from tether.project.extract import ExtractionError
+
+    opened = []
+    real_init = sp.PreviewMovie.__init__
+
+    def keep(self, *args):
+        real_init(self, *args)
+        opened.append(self)
+
+    monkeypatch.setattr(sp.PreviewMovie, "__init__", keep)
+    map_path = _map_at(tmp_path / "beads.npz", 0.267)
+    with pytest.raises(ExtractionError):
+        sp.run_preview(
+            _write_movie_at(tmp_path / "movie.tif", 0.16), ExtractOptions(), map_path=map_path
+        )
+    assert opened and all(movie.closed for movie in opened)
+
+
+def test_a_preview_passes_the_optics_to_the_shared_check(tmp_path) -> None:
+    from tether.imaging.map_asset import MapAsset, save_map_asset
+    from tether.project.extract import ExtractionError
+
+    registration = preview_extraction(_movie_array()).registration
+    map_path = save_map_asset(
+        MapAsset.from_registration_map(registration, optics="60x TIRF"), tmp_path / "beads.npz"
+    )
+    movie = _write_movie(tmp_path / "movie.tif")
+    with pytest.raises(ExtractionError, match="--confirm-optics"):
+        sp.run_preview(movie, ExtractOptions(), map_path=map_path, map_optics="100x TIRF")
+    source, preview = sp.run_preview(
+        movie, ExtractOptions(), map_path=map_path, map_optics="100x TIRF", confirm_optics=True
+    )
+    with source:
+        assert preview.completed
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_map_of_another_pixel_size_is_refused_under_the_form(page, qtbot, tmp_path) -> None:
+    from tether.project.extract import ExtractionError, extract_movie
+
+    page.set_movie(_write_movie(tmp_path / "first.tif"))
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert page.overlay_views
+    map_path = _map_at(tmp_path / "beads.npz", 0.267)
+    movie = _write_movie_at(tmp_path / "movie.tif", 0.16)
+    page.set_movie(movie)
+    page.set_registration("map-file", map_path)
+    assert page.preview() is True
+    _wait(qtbot, page)
+    with pytest.raises(ExtractionError) as by_extract:
+        extract_movie(movie, tmp_path / "out.tether", map_path=map_path)
+    assert page.error_label.text() == f"Preview failed: {by_extract.value}"
+    # No stage table or overlay from the refused map, and nothing of the last preview.
+    assert {row[1] for row in _table(page)} == {"not run"}
+    assert page.overlay_views == ()
+    assert page.panels[0].movies == []
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_map_of_the_movies_pixel_size_previews_as_before(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_movie_at(tmp_path / "movie.tif", 0.16))
+    page.set_registration("map-file", _map_at(tmp_path / "beads.npz", 0.16))
+    assert page.preview() is True
+    _wait(qtbot, page)
+    assert page.error_label.text() == ""
     assert [row[1] for row in _table(page)] == ["ok", "ok", "skipped", "skipped", "ok", "ok", "ok"]
     assert page.overlay_views == (_SPOTS,)
 
