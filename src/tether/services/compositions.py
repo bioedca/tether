@@ -285,10 +285,12 @@ def _write(path: Path, text: str) -> None:
     tmp = Path(name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            # mkstemp makes the file private (0600); a composition holds no data, so give it
+            # the mode an ordinary new file has. Through the descriptor, never the name, so a
+            # swapped entry cannot redirect it (Windows has no fchmod and keeps its default).
+            if hasattr(os, "fchmod"):
+                os.fchmod(f.fileno(), 0o644)
             f.write(text)
-        # mkstemp makes the file private (0600); a composition holds no data, so give it the
-        # mode an ordinary new file has.
-        os.chmod(tmp, 0o644)
         os.replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
