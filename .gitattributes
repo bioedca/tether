@@ -24,6 +24,7 @@ tests/golden/deep/*.json text eol=lf
 *.czi   binary
 *.sif   binary
 *.sira  binary
+*.avi   binary
 tests/fixtures/sif/*.asc -text
 *.tdat  binary
 *.tmap  binary
