@@ -227,6 +227,8 @@ Tether refuses these files, and the message names the reason:
   frames (`AVIF_MUSTUSEINDEX`). Tether reads the frames in file order.
 - Two or more video streams, or a color table that changes inside the movie. Tether leaves out an
   audio stream, and the audio does not stop the read.
+- A damaged video format header: one that declares other than one plane, or more bytes than its
+  chunk holds.
 - A frame of the wrong size, or a frame of no bytes. A frame of no bytes is a dropped frame, which
   a player shows as a repeat.
 - Fewer or more frames than the stream header declares, or a file that ends inside a chunk. An

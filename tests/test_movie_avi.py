@@ -56,6 +56,8 @@ def test_a_committed_movie_equals_its_ffmpeg_reference_bit_for_bit(name: str) ->
         assert source.shape == (8, 23, 37)
         got = source.read_frames(0, 8)
     assert reference.dtype == np.dtype("u1")
+    assert got.shape == reference.shape
+    assert got.dtype == reference.dtype
     assert got.tobytes() == reference.tobytes()
 
 
@@ -161,6 +163,18 @@ def test_an_odd_width_frame_is_padded_in_a_dib_and_not_in_y800(tmp_path: Path) -
         ({"streams": (b"vids",)}, UnsupportedContainerError, "2 video streams"),
         ({"flags": 0x10 | 0x20}, UnsupportedContainerError, "sets AVIF_MUSTUSEINDEX"),
         ({"table": b"\x01\x01\x01"}, InvalidPixelError, "not the gray ramp"),
+        ({"planes": 2}, UnsupportedContainerError, "declares 2 planes, not 1"),
+        ({"planes": 0, "fourcc": b"Y800"}, UnsupportedContainerError, "declares 0 planes"),
+        (
+            {"header_size": 2000},
+            UnsupportedContainerError,
+            "format header that declares 2000 bytes and its chunk holds 1064",
+        ),
+        (
+            {"header_size": 41, "fourcc": b"Y800"},
+            UnsupportedContainerError,
+            "format header that declares 41 bytes and its chunk holds 40",
+        ),
         (
             {"extra": (b"00pc" + b"\x04\x00\x00\x00" + b"\x00" * 4,)},
             UnsupportedContainerError,
@@ -242,3 +256,96 @@ def test_a_rec_list_inside_a_rec_list_is_refused(tmp_path: Path) -> None:
     path.write_bytes(riff)
     with pytest.raises(UnsupportedContainerError, match="rec list inside another rec list"):
         open_movie_source(path)
+
+
+def test_a_chunk_header_cut_short_is_refused_with_a_reason(tmp_path: Path) -> None:
+    """#1464: a chunk header that cannot be read whole is refused, not a ``struct.error``.
+
+    Every read is bounded by a size taken at open, so only a file cut short during the
+    open reaches it; a walk bounded past the end of the bytes stands in for that.
+    """
+    import io
+
+    from tether.io import avi
+
+    fh = io.BytesIO(b"RIFF\x04\x00")
+    with pytest.raises(UnsupportedContainerError, match="ended while Tether read it"):
+        avi._children(tmp_path / "movie.avi", fh, 0, 100)
+
+
+class _SignalingLock:
+    """A lock that sets ``waiting`` as a thread starts to wait for it."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self.inner = threading.Lock()
+        self.waiting = threading.Event()
+
+    def __enter__(self) -> None:
+        self.waiting.set()
+        self.inner.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.inner.release()
+
+
+def test_a_read_that_waits_on_a_close_gives_the_closed_movie_error(tmp_path: Path) -> None:
+    """#1464: a ``close`` from another thread while a read waits gives the closed-movie error."""
+    import threading
+
+    path = write_avi(tmp_path / "movie.avi", _frames())
+    source = AviMovie(path)
+    lock = _SignalingLock()
+    source._lock = lock  # type: ignore[assignment]
+    errors: list[BaseException] = []
+
+    def _read() -> None:
+        try:
+            source.read_frames(0, 3)
+        except BaseException as exc:  # noqa: BLE001 - the test inspects it
+            errors.append(exc)
+
+    lock.inner.acquire()
+    reader = threading.Thread(target=_read)
+    reader.start()
+    assert lock.waiting.wait(5)
+    # What a close in another thread does once it holds the lock.
+    source._closed = True
+    source._fh.close()
+    lock.inner.release()
+    reader.join(5)
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert "is closed" in str(errors[0])
+
+
+def test_close_waits_for_a_read_in_progress(tmp_path: Path) -> None:
+    """#1464: ``close`` takes the read lock, so it never closes the file under a read."""
+    import threading
+
+    path = write_avi(tmp_path / "movie.avi", _frames())
+    source = AviMovie(path)
+    with source._lock:
+        closer = threading.Thread(target=source.close)
+        closer.start()
+        closer.join(0.2)
+        assert not source._fh.closed
+    closer.join(5)
+    assert source._fh.closed
+
+
+@pytest.mark.parametrize("rec", [False, True])
+def test_the_synthetic_index_points_at_each_frame(rec: bool) -> None:
+    """#1464: each ``idx1`` entry of the writer gives its frame chunk's offset and size."""
+    import struct
+
+    data = avi_bytes(_frames(), rec=rec)
+    movi = data.index(b"movi")
+    at = data.index(b"idx1")
+    (size,) = struct.unpack("<I", data[at + 4 : at + 8])
+    assert size == 3 * 16
+    for k in range(3):
+        cid, flags, offset, length = struct.unpack_from("<4sIII", data, at + 8 + 16 * k)
+        assert (cid, flags, length) == (b"00db", 0x10, 5 * 8)
+        assert data[movi + offset : movi + offset + 8] == b"00db" + struct.pack("<I", length)

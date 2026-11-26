@@ -29,6 +29,12 @@ from tether.services.base import (
     request_to_text,
 )
 from tether.services.batch import BatchRequest, BatchResult
+from tether.services.compositions import (
+    OpenCompositionRequest,
+    OpenCompositionResult,
+    SaveCompositionRequest,
+    SaveCompositionResult,
+)
 from tether.services.extract import ExtractRequest, ExtractResult
 from tether.services.idealize import IdealizeRequest, IdealizeResult, SidecarUnavailable
 from tether.services.maps import MapCreateRequest, MapCreateResult
@@ -64,11 +70,15 @@ __all__ = [
     "ExtractionProfile",
     "MapCreateRequest",
     "MapCreateResult",
+    "OpenCompositionRequest",
+    "OpenCompositionResult",
     "ReextractRequest",
     "ReextractResult",
     "Request",
     "RequestError",
     "RequestRefused",
+    "SaveCompositionRequest",
+    "SaveCompositionResult",
     "ServiceCommand",
     "ServiceError",
     "SidecarUnavailable",

@@ -1262,13 +1262,18 @@ from its movie (`ffmpeg -i MOVIE -f rawvideo`), an independent AVI reader, saved
 2026.6.1** with NumPy 2.1.3; the script stops if FFmpeg decodes other frames than were written. The
 three references are equal, as the three movies hold the same frames. **Accessed:** 2026-11-26.
 
+The bottom-up DIB was written again on 2026-11-26 for #1464, with the same FFmpeg build: its
+`idx1` entries now give each frame chunk's offset and size, where they were zero before. Its
+frames, its size and its reference TIFF are unchanged, and every other file was reproduced byte
+for byte.
+
 | Fixture | What it is | Size | SHA-256 |
 |---|---|---|---|
 | `tests/fixtures/avi/gray_y800_37x23x8.avi` | written by FFmpeg (`rawvideo`, `gray`): FourCC `Y800`, 8 frames of 37 x 23, rows top-down and unpadded | 12,694 B | `11a776813a9578b60b6aa028051dd358e2cbe28fceb3fa0d5f0f28740898dd48` |
 | `tests/fixtures/avi/gray_y800_37x23x8_reference.tif` | its frames as FFmpeg decodes them (`-f rawvideo -pix_fmt gray`), an uncompressed `uint8` TYX TIFF | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
 | `tests/fixtures/avi/gray_dib_top_down_37x23x8.avi` | written by FFmpeg (`rawvideo`, `pal8`, the gray ramp as color table): an 8-bit `BI_RGB` DIB, negative height, rows padded to 40 bytes | 14,262 B | `961870ee28cbd27fd5f1774662e27f33e6ce9ca082d2db6538b82868ac3548d8` |
 | `tests/fixtures/avi/gray_dib_top_down_37x23x8_reference.tif` | its frames as FFmpeg decodes them (`-f rawvideo -pix_fmt pal8`, each color table checked to be the gray ramp and dropped) | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
-| `tests/fixtures/avi/gray_dib_bottom_up_37x23x8.avi` | written by `tests/_avi_synth.py`: an 8-bit `BI_RGB` DIB with the gray ramp, positive height (rows bottom-up), as ImageJ writes it | 8,808 B | `de7377a8794cc8cab00a6b91253b1e5776ad6db43f78fb0737a676044189c98f` |
+| `tests/fixtures/avi/gray_dib_bottom_up_37x23x8.avi` | written by `tests/_avi_synth.py`: an 8-bit `BI_RGB` DIB with the gray ramp, positive height (rows bottom-up), as ImageJ writes it | 8,808 B | `515b3178d4cc17404c0e0fd6908bb148b30fc235b800f56c9698d41eb3b44dab` |
 | `tests/fixtures/avi/gray_dib_bottom_up_37x23x8_reference.tif` | its frames as FFmpeg decodes them (as for the top-down DIB) | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
 | `tests/fixtures/avi/ffv1.avi` | written by FFmpeg (`ffv1`), 2 frames of 16 x 8: refused, a lossless codec Tether does not decode | 6,126 B | `7706377904b6514ee66931323038d6681c350e86cd002183481174d67e69cd0d` |
 | `tests/fixtures/avi/mjpeg.avi` | written by FFmpeg (`mjpeg`, `yuvj420p`): refused, a codec that can be lossy | 6,392 B | `aa717995dff428259a8ed4aa3974333e3d5f54fe6fe07046e693bb1ce1f506d9` |

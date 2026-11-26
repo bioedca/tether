@@ -22,8 +22,9 @@ frames of 16 x 8 written by FFmpeg: ``ffv1.avi`` (FFV1, lossless), ``mjpeg.avi``
 lossy), ``pal8_rgb332.avi`` (an 8-bit DIB whose color table is FFmpeg's RGB 3-3-2 palette, not the
 gray ramp) and ``bgr24.avi`` (24-bit color).
 
-This is a developer-only tool and never runs in CI. It needs ``ffmpeg`` on ``PATH`` (the committed
-files: FFmpeg 6.1.1, Ubuntu ``6.1.1-3ubuntu5``), NumPy and tifffile::
+This is a developer-only tool and never runs in CI. It needs ``ffmpeg`` and ``ffprobe`` on ``PATH``
+(the committed files: FFmpeg 6.1.1, Ubuntu ``6.1.1-3ubuntu5``), NumPy and tifffile, and it checks
+for both programs before it writes anything::
 
     python scripts/make_avi_fixtures.py tests/fixtures/avi
 
@@ -34,6 +35,7 @@ licence. ``tests/fixtures/PROVENANCE.md`` records the SHA-256 of the committed f
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -103,12 +105,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("out", type=Path, help="the folder, normally tests/fixtures/avi")
     args = parser.parse_args(argv)
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if missing:
+        sys.exit(f"{' and '.join(missing)} not found on PATH; install FFmpeg first")
     import tifffile
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
     from _avi_synth import write_avi
 
-    out: Path = args.out
+    # Absolute, so that FFmpeg never reads a relative name as an option or a protocol.
+    out: Path = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     movie = frames()
     with tempfile.TemporaryDirectory() as tmp:

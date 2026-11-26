@@ -19,6 +19,8 @@ The command line has these subcommands:
 | [`tether map create`](#tether-map-create) | Writes a channel map file for later extractions. |
 | [`tether run`](#tether-run) | Runs the steps of a recipe file. |
 | [`tether approve`](#tether-approve) | Records that a person approved a step. |
+| [`tether save-composition`](#tether-save-composition) | Saves a plot composition of the plot builder to a file. |
+| [`tether open-composition`](#tether-open-composition) | Reads a saved plot composition and names each series that cannot be found. |
 | [`tether info`](#tether-info) | Reads projects and prints a summary. It changes nothing. |
 | [`tether status`](#tether-status) | Reads a project and prints which steps are complete, which are stale and what to do next. |
 | [`tether idealize`](#tether-idealize) | Fits the traces of a project that exists. |
@@ -1107,6 +1109,75 @@ exp.tether: gamma.approve for 'KJG_231027' approved by A. Curator
 When `tether run` stopped at this step, a second line follows. It names the first 12 characters
 of the SHA-256 of the recipe and tells you to continue with `--resume`.
 
+## `tether save-composition`
+
+Write a plot composition to a file: the plot, the project it reads, the series in drawing order
+and the plot parameters. The file holds no trace data. *Save composition…* in the Analyze section
+of the application runs the same service command. [Read a plot](how-to/analyze.md) describes the
+plot builder.
+
+```text
+tether save-composition [-h] --project PROJECT --plot PLOT --series SPEC [--model MODEL]
+                        [--state NAME=K] [--force]
+                        path
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `path` | required | The composition file to write, a `.json` file. |
+| `--project PROJECT` | required | The `.tether` project that the plot reads. |
+| `--plot PLOT` | required | The plot: the name of a population function, such as `population_dwell_times`. |
+| `--series SPEC` | required | A series. Give it once for each series, in drawing order (note 1). |
+| `--model MODEL` | none | The idealization model that a model-derived plot reads. |
+| `--state NAME=K` | none | A state option of the plot: `state`, `init_state` or `final_state`. Give it once for each option. |
+| `--force` | off | Replace a file that exists. |
+
+1. A `SPEC` is `all`, for every molecule of the project, or a preset: `condition=VALUE`,
+   `movie=VALUE` or `source_file=VALUE`. Tether freezes the molecules of a preset when the command
+   runs. A later change of the project does not change which molecules the file names.
+
+**Exit codes:**
+
+- `0`: Tether wrote the file.
+- `1`: the write failed.
+- `2`: Tether refused before any write. The file exists and `--force` is not given, or the
+  project cannot be found. Or the plot, a preset value or a state option is unknown to the plot.
+  Or two series have one name. Tether never replaces the project or a file that is not a plot
+  composition, also with `--force`.
+
+### Example — save a dwell-time plot of every molecule
+
+```console
+$ tether save-composition dwell.json --project exp.tether --plot population_dwell_times --series all --model vbconhmm --state state=1
+dwell.json: population_dwell_times over All molecules
+```
+
+## `tether open-composition`
+
+Read a plot composition file. Print its plot, its project, its parameters and its layer list, and
+name each series whose project or molecules cannot be found. *Open composition…* in the
+application runs the same service command.
+
+```text
+tether open-composition [-h] path
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `path` | required | The composition file to read. |
+
+Tether checks each series against the project. A series is missing when its project cannot be
+found or when a molecule that it names is not in the project. The application leaves a missing
+series out of the layer list and never draws it.
+
+**Exit codes:**
+
+- `0`: Tether read the file, and every series can be drawn.
+- `1`: Tether read the file, and at least one series cannot be drawn. stderr names each one and
+  what is missing.
+- `2`: Tether refused the file. It cannot be read, it is not a plot composition, or it is of a
+  format version that this Tether does not read.
+
 ## `tether info`
 
 Print a summary of what one or more projects hold, without the application and without a Python
@@ -1755,8 +1826,9 @@ the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract`, `tether reextract`, `tether batch`, `tether idealize`, `tether map create`
-and `tether approve` are each the command-line route of one *service command*
+`tether extract`, `tether reextract`, `tether batch`, `tether idealize`, `tether map create`,
+`tether approve`, `tether save-composition` and `tether open-composition` are each the
+command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service command
 is the one implementation of an action ([why](#why-the-command-line-runs-service-commands)). The
 command line only reads your options into the *request* of the command, runs the command and
@@ -1773,6 +1845,8 @@ The table comes from the registry in `tether.services.registry`. A test fails if
 | `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
 | `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
 | `tether approve` | `tether.services.approve.ApproveRequest` (version 1) | `tether.services.approve.ApproveResult` | record that a person approved a step that needs a person |
+| `tether save-composition` | `tether.services.compositions.SaveCompositionRequest` (version 1) | `tether.services.compositions.SaveCompositionResult` | save a plot composition of the plot builder to a file (no trace data) |
+| `tether open-composition` | `tether.services.compositions.OpenCompositionRequest` (version 1) | `tether.services.compositions.OpenCompositionResult` | open a saved plot composition and name each series that cannot be found |
 <!-- service-commands:end -->
 
 A request is plain data with one text form. The text form is a JSON object with the command

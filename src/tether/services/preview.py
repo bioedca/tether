@@ -298,6 +298,8 @@ def run_preview(
     *,
     tmap: str | PathLike[str] | None = None,
     map_path: str | PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> tuple[PreviewMovie, ExtractionPreview]:
     """Open ``movie`` and run the stage preview on it, with the registration source given.
 
@@ -307,12 +309,22 @@ def run_preview(
     refuses raises [`ExtractionError`][tether.project.extract.ExtractionError] with the
     message ``extract_movie`` gives it. The ``.tmap`` or map file is read as
     ``extract_movie`` reads it, so the preview and the run use the same registration.
+    A map file is first put through the reuse check extraction runs
+    (``_check_map_reuse``, #916, #1434) with the movie's pixel size, ``map_optics`` and
+    ``confirm_optics``, which mean what they mean for ``extract_movie``: a map the check
+    refuses raises ``ExtractionError`` with the message extraction gives, before any
+    stage runs.
     Returns the open [`PreviewMovie`][] (the caller closes it) and the preview. Raises
     ``ExtractionError`` or an ``OSError`` when the inputs cannot be read; a stage that
     fails is a result, not an error.
     """
     from tether.io.frames import open_extraction_movie
-    from tether.project.extract import ExtractionError, _check_inputs, _resolve_sources
+    from tether.project.extract import (
+        ExtractionError,
+        _check_inputs,
+        _check_map_reuse,
+        _resolve_sources,
+    )
     from tether.project.preview import preview_extraction
 
     movie_path = Path(movie)
@@ -327,6 +339,14 @@ def run_preview(
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
     source = PreviewMovie(opened, extraction_movie)
     try:
+        if registration is not None:  # the check extraction runs on a map file (#1434)
+            registration = _check_map_reuse(
+                registration,
+                movie_path,
+                extraction_movie.pixel_size_um,
+                map_optics=map_optics,
+                confirm_optics=confirm_optics,
+            )
         preview = preview_extraction(source.data, options=options, registration=registration)
     except BaseException:
         source.close()
