@@ -193,15 +193,13 @@ def _frame_stats(path: str | Path, frames: tuple[Path, ...]) -> tuple[FrameStat,
 
     The files are read with ``os.stat`` and never opened.
     """
-    if not frames:
-        return ()
-    folder = Path(path).with_name(f"_{Path(path).stem}_")
-    stats = []
-    for frame in frames:
-        info = os.stat(frame)
-        name = frame.relative_to(folder).as_posix()
-        stats.append((name, _stat_identity(info), info.st_size, info.st_mtime_ns))
-    return tuple(stats)
+    return tuple(_frame_stat(path, frame, os.stat(frame)) for frame in frames)
+
+
+def _frame_stat(path: str | Path, frame: Path, info: os.stat_result) -> FrameStat:
+    """Return the ``FileDigest.frames`` entry of ``frame``, a frame file of ``path``."""
+    name = frame.relative_to(Path(path).with_name(f"_{Path(path).stem}_")).as_posix()
+    return (name, _stat_identity(info), info.st_size, info.st_mtime_ns)
 
 
 @dataclass(frozen=True)
@@ -638,19 +636,19 @@ def file_sha256(
     its frames, as the extraction's does ([`tether.io.movie_identity.content_sha256`][],
     #1398, ADR-0153), and ``progress`` counts their bytes too. The size, identity and
     modification time are still the ``.vsi`` file's own; the digest also keeps each frame
-    file's identity, size and modification time, taken before it is read, so the write
-    sees a frame file that changed from then on (#1429).
+    file's identity, size and modification time, taken from the open handle its bytes are
+    read from, so the write sees a frame file that is not the one hashed (#1429).
     """
     from tether.io.movie_identity import content_sha256, frame_files  # noqa: PLC0415
 
     frames = frame_files(path)
-    frame_stats = _frame_stats(path, frames)
+    frame_stats: list[FrameStat] = []
     digest = hashlib.sha256()
     done = 0
     with open(path, "rb") as handle:
         opened = os.fstat(handle.fileno())
         size = opened.st_size
-        total = size + sum(stat[2] for stat in frame_stats)
+        total = size + sum(frame.stat().st_size for frame in frames)
         identity = _stat_identity(opened)
         for block in iter(lambda: handle.read(_CHUNK), b""):
             if cancel is not None:
@@ -669,7 +667,12 @@ def file_sha256(
         if progress is not None:
             progress(done + read_frames, total)
 
-    sha256 = content_sha256(path, digest.hexdigest(), frames=frames, on_block=_frame_block)
+    def _frame_opened(frame: Path, info: os.stat_result) -> None:
+        frame_stats.append(_frame_stat(path, frame, info))
+
+    sha256 = content_sha256(
+        path, digest.hexdigest(), frames=frames, on_block=_frame_block, on_open=_frame_opened
+    )
     if cancel is not None:  # a cancel during the last block still stops the calculation
         cancel.raise_if_cancelled()
     return FileDigest(
@@ -677,7 +680,7 @@ def file_sha256(
         size=done,
         identity=identity,
         mtime_ns=opened.st_mtime_ns,
-        frames=frame_stats,
+        frames=tuple(frame_stats),
     )
 
 

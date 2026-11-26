@@ -759,3 +759,42 @@ def test_the_frame_file_check_never_opens_a_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(builtins, "open", no_open)
     with pytest.raises(S.SourceReplaced):
         digest.check_path(movie)
+
+
+def test_a_frame_file_swapped_and_restored_around_the_read_is_not_stored(
+    tmp_path, monkeypatch
+) -> None:
+    """The bytes hashed came from a stand-in that is gone again at the write (#1429).
+
+    The original ``.ets`` file is moved aside while the ``.vsi`` file is read, another
+    file is hashed in its place, and the original is moved back before the write: the
+    path then shows the original's identity, size and time, but the checksum is the
+    stand-in's. (A relink is refused here anyway: the stand-in's checksum is not the
+    recorded one.)
+    """
+    project, movie, ets = _vsi_project(tmp_path)
+    aside = ets.with_name("frame_t.ets.aside")
+    read = S.file_sha256
+
+    def read_a_stand_in(path, **kwargs):
+        swapped: list[bool] = []
+
+        def swap(*_: object) -> None:
+            if not swapped:
+                swapped.append(True)
+                os.replace(ets, aside)
+                ets.write_bytes(b"a stand-in, hashed in the original's place")
+
+        kwargs["progress"] = swap
+        digest = read(path, **kwargs)
+        os.replace(aside, ets)  # the original is back, with its identity and time
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_a_stand_in)
+    project.acquire_lock()
+    try:
+        out = run_checksum_job(project, submit_checksum_job(project).job_id)
+    finally:
+        project.release_lock()
+    assert out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+    assert not S.read_sources(project.path)[0].checksum_calculated
