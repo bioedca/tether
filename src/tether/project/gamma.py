@@ -74,6 +74,7 @@ from tether.fret.gamma import (
 from tether.io.schema import TABLE
 from tether.project import gamma_contributors as contributors
 from tether.project._guarded_publish import guarded_project_write
+from tether.project.calibration_windows import resolved_calibration_windows
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 __all__ = ["GammaSummary", "compute_gamma"]
@@ -265,6 +266,9 @@ def _compute_gamma(
 
         table = f[_MOLECULES][TABLE][:]  # full copy; only the gamma column is mutated
         frame_range = table["frame_range"]
+        # The step is read inside each row's calibration window (#928, ADR-XXXX), not its
+        # analysis window; the default is the frames a pass read before calibration windows.
+        calibration, _ = resolved_calibration_windows(f, table)
         bleach_frames = table["bleach_frames"]
         alpha_col = table["alpha"]
 
@@ -301,7 +305,8 @@ def _compute_gamma(
                     "compute_leakage_alpha() before compute_gamma()"
                 )
             # bleach_frames are absolute (start + local pb, PR #74); convert to the
-            # local frame index within this trace slice and clamp to [0, n_local].
+            # local frame index within the calibration window and clamp to [0, n_local].
+            start, end = int(calibration[i][0]), int(calibration[i][1])
             n_local = end - start
             donor_traces.append(np.asarray(donor_all[i, start:end], dtype=np.float64))
             acceptor_traces.append(np.asarray(acceptor_all[i, start:end], dtype=np.float64))

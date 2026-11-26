@@ -39,6 +39,10 @@ Design notes
   role, and for a derived file its original and the recipe between them. A file stamped
   1 or 2 lacks it and is still complete; [`upgrade_skeleton`][] adds every table a newer
   version declares when a writer first needs one.
+* **Version 4 adds ``/calibration_windows/table``** (#928, ADR-XXXX): the calibration window
+  of a trace, the frames whose bleach step is the γ evidence, kept apart from its
+  ``analysis_window``. A row with no stored window reads the default from its
+  ``frame_range`` and ``bleach_frames``, so an older store needs no rewrite.
 * **The ``<file>.lock`` single-writer marker is a sidecar file**, part of the §5.4
   concurrency lifecycle (M2), not the in-HDF5 schema — it is not written here.
 """
@@ -60,7 +64,8 @@ if TYPE_CHECKING:
 #: change (ADR + regenerated golden, PRD §12.6); the guard refuses a decrement.
 #: Version 2 adds the ``/generations`` table of trace generations (#921, ADR-0136).
 #: Version 3 adds the ``/sources`` table, the source registry (#912, ADR-0140).
-SCHEMA_VERSION = 3
+#: Version 4 adds the ``/calibration_windows`` table (#928, ADR-XXXX).
+SCHEMA_VERSION = 4
 
 #: The first ``schema_version`` whose skeleton has the ``/generations`` table. A store
 #: stamped older is still a complete project without it (it reads as generation 1 of
@@ -70,6 +75,10 @@ GENERATIONS_SINCE = 2
 #: The first ``schema_version`` whose skeleton has the ``/sources`` table (ADR-0140). An
 #: older store reads as one source record for each of its movies, made from ``/movies``.
 SOURCES_SINCE = 3
+
+#: The first ``schema_version`` whose skeleton has the ``/calibration_windows`` table. An
+#: older store reads each trace's calibration window from its bleach-step fields.
+CALIBRATION_WINDOWS_SINCE = 4
 
 #: Root ``format`` identity attribute distinguishing a ``.tether`` project store.
 FORMAT_TAG = "tether-project"
@@ -231,6 +240,24 @@ SOURCES_DTYPE = np.dtype(
     ]
 )
 
+#: ``/calibration_windows/table`` — the calibration windows a person or a recipe policy set
+#: (#928, ADR-XXXX), append-only: one row for each change of one ``/molecules`` row. The
+#: latest row of a ``molecule_id`` holds. ``window`` is ``[start, stop)`` in absolute frames;
+#: ``(-1, -1)`` gives the row back its default, read from ``frame_range`` and
+#: ``bleach_frames``. ``by`` is ``person`` or ``policy`` and ``actor`` its name.
+CALIBRATION_WINDOWS_DTYPE = np.dtype(
+    [
+        ("molecule_id", _str()),
+        ("molecule_key", _str()),
+        ("window", "<i4", (2,)),
+        ("by", _str()),
+        ("actor", _str()),
+        ("reason", _str()),
+        ("timestamp", _str()),
+        ("app_version", _str()),
+    ]
+)
+
 #: Rich entities: a group containing a 0-row compound ``table`` dataset.
 _RICH_TABLES: dict[str, np.dtype] = {
     "movies": MOVIES_DTYPE,
@@ -239,6 +266,7 @@ _RICH_TABLES: dict[str, np.dtype] = {
     "labels": LABELS_DTYPE,
     "generations": GENERATIONS_DTYPE,
     "sources": SOURCES_DTYPE,
+    "calibration_windows": CALIBRATION_WINDOWS_DTYPE,
 }
 
 #: The rich tables a store stamped before a given version does not have: name -> the
@@ -246,6 +274,7 @@ _RICH_TABLES: dict[str, np.dtype] = {
 _RICH_TABLES_SINCE: dict[str, int] = {
     "generations": GENERATIONS_SINCE,
     "sources": SOURCES_SINCE,
+    "calibration_windows": CALIBRATION_WINDOWS_SINCE,
 }
 
 #: Empty container groups; their payloads are additive data (M1+).
@@ -319,10 +348,11 @@ def upgrade_skeleton(f: h5py.File) -> None:
     """Give an open, writable store every table of [`SCHEMA_VERSION`][] that it lacks.
 
     Called by a writer that is about to record into a table a newer version added (the
-    generations of ADR-0136, the source registry of ADR-0140). It creates each missing
+    generations of ADR-0136, the source registry of ADR-0140, the calibration windows of
+    ADR-XXXX). It creates each missing
     empty table and stamps the file with [`SCHEMA_VERSION`][], so an app that predates
-    them refuses it rather than ignoring the records, and a file stamped 3 always has
-    every table up to 3. No existing data is rewritten.
+    them refuses it rather than ignoring the records, and a file stamped 4 always has
+    every table up to 4. No existing data is rewritten.
     """
     for name, dtype in _RICH_TABLES.items():
         if not isinstance(f.get(name), h5py.Group):

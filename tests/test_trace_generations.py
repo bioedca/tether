@@ -132,7 +132,7 @@ def _make_v1(project: Path) -> None:
 
 def test_each_extraction_writes_a_generation_with_its_inputs_and_time(tmp_path: Path) -> None:
     project, movie_a, movie_b = _project_a_b(tmp_path)
-    assert read_schema_version(project) == SCHEMA_VERSION == 3
+    assert read_schema_version(project) == SCHEMA_VERSION
     records = read_generations(project)
     assert [(g.generation, g.active, g.recorded) for g in records] == [(1, True, True)] * 2
     first = records[0]

@@ -25,7 +25,8 @@ the list, the entries are grouped by the stage of the pipeline.
   [apparent E](#apparent-e)
 - **B:** [background-subtracted intensity](#background-subtracted-intensity-corrected) ·
   [bleedthrough](#leakage-bleedthrough)
-- **C:** [category](#curation-label-category-quality-class) · [condition](#condition) ·
+- **C:** [calibration window](#calibration-window) ·
+  [category](#curation-label-category-quality-class) · [condition](#condition) ·
   [consensus VB-HMM](#vbfret-ebfret-consensus-vb-hmm) · [corrected E](#corrected-e-accurate-fret) ·
   [corrected FRET](#corrected-e-accurate-fret) · [correction order](#correction-order) ·
   [correction_method](#correction_method) · [curation filter](#fresh-idealization-gating-curation-filter) ·
@@ -200,17 +201,28 @@ The start and end frame of the part of a trace that histograms, cross-correlatio
 idealization read. By default it runs from the trace start to the first bleach of the summed donor
 and acceptor intensity.
 
-Each reader uses `frame_range` when it is unset. The α and γ estimators do not use it: they read
-the full trace and its bleach frames. A manual analysis window wins: Tether writes the automatic
+Each reader uses `frame_range` when it is unset. The α and γ estimators do not use it: α reads
+the full trace and its bleach frames, and γ reads the [calibration window](#calibration-window). A manual analysis window wins: Tether writes the automatic
 value only where the analysis window still equals the extraction default (ADR-0026). Stored in
 `/molecules.analysis_window`. See
 [Why your analysis window wins](pipeline.md#why-bleach-frames-come-first-and-why-your-analysis-window-wins).
+
+### calibration window
+
+The start and end frame of the part of a trace that γ reads its acceptor-bleach step from.
+It is kept apart from the [analysis window](#analysis-window) (#928).
+
+By default it runs from the trace start to the donor's first-bleach frame. So it keeps the
+frames after the acceptor bleach, which the analysis window leaves out. A person or a recipe
+policy can set it. An edit of it is the G03 event *calibration evidence changes*, and an edit of
+the analysis window is not. Stored in `/calibration_windows/table` (ADR-XXXX). The trace view
+draws it as a shaded band, and the analysis window as two dashed lines.
 
 ### window (always with a qualifier)
 
 A word that these pages never use alone. Each use names one of these six kinds.
 
-1. **analysis window**: frames, see [analysis window](#analysis-window).
+1. **analysis** and **calibration window**: frames, see [analysis](#analysis-window), [calibration](#calibration-window).
 2. **aperture window**: the 21 × 21 pixel crop side, a positive odd integer. The CLI flag and
    the stored setting keep the name `window` (`tether.imaging.aperture`, `tether.project.extract`).
 3. **estimator windows**: the leakage tail window and γ's 20-frame half-window, in frames.
@@ -642,15 +654,14 @@ consistent. The lock file is not part of the schema.
 
 ### schema_version
 
-The version number on the root of a project file, currently 3. Tether refuses a file whose
+The version number on the root of a project file, currently 4. Tether refuses a file whose
 number is higher than its own: the app upgrades, and the file is never downgraded.
 
-The number only goes up (`tether.io.schema`). The whole group skeleton was declared when the
-schema was frozen (ADR-0005), and the structure changes only in a versioned step with an ADR and
-a migration test. Version 2 added the `/generations` record of [trace generations](#trace-generation)
-([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)), and version 3 the
-`/sources` registry of the files a project was made from
-([ADR-0140](adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
+The number only goes up (`tether.io.schema`). The skeleton was frozen in ADR-0005. The structure
+changes only in a versioned step with an ADR and a migration test. Version 2 added
+[trace generations](#trace-generation) ([ADR-0136](adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)),
+3 the `/sources` registry ([ADR-0140](adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md))
+and 4 the [calibration windows](#calibration-window) (ADR-XXXX).
 A `schema-guard` CI gate refuses a change that removes, renames or retypes a frozen field.
 
 ---

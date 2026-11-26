@@ -690,14 +690,17 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.set_analysis_window(
-            self.path,
-            molecule_key,
-            start,
-            stop,
-            labeler=labeler,
-            reason=reason,
-            timestamp=timestamp,
+        return self._window_edit(
+            labeler,
+            lambda: molecule_edits.set_analysis_window(
+                self.path,
+                molecule_key,
+                start,
+                stop,
+                labeler=labeler,
+                reason=reason,
+                timestamp=timestamp,
+            ),
         )
 
     def reset_analysis_window(
@@ -716,8 +719,11 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.reset_analysis_window(
-            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        return self._window_edit(
+            labeler,
+            lambda: molecule_edits.reset_analysis_window(
+                self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+            ),
         )
 
     def restore_analysis_windows(
@@ -738,9 +744,41 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.restore_analysis_windows(
-            self.path, molecule_key, windows, labeler=labeler, reason=reason, timestamp=timestamp
+        return self._window_edit(
+            labeler,
+            lambda: molecule_edits.restore_analysis_windows(
+                self.path,
+                molecule_key,
+                windows,
+                labeler=labeler,
+                reason=reason,
+                timestamp=timestamp,
+            ),
         )
+
+    def _window_edit(self, labeler: str | None, write: Callable[[], np.ndarray]) -> np.ndarray:
+        """Run an analysis-window ``write``; in ANALYSIS_READY a change returns to review.
+
+        G03's *edit analysis windows or curation* (#928, ADR-XXXX): a window that changed in
+        ANALYSIS_READY sends the project to CORRECTED_REVIEW. The calibration windows and the
+        γ evidence are not touched. In that state the writer lock must be held before the
+        window is written, so the event cannot be refused after the write.
+        """
+        from tether.project import correction_states as cs
+
+        with cs._transition_lock(self.path):
+            ready = cs.read_correction_state(self.path).state is cs.CorrectionState.ANALYSIS_READY
+            if ready:
+                cs._held_nonce(self)
+            written = write()
+            if ready and len(written):
+                cs.send_event(
+                    self,
+                    cs.CorrectionEvent.EDIT_WINDOWS_OR_CURATION,
+                    cs.Actor.person(labeler),
+                    note=f"analysis window of {len(written)} row(s) changed",
+                )
+        return written
 
     def restore_categories(
         self,

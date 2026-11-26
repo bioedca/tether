@@ -55,7 +55,15 @@ if TYPE_CHECKING:
 
     from tether.analysis.crosscorr import CrossCorrelation
 
-__all__ = ["DEFAULT_CROSSCORR_MAX_LAG", "TimeMode", "TraceDock", "TraceView", "trace_from_smd"]
+__all__ = [
+    "ANALYSIS_WINDOW_TEXT",
+    "CALIBRATION_WINDOW_TEXT",
+    "DEFAULT_CROSSCORR_MAX_LAG",
+    "TimeMode",
+    "TraceDock",
+    "TraceView",
+    "trace_from_smd",
+]
 
 TimeMode = Literal["seconds", "frames"]
 
@@ -74,6 +82,12 @@ _N_HIST_BINS = 40
 #: values nor its ``lag0``, and the dock stores nothing. A trace with fewer than
 #: ``max_lag + 1`` frames cannot fill that axis and shows an empty state instead.
 DEFAULT_CROSSCORR_MAX_LAG = 50
+
+#: The text that names each kind of window in the trace view (#928).
+ANALYSIS_WINDOW_TEXT = "Analysis window: the frames the analysis reads (dashed lines)"
+CALIBRATION_WINDOW_TEXT = (
+    "Calibration window: the frames whose bleach step is the gamma evidence (shaded band)"
+)
 _CROSSCORR_LABEL = "cross-correlation"
 _CROSSCORR_RANGE = (-1.0, 1.0)  # a Pearson-normalized curve lies in [-1, 1]
 
@@ -107,6 +121,11 @@ class TraceView:
         this trace** (``0 <= start < stop <= n_frames``), the frames the analysis
         reads (§7.2). The dock marks it and draws the idealization overlay only
         inside it. ``None`` when unknown, which the dock treats as the whole trace.
+    calibration_window
+        Optional calibration window as ``(start, stop)`` frame indices into this trace:
+        the frames whose acceptor-bleach step is the γ evidence (#928). It is kept apart
+        from ``analysis_window`` and the dock marks it differently, as a shaded band on
+        the intensity panel. ``None`` when unknown, which draws no band.
     frame_offset
         The movie frame of this trace's first frame (``>= 0``): the start of the
         molecule's stored ``frame_range`` (§5.1). Trace frame ``i`` is movie frame
@@ -121,6 +140,7 @@ class TraceView:
     molecule_key: str | None = None
     analysis_window: tuple[int, int] | None = None
     frame_offset: int = 0
+    calibration_window: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         # Defensive copies (``np.array`` always copies), so the stored arrays never
@@ -157,6 +177,9 @@ class TraceView:
         if self.analysis_window is not None:
             window = _checked_window(self.analysis_window, int(donor.size))
             object.__setattr__(self, "analysis_window", window)
+        if self.calibration_window is not None:
+            window = _checked_window(self.calibration_window, int(donor.size), "calibration_window")
+            object.__setattr__(self, "calibration_window", window)
 
     @property
     def n_frames(self) -> int:
@@ -185,7 +208,9 @@ class TraceView:
         return frames
 
 
-def _checked_window(window: object, n_frames: int) -> tuple[int, int]:
+def _checked_window(
+    window: object, n_frames: int, name: str = "analysis_window"
+) -> tuple[int, int]:
     """Return ``window`` as an ``(start, stop)`` int pair inside ``[0, n_frames]``.
 
     Raises [`ValueError`][] unless it is two integers with ``0 <= start < stop <= n_frames``.
@@ -193,14 +218,14 @@ def _checked_window(window: object, n_frames: int) -> tuple[int, int]:
     try:
         start, stop = window  # type: ignore[misc]
     except (TypeError, ValueError):
-        raise ValueError(f"analysis_window must be a (start, stop) pair, got {window!r}") from None
+        raise ValueError(f"{name} must be a (start, stop) pair, got {window!r}") from None
     for value in (start, stop):
         if isinstance(value, bool) or not isinstance(value, int | np.integer):
-            raise ValueError(f"analysis_window bounds must be integers, got {window!r}")
+            raise ValueError(f"{name} bounds must be integers, got {window!r}")
     start, stop = int(start), int(stop)
     if not 0 <= start < stop <= n_frames:
         raise ValueError(
-            f"analysis_window must satisfy 0 <= start < stop <= {n_frames}, got ({start}, {stop})"
+            f"{name} must satisfy 0 <= start < stop <= {n_frames}, got ({start}, {stop})"
         )
     return start, stop
 
@@ -406,6 +431,15 @@ class TraceDock:
         for line in self._window_lines:
             self._fret_plot.addItem(line, ignoreBounds=True)
             line.setVisible(False)
+            line.setToolTip(ANALYSIS_WINDOW_TEXT)
+        # The calibration window (#928): a shaded band on the intensity panel, where the
+        # bleach steps are, so it never reads as the analysis window's dashed lines.
+        self._calibration_band = pg.LinearRegionItem(movable=False)
+        self._calibration_band.setZValue(-10)
+        self._calibration_band.setToolTip(CALIBRATION_WINDOW_TEXT)
+        self._intensity_plot.addItem(self._calibration_band, ignoreBounds=True)
+        self._calibration_band.setVisible(False)
+        self._calibration: tuple[int, int] | None = None
         # The frame cursor (#366): one draggable line on each time-series panel, both
         # at the centre of the cursor frame. Dragging either moves both, snaps to a
         # whole frame, and tells the frame-cursor callbacks (the movie panel follows).
@@ -454,6 +488,9 @@ class TraceDock:
         bound = pg.mkPen(active.trace("idealized"), width=1.0, style=self._dash_line())
         for line in self._window_lines:
             line.setPen(bound)
+        band = pg.mkColor(active.trace("acceptor"))
+        band.setAlpha(40)
+        self._calibration_band.setBrush(pg.mkBrush(band))
         cursor = pg.mkPen(active.color("text"), width=1.5)
         for line in self._cursor_lines:
             line.setPen(cursor)
@@ -575,6 +612,16 @@ class TraceDock:
         return self._window_lines
 
     @property
+    def calibration_window(self) -> tuple[int, int] | None:
+        """The calibration window drawn, as trace-relative ``(start, stop)``, or ``None``."""
+        return self._calibration
+
+    @property
+    def calibration_band(self) -> pg.LinearRegionItem:
+        """The intensity panel's calibration-window band (hidden with no window)."""
+        return self._calibration_band
+
+    @property
     def cursor_lines(self) -> tuple[pg.InfiniteLine, pg.InfiniteLine]:
         """The frame cursor's draggable lines, on the intensity and the FRET panel (#366)."""
         return self._cursor_lines
@@ -622,6 +669,7 @@ class TraceDock:
         # hides it via _render_idealization); a finished project fit repopulates it.
         self._idealized = None
         self._window = trace.analysis_window
+        self._calibration = trace.calibration_window
         # The cross-correlation depends only on the trace, so it is computed once
         # here; a time-mode toggle only re-lays its lag axis (_render_crosscorr).
         self._crosscorr, self._crosscorr_message = self._compute_crosscorr(trace)
@@ -701,9 +749,11 @@ class TraceDock:
         self._trace = None
         self._idealized = None
         self._window = None
+        self._calibration = None
         self._cursor_frame = None
         for line in (*self._window_lines, *self._cursor_lines):
             line.setVisible(False)
+        self._calibration_band.setVisible(False)
         for curve in (self._donor_curve, self._acceptor_curve, self._total_curve, self._fret_curve):
             curve.setData([], [])
         self._idealization_curve.setData([], [])
@@ -824,11 +874,19 @@ class TraceDock:
         the idealization step overlay is drawn between. No window hides both lines.
         """
         window = self._window
+        step = self._axis_step() if self._trace is not None else 1.0
+        calibration = self._calibration if self._trace is not None else None
+        if calibration is None:
+            self._calibration_band.setVisible(False)
+        else:
+            self._calibration_band.setRegion(
+                ((calibration[0] - 0.5) * step, (calibration[1] - 0.5) * step)
+            )
+            self._calibration_band.setVisible(True)
         if window is None or self._trace is None:
             for line in self._window_lines:
                 line.setVisible(False)
             return
-        step = self._axis_step()
         for line, frame in zip(self._window_lines, window, strict=True):
             line.setPos((frame - 0.5) * step)
             line.setVisible(True)
