@@ -134,6 +134,8 @@ def run(request: ExtractRequest) -> ExtractResult:
                 tmap=request.tmap,
                 tdat=request.tdat,
                 map_path=request.map_path,
+                map_optics=request.map_optics,
+                confirm_optics=request.confirm_optics,
             )
             return ExtractResult(summary=None, rule_counts=counts)
         # An overwrite replaces a project another writer may hold open, so it holds the
