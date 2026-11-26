@@ -263,3 +263,32 @@ def test_the_trace_views_carry_the_calibration_window(qapp, project: Project) ->
     assert views[0].calibration_window == (0, DON - START)
     assert views[1].calibration_window == (10, 90 - START)
     assert views[1].analysis_window != views[1].calibration_window
+
+
+def test_a_write_landing_during_a_window_edit_survives_it(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A writer of the same process (a category clear, say) that lands while the review
+    # event is stored is not reverted: the window is written in place, not from a copy.
+    _to(project, S.ANALYSIS_READY)
+    real_send = cs.send_event
+
+    def send(proj: Project, sent: object, *args: object, **kwargs: object) -> object:
+        if sent is E.EDIT_WINDOWS_OR_CURATION:
+            with h5py.File(proj.path, "r+") as f:
+                f["settings"].attrs["concurrent_write"] = "kept"
+        return real_send(proj, sent, *args, **kwargs)
+
+    monkeypatch.setattr(cs, "send_event", send)
+    project.set_analysis_window(_key(project.path, 3), START + 2, ACC, labeler="tester")
+    with h5py.File(project.path, "r") as f:
+        assert f["settings"].attrs["concurrent_write"] == "kept"
+    assert cs.read_correction_state(project.path).state is S.CORRECTED_REVIEW
+
+
+def test_a_no_op_window_edit_in_analysis_ready_stays_ready(project: Project) -> None:
+    key = _key(project.path, 3)
+    project.set_analysis_window(key, START + 2, ACC, labeler="tester")
+    _to(project, S.ANALYSIS_READY)
+    assert len(project.set_analysis_window(key, START + 2, ACC, labeler="tester")) == 0
+    assert cs.read_correction_state(project.path).state is S.ANALYSIS_READY

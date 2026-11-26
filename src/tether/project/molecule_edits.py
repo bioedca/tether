@@ -166,11 +166,9 @@ def _to_str(value: object) -> str:
     return str(value)
 
 
-def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
-    """Append ``rows`` to ``/settings/molecule_audit`` (created lazily); return them."""
+def _audit_rows(rows: list[dict[str, object]]) -> np.ndarray:
+    """Return ``rows`` as ``/settings/molecule_audit`` rows, without writing them."""
     import numpy as np  # noqa: PLC0415
-
-    from tether.project.conditions import _append_rows  # noqa: PLC0415
 
     dtype = _audit_dtype()
     out = np.zeros(len(rows), dtype=dtype)
@@ -181,6 +179,15 @@ def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
         for name, value in row.items():
             out[name][i] = value
     out["app_version"] = _app_version()
+    return out
+
+
+def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
+    """Append ``rows`` to ``/settings/molecule_audit`` (created lazily); return them."""
+    from tether.project.conditions import _append_rows  # noqa: PLC0415
+
+    dtype = _audit_dtype()
+    out = _audit_rows(rows)
     if not rows:
         return out
     settings = f[_SETTINGS]  # type: ignore[index]
@@ -440,12 +447,14 @@ def _write_window(
     labeler: str | None,
     reason: str,
     timestamp: str | None,
+    dry_run: bool = False,
 ) -> np.ndarray:
     """Shared body of [`set_analysis_window`][] / [`reset_analysis_window`][].
 
     ``window=None`` is the reset: each row's target is its own ``frame_range``. A
     mapping gives each row named by its ``molecule_id`` its own request, and leaves a
-    row it does not name as it is ([`restore_analysis_windows`][]).
+    row it does not name as it is ([`restore_analysis_windows`][]). ``dry_run`` returns
+    the audit rows the edit would write and writes nothing.
     """
     import h5py  # noqa: PLC0415
 
@@ -456,7 +465,7 @@ def _write_window(
 
     labeler, timestamp = _resolve_provenance(labeler, timestamp, reason)
     path = Path(path)
-    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r" if dry_run else "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
         table = mol_table[:]
         idx = _matched_rows(table, molecule_key, path)
@@ -497,6 +506,8 @@ def _write_window(
                     "reason": reason,
                 }
             )
+        if dry_run:
+            return _audit_rows(audit)
         # 0) drop a feature cache built from the old frames, 1) the audit rows,
         # 2) then the field (ordered for recovery: a crash after 0 costs a recompute).
         invalidate_features(f, {_to_str(table["molecule_id"][i]) for i in changed})
@@ -517,6 +528,7 @@ def set_analysis_window(
     labeler: str | None = None,
     reason: str = "",
     timestamp: str | None = None,
+    dry_run: bool = False,
 ) -> np.ndarray:
     """Set a molecule's ``[start, stop)`` analysis window, clamped to its frames (§7.2).
 
@@ -542,6 +554,8 @@ def set_analysis_window(
         The requested absolute frame indices, ``start < stop``.
     labeler, reason, timestamp:
         Audit provenance, as for [`set_category`][].
+    dry_run:
+        Return the audit rows this edit would write, and write nothing.
 
     Returns
     -------
@@ -575,6 +589,7 @@ def set_analysis_window(
         labeler=labeler,
         reason=reason,
         timestamp=timestamp,
+        dry_run=dry_run,
     )
 
 
@@ -585,6 +600,7 @@ def reset_analysis_window(
     labeler: str | None = None,
     reason: str = "",
     timestamp: str | None = None,
+    dry_run: bool = False,
 ) -> np.ndarray:
     """Restore a molecule's analysis window to its ``frame_range`` (the extraction default).
 
@@ -601,6 +617,7 @@ def reset_analysis_window(
         labeler=labeler,
         reason=reason,
         timestamp=timestamp,
+        dry_run=dry_run,
     )
 
 
@@ -612,6 +629,7 @@ def restore_analysis_windows(
     labeler: str | None = None,
     reason: str = "",
     timestamp: str | None = None,
+    dry_run: bool = False,
 ) -> np.ndarray:
     """Give each row of a molecule its own ``[start, stop)`` window back (#632).
 
@@ -641,6 +659,7 @@ def restore_analysis_windows(
         labeler=labeler,
         reason=reason,
         timestamp=timestamp,
+        dry_run=dry_run,
     )
 
 
