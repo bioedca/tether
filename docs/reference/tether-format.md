@@ -936,7 +936,9 @@ refused (`SourceReplaced`) and nothing is stored. A write that keeps the size an
 within the filesystem's time resolution is not seen.
 
 On a filesystem that gives no inode number, only the size and modification time are compared.
-A replacement with the same size and modification time is then not seen either (#1419).
+This is a choice, not a gap to close (#1419). Refusing the write would stop `relink_source` and
+the checksum job on such filesystems, for example network shares and exFAT drives. A replacement
+with the same size and modification time is then not seen either.
 
 **A copy for sharing** (`export_subset_tether(..., curator_alias=...)`) copies the registry. It
 keeps only the file name of a path that is absolute or that steps out of the folder (`..`). A

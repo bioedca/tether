@@ -82,3 +82,72 @@ def test_stored_rows_reads_many_keys_in_row_order_and_skips_unknown_ones(tmp_pat
         (1, keys[1], (4, 20)),
     ]
     assert curation.stored_rows(project.path, ["not-a-key"]) == ()
+
+
+def _two_model_store(tmp_path):
+    """Model ``vbconhmm`` fits all four rows fresh; ``ebfret`` fits rows 2-3, row 3 stale."""
+    from _analysis_store import build_store_with_model, fresh_input_hashes
+    from tether.project.idealize import read_staleness_stamp, write_idealization_model
+
+    project, keys = build_store_with_model(
+        tmp_path, np.zeros((4, 10), dtype="int64"), np.array([0.5]), name="two.tether"
+    )
+    ids = list(read_staleness_stamp(project.path, "vbconhmm").molecule_ids)
+    hashes = fresh_input_hashes(project.path)
+    write_idealization_model(
+        project.path,
+        model_name="ebfret",
+        model_type="ebfret",
+        nstates=1,
+        dtype="FRET",
+        means=np.array([0.5]),
+        variances=np.array([0.01]),
+        tmatrix=None,
+        norm_tmatrix=None,
+        elbo=1.0,
+        idealized=np.full((2, 10), 0.5),
+        state_paths=np.zeros((2, 10), dtype="int64"),
+        molecule_keys=keys[2:],
+        molecule_ids=ids[2:],
+        input_hashes=[hashes[2], f"STALE-{hashes[3]}"],
+        intensity_quantity="corrected",
+        selected_by="fixed",
+        elbo_by_nstates=None,
+        app_version="test",
+        created_utc="2026-01-01T00:00:00Z",
+        overwrite=True,
+        frac=np.array([1.0]),
+    )
+    return project
+
+
+def test_molecule_states_reads_the_traces_once_for_every_model(tmp_path, monkeypatch) -> None:
+    """#1410: one read of ``/molecules`` + ``/traces`` serves the staleness of every model."""
+    from tether.project import idealize
+
+    project = _two_model_store(tmp_path)
+    assert len(idealize.list_idealizations(project.path)) == 2
+    reads: list[object] = []
+    real = idealize.read_traces
+    monkeypatch.setattr(idealize, "read_traces", lambda p: reads.append(p) or real(p))
+
+    marks = [(s.idealized, s.stale) for s in curation.molecule_states(project.path)]
+
+    assert len(reads) == 1
+    assert marks == [(True, False), (True, False), (True, False), (True, True)]
+
+
+def test_the_shared_read_gives_each_model_what_stale_row_ids_gives(tmp_path) -> None:
+    from tether.project.idealize import (
+        list_idealizations,
+        read_staleness_stamp,
+        stale_row_ids,
+        stale_row_ids_each,
+    )
+
+    project = _two_model_store(tmp_path)
+    stamps = [read_staleness_stamp(project.path, m) for m in list_idealizations(project.path)]
+    each = stale_row_ids_each(project.path, stamps)
+    assert each == [stale_row_ids(project.path, s) for s in stamps]
+    assert sorted(len(ids) for ids in each) == [0, 1]
+    assert stale_row_ids_each(project.path, []) == []

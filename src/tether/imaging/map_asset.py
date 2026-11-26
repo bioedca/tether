@@ -102,18 +102,6 @@ MAP_ORIGIN_NATIVE_FIT = "native-fit"
 #: Every origin a map file may record.
 MAP_ORIGINS = (MAP_ORIGIN_BEADS, MAP_ORIGIN_TMAP, MAP_ORIGIN_NATIVE_FIT)
 
-#: The arrays format version 2 adds to every map file (ADR-0146).
-_ASSET_KEYS = (
-    "map_id",
-    "map_origin",
-    "source_ids_json",
-    "channel_layout_json",
-    "quality_json",
-    "optics",
-    "pixel_size_um",
-    "created_utc",
-    "app_version",
-)
 
 #: Two pixel sizes are the same when they differ by no more than this relative amount.
 #: This is the rounding of one value written two ways (a TIFF resolution is a ratio), not
@@ -497,11 +485,11 @@ def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsse
             )
             app = reg_map.provenance.get("app_version")
             return replace(legacy, app_version=str(app or ""), format_version=version)
-        missing = [key for key in _ASSET_KEYS if key not in data.files]
-        if missing:
-            raise MapFileError(f"{path.name} is a version-{version} map file that lacks {missing}")
+        # load_map has refused a version-2 file that lacks an array of the record (#1414).
         try:
             layout_raw = json.loads(str(data["channel_layout_json"]))
+            if layout_raw is not None and not isinstance(layout_raw, dict):
+                raise TypeError("channel_layout_json must hold one JSON object or null")
             quality = json.loads(str(data["quality_json"]))
             if quality is not None and not isinstance(quality, dict):
                 raise TypeError("quality_json must hold one JSON object or null")
@@ -537,16 +525,22 @@ def map_asset_from_tmap(
 ) -> MapAsset:
     """Make an asset from a Deep-LASI ``.tmap``: origin ``tmap``, no quality record.
 
-    The source id is ``sha256:<hex>`` of the ``.tmap`` bytes. The ``.tmap`` carries no
+    The source id is ``sha256:<hex>`` of the ``.tmap`` bytes, and the transform is decoded
+    from those same bytes, so a file replaced while it is read cannot give an asset whose
+    source id names other bytes than its transform. The ``.tmap`` carries no
     quality record, so the asset has none; one is recorded only when it is calculated.
     """
     import tether  # noqa: PLC0415
     from tether.imaging.register import read_tmap  # noqa: PLC0415
 
     tmap_path = Path(tmap_path)
-    digest = hashlib.sha256(tmap_path.read_bytes()).hexdigest()
+    # One read: the source id and the transform come from the same bytes (#1414).
+    content = tmap_path.read_bytes()
+    digest = hashlib.sha256(content).hexdigest()
     reg_map = registration_map_from_tmap(
-        read_tmap(tmap_path), app_version=tether.__version__, source_file=tmap_path.name
+        read_tmap(tmap_path, content=content),
+        app_version=tether.__version__,
+        source_file=tmap_path.name,
     )
     asset = MapAsset.from_registration_map(reg_map, optics=optics, pixel_size_um=pixel_size_um)
     return replace(asset, source_ids=(f"sha256:{digest}",), quality=None)
