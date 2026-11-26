@@ -18,6 +18,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -275,3 +277,73 @@ def test_the_runner_helpers_find_the_jar_and_the_java_runtime(tmp_path, monkeypa
     assert runner.find_java_home(tmp_path) == tmp_path / "lib" / "jvm"
     monkeypatch.setenv("TETHER_BIOFORMATS_JAR", str(tmp_path / "x.jar"))
     assert runner.find_jar(tmp_path) == tmp_path / "x.jar"
+
+
+# --- deadlines on the pipe (#1416) -------------------------------------------------------------
+
+
+def _ended(runner: bioformats._Runner) -> bool:
+    return runner._proc.poll() is not None
+
+
+def test_close_ends_a_runner_that_stops_answering(tmp_path, fake_runner, monkeypatch) -> None:
+    monkeypatch.setattr(bioformats, "_EXIT_WAIT", 0.5)
+    monkeypatch.setenv("TETHER_FAKE_RUNNER_STALL", "close")
+    source = BIOFORMATS_ADAPTER.open(_vsi(tmp_path, np.zeros((3, 2, 2), dtype="<u2")))
+    runner = source._runner
+    began = time.monotonic()
+    source.close()
+    assert time.monotonic() - began < 5.0
+    assert _ended(runner)
+
+
+@pytest.mark.parametrize("op", ["open", "read"])
+def test_a_request_without_a_reply_is_a_runner_error(tmp_path, fake_runner, monkeypatch, op):
+    monkeypatch.setattr(bioformats, "_REPLY_DEADLINE", 0.5)
+    monkeypatch.setattr(bioformats, "_EXIT_WAIT", 0.5)
+    monkeypatch.setenv("TETHER_FAKE_RUNNER_STALL", op)
+    started: list[bioformats._Runner] = []
+    real_runner = bioformats._Runner
+
+    def runner(python):
+        started.append(real_runner(python))
+        return started[-1]
+
+    monkeypatch.setattr(bioformats, "_Runner", runner)
+    path = _vsi(tmp_path, np.zeros((3, 2, 2), dtype="<u2"))
+    began = time.monotonic()
+    with (
+        pytest.raises(BioformatsRunnerError, match=f"no reply to '{op}' within"),
+        BIOFORMATS_ADAPTER.open(path) as source,
+    ):
+        source.read_frames(0, 2)
+    assert time.monotonic() - began < 10.0
+    assert _ended(started[0])
+
+
+def test_close_does_not_wait_for_a_request_in_flight(tmp_path, fake_runner, monkeypatch) -> None:
+    monkeypatch.setattr(bioformats, "_EXIT_WAIT", 0.5)
+    monkeypatch.setenv("TETHER_FAKE_RUNNER_STALL", "read")
+    source = BIOFORMATS_ADAPTER.open(_vsi(tmp_path, np.zeros((3, 2, 2), dtype="<u2")))
+    runner = source._runner
+    errors: list[BaseException] = []
+
+    def read() -> None:
+        try:
+            source.read_frames(0, 1)
+        except BaseException as exc:  # noqa: BLE001 - the test inspects it
+            errors.append(exc)
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + 5.0
+    while not runner._lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.2)  # let the request reach the stalled runner
+    began = time.monotonic()
+    source.close()
+    assert time.monotonic() - began < 5.0
+    assert _ended(runner)
+    reader.join(5.0)
+    assert not reader.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], BioformatsRunnerError)

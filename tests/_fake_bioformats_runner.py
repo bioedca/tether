@@ -9,7 +9,9 @@ without the optional stack. ``<movie>.meta.json``, if present, holds the metadat
 may set ``"refuse": [kind, message]`` to make ``open`` refuse, ``"crash"`` to make it exit 3,
 or ``"crash_slowly"`` to close its pipes first and exit 3 a moment later (the order Windows
 shows the parent). ``TETHER_FAKE_RUNNER_UNAVAILABLE=1`` makes it refuse at start, as the real
-runner does without its jar, and exit before it reads a request. The live runner is tested in
+runner does without its jar, and exit before it reads a request.
+``TETHER_FAKE_RUNNER_STALL=<op>`` makes it read that request and then sleep without replying,
+as a Java reader that stops answering does (#1416). The live runner is tested in
 the ``bioformats`` tier (``tests/test_*_bioformats.py``).
 """
 
@@ -42,6 +44,8 @@ def main() -> int:
     for line in sys.stdin.buffer:
         request = json.loads(line)
         op = request["op"]
+        if os.environ.get("TETHER_FAKE_RUNNER_STALL") == op:
+            time.sleep(3600)
         if op == "hello":
             _reply(out, {"ok": True, "bioformats": "fake", "java": "none", "python": "fake"})
         elif op == "open":
