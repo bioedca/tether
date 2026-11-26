@@ -13,8 +13,9 @@ variant the adapter refuses.
 
 ``scripts/make_avi_fixtures.py`` uses this module to write the committed
 ``gray_dib_bottom_up_37x23x8.avi`` (FFmpeg writes no bottom-up DIB, and only decodes it for its
-reference TIFF). FFmpeg writes every other committed file of ``tests/fixtures/avi/``, so the
-reader is checked on another writer as well.
+reference TIFF). FFmpeg writes every other committed ``.avi`` file there, so the reader is
+checked on another writer as well; tifffile writes the reference TIFFs of the frames that FFmpeg
+decodes.
 """
 
 from __future__ import annotations
