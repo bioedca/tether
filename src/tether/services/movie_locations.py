@@ -129,17 +129,28 @@ def expected_movie_sha256(project_path: str | os.PathLike[str], movie_id: str) -
 
 
 def is_placeholder(path: str | os.PathLike[str]) -> bool:
-    """Whether ``path`` is a cloud placeholder whose data is not on this disk.
+    """Whether reading the movie at ``path`` would download data that is not on this disk.
 
-    Reads the file's attributes only, never its bytes, with the definition the movie panel
-    uses (PRD §5.4). ``False`` for a file that does not exist or cannot be examined.
+    True when the file is a cloud placeholder, or, for a cellSens ``.vsi`` movie, when any of
+    the ``.ets`` files that hold its frames is one: its checksum reads them too
+    ([`frame_files`][tether.io.movie_identity.frame_files]). Reads the files' attributes
+    only, never their bytes, with the definition the movie panel uses (PRD §5.4). ``False``
+    for a file that does not exist or cannot be examined.
     """
+    from tether.io.movie_identity import frame_files
     from tether.project.condition_model import _OFFLINE_ATTRIBUTES, _file_attributes
 
+    def offline(file: Path) -> bool:
+        try:
+            return bool(_file_attributes(file) & _OFFLINE_ATTRIBUTES)
+        except OSError:
+            return False
+
     try:
-        return bool(_file_attributes(Path(path)) & _OFFLINE_ATTRIBUTES)
+        frames = frame_files(path)
     except OSError:
-        return False
+        frames = ()
+    return any(offline(file) for file in (Path(path), *frames))
 
 
 def check_relocated(
@@ -218,8 +229,10 @@ def locate_in_folder(
     """
     from tether.project.sources import RelinkRefused, SourceReplaced
 
-    wanted = {movie.name.casefold(): movie for movie in movies}
-    hits = _names(Path(folder), set(wanted))
+    # Two movies of one project can share a file name (from two folders): each is looked
+    # for, and each candidate of that name is checked against each movie's own checksum.
+    wanted = [(movie.name.casefold(), movie) for movie in movies]
+    hits = _names(Path(folder), {key for key, _movie in wanted})
     readable = {
         key: [path for path in paths if not is_placeholder(path)] for key, paths in hits.items()
     }
@@ -230,14 +243,15 @@ def locate_in_folder(
                 sizes[path] = path.stat().st_size
             except OSError:
                 sizes[path] = 0
-    total = sum(sizes.values())
+    # At most every candidate of each movie's name is read once for that movie.
+    total = sum(sizes[path] for key, _movie in wanted for path in readable.get(key, ()))
     done = 0
 
     found: dict[str, MovieLocation] = {}
     refused: dict[str, str] = {}
     placeholders: dict[str, Path] = {}
     not_found: list[str] = []
-    for key, movie in wanted.items():
+    for key, movie in wanted:
         if key not in hits:
             not_found.append(movie.movie_id)
             continue

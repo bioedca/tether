@@ -318,3 +318,74 @@ def test_a_folder_search_needs_no_progress_callback(tmp_path) -> None:
     search = locate_in_folder(path, read_project_movies(path).movies, folder)
 
     assert set(search.found) == {"mov-1"}
+
+
+def test_two_movies_with_one_file_name_are_both_found(tmp_path) -> None:
+    # Codex review of #1459: a dict keyed by file name kept only the last movie of a name.
+    from tether.services.movie_locations import locate_in_folder
+    from tether.services.movies import read_project_movies
+
+    first = _tiff(tmp_path / "raw" / "day1" / "m.tif", 1)
+    second = _tiff(tmp_path / "raw" / "day2" / "m.tif", 2)
+    path = _project(tmp_path, [first, second])
+    folder = tmp_path / "copy"
+    (folder / "x").mkdir(parents=True)
+    (folder / "y").mkdir()
+    shutil.move(second, folder / "x" / "m.tif")
+    shutil.move(first, folder / "y" / "m.tif")
+
+    search = locate_in_folder(path, read_project_movies(path).movies, folder)
+
+    assert search.found["mov-1"].path == (folder / "y" / "m.tif").absolute()
+    assert search.found["mov-2"].path == (folder / "x" / "m.tif").absolute()
+
+
+def test_a_vsi_whose_frame_files_are_not_on_this_disk_is_not_read(tmp_path, monkeypatch) -> None:
+    # Codex review of #1459: a local .vsi header with cloud-only .ets frames must count as a
+    # placeholder, since its checksum reads the frames too.
+    from tether.project import condition_model
+    from tether.services import movie_locations
+    from tether.services.movies import read_project_movies
+
+    movie = tmp_path / "raw" / "scan.vsi"
+    movie.parent.mkdir()
+    movie.write_bytes(b"vsi header")
+    path = _project(tmp_path, [movie])
+    folder = tmp_path / "cloud"
+    (folder / "_scan_" / "stack1").mkdir(parents=True)
+    shutil.move(movie, folder / "scan.vsi")
+    frames = folder / "_scan_" / "stack1" / "frame_t.ets"
+    frames.write_bytes(b"frames")
+    real = condition_model._file_attributes
+
+    def attributes(p: Path) -> int:
+        offline = condition_model._FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+        return offline if Path(p) == frames else real(p)
+
+    monkeypatch.setattr(condition_model, "_file_attributes", attributes)
+    assert movie_locations.is_placeholder(folder / "scan.vsi")
+
+    def _no_read(*_args, **_kwargs):
+        raise AssertionError("a frame file that is not on this disk was read")
+
+    monkeypatch.setattr(movie_locations, "check_relocated", _no_read)
+
+    search = movie_locations.locate_in_folder(path, read_project_movies(path).movies, folder)
+
+    assert search.placeholders == {"mov-1": folder / "scan.vsi"}
+
+
+def test_frame_files_that_cannot_be_listed_leave_the_header_to_decide(
+    tmp_path, monkeypatch
+) -> None:
+    from tether.io import movie_identity
+    from tether.services.movie_locations import is_placeholder
+
+    movie = _tiff(tmp_path / "a.tif", 1)
+
+    def _unlistable(_path):
+        raise PermissionError("the frame folder cannot be read")
+
+    monkeypatch.setattr(movie_identity, "frame_files", _unlistable)
+
+    assert not is_placeholder(movie)
