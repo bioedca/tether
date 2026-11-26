@@ -577,6 +577,10 @@ def test_the_preview_reads_an_nd2_movie_through_the_extraction_reader(tmp_path) 
     with pytest.raises(ValueError, match="closed"):
         movie.read_frames(0, 1)
     movie.close()  # idempotent
+    # A closed handle that is kept holds no reference to the frames, so the temporary
+    # copy can go as soon as the viewer lets go of it.
+    assert not any(isinstance(v, np.ndarray) for v in vars(movie).values())
+    assert movie.shape == (_N_FRAMES, *_SHAPE)  # what it says about itself stays
 
 
 def test_a_tiff_preview_movie_is_a_movie_source_of_the_readers_memory_map(tmp_path) -> None:

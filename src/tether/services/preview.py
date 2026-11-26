@@ -207,34 +207,41 @@ class PreviewMovie:
     """
 
     def __init__(self, opened: Any, movie: ExtractionMovie) -> None:
-        self._opened = opened
-        self._movie = movie
+        # What the movie says about itself is copied here, so a closed handle that a caller
+        # keeps holds no reference to the frames: only ``_data`` does, and close drops it.
+        self._opened: Any = opened
+        self._path = movie.path
+        self._container = movie.container
+        self._shape = movie.shape
+        self._dtype = movie.dtype
+        self._frame_time = movie.frame_time
+        self._pixel_size_um = movie.pixel_size_um
         self._data: np.ndarray | None = movie.data
 
     @property
     def path(self) -> Path:
         """The movie's filesystem path."""
-        return self._movie.path
+        return self._path
 
     @property
     def container(self) -> str:
         """The name of the adapter that read the movie."""
-        return self._movie.container
+        return self._container
 
     @property
     def shape(self) -> tuple[int, int, int]:
         """``(n_frames, height, width)``."""
-        return self._movie.shape
+        return self._shape
 
     @property
     def n_frames(self) -> int:
         """The number of frames."""
-        return self._movie.shape[0]
+        return self._shape[0]
 
     @property
     def pixel_type(self) -> str:
         """The on-disk pixel type as a NumPy dtype string."""
-        return self._movie.dtype.str
+        return self._dtype.str
 
     @property
     def metadata(self) -> MovieMetadata:
@@ -245,8 +252,8 @@ class PreviewMovie:
             return MetadataValue.unknown() if v is None else MetadataValue.from_file(v)
 
         return MovieMetadata(
-            frame_time=value(self._movie.frame_time),
-            pixel_size=value(self._movie.pixel_size_um),
+            frame_time=value(self._frame_time),
+            pixel_size=value(self._pixel_size_um),
         )
 
     @property
@@ -273,7 +280,8 @@ class PreviewMovie:
         if self._data is None:
             return
         self._data = None
-        self._opened.__exit__(None, None, None)
+        opened, self._opened = self._opened, None
+        opened.__exit__(None, None, None)
 
     def __enter__(self) -> PreviewMovie:
         """Enter the context; return the movie."""
