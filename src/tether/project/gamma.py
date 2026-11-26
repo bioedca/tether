@@ -279,6 +279,7 @@ def _compute_gamma(
         donor_pbs: list[int] = []
         processed_rows: list[int] = []
         starts: list[int] = []
+        steps: list[int] = []
         for i in range(table.shape[0]):
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
@@ -315,6 +316,7 @@ def _compute_gamma(
             acceptor_pbs.append(int(np.clip(acceptor_pb_abs - start, 0, n_local)))
             processed_rows.append(i)
             starts.append(start)
+            steps.append(acceptor_pb_abs)  # the detected step, also outside the window
 
         keys = [_text(table["molecule_key"][row]) for row in processed_rows]
         decisions = contributors.latest_decisions(f)
@@ -386,6 +388,7 @@ def _compute_gamma(
             starts,
             decisions,
             alphas=alphas,
+            steps=steps,
             level_window=(
                 GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT
                 if half_window is None

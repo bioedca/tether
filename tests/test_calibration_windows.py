@@ -183,3 +183,46 @@ def test_bad_requests_are_refused_before_any_write(project: Project) -> None:
     with pytest.raises(KeyError):
         set_calibration_window(project, "no-such-key", 0, 10, actor=ME)
     assert len(read_calibration_window_log(project.path)) == 0
+
+
+def test_a_step_outside_the_window_keeps_its_detected_frame(project: Project) -> None:
+    set_calibration_window(project, _key(project.path, 0), START, ACC - 5, actor=ME)
+    row = read_gamma_contributors(project.path)[0]
+    assert row["gate"] == "no-step"
+    assert row["step"] == ACC and row["step_source"] == "detector"
+
+
+def test_a_failed_insufficient_evidence_event_publishes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "c.tether"
+    _gamma_store(path, n_mol=10, start=START)  # 10 qualifying, the minimum
+    assert compute_gamma(path).applied
+    evidence = read_gamma_contributors(path)
+    real_send = cs.send_event
+
+    def send(project: Project, sent: object, *args: object, **kwargs: object) -> object:
+        if sent is E.INSUFFICIENT_EVIDENCE:
+            raise OSError("the transition log could not be written")
+        return real_send(project, sent, *args, **kwargs)
+
+    proj = Project.open(path)
+    proj.acquire_lock()
+    try:
+        monkeypatch.setattr(cs, "send_event", send)
+        with pytest.raises(OSError):
+            set_calibration_window(proj, _key(path, 0), START, ACC - 5, actor=ME)
+        assert cs.read_correction_state(path).state is S.GAMMA_REVIEW
+        assert len(read_calibration_window_log(path)) == 0
+        np.testing.assert_array_equal(
+            read_gamma_contributors(path)["included"], evidence["included"]
+        )
+
+        monkeypatch.setattr(cs, "send_event", real_send)
+        summary = set_calibration_window(proj, _key(path, 0), START, ACC - 5, actor=ME)
+        assert summary is not None and not summary.applied
+        status = cs.read_correction_state(path)
+        assert status.state is S.CALIBRATION_BLOCKED  # published with the withheld pass
+        assert len(read_calibration_window_log(path)) == 1
+    finally:
+        proj.release_lock()

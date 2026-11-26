@@ -210,6 +210,18 @@ def _targets(
     return out
 
 
+def _copy_transitions(source: Path, staged: Path) -> None:
+    """Replace the staged copy's transition log with the one stored at ``source``."""
+    import h5py  # noqa: PLC0415
+
+    from tether.project.correction_states import _TRANSITIONS  # noqa: PLC0415
+
+    with h5py.File(source, "r") as src, h5py.File(staged, "r+") as dst:
+        if _TRANSITIONS in dst["settings"]:
+            del dst["settings"][_TRANSITIONS]
+        src.copy(src["settings"][_TRANSITIONS], dst["settings"], name=_TRANSITIONS)
+
+
 def _write_held(
     project: Project,
     molecule_key: str,
@@ -228,6 +240,7 @@ def _write_held(
     from tether.project.gamma_contributors import (  # noqa: PLC0415
         _send_follow_up,
         _stamped_parameters,
+        _stored_withheld,
     )
     from tether.project.molecule_edits import _matched_rows  # noqa: PLC0415
 
@@ -243,6 +256,11 @@ def _write_held(
         targets = _targets(f, table, idx, window)
         has_gamma = "gamma" in f["settings"]
     if not targets:
+        # Nothing to write. A retry after a failed follow-up event still sends that event,
+        # because the stored γ pass, not this call, decides whether the state must move.
+        if has_gamma:
+            note = f"calibration window of {molecule_key} unchanged"
+            _send_follow_up(project, actor, note, applied=not _stored_withheld(project.path))
         return None
 
     word = "reset" if window is None else f"set to {window}"
@@ -283,6 +301,12 @@ def _write_held(
             ds[n0:] = rows
         if params is not None:
             summary = _compute_gamma(staged, write_guard=guard, **params)
+            if not summary.applied and state is cs.CorrectionState.GAMMA_REVIEW:
+                # A move to a state that cannot be approved is stored before the pass is
+                # published, as for a contributor decision: if it fails, nothing is
+                # published. The staged copy then takes the stored transition log.
+                cs.send_event(project, cs.CorrectionEvent.INSUFFICIENT_EVIDENCE, actor, note=note)
+                _copy_transitions(project.path, staged)
     if summary is not None:
         _send_follow_up(project, actor, note, applied=summary.applied)
     return summary
