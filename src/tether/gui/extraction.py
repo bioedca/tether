@@ -573,10 +573,14 @@ class ExtractionSection:
         return True
 
     def close(self) -> None:
-        """Forget a running task, stop the worker, and close the movie and the viewer."""
+        """Forget a running task, stop the worker, and close the movie and the viewer.
+
+        The last preview is cleared too: its stages hold views of the movie's frames, so
+        keeping it would keep the movie's memory map or temporary copy (#1415).
+        """
         self._tasks.abandon()
         self._tasks.shutdown()
-        self._clear_movie()
+        self._clear_preview()
         if self._panel is not None:
             self._panel.close()
             self._panel = None

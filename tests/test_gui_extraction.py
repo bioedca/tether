@@ -16,6 +16,8 @@ the one test with the real napari viewer carries ``needs_gl``. No test reads a p
 from __future__ import annotations
 
 import dataclasses
+import gc
+import weakref
 
 import pytest
 
@@ -687,6 +689,12 @@ def test_the_movie_on_show_is_closed_when_the_page_lets_it_go(qtbot, tmp_path) -
         assert second.closed
         # Closing the page closes it.
         third = shown()
+        frames = weakref.ref(third.data)
     finally:
         section.close()
     assert third.closed
+    # Nothing the page keeps (the preview's stages included) still holds the frames, so
+    # the temporary copy goes with them.
+    assert section.last_preview is None
+    gc.collect()
+    assert frames() is None
