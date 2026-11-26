@@ -135,12 +135,13 @@ specification's summary is changed in the same pull request.
 The suite has four groups:
 
 1. **Runs in CI on every pull request** — the required matrix of `ci.yml` on Ubuntu, macOS and
-   Windows: oracles (d), (e), (f) (with the required `schema-guard` job) and (g), and the
+   Windows: oracles (d), (e) (but not its α band), (f) (with the required `schema-guard` job) and (g), and the
    required-matrix legs of (a) (the scorer unit tests, the committed 4-molecule slice and the
    registration RMS gate) and of (b) (the frozen artifact checked against its own recorded
    evidence).
 2. **Gated, large and deep tiers, which do not gate `main`** — the headline assertion of (a),
-   a `workstation` test, because the ≈0.9 GB movie is on no runner. Oracle (c) in `large-fixtures.yml`,
+   a `workstation` test, because the ≈0.9 GB movie is on no runner. The α band of (e), also a
+   `workstation` test, because the lab's donor-only sample is private. Oracle (c) in `large-fixtures.yml`,
    which is **advisory** and never a gate. The deep add-on in `deep.yml` and `deep-gpu.yml`, which is
    not an oracle.
 3. **Forced for the tag** — `sidecar / parity` is required but path-filtered, so a pull request
@@ -150,8 +151,9 @@ The suite has four groups:
    Oracle (c) is not a manual run: its fixture is in Git LFS and `large-fixtures.yml` runs it, so
    a dispatch of that workflow on the release commit gives its advisory evidence.
 4. **Recorded manual runs for the tag** — the full-movie run of (a) on the machine that holds the
-   movie. The deep-tier run, with its CUDA tests executed and not skipped. The clean-machine
-   checklist of the release-acceptance milestone.
+   movie. The `workstation` run of the α band of (e) on the lab's donor-only sample. The deep-tier
+   run, with its CUDA tests executed and not skipped. The clean-machine checklist of the
+   release-acceptance milestone.
 
 The oracles, with the fixture each one reads and the row of the specification's table of tunables
 that holds its tolerance:
