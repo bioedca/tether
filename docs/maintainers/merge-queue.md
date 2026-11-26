@@ -32,7 +32,7 @@ that merged stays, as `remove`, until a `leave`. In `on` mode the reconcile dele
 
 **One owner.** Every write but the request ref is the reconcile's. Reconciles run one at a time
 and one follows every `leave`, so the last writer of `mq/pr-N` always read after the `leave`. Before
-a merge the reconcile reads the request ref again. If it changed, because the pull request left or
+a merge or a removal the reconcile reads the request ref again. If it changed, because the pull request left or
 joined again, the run builds the train again and merges only the request it now reads.
 
 ## The train and a candidate

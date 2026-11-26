@@ -907,3 +907,25 @@ def test_a_rejoin_during_the_run_merges_the_new_request_and_not_the_old(
 
     ((_, _, payload),) = world.merged
     assert payload["commit_message"] == "the replacement message"
+
+
+def test_a_rejoin_during_the_run_is_not_removed_for_the_old_candidate(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates(lint="failure")
+    read, raced = world.github.check_runs, []
+
+    def rejoin_then_read(commit: str) -> list:
+        if not raced:  # the author leaves and rejoins at a corrected head mid-pass
+            raced.append(mq.leave(world.github, 1))
+            world.pulls[1]["head"]["sha"] = world.commit("pr-1", {"a.txt": "fixed\n"})
+            mq.join(world.github, 1, world.pulls[1]["head"]["sha"], "message")
+        return read(commit)
+
+    monkeypatch.setattr(world.github, "check_runs", rejoin_then_read)
+    run_on(world)
+
+    assert world.origin_ref("refs/merge-queue/pr-1"), "the new request is judged on its own"
+    assert not world.comments and "failure" not in [s for _, s, _ in world.statuses]

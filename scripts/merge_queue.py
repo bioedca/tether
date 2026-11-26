@@ -567,11 +567,15 @@ def removal_comment(step: Step, failed: Sequence[tuple[str, str, str]] = (), sai
     return f"The merge queue removed this pull request: {why}\n\n" + REJOIN.format(pr=step.pr)
 
 
-def remove(github: GitHub, step: Step, comment: str | None) -> None:
+def remove(github: GitHub, step: Step, comment: str | None, request: Request) -> bool:
     """Remove ``step`` from the queue. ``comment`` is ``None`` for a closed pull request.
 
-    The request goes before the comment, so that a later run cannot comment a second time.
+    ``False``, and no write, when the request ref no longer holds ``request``: a leave or a rejoin
+    landed after the pass read it, and the new request is judged on its own. The request goes
+    before the comment, so that a later run cannot comment a second time.
     """
+    if github.request_commit(step.pr) != request.commit:
+        return False
     if comment is not None:
         github.set_status(step.head, "failure", "removed from the merge queue; see the comment")
     github.delete_ref(f"{REQUEST_PREFIX}{step.pr}")
@@ -579,6 +583,7 @@ def remove(github: GitHub, step: Step, comment: str | None) -> None:
         github.comment(step.pr, comment)
     github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{step.pr}")
     github.remove_label(step.pr)
+    return True
 
 
 def _pass(
@@ -594,10 +599,11 @@ def _pass(
     steps = plan(git, base, requests, pulls, github.repo)
     report |= {"base": base, "steps": [asdict(s) for s in steps]}
     removals = [s for s in steps if s.state == REMOVE]
+    by_pr = {r.pr: r for r in requests}
     for step in removals:
-        closed = step.reason == "closed"
-        remove(github, step, None if closed else removal_comment(step))
-        report["removed"].append({"pr": step.pr, "reason": step.reason})
+        comment = None if step.reason == "closed" else removal_comment(step)
+        if remove(github, step, comment, by_pr[step.pr]):
+            report["removed"].append({"pr": step.pr, "reason": step.reason})
     if removals:
         return True
     tips: dict[int, str] = {}
@@ -619,10 +625,10 @@ def _pass(
             github.set_status(step.head, "pending", f"place {place} of {len(steps)} in the train")
     if not train or judged[0] == PENDING:
         return False
-    front, request = train[0], next(r for r in requests if r.pr == train[0].pr)
+    front, request = train[0], by_pr[train[0].pr]
     if judged[0] == FAILED:
-        remove(github, front, removal_comment(front, failed=raw[0][1]))
-        report["removed"].append({"pr": front.pr, "reason": "failed-checks"})
+        if remove(github, front, removal_comment(front, failed=raw[0][1]), request):
+            report["removed"].append({"pr": front.pr, "reason": "failed-checks"})
         return True
     if github.request_commit(front.pr) != request.commit:
         return True  # it left or rejoined after this pass read the requests; build again
@@ -630,8 +636,8 @@ def _pass(
     title = f"{(pulls[front.pr] or {}).get('title') or 'merge queue'} (#{front.pr})"
     merged, said = github.merge(front.pr, front.head, title, request.message)
     if merged is None:
-        remove(github, front, removal_comment(front, said=said))
-        report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
+        if remove(github, front, removal_comment(front, said=said), request):
+            report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
         return True
     github.delete_ref(f"{REQUEST_PREFIX}{front.pr}")
     github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{front.pr}")
