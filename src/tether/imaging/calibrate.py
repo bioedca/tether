@@ -132,6 +132,21 @@ _MAP_REQUIRED_KEYS = (
     "moving_geometry_present",
 )
 
+#: The arrays format version 2 adds to every map file: the map asset record (#916,
+#: ADR-0146). A file of version 2 or newer that lacks one is refused by [`load_map`][]
+#: as well as by [`tether.imaging.map_asset.load_map_asset`][] (#1414).
+_MAP_ASSET_KEYS = (
+    "map_id",
+    "map_origin",
+    "source_ids_json",
+    "channel_layout_json",
+    "quality_json",
+    "optics",
+    "pixel_size_um",
+    "created_utc",
+    "app_version",
+)
+
 #: Minimum control points for a degree-2 polynomial fit; below this a 4-DOF
 #: similarity is fitted instead (Stage 9 "similarity fallback if < ~6 points").
 _MIN_POLY_POINTS = 6
@@ -701,8 +716,8 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
     ------
     MapFileError
         The file is not a readable ``.npz`` archive, holds a pickled object, lacks an
-        array of a map file, holds a value a map cannot take, or has a newer
-        ``format_version``.
+        array of a map file (for version 2 or newer, an array of the map asset record
+        too), holds a value a map cannot take, or has a newer ``format_version``.
     """
     path = Path(path)
     source: Path | io.BytesIO = path if content is None else io.BytesIO(content)
@@ -721,6 +736,12 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
         missing = [key for key in _MAP_REQUIRED_KEYS if key not in data.files]
         if missing:
             raise MapFileError(f"{path.name} is not a Tether map file: it lacks {missing}")
+        if version >= 2:
+            missing = [key for key in _MAP_ASSET_KEYS if key not in data.files]
+            if missing:
+                raise MapFileError(
+                    f"{path.name} is a version-{version} map file that lacks {missing}"
+                )
         try:
             provenance = _provenance_from_json(str(data["provenance_json"]))
             if not isinstance(provenance, dict):
