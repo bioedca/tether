@@ -237,6 +237,13 @@ class GitHub:
             raise QueueError("GitHub returned invalid labelled issues")
         return [item["number"] for item in found]
 
+    def main_commit(self) -> str:
+        """Return the commit ``main`` points at on GitHub now."""
+        sha = (self._call("GET", f"/git/ref/heads/{BASE}")[1].get("object") or {}).get("sha")
+        if not isinstance(sha, str):
+            raise QueueError(f"GitHub returned no commit for {BASE}")
+        return sha
+
     def request_commit(self, number: int) -> str | None:
         """Return the commit of the request ref of ``number`` now, or ``None``."""
         ref = f"{REQUEST_PREFIX}{number}"
@@ -633,6 +640,8 @@ def _pass(
     if github.request_commit(front.pr) != request.commit:
         return True  # it left or rejoined after this pass read the requests; build again
     github.set_status(front.head, "success", "its candidate passed every required check")
+    if github.main_commit() != base:
+        return True  # `main` moved after the verdict: the candidate was not tested on it
     title = f"{(pulls[front.pr] or {}).get('title') or 'merge queue'} (#{front.pr})"
     merged, said = github.merge(front.pr, front.head, title, request.message)
     if merged is None:
@@ -645,10 +654,13 @@ def _pass(
     report["merged"].append({"pr": front.pr, "commit": merged})
     landed = github.tree_of(merged)
     if landed != front.tree:
-        raise QueueError(
+        said = (
             f"the tree of {BASE} commit {merged} is {landed}, but candidate {tips[front.pr]} of "
-            f"#{front.pr} has {front.tree}; merging nothing more in this run"
+            f"#{front.pr} has {front.tree}"
         )
+        # `main` can still move in the instant between the check above and the merge call.
+        github.comment(front.pr, f"The merge queue merged a tree it did not test: {said}.")
+        raise QueueError(f"{said}; merging nothing more in this run")
     return True
 
 

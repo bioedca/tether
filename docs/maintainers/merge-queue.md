@@ -70,13 +70,16 @@ come from a pull request ahead. Until then it is `pending`.
 ## The merge
 
 When the front candidate passed, the queue sets the status `merge-queue` to `success` on the pinned
-head. It squash-merges the pull request through the API with `sha` equal to the pinned head. The
+head. It reads `main` again, and when `main` moved after the verdict, it builds the train again
+instead of merging. Otherwise it squash-merges the pull request through the API with `sha` equal to
+the pinned head. The
 title is `<pull request title> (#N)` and the message is the squash message of the join. A push
 after the join makes GitHub refuse.
 
 Then the queue deletes the request and the candidate and takes the label off. It compares the tree
-of the new `main` commit with the tree of the candidate. When they differ, the run fails with an
-error that names both, and it merges nothing more in that run. Otherwise the run builds the train
+of the new `main` commit with the tree of the candidate. When they differ, because `main` moved in the
+instant before the merge, the queue comments on the merged pull request. The run then fails with an
+error that names both trees, and it merges nothing more in that run. Otherwise the run builds the train
 again and goes on, so several passed candidates at the front merge in order in one run.
 
 ## A removal and the rejoin

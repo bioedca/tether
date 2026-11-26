@@ -157,6 +157,9 @@ class World:
         path = url.removeprefix(f"https://api.github.com/repos/{REPO}")
         payload = json.loads(body) if body else None
         self.calls.append((method, path))
+        if (method, path) == ("GET", "/git/ref/heads/main"):
+            sha = _git(self.origin, "rev-parse", "main")
+            return 200, json.dumps({"ref": "refs/heads/main", "object": {"sha": sha}}).encode()
         if (method, path) == ("GET", "/rules/branches/main?per_page=100"):
             if self.contexts is None:
                 return 500, b"{}"
@@ -730,6 +733,29 @@ def test_a_tree_that_differs_after_a_merge_fails_the_run_and_merges_nothing_more
     tree = _git(world.runner, "rev-parse", f"{candidate}^{{tree}}")
     assert merged in str(error.value) and candidate in str(error.value) and tree in str(error.value)
     assert world.origin_ref("refs/merge-queue/pr-2"), "#2 waits for a run that can trust main"
+    ((number, body),) = world.comments  # the merged pull request says so, where people look
+    assert number == 1 and merged in body and tree in body
+
+
+def test_main_that_moved_after_the_verdict_stops_the_merge_and_rebuilds(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+    write, moved = world.github.set_status, []
+
+    def move_main_then_write(commit: str, state: str, description: str) -> None:
+        if state == "success" and not moved:  # a direct merge lands after the verdict
+            moved.append(world.commit("main", {"README": "moved on\n"}))
+        write(commit, state, description)
+
+    monkeypatch.setattr(world.github, "set_status", move_main_then_write)
+    run_on(world)
+
+    assert not world.merged, "the candidate was tested on the old main, not this one"
+    assert world.origin_ref("refs/merge-queue/pr-1") and not world.comments
+    assert _git(world.origin, "rev-parse", "mq/pr-1^") == moved[0], "rebuilt on the new main"
 
 
 def test_a_refused_merge_removes_the_pull_request_and_quotes_github(world: World) -> None:
