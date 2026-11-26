@@ -176,6 +176,32 @@ refuses to build without a signature on it that GitHub verified. That signature 
     by GitHub**, so your SSH signing key must be registered as a *Signing Key* on the account.
     And its commit is on `main`.
 
+    **A stable release also needs its release set** (PRD §9.5,
+    [ADR-XXXX](adr/XXXX-the-release-set-of-validation-evidence.md)). A stable tag has no
+    `-<prerelease>` component. It publishes only when its release set is complete. The set is the
+    directory `docs/validation/release/<tag>/`. It holds one record for each oracle (a) to (g),
+    and one for the deep-tier run.
+
+    [The evidence records of a release](validation.md#the-evidence-records-of-a-release) describes
+    them. Make the set in this order:
+
+    1. Choose the release commit, a commit on `main`. Run the oracles at it: the forced
+       `sidecar.yml` run, `large-fixtures.yml`, the workstation run of (a) and the deep-tier run.
+       The required matrix of that commit gives (d) to (g).
+    2. Write the eight records with `scripts/validation_evidence.py`, and check them with
+       `python scripts/validation_evidence.py check-set docs/validation/release/<tag>`.
+    3. Merge a pull request that adds only those eight files, while no other pull request merges.
+       Tag the commit of that merge. A record cannot name the commit that contains it. So the
+       tag commit is the release commit plus its own set, and nothing else.
+
+    Another change can land on `main` after the release commit and before the set. Then the set
+    no longer binds, and you run the oracles again at the new commit.
+
+    The `verify` job checks the set with
+    `python scripts/validation_evidence.py check-release --tag <tag> --required true`. You can run
+    the same command before you push the tag. A prerelease or a dry run reports the result of the
+    check and does not fail on it.
+
 7. Push the tag only after steps 1 to 6 pass. The push starts the pipeline that publishes the
    Release, and Zenodo archives a published Release with a DOI. Push the tag:
 

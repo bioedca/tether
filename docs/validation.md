@@ -180,6 +180,52 @@ already depends on it: the `release` job of `release.yml` needs every leg of its
 the `osx-64` leg included, so no release is published without a passing Intel-Mac build and
 install smoke test.
 
+### The evidence records of a release
+
+"Runs end to end" means that each gate oracle has passing evidence bound to the release commit.
+That evidence is the **release set** of the tag: the directory `docs/validation/release/<tag>/`,
+with one record for each oracle and one for the deep-tier run, eight files in all
+(`oracle-a.json` to `oracle-g.json`, and `deep.json`). [ADR-XXXX](adr/XXXX-the-release-set-of-validation-evidence.md)
+records where the set lives and when its rules run.
+
+A record is a small JSON file of schema `tether-validation-record/1`. It holds only summary numbers
+and neutral ids, never a file name, a private path or a machine name:
+
+| Field | What it holds |
+| --- | --- |
+| `oracle` | `a` to `g`, or `deep` |
+| `tier` | the tier of the oracle's headline assertion, from the table above (`workstation`, `sidecar`, `large`, `required` or `deep`) |
+| `commit` | the 40-character SHA that the run was made at |
+| `evidence` | exactly one of `run_url` (a GitHub Actions run of this repository) or `log_sha256` (the SHA-256 of the log or result file of a local run; the file itself is not committed) |
+| `measured` | the measured numbers, as `snake_case` names and numbers |
+| `tolerance` | the rows of the table of tunables, or the frozen files, that the numbers are compared with |
+| `outcome` | `passed` or `failed` |
+
+The deep record also gives `cuda_tests_executed` (at least 1) and `cuda_tests_skipped` (0), because
+a green `deep-gpu.yml` run with its CUDA tests skipped is not the evidence.
+
+**Make each record** with `scripts/validation_evidence.py`, at the release commit:
+
+- Oracle (a): the scheduled workstation run writes `docs/validation/oracle-a-last-run.json`
+  ([the newest recorded run](#a-extraction-vs-deep-lasi)). Make the record from it, and hash the
+  workstation result file that it names:
+  `python scripts/validation_evidence.py from-oracle-a --record docs/validation/oracle-a-last-run.json --result <the result file> --out docs/validation/release/<tag>/oracle-a.json`.
+- Every other record: `python scripts/validation_evidence.py record --oracle <x> --commit <sha>`
+  with `--run-url <the run>` (or `--log <the log>` for a local run), one `--measured name=value`
+  for each number, one `--tolerance` for each row or file, `--outcome` and `--out`. The runs are
+  the forced `sidecar.yml` run for (b), `large-fixtures.yml` for (c), the required matrix of the
+  release commit for (d) to (g), and the deep-tier run.
+
+The command refuses a record that breaks the format, and names the tolerances that each oracle may
+name.
+
+**Check the set** with `python scripts/validation_evidence.py check-set docs/validation/release/<tag>`.
+A complete set has all eight records, every record names the same commit, and every record passed,
+except (c), which is advisory and may have failed. `tests/test_validation_evidence.py` checks the
+format of the records, and checks in full every set that is committed. No set is needed for an
+ordinary pull request. The release workflow checks the set of the tag it builds, as
+[Releasing Tether](release.md#cutting-a-release) describes.
+
 ## (a) Extraction vs Deep-LASI
 
 **What is compared.** Tether's native extraction — donor spot coordinates and the
