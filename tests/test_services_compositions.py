@@ -481,11 +481,15 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
 
 
-@pytest.mark.skipif(not hasattr(__import__("os"), "fchmod"), reason="no fchmod on Windows")
 def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -> None:
+    import os
     import stat
 
     project, _keys = modelled
     out = tmp_path / "c.json"
     _save(out, project, ["all"])
-    assert stat.S_IMODE(out.stat().st_mode) == 0o644
+    mode = stat.S_IMODE(out.stat().st_mode)
+    if hasattr(os, "fchmod"):
+        assert mode == 0o644  # not mkstemp's private 0600
+    else:  # Windows: no fchmod, and the file keeps its ordinary read-write default
+        assert mode & stat.S_IREAD and mode & stat.S_IWRITE
