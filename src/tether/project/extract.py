@@ -1382,14 +1382,17 @@ def count_molecules_by_rule(
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
     map_path: str | os.PathLike[str] | None = None,
+    map_optics: str | None = None,
+    confirm_optics: bool = False,
 ) -> dict[str, int]:
     """Count the molecules each colocalization rule keeps, before any extraction (#920).
 
     Runs the stages of [`extract_movie`][] up to colocalization -- through the stage
     preview ([`tether.project.preview.iter_extraction_stages`][]), whose molecules are
     those of a real run -- and stops there: no trace is integrated and nothing is
-    written. ``options``, ``tmap``, ``tdat`` and ``map_path`` mean what they mean for
-    [`extract_movie`][], so a count with a map file uses that map (#353).
+    written. ``options``, ``tmap``, ``tdat``, ``map_path``, ``map_optics`` and
+    ``confirm_optics`` mean what they mean for [`extract_movie`][], so a count with a map
+    file uses that map (#353) and runs the same reuse check first (#916, #1394).
 
     Returns
     -------
@@ -1400,8 +1403,9 @@ def count_molecules_by_rule(
     Raises
     ------
     ExtractionError
-        A missing or unreadable input, or a stage before colocalization that fails
-        (for example too few control points to register).
+        A missing or unreadable input, a map file the reuse check refuses (as
+        [`extract_movie`][] would), or a stage before colocalization that fails (for
+        example too few control points to register).
     """
     from tether.project.preview import OUTCOME_FAILED, iter_extraction_stages  # noqa: PLC0415
 
@@ -1410,6 +1414,14 @@ def count_molecules_by_rule(
     options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
     try:
         with open_extraction_movie(movie_path) as reader:
+            if imported_map is not None:  # the check extraction would run (#1394)
+                imported_map = _check_map_reuse(
+                    imported_map,
+                    movie_path,
+                    reader.pixel_size_um,
+                    map_optics=map_optics,
+                    confirm_optics=confirm_optics,
+                )
             stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
             for stage in stages:
                 if stage.outcome == OUTCOME_FAILED:

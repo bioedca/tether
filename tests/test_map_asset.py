@@ -49,7 +49,12 @@ from tether.imaging.map_asset import (  # noqa: E402
 )
 from tether.imaging.recipe import ChannelRecipe  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
-from tether.project.extract import ExtractionError, ExtractOptions, extract_movie  # noqa: E402
+from tether.project.extract import (  # noqa: E402
+    ExtractionError,
+    ExtractOptions,
+    count_molecules_by_rule,
+    extract_movie,
+)
 
 _BG = 80.0
 _AMP = 400.0
@@ -400,6 +405,40 @@ def test_extraction_records_a_passed_check(tmp_path, fitted) -> None:
         "not_compared": ["channel layout", "channel geometry"],
         "optics_confirmed": False,
     }
+
+
+def test_a_count_refuses_a_map_of_another_pixel_size(tmp_path, fitted) -> None:
+    """``--count-only --map`` runs the reuse check extraction runs, same words (#1394)."""
+    _, _, reg_map = fitted
+    map_file = save_map_asset(_asset(reg_map, pixel_size_um=0.267), tmp_path / "m.npz")
+    movie = _write_movie(tmp_path / "px.tif", pixel_um=0.16)
+    options = ExtractOptions(window=_WINDOW)
+    with pytest.raises(ExtractionError) as counted:
+        count_molecules_by_rule(movie, options=options, map_path=map_file)
+    with pytest.raises(ExtractionError) as extracted:
+        extract_movie(movie, tmp_path / "refused.tether", options=options, map_path=map_file)
+    assert "pixel size: the map has 0.267 um; the movie has 0.16" in str(counted.value)
+    assert str(counted.value) == str(extracted.value)
+
+
+def test_a_count_with_other_optics_needs_confirm_optics(tmp_path, fitted, capsys) -> None:
+    _, _, reg_map = fitted
+    map_file = save_map_asset(_asset(reg_map, optics="60x TIRF"), tmp_path / "m.npz")
+    movie = _write_movie(tmp_path / "movie.tif")
+    options = ExtractOptions(window=_WINDOW)
+    with pytest.raises(ExtractionError, match=r"--confirm-optics"):
+        count_molecules_by_rule(movie, options=options, map_path=map_file, map_optics="100x TIRF")
+    counts = count_molecules_by_rule(
+        movie, options=options, map_path=map_file, map_optics="100x TIRF", confirm_optics=True
+    )
+    assert sum(counts.values()) > 0
+    out = tmp_path / "never.tether"
+    argv = ["extract", str(movie), "-o", str(out), "--map", str(map_file), "--window", "21"]
+    argv += ["--count-only", "--optics", "100x TIRF"]
+    assert main(argv) == 1
+    assert "--confirm-optics" in capsys.readouterr().err
+    assert main([*argv, "--confirm-optics"]) == 0
+    assert not out.exists()
 
 
 # --- AC 5: a .tmap still reads -------------------------------------------------------
