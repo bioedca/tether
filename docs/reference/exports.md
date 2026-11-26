@@ -570,7 +570,8 @@ against time.
 It thins its points to `max_points` (default 20 000), as the raw cloud does. The density and the
 centroids come from every pair. Each series record in the provenance file holds
 the cloud's own analysis provenance under `analysis`. That record gives every parameter and the
-`molecule_key` of each molecule in the cloud.
+`molecule_key` of each molecule in the cloud. A bare cloud writes it under
+`parameters.analysis` (#1418). Its `data` rows lead back to their molecules too.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface

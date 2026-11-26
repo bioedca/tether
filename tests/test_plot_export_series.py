@@ -701,3 +701,62 @@ def test_a_named_smoothed_tdp_records_its_interpolation_grid(results, tmp_path):
     params = _sidecar(_export(fig, tmp_path / "s"))["parameters"]["series"][0]["parameters"]
     assert params["grid"] == np.asarray(smoothed.grid).tolist()
     assert "values" not in params
+
+
+# ------------------------------- #1418: a bare successive-frame cloud keeps its provenance
+
+
+def test_a_bare_successive_cloud_writes_its_analysis_provenance(results, tmp_path):
+    cloud, _ = results["succ"]
+    out = pe.export_figure(
+        pe.render_successive_frame_cloud(cloud),
+        tmp_path / "bare",
+        tether_export="plot:t",
+        source="s",
+        parameters={},
+        created_utc=PINNED,
+        data_csv=True,
+    )
+    params = _sidecar(out)["parameters"]
+    assert "series" not in params
+    analysis = params["analysis"]
+    assert analysis["analysis"] == "successive_frame_cloud"
+    keys = analysis["parameters"]["molecule_keys"]
+    assert keys == cloud.provenance["parameters"]["molecule_keys"] and keys
+    # The same record a one-series sequence writes under its series.
+    (record,) = _sidecar(
+        _export(pe.render_successive_frame_cloud([("WT", cloud)]), tmp_path / "one")
+    )["parameters"]["series"]
+    assert record["analysis"] == analysis
+
+
+def test_a_bare_successive_cloud_draws_the_same_image_with_its_record(results, tmp_path):
+    cloud, _ = results["succ"]
+    recorded = _export(pe.render_successive_frame_cloud(cloud), tmp_path / "a")
+    unrecorded = pe.render_successive_frame_cloud(cloud)
+    delattr(unrecorded, pe._ANALYSIS_ATTR)
+    plain = _export(unrecorded, tmp_path / "b")
+    assert "analysis" not in _sidecar(plain)["parameters"]
+    for fmt in pe.DEFAULT_PLOT_FORMATS:
+        assert recorded.paths[fmt].read_bytes() == plain.paths[fmt].read_bytes(), fmt
+
+
+def test_a_caller_may_repeat_but_not_contradict_a_bare_cloud_analysis(results, tmp_path):
+    cloud, _ = results["succ"]
+    same = _export(
+        pe.render_successive_frame_cloud(cloud),
+        tmp_path / "same",
+        parameters={"analysis": _sidecar_analysis(cloud)},
+    )
+    assert _sidecar(same)["parameters"]["analysis"] == _sidecar_analysis(cloud)
+    with pytest.raises(ValueError, match=r"parameters\['analysis'\] contradicts"):
+        _export(
+            pe.render_successive_frame_cloud(cloud),
+            tmp_path / "other",
+            parameters={"analysis": {"analysis": "something_else"}},
+        )
+
+
+def _sidecar_analysis(cloud) -> dict:
+    """The cloud's analysis provenance as the provenance file writes it (strict JSON)."""
+    return json.loads(json.dumps(pe._finite(cloud.provenance)))
