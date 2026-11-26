@@ -177,7 +177,7 @@ refuses to build without a signature on it that GitHub verified. That signature 
     And its commit is on `main`.
 
     **A stable release also needs its release set** (PRD §9.5,
-    [ADR-XXXX](adr/XXXX-the-release-set-of-validation-evidence.md)). A stable tag has no
+    [ADR-0155](adr/0155-the-release-set-of-validation-evidence.md)). A stable tag has no
     `-<prerelease>` component. It publishes only when its release set is complete. The set is the
     directory `docs/validation/release/<tag>/`. It holds one record for each oracle (a) to (g),
     and one for the deep-tier run.

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Write and check the evidence records of the validation suite (#1439, ADR-XXXX).
+"""Write and check the evidence records of the validation suite (#1439, ADR-0155).
 
 The specification (§9.5) says the validation suite runs end to end when every gate oracle has
 passing evidence bound to the release commit: one record per oracle, (a) to (g), and one for the

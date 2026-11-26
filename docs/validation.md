@@ -185,7 +185,7 @@ install smoke test.
 "Runs end to end" means that each gate oracle has passing evidence bound to the release commit.
 That evidence is the **release set** of the tag: the directory `docs/validation/release/<tag>/`,
 with one record for each oracle and one for the deep-tier run, eight files in all
-(`oracle-a.json` to `oracle-g.json`, and `deep.json`). [ADR-XXXX](adr/XXXX-the-release-set-of-validation-evidence.md)
+(`oracle-a.json` to `oracle-g.json`, and `deep.json`). [ADR-0155](adr/0155-the-release-set-of-validation-evidence.md)
 records where the set lives and when its rules run.
 
 A record is a small JSON file of schema `tether-validation-record/1`. It holds only summary numbers

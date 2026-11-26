@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# XXXX — The release set of validation evidence lives beside the tag, and its one-commit rule runs only in the release workflow
+# 0155 — The release set of validation evidence lives beside the tag, and its one-commit rule runs only in the release workflow
 
 - **Status:** accepted
 - **Date:** 2026-11-26

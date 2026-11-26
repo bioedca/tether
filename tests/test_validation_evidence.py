@@ -6,7 +6,7 @@
 add-on run (PRD §9.5). These tests keep the format, the tolerance each record may name and the
 release-set rule: every record names one commit and every gate oracle passed, (c) excepted.
 A release set exists only for a release, so no set is required here; every set that is
-committed under ``docs/validation/release/`` is checked in full (ADR-XXXX).
+committed under ``docs/validation/release/`` is checked in full (ADR-0155).
 """
 
 from __future__ import annotations

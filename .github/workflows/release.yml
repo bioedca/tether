@@ -264,7 +264,7 @@ jobs:
                 --suite-count "$suites"
 
       - name: Require the validation evidence of a stable release
-        # PRD §9.5 (#1439, ADR-XXXX): a stable tag publishes only when its release set,
+        # PRD §9.5 (#1439, ADR-0155): a stable tag publishes only when its release set,
         # docs/validation/release/<tag>/, holds one passing record per gate oracle and the
         # deep run, all naming one commit, and the tag commit differs from that commit only by
         # the set's own files. A prerelease or a dry run reports the result and does not fail.
