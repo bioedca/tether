@@ -84,7 +84,8 @@ file as it was beside it as `<stem>.v<n>-backup.tether` (PRD §5.4, ADR-0136).
 
 ### The trace view
 
-`TraceView.calibration_window` carries the window into the trace dock, which draws it as a
+`traces_from_store` (`src/tether/gui/shell.py`) reads the stored calibration windows into
+`TraceView.calibration_window`, which carries the window into the trace dock, which draws it as a
 shaded band on the intensity panel; the analysis window stays two dashed lines on the FRET
 panel. A tooltip on each names it (`CALIBRATION_WINDOW_TEXT`, `ANALYSIS_WINDOW_TEXT`).
 
@@ -97,9 +98,8 @@ panel. A tooltip on each names it (`CALIBRATION_WINDOW_TEXT`, `ANALYSIS_WINDOW_T
 - Bad / trade-off: in CALIBRATION_APPROVED the edit is refused rather than making the
   calibration stale, because G03 has no edge out of that state for changed evidence; apply the
   correction version first. This is the rule of the contributor evidence (#927).
-- Follow-up: the shell's store reader passes the stored calibration window into each
-  `TraceView`; a curation-label change in ANALYSIS_READY is the other half of the first event
-  and is not part of #928.
+- Follow-up: a curation-label change in ANALYSIS_READY is the other half of the first event
+  and is not part of #928; a subset export does not yet copy the table (#1471).
 - Gates: `tests/test_calibration_windows.py`, the dock test in `tests/test_trace_dock.py`, and
   `schema-guard` on the regenerated `schema/schema_frozen.json`.
 

@@ -6477,6 +6477,7 @@ def traces_from_store(
 
     from tether.gui.trace_dock import TraceView
     from tether.imaging.extract import read_molecules, read_traces
+    from tether.project.calibration_windows import read_calibration_windows
     from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
     if intensity_quantity not in INTENSITY_QUANTITY_LAYERS:
@@ -6508,6 +6509,7 @@ def traces_from_store(
     movie_col = molecules["movie_id"]
     frame_range = molecules["frame_range"]
     analysis_window = molecules["analysis_window"]
+    calibration_window, _ = read_calibration_windows(path)  # positional, as /molecules (#928)
 
     def _decode(value: object) -> str:
         return value.decode() if isinstance(value, bytes) else str(value)
@@ -6526,6 +6528,11 @@ def traces_from_store(
                 molecule_key=_decode(key_col[i]),
                 analysis_window=_relative_window(lo, int(donor.size), window),
                 frame_offset=lo,
+                calibration_window=_relative_window(
+                    lo,
+                    int(donor.size),
+                    (int(calibration_window[i][0]), int(calibration_window[i][1])),
+                ),
             )
         )
     return views

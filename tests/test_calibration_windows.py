@@ -250,3 +250,16 @@ def test_a_failed_review_event_publishes_no_analysis_window(
     monkeypatch.setattr(cs, "send_event", real_send)  # a retry stores both
     assert len(project.set_analysis_window(key, START + 2, ACC, labeler="tester")) == 1
     assert cs.read_correction_state(project.path).state is S.CORRECTED_REVIEW
+
+
+@pytest.mark.gui
+def test_the_trace_views_carry_the_calibration_window(qapp, project: Project) -> None:
+    pytest.importorskip("pyqtgraph")
+    from tether.gui.shell import traces_from_store
+
+    set_calibration_window(project, _key(project.path, 1), START + 10, 90, actor=ME)
+    views = traces_from_store(project.path)
+    # Trace frames start at frame_range[0] = START: the default runs to the donor bleach.
+    assert views[0].calibration_window == (0, DON - START)
+    assert views[1].calibration_window == (10, 90 - START)
+    assert views[1].analysis_window != views[1].calibration_window
