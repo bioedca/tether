@@ -491,3 +491,34 @@ def test_no_model_stays_no_model_when_the_model_list_changes(
     assert section.model_combo.count() == 2
     assert section.model_name is None
     assert not section.outcome.drawn
+
+
+def test_no_model_stays_no_model_when_a_first_model_is_fitted(
+    section, modelled, tmp_path, monkeypatch
+) -> None:
+    import tether.gui.analysis_section as page
+    from tether.services import SaveCompositionRequest, run
+    from tether.services.compositions import series_text
+
+    path, keys = modelled
+    out = tmp_path / "c.json"
+    series = series_text(_saved(path, "early", keys[:2]))
+    run(
+        SaveCompositionRequest(
+            path=str(out), project=str(path), plot="population_state_number", series=(series,)
+        )
+    )
+    # The project lists no model when the composition opens …
+    monkeypatch.setattr(page, "idealization_models", lambda _p: [])
+    section.set_project(path)
+    section.open_composition(out)
+    assert section.model_combo.count() == 0
+    # … and a fit then writes the first one: it is listed, not chosen.
+    monkeypatch.setattr(page, "idealization_models", lambda _p: [MODEL])
+    section.refresh()
+    assert section.model_combo.count() == 1
+    assert section.model_name is None
+    assert not section.outcome.drawn
+    # A person's choice ends the pin.
+    section.set_model(MODEL)
+    assert section.model_name == MODEL

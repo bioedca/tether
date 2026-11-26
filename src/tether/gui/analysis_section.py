@@ -120,6 +120,9 @@ class AnalysisSection:
         self._outcome: PlotOutcome = PlotOutcome(PLOTS[0].id, missing="")
         self._canvas: Any | None = None
         self._closed = False
+        # The model an opened composition names (``None``: none), held until a person
+        # chooses one, so a rebuilt model list never picks a model in its place.
+        self._pinned_model: tuple[str | None] | None = None
 
         self._widget = QtWidgets.QWidget()
         self._widget.setObjectName("analysis-section")
@@ -195,6 +198,7 @@ class AnalysisSection:
 
         self._plot_combo.currentIndexChanged.connect(self._on_plot_changed)
         self._model_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        self._model_combo.activated.connect(self._unpin_model)
         for box in self._state_boxes.values():
             box.valueChanged.connect(lambda _v: self.refresh())
         self._remove_button.clicked.connect(self.remove_selected)
@@ -319,6 +323,7 @@ class AnalysisSection:
         outside its own project (ADR-0124), so keeping them would draw empty series.
         """
         self._project = None if project is None else Path(project)
+        self._pinned_model = None
         self._series.clear()
         self._layers.clear()
         self._reload_models(reset_states=True)
@@ -335,6 +340,7 @@ class AnalysisSection:
         index = self._model_combo.findText(model_name)
         if index < 0:
             raise KeyError(f"the project has no idealization model {model_name!r}")
+        self._pinned_model = None
         self._model_combo.setCurrentIndex(index)
 
     def add_series(self, series: PlotSeries) -> PlotSeries:
@@ -444,9 +450,11 @@ class AnalysisSection:
             self._plot_combo.setCurrentIndex(self._plot_combo.findData(spec.id))
             self._sync_plot_controls()
             self._reload_models(reset_states=True)
+            self._pinned_model = None
             if spec.needs_model:
                 # A composition that names no model draws none: never the model left chosen.
                 name = composition.model_name
+                self._pinned_model = (name,)
                 index = -1 if name is None else self._model_combo.findText(name)
                 self._model_combo.setCurrentIndex(index)
                 if name is not None and index < 0:
@@ -560,6 +568,10 @@ class AnalysisSection:
         self._add_button.setEnabled(has_project)
         self._remove_button.setEnabled(0 <= self._layers.currentRow() < len(self._series))
 
+    def _unpin_model(self, _index: int) -> None:
+        """Release the opened composition's model: a person chose one."""
+        self._pinned_model = None
+
     def _reload_models(self, *, reset_states: bool) -> None:
         models: list[str] = []
         if self._project is not None:
@@ -574,7 +586,13 @@ class AnalysisSection:
             try:
                 self._model_combo.clear()
                 self._model_combo.addItems(models)
-                if current in models:
+                if self._pinned_model is not None:
+                    # An opened composition's model: chosen when the project has it, and
+                    # otherwise no model, even when a model was added since (#1465 review).
+                    (pinned,) = self._pinned_model
+                    index = models.index(pinned) if pinned in models else -1
+                    self._model_combo.setCurrentIndex(index)
+                elif current in models:
                     self._model_combo.setCurrentIndex(models.index(current))
                 elif listed:
                     # A list that held models had a choice, or none on purpose (a composition
