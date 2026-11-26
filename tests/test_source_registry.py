@@ -613,6 +613,46 @@ def test_a_same_size_write_into_the_file_after_the_read_is_not_stored(
     assert not S.read_sources(project.path)[0].checksum_calculated
 
 
+@pytest.mark.parametrize("change", ["none", "same size and time", "other size"])
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_filesystem_with_no_inode_number_compares_size_and_time(
+    tmp_path, monkeypatch, writer, change
+) -> None:
+    """No inode number: size and modification time decide, and nothing more is refused (#1419)."""
+    sha = hashlib.sha256(_MOVIE_BYTES).hexdigest()
+    project, movie = _project(tmp_path, movie_sha=sha if writer == "relink" else "")
+    monkeypatch.setattr(S, "_stat_identity", lambda info: None)  # `st_ino == 0` on both sides
+    read = S.file_sha256
+
+    def read_then_change(path, **kwargs):
+        digest = read(path, **kwargs)
+        assert digest.identity is None
+        if change != "none":
+            size = len(_MOVIE_BYTES) + (change == "other size")
+            _replace_once(Path(path), b"x" * size)()
+            os.utime(path, ns=(digest.mtime_ns, digest.mtime_ns))
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_change)
+    project.acquire_lock()
+    try:
+        if writer == "relink":
+            if change == "other size":
+                with pytest.raises(S.SourceReplaced):
+                    S.relink_source(project, "movie:mov-1", movie)
+            else:
+                S.relink_source(project, "movie:mov-1", movie)
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            refused = out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+            assert refused is (change == "other size")
+    finally:
+        project.release_lock()
+    stored = S.read_sources(project.path)[0].checksum_calculated
+    # A same-size replacement at the same time is not seen: the documented limit.
+    assert stored is (change != "other size")
+
+
 def test_the_check_never_opens_the_path(tmp_path, monkeypatch) -> None:
     """A path that became a FIFO would block an open, so the check only stats it."""
     import builtins  # noqa: PLC0415
