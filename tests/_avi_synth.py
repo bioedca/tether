@@ -5,10 +5,11 @@
 It writes the RIFF layout of the AVI 1.0 format: ``RIFF AVI`` with a header list
 (``hdrl``: the main header ``avih`` and one ``strl`` list per stream, each with its stream
 header ``strh`` and format ``strf``), then the frame list ``movi`` with one ``00db`` chunk a
-frame, then the index ``idx1``. With ``per_riff`` it splits the frames over OpenDML
-``RIFF AVIX`` extensions, as a writer does for a movie larger than 1 GB. The frames are
-8-bit; a DIB stores them bottom-up (positive height) or top-down, each row padded to 4
-bytes, and the gray FourCCs store them top-down and unpadded. The keywords write each
+frame, then the index ``idx1``, whose entries give each frame chunk's offset and size. With
+``per_riff`` it splits the frames over OpenDML ``RIFF AVIX`` extensions, as a writer does for
+a movie larger than 1 GB. The frames are 8-bit; a DIB stores them bottom-up (positive
+height) or top-down, each row padded to 4 bytes, and the gray FourCCs store them top-down
+and unpadded. The keywords write each
 variant the adapter refuses.
 
 ``scripts/make_avi_fixtures.py`` uses this module to write the committed
@@ -49,6 +50,9 @@ def _strl(
     bits: int,
     compression: int,
     table: bytes,
+    *,
+    planes: int = 1,
+    header_size: int = 40,
 ) -> bytes:
     strh = struct.pack(
         "<4s4sIHHIIIIIIIIhhhh",
@@ -71,7 +75,9 @@ def _strl(
         abs(height),
     )
     used = len(table) // 4
-    bih = struct.pack("<IiiHHIIiiII", 40, width, height, 1, bits, compression, 0, 0, 0, used, 0)
+    bih = struct.pack(
+        "<IiiHHIIiiII", header_size, width, height, planes, bits, compression, 0, 0, 0, used, 0
+    )
     return _list(b"LIST", b"strl", _chunk(b"strh", strh), _chunk(b"strf", bih + table))
 
 
@@ -91,6 +97,8 @@ def avi_bytes(
     streams: tuple[bytes, ...] = (),
     chunk_id: bytes = b"00db",
     flags: int = 0x10,
+    planes: int = 1,
+    header_size: int = 40,
 ) -> bytes:
     """Return an AVI file of ``frames`` (``(n, height, width)``, ``uint8``) as bytes.
 
@@ -99,7 +107,8 @@ def avi_bytes(
     the declared frame count; ``sizes`` cuts frame *k* to that many bytes; ``streams`` adds
     a stream of each kind (``b"vids"``, ``b"auds"``) after the first; ``extra`` adds chunks
     after the frames in ``movi``; ``flags`` is the main header's ``dwFlags``; ``per_riff``
-    puts that many frames in each RIFF.
+    puts that many frames in each RIFF; ``planes`` and ``header_size`` replace the format
+    header's ``biPlanes`` and ``biSize``.
     """
     n, h, w = frames.shape
     if fourcc is not None:
@@ -123,7 +132,8 @@ def avi_bytes(
         data[k] = data[k][:size]
     chunks = [_chunk(chunk_id, d) for d in data]
     declared = n if length is None else length
-    strls = [_strl(b"vids", fourcc or b"\x00" * 4, declared, w, height, bits, comp, tab)]
+    head = {"planes": planes, "header_size": header_size}
+    strls = [_strl(b"vids", fourcc or b"\x00" * 4, declared, w, height, bits, comp, tab, **head)]
     for kind in streams:
         strls.append(_strl(kind, b"\x00" * 4, declared, w, height, 8, 0, GREY_TABLE))
     avih = struct.pack("<14I", 100000, 0, 0, flags, n, 0, 1 + len(streams), 0, w, h, 0, 0, 0, 0)
@@ -140,8 +150,14 @@ def avi_bytes(
             body.extend(extra)
         movi = _list(b"LIST", b"movi", *body)
         if g == 0:
-            entries = b"".join(struct.pack("<4sIII", chunk_id, 0x10, 0, 0) for _ in group)
-            idx1 = _chunk(b"idx1", entries)
+            # Each entry: the frame chunk's id, AVIIF_KEYFRAME, the offset of its header from
+            # the "movi" FourCC, and its data size; "rec " lists put a 12-byte header first.
+            entries, at = [], 4
+            for piece, frame in zip(body, data, strict=False):
+                start = at + (12 if rec else 0)
+                entries.append(struct.pack("<4sIII", chunk_id, 0x10, start, len(frame)))
+                at += len(piece)
+            idx1 = _chunk(b"idx1", b"".join(entries))
             out.append(_list(b"RIFF", b"AVI ", hdrl, movi, idx1))
         else:
             out.append(_list(b"RIFF", b"AVIX", movi))

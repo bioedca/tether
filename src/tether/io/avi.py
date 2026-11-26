@@ -24,7 +24,8 @@ and with [`tether.io.adapters.UnsupportedContainerError`][], a lossless codec th
 does not decode (FFV1, HuffYUV, Lagarith, PNG, run-length DIBs), a codec it does not
 know, two or more video streams, a file whose main header sets ``AVIF_MUSTUSEINDEX``
 (its index, not the file order, orders the frames), a color-table change inside the
-movie, a frame of the wrong size or of no bytes (a dropped frame), and a file that holds
+movie, a format header that declares other than one plane or more bytes than its chunk
+holds, a frame of the wrong size or of no bytes (a dropped frame), and a file that holds
 fewer or more frames than its stream header declares or that ends inside a chunk (an
 incomplete copy). A movie larger than 1 GB in the OpenDML layout (``RIFF AVIX``
 extensions) is read whole.
@@ -175,17 +176,36 @@ class _Stream:
     bottom_up: bool
 
 
-def _read_exact(fh: BinaryIO, at: int, n: int) -> bytes:
+def _read_exact(path: Path, fh: BinaryIO, at: int, n: int) -> bytes:
+    """Read ``n`` bytes at ``at``, or refuse the file when fewer are there.
+
+    Every read is bounded by the file size taken at open, so only a file cut short while
+    it opens reads fewer bytes.
+    """
     fh.seek(at)
     data = fh.read(n)
-    return data if len(data) == n else b""
+    if len(data) != n:
+        raise _refuse(path, "ended while Tether read it (an incomplete copy)")
+    return data
 
 
-def _check_format(path: Path, bih: bytes) -> tuple[int, int, int, bool]:
-    """Check the BITMAPINFOHEADER; return ``(width, height, stride, bottom_up)`` or refuse."""
-    if len(bih) < _BIH.size:
+def _check_format(path: Path, fh: BinaryIO, offset: int, chunk: int) -> tuple[int, int, int, bool]:
+    """Check the BITMAPINFOHEADER in the ``strf`` chunk at ``offset`` of ``chunk`` bytes.
+
+    Only the 40-byte header and the color table it declares are read. Return
+    ``(width, height, stride, bottom_up)`` or refuse.
+    """
+    if chunk < _BIH.size:
         raise _refuse(path, "has a video format header cut short")
-    size, width, height, _, bits, compression, _, _, _, used, _ = _BIH.unpack_from(bih)
+    bih = _read_exact(path, fh, offset, _BIH.size)
+    size, width, height, planes, bits, compression, _, _, _, used, _ = _BIH.unpack(bih)
+    if planes != 1:
+        raise _refuse(path, f"has a video format header that declares {planes} planes, not 1")
+    if size > chunk:
+        raise _refuse(
+            path,
+            f"has a video format header that declares {size} bytes and its chunk holds {chunk}",
+        )
     if compression == _BI_RGB:
         if bits in (16, 24, 32):
             raise InvalidPixelError(
@@ -196,7 +216,9 @@ def _check_format(path: Path, bih: bytes) -> tuple[int, int, int, bool]:
             raise _refuse(path, f"stores {bits}-bit pixels")
         # The color table follows the header; with biClrUsed 0 it has all 256 entries.
         count = used or 256
-        table = bih[size : size + 4 * count] if size >= _BIH.size else b""
+        # Read only the declared table, bounded by the chunk, and not the whole chunk.
+        n = min(4 * count, chunk - size) if size >= _BIH.size else 0
+        table = _read_exact(path, fh, offset + size, n) if n > 0 else b""
         ramp = np.repeat(np.arange(256, dtype="u1"), 3).reshape(256, 3)
         # A short or odd-sized table is refused here, before it is read as 4-byte entries.
         whole = count == 256 and len(table) == 4 * count
@@ -254,7 +276,7 @@ def _children(path: Path, fh: BinaryIO, start: int, end: int) -> list[tuple[byte
     while at < end:
         if end - at < _CHUNK.size:
             raise _refuse(path, "ends inside a chunk header (an incomplete copy)")
-        cid, size = _CHUNK.unpack(_read_exact(fh, at, _CHUNK.size))
+        cid, size = _CHUNK.unpack(_read_exact(path, fh, at, _CHUNK.size))
         if at + _CHUNK.size + size > end:
             raise _refuse(path, f"ends inside its chunk {_fourcc(cid)} (an incomplete copy)")
         out.append((cid, at + _CHUNK.size, size))
@@ -263,8 +285,8 @@ def _children(path: Path, fh: BinaryIO, start: int, end: int) -> list[tuple[byte
     return out
 
 
-def _list_type(fh: BinaryIO, offset: int, size: int) -> bytes:
-    return _read_exact(fh, offset, 4) if size >= 4 else b""
+def _list_type(path: Path, fh: BinaryIO, offset: int, size: int) -> bytes:
+    return _read_exact(path, fh, offset, 4) if size >= 4 else b""
 
 
 def _find_stream(path: Path, fh: BinaryIO, hdrl: tuple[int, int]) -> _Stream:
@@ -273,7 +295,7 @@ def _find_stream(path: Path, fh: BinaryIO, hdrl: tuple[int, int]) -> _Stream:
     index = 0
     for cid, offset, size in _children(path, fh, hdrl[0] + 4, hdrl[0] + hdrl[1]):
         if cid == b"avih" and size >= 16:
-            (flags,) = struct.unpack("<I", _read_exact(fh, offset + 12, 4))
+            (flags,) = struct.unpack("<I", _read_exact(path, fh, offset + 12, 4))
             if flags & _AVIF_MUSTUSEINDEX:
                 raise _refuse(
                     path,
@@ -281,20 +303,20 @@ def _find_stream(path: Path, fh: BinaryIO, hdrl: tuple[int, int]) -> _Stream:
                     "the order of its frames, and Tether reads frames in file order",
                 )
             continue
-        if cid != b"LIST" or _list_type(fh, offset, size) != b"strl":
+        if cid != b"LIST" or _list_type(path, fh, offset, size) != b"strl":
             continue
         parts = {c: (o, s) for c, o, s in reversed(_children(path, fh, offset + 4, offset + size))}
         tag = b"%02d" % index
         index += 1
         if b"strh" not in parts or parts[b"strh"][1] < _STRH.size:
             raise _refuse(path, f"has a stream {tag.decode()} with no stream header")
-        strh = _STRH.unpack(_read_exact(fh, parts[b"strh"][0], _STRH.size))
+        strh = _STRH.unpack(_read_exact(path, fh, parts[b"strh"][0], _STRH.size))
         if strh[0] != b"vids":
             continue
         if b"strf" not in parts:
             raise _refuse(path, f"has a video stream {tag.decode()} with no format header")
         o, s = parts[b"strf"]
-        width, height, stride, bottom_up = _check_format(path, _read_exact(fh, o, s))
+        width, height, stride, bottom_up = _check_format(path, fh, o, s)
         video.append(_Stream(tag, strh[-1], width, height, stride, bottom_up))
     if not video:
         raise _refuse(path, "has no video stream")
@@ -321,7 +343,7 @@ def _collect_frames(
     frame_bytes = stream.stride * stream.height
     for cid, o, s in _children(path, fh, start, end):
         if cid == b"LIST":
-            if _list_type(fh, o, s) == b"rec ":
+            if _list_type(path, fh, o, s) == b"rec ":
                 if in_rec:
                     raise _refuse(path, "has a rec list inside another rec list")
                 _collect_frames(path, fh, stream, o + 4, o + s, offsets, in_rec=True)
@@ -356,13 +378,13 @@ def _find_layout(path: Path, fh: BinaryIO, size: int) -> _Layout:
     movis: list[tuple[int, int]] = []  # (offset, size) of each movi list
     hdrl = None
     for k, (cid, offset, length) in enumerate(riffs):
-        form = _list_type(fh, offset, length)
+        form = _list_type(path, fh, offset, length)
         if cid != b"RIFF" or form != (b"AVI " if k == 0 else b"AVIX"):
             raise _refuse(path, f"has the chunk {_fourcc(cid)} {_fourcc(form)} at the top level")
         for sub, o, s in _children(path, fh, offset + 4, offset + length):
             if sub != b"LIST":
                 continue
-            kind = _list_type(fh, o, s)
+            kind = _list_type(path, fh, o, s)
             if kind == b"hdrl" and k == 0 and hdrl is None:
                 hdrl = (o, s)
             elif kind == b"movi":
@@ -458,6 +480,9 @@ class AviMovie:
         out = np.empty((stop - start, h, w), dtype=_DTYPE)
         row = np.empty((h, layout.stride), dtype=_DTYPE)
         with self._lock:
+            # Again under the lock: a close from another thread may have run since.
+            if self._closed:
+                raise ValueError(f"AviMovie for {self._path} is closed")
             for i, offset in enumerate(layout.offsets[start:stop]):
                 self._fh.seek(int(offset))
                 if _read_into(self._fh, memoryview(row).cast("B")) != row.nbytes:
@@ -466,10 +491,11 @@ class AviMovie:
         return out
 
     def close(self) -> None:
-        """Close the file (idempotent)."""
-        if not self._closed:
-            self._closed = True
-            self._fh.close()
+        """Close the file (idempotent); a read in progress in another thread finishes first."""
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                self._fh.close()
 
     def __enter__(self) -> AviMovie:
         """Enter the context; return the source."""
