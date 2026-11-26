@@ -269,7 +269,7 @@ compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (v
 
 ### Measured traces with a per-trace vbFRET path (Marzano et al., #797)
 
-Two condition folders of measured two-colour smFRET traces by **Nicholas Marzano et al.**, each
+Two condition folders of measured two-color smFRET traces by **Nicholas Marzano et al.**, each
 trace with the per-trace vbFRET_nov12 idealization the authors analysed, under **CC-BY-4.0**
 (annotated in `REUSE.toml`, attributed in `NOTICE`; ADR-0090). Each `.dat` member has five
 columns: frame, donor, acceptor, FRET (= A / (D + A)), idealized FRET.
@@ -1164,7 +1164,7 @@ The pixel SHA-256 of the frame as sif_parser 0.3.6 reads it (rows reversed, C-or
 little-endian `float32`), `e7819391c89d539458d3d9690c08a2b0baad8771b3a612880bc407c7a1922b9d`, is in
 `tests/fixtures/sif/reference.json` (`python scripts/make_sif_reference.py c739xMagFRET_1.sif
 --digest`). The Solis TIFF is a linear 8-bit scale of the counts: after a least-squares fit, the
-frame in Tether's row order maps onto it within one grey level (correlation 0.99998), and the
+frame in Tether's row order maps onto it within one gray level (correlation 0.99998), and the
 stored row order does not (correlation 0.64). That fixes the row order. **Accessed:** 2026-11-24.
 
 ### Andor iXon movie of Chazot-Franguiadakis L (checked once, not a fixture)
@@ -1250,6 +1250,34 @@ paths agree. The frames are Tether's, so the file keeps the REUSE blanket licenc
 `tests/_sira_synth.py` writes the conformance movie and each variant at test time; nothing is
 committed. It writes the layout of `writeSiraFile.m`, offsets included. **License:**
 `GPL-3.0-or-later` (REUSE blanket).
+
+## AVI movies for the AVI adapter (#906, ADR-0154) — Tether's own frames
+
+Every file is made by `python scripts/make_avi_fixtures.py tests/fixtures/avi` from seeded frames
+(`frames()` of the script: NumPy `default_rng(906)`, 8 x 23 x 37 `uint8`; the refusal files
+`default_rng(9061)`, 2 x 8 x 16). Two readable movies and the four refusal files were written by
+**FFmpeg 6.1.1** (Ubuntu `6.1.1-3ubuntu5`); the bottom-up DIB by `tests/_avi_synth.py`, because
+FFmpeg writes no bottom-up DIB. Each reference TIFF holds the frames that **FFmpeg 6.1.1 decodes**
+from its movie (`ffmpeg -i MOVIE -f rawvideo`), an independent AVI reader, saved by **tifffile
+2026.6.1** with NumPy 2.1.3; the script stops if FFmpeg decodes other frames than were written. The
+three references are equal, as the three movies hold the same frames. **Accessed:** 2026-11-26.
+
+| Fixture | What it is | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/avi/gray_y800_37x23x8.avi` | written by FFmpeg (`rawvideo`, `gray`): FourCC `Y800`, 8 frames of 37 x 23, rows top-down and unpadded | 12,694 B | `11a776813a9578b60b6aa028051dd358e2cbe28fceb3fa0d5f0f28740898dd48` |
+| `tests/fixtures/avi/gray_y800_37x23x8_reference.tif` | its frames as FFmpeg decodes them (`-f rawvideo -pix_fmt gray`), an uncompressed `uint8` TYX TIFF | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
+| `tests/fixtures/avi/gray_dib_top_down_37x23x8.avi` | written by FFmpeg (`rawvideo`, `pal8`, the gray ramp as color table): an 8-bit `BI_RGB` DIB, negative height, rows padded to 40 bytes | 14,262 B | `961870ee28cbd27fd5f1774662e27f33e6ce9ca082d2db6538b82868ac3548d8` |
+| `tests/fixtures/avi/gray_dib_top_down_37x23x8_reference.tif` | its frames as FFmpeg decodes them (`-f rawvideo -pix_fmt pal8`, each color table checked to be the gray ramp and dropped) | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
+| `tests/fixtures/avi/gray_dib_bottom_up_37x23x8.avi` | written by `tests/_avi_synth.py`: an 8-bit `BI_RGB` DIB with the gray ramp, positive height (rows bottom-up), as ImageJ writes it | 8,808 B | `de7377a8794cc8cab00a6b91253b1e5776ad6db43f78fb0737a676044189c98f` |
+| `tests/fixtures/avi/gray_dib_bottom_up_37x23x8_reference.tif` | its frames as FFmpeg decodes them (as for the top-down DIB) | 8,226 B | `76929e41b44c96125baaf4ff657e041fc089b4291054a5143c3fcf39f0318e0a` |
+| `tests/fixtures/avi/ffv1.avi` | written by FFmpeg (`ffv1`), 2 frames of 16 x 8: refused, a lossless codec Tether does not decode | 6,126 B | `7706377904b6514ee66931323038d6681c350e86cd002183481174d67e69cd0d` |
+| `tests/fixtures/avi/mjpeg.avi` | written by FFmpeg (`mjpeg`, `yuvj420p`): refused, a codec that can be lossy | 6,392 B | `aa717995dff428259a8ed4aa3974333e3d5f54fe6fe07046e693bb1ce1f506d9` |
+| `tests/fixtures/avi/pal8_rgb332.avi` | written by FFmpeg (`rawvideo`, `pal8` from `gray`): an 8-bit DIB whose color table is the RGB 3-3-2 palette, refused | 7,014 B | `8875b7ffc939d1fce808d5d5bfc979a246dd652b9e4d89bb6ab60cc0897e8232` |
+| `tests/fixtures/avi/bgr24.avi` | written by FFmpeg (`rawvideo`, `bgr24`): 24-bit color, refused | 6,502 B | `04dae789e9e4b43c5c06ebd48fb85b807235cd7774e28b9a25e7c63589066b9c` |
+
+`tests/_avi_synth.py` writes the conformance movie and each other variant at test time. The frames
+are Tether's own, so every file keeps the REUSE blanket licence (`GPL-3.0-or-later`); FFmpeg's
+licence does not extend to its output.
 
 ## Update-verifier attestation answer and `gh` report (#333)
 

@@ -212,6 +212,11 @@ _SERIES_MARKERS: tuple[str, ...] = ("o", "s", "^", "D")
 #: one record per series, which `export_figure` writes to ``parameters.series``.
 _SERIES_ATTR = "_tether_series"
 
+#: Figure attribute a ``render_*`` helper sets when it drew a bare result that carries
+#: its own analysis provenance (the successive-frame cloud, #1418): `export_figure`
+#: writes it to ``parameters.analysis``, as a series record holds it under ``"analysis"``.
+_ANALYSIS_ATTR = "_tether_analysis"
+
 #: Array fields of a result that are parameters of the series (its grid, a smoothed
 #: transition density's interpolation ``grid`` included, its probed values, and the
 #: parameters of a model drawn with it: the Gaussian overlay's means,
@@ -541,6 +546,9 @@ def export_figure(
         record. To record more for each series (the selection, its levers, its frame
         time), pass ``parameters["series"]`` as one dict per series in a list or tuple.
         Each dict is merged into the record of its series and may not contradict it.
+        A figure drawn from a bare result that carries its own analysis provenance (the
+        successive-frame cloud) adds it under ``"analysis"``; a ``parameters["analysis"]``
+        given here may repeat it but not contradict it.
     title : str or None, optional
         The title in the document metadata. The default ``None`` uses
         ``tether_export``.
@@ -580,7 +588,8 @@ def export_figure(
         ``"png"``. A non-``None`` ``parameters["display"]`` value must be a dict and
         agree with the figure. For a named-series figure, ``parameters["series"]``
         must be ``None`` or a list or tuple with one dict per drawn series.
-        Each dict must agree with that series as drawn.
+        Each dict must agree with that series as drawn. A ``parameters["analysis"]``
+        must agree with the analysis provenance the figure records.
         ``data_csv=True`` needs a figure drawn by a ``render_*`` function.
         ``tether_export`` may not name a project export kind.
 
@@ -630,6 +639,14 @@ def export_figure(
         # A bare-result figure passes the caller's series entry through; it is held to
         # the same strict-JSON rule as the records a figure makes.
         parameters = {**parameters, "series": _finite(parameters["series"])}
+    analysis = getattr(figure, _ANALYSIS_ATTR, None)
+    if analysis is not None:
+        given = parameters.get("analysis")
+        if given is not None and _finite(given) != analysis:
+            raise ValueError(
+                "parameters['analysis'] contradicts the analysis provenance of the result drawn"
+            )
+        parameters = {**parameters, "analysis": copy.deepcopy(analysis)}
 
     stem = Path(out_stem)
     version = _app_version()
@@ -3470,6 +3487,10 @@ def render_successive_frame_cloud(
     the density surfaces. The record of each series in the provenance file also holds
     the analysis provenance of its cloud under ``"analysis"``: the analysis name, the
     Tether version and every parameter that made it, the ``molecule_key`` list included.
+    A **bare cloud** records the same analysis provenance on the figure, and
+    [`export_figure`][] writes it to the provenance file under ``parameters.analysis``,
+    so the integer ``molecule`` positions of the ``data`` table can be traced back to
+    their molecules (#1418).
 
     Parameters
     ----------
@@ -3528,6 +3549,8 @@ def render_successive_frame_cloud(
         ax.set_title(title)
         if series is not None:
             _record_series(fig, series, companions=_successive_records(series))
+        else:
+            setattr(fig, _ANALYSIS_ATTR, _finite(copy.deepcopy(one.provenance)))  # type: ignore[union-attr]
         return fig
     _require_shared_grid(series, (("density grid", lambda c: np.asarray(c.grid)),))
     surfaces = [np.asarray(c.density, dtype="float64") for _, c in series if c.density is not None]

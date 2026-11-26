@@ -746,6 +746,36 @@ def test_a_missing_movie_file_is_listed_disabled_and_said(section_shell, tmp_pat
     assert shell.status_message == "Opened m.tether — 3 molecule(s); 1 of 1 movie(s) not shown"
 
 
+def test_a_movie_pair_is_refused_by_name_not_shown_as_one_movie(section_shell, tmp_path) -> None:
+    # A project extracted from a movie pair (donor and acceptor in two files, #909) keeps
+    # one /movies row whose uri names the donor file. The panel must not show that file
+    # as one dual-channel frame with the acceptor spots on it; it says why instead (#1405).
+    import tifffile
+
+    from tether.project.extract import extract_movie
+
+    tutorial = Path(__file__).resolve().parents[1] / "docs" / "tutorial" / "data"
+    movie = tifffile.imread(tutorial / "tutorial_movie.tif")
+    half = movie.shape[2] // 2
+    donor, acceptor = tmp_path / "cam1_donor.tif", tmp_path / "cam2_acceptor.tif"
+    tifffile.imwrite(donor, np.ascontiguousarray(movie[:, :, :half]))
+    tifffile.imwrite(acceptor, np.ascontiguousarray(movie[:, :, half:]))
+    path = tmp_path / "pair.tether"
+    extract_movie(donor, path, acceptor_movie=acceptor)
+
+    shell = _open(section_shell, path)
+
+    assert shell.movie_panel is None
+    switcher = shell.movie_switcher
+    assert switcher.count() == 1
+    assert switcher.itemText(0) == (
+        "cam1_donor.tif (movie pair with cam2_acceptor.tif: "
+        "the view of a pair is not available yet)"
+    )
+    assert not switcher.model().item(0).isEnabled()
+    assert shell.status_message.endswith("; 1 of 1 movie(s) not shown"), shell.status_message
+
+
 def test_a_platform_without_gl_opens_the_project_without_a_panel(
     section_shell, tmp_path, monkeypatch
 ) -> None:

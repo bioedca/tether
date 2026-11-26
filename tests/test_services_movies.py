@@ -396,3 +396,53 @@ def test_a_movie_that_changed_after_the_read_is_refused_at_open(tmp_path) -> Non
 
     with pytest.raises(ValueError, match="m.tif cannot be opened: file changed since extraction"):
         open_project_movie(movie)
+
+
+# --- a movie pair: donor and acceptor in two files (#909, #1405) ---------------------------
+
+
+def _pair_project(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A project extracted from the tutorial movie cut at its midline into two files."""
+    tifffile = pytest.importorskip("tifffile")
+    from tether.project.extract import extract_movie
+
+    tutorial = Path(__file__).resolve().parents[1] / "docs" / "tutorial" / "data"
+    movie = tifffile.imread(tutorial / "tutorial_movie.tif")
+    half = movie.shape[2] // 2
+    donor, acceptor = tmp_path / "cam1_donor.tif", tmp_path / "cam2_acceptor.tif"
+    tifffile.imwrite(donor, np.ascontiguousarray(movie[:, :, :half]))
+    tifffile.imwrite(acceptor, np.ascontiguousarray(movie[:, :, half:]))
+    project = tmp_path / "pair.tether"
+    extract_movie(donor, project, acceptor_movie=acceptor)
+    return project, donor, acceptor
+
+
+def test_a_movie_pair_is_listed_as_not_available_and_names_the_pair(tmp_path) -> None:
+    # The panel would show only the donor file, with the acceptor spots on donor-camera
+    # pixels; a pair is refused by name instead of being shown as one dual-channel movie.
+    project, donor, _acceptor = _pair_project(tmp_path)
+
+    (movie,) = read_project_movies(project).movies
+
+    assert movie.name == donor.name
+    assert not movie.available
+    assert movie.unavailable == (
+        "movie pair with cam2_acceptor.tif: the view of a pair is not available yet"
+    )
+    with pytest.raises(ValueError, match="cam1_donor.tif cannot be opened: movie pair with"):
+        open_project_movie(movie)
+
+
+def test_a_one_file_movie_beside_the_registry_is_not_a_pair(tmp_path) -> None:
+    tifffile = pytest.importorskip("tifffile")
+    from tether.project.extract import extract_movie
+
+    tutorial = Path(__file__).resolve().parents[1] / "docs" / "tutorial" / "data"
+    movie_file = tmp_path / "one.tif"
+    tifffile.imwrite(movie_file, tifffile.imread(tutorial / "tutorial_movie.tif"))
+    project = tmp_path / "one.tether"
+    extract_movie(movie_file, project)
+
+    (movie,) = read_project_movies(project).movies
+
+    assert movie.available, movie.unavailable
