@@ -19,6 +19,11 @@ gives the install command.
 
 The environment is found through ``$TETHER_BIOFORMATS_PYTHON``, the path of its Python
 interpreter (see ``docs/install.md``, "The Bio-Formats stack").
+
+Two fixed deadlines keep a runner that stops answering from blocking Tether (#1416): a request
+that has no whole reply within **300 s** (``_REPLY_DEADLINE``) kills the runner and raises
+[`BioformatsRunnerError`][], and closing a source waits at most **10 s** (``_EXIT_WAIT``) for the
+runner to exit before it kills it, without waiting for a reply or for a request in flight.
 """
 
 from __future__ import annotations
@@ -74,8 +79,16 @@ INSTALL_HINT = (
 )
 """How to install the stack; every 'not installed' message carries it."""
 
-# Seconds to wait for the runner to exit after ``close`` before it is killed.
+# Seconds to wait for the runner to exit after ``close`` before it is killed (#1416).
 _EXIT_WAIT = 10.0
+
+# Seconds a request may wait for its whole reply, the frame bytes included, before the runner
+# is killed and the request raises BioformatsRunnerError (#1416). It covers the slowest real
+# request: the first ``open`` starts the JVM and indexes a large cellSens movie, and a ``read``
+# of one 64-frame block of such a movie decodes up to a few hundred megabytes from the ``.ets``
+# files, often over a network share. Both take seconds to a minute; five minutes leaves a wide
+# margin and still ends a runner that has stopped answering. Fixed in code, not a user setting.
+_REPLY_DEADLINE = 300.0
 
 
 class BioformatsUnavailableError(UnsupportedContainerError):
@@ -138,62 +151,111 @@ class _Runner:
         return text[-limit:].strip()
 
     def request(self, payload: dict) -> tuple[dict, bytes]:
-        """Send ``payload`` and return the reply and the bytes that follow it."""
+        """Send ``payload`` and return the reply and the bytes that follow it.
+
+        A runner that gives no whole reply within ``_REPLY_DEADLINE`` seconds is killed, and
+        the request raises [`BioformatsRunnerError`][] (#1416).
+        """
         with self._lock:
             proc = self._proc
-            # A runner that fails at start (no jar, no JVM) writes its refusal and exits
-            # before it reads a request, so a broken stdin does not mean there is no reply:
-            # read stdout either way.
-            with contextlib.suppress(BrokenPipeError, OSError, ValueError):
-                proc.stdin.write(json.dumps(payload).encode("utf-8") + b"\n")
-                proc.stdin.flush()
+            # A watchdog rather than a timed read: a pipe cannot be read with a timeout on
+            # every platform (``select`` does not take pipes on Windows). Killing the runner
+            # closes its end of the pipe, so the blocked read returns at once.
+            expired = threading.Event()
+
+            def expire() -> None:
+                expired.set()
+                with contextlib.suppress(OSError):
+                    proc.kill()
+
+            watchdog = threading.Timer(_REPLY_DEADLINE, expire)
+            watchdog.daemon = True
+            watchdog.start()
             try:
-                line = proc.stdout.readline()
-            except (OSError, ValueError):
-                line = b""
-            if not line:
-                # The pipe can close before the process is reaped (seen on Windows), so wait
-                # a bounded time for the exit status rather than read ``None`` from poll().
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    proc.wait(timeout=_EXIT_WAIT)
-                raise BioformatsRunnerError(
-                    "the Bio-Formats runner stopped without a reply "
-                    f"(exit status {proc.returncode}). Its last output: {self._stderr_tail()}"
-                )
-            try:
-                reply = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise BioformatsRunnerError(
-                    f"the Bio-Formats runner gave a bad reply: {exc}"
-                ) from exc
-            data = b""
-            if reply.get("ok") and "nbytes" in reply:
-                data = _read_exact(proc.stdout, int(reply["nbytes"]))
-            return reply, data
+                return self._exchange(proc, payload)
+            except BioformatsRunnerError as exc:
+                if expired.is_set():
+                    raise BioformatsRunnerError(
+                        f"the Bio-Formats runner gave no reply to {payload.get('op')!r} within "
+                        f"{_REPLY_DEADLINE:g} s and was stopped. "
+                        f"Its last output: {self._stderr_tail()}"
+                    ) from exc
+                raise
+            finally:
+                watchdog.cancel()
+
+    def _exchange(self, proc: subprocess.Popen, payload: dict) -> tuple[dict, bytes]:
+        # A runner that fails at start (no jar, no JVM) writes its refusal and exits
+        # before it reads a request, so a broken stdin does not mean there is no reply:
+        # read stdout either way.
+        with contextlib.suppress(BrokenPipeError, OSError, ValueError):
+            proc.stdin.write(json.dumps(payload).encode("utf-8") + b"\n")
+            proc.stdin.flush()
+        try:
+            line = proc.stdout.readline()
+        except (OSError, ValueError):
+            line = b""
+        if not line:
+            # The pipe can close before the process is reaped (seen on Windows), so wait
+            # a bounded time for the exit status rather than read ``None`` from poll().
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=_EXIT_WAIT)
+            raise BioformatsRunnerError(
+                "the Bio-Formats runner stopped without a reply "
+                f"(exit status {proc.returncode}). Its last output: {self._stderr_tail()}"
+            )
+        try:
+            reply = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise BioformatsRunnerError(f"the Bio-Formats runner gave a bad reply: {exc}") from exc
+        data = b""
+        if reply.get("ok") and "nbytes" in reply:
+            data = _read_exact(proc.stdout, int(reply["nbytes"]))
+        return reply, data
 
     def close(self) -> None:
+        """Stop the runner within a bounded time, whether or not it answers (#1416).
+
+        It neither waits for the reply to ``close`` nor for a request in flight: it asks the
+        runner to stop only if no request holds the pipe, waits ``_EXIT_WAIT`` seconds for it
+        to exit, and kills it if it has not. A request in flight then sees its pipe close and
+        raises [`BioformatsRunnerError`][].
+        """
         proc = self._proc
-        if proc.poll() is None:
-            with contextlib.suppress(BioformatsRunnerError):
-                self.request({"op": "close"})
-            try:
-                proc.wait(timeout=_EXIT_WAIT)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-        for stream in (proc.stdin, proc.stdout):
-            if stream is not None:
-                # Closing a pipe whose reader has died flushes into a broken pipe, which
-                # Windows reports as EINVAL; the process is gone either way.
-                with contextlib.suppress(OSError):
-                    stream.close()
-        self._stderr.close()
+        locked = self._lock.acquire(blocking=False)
+        try:
+            if proc.poll() is None:
+                if locked:
+                    # Closing stdin after ``close`` is an end of input too, which the runner
+                    # also takes as the end. The reply is not read: it fits the pipe buffer.
+                    with contextlib.suppress(BrokenPipeError, OSError, ValueError):
+                        proc.stdin.write(b'{"op": "close"}\n')
+                        proc.stdin.flush()
+                        proc.stdin.close()
+                try:
+                    proc.wait(timeout=_EXIT_WAIT)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            for stream in (proc.stdin, proc.stdout):
+                if stream is not None:
+                    # Closing a pipe whose reader has died flushes into a broken pipe, which
+                    # Windows reports as EINVAL; the process is gone either way.
+                    with contextlib.suppress(OSError):
+                        stream.close()
+            self._stderr.close()
+        finally:
+            if locked:
+                self._lock.release()
 
 
 def _read_exact(stream, n: int) -> bytes:
     chunks, got = [], 0
     while got < n:
-        chunk = stream.read(n - got)
+        try:
+            chunk = stream.read(n - got)
+        except (OSError, ValueError):
+            chunk = b""
         if not chunk:
             raise BioformatsRunnerError(
                 f"the Bio-Formats runner stopped after {got} of {n} frame bytes"
