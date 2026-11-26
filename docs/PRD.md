@@ -1287,7 +1287,9 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   **No synthetic-data simulator is shipped** (N2). Oracles (a) and (b) compare against real labeled fixtures, and
   the headline leg of (c) against the kinSoftChallenge benchmark. Oracles (d), (e) and (g) also use synthesized
   known-truth inputs, which N2 allows in tests; §9.5 says what those inputs establish, and §9.6 carries the
-  real-data legs that no ADR accepts.
+  real-data legs that no ADR accepts. Together the seven oracles are **the validation suite**, defined in
+  [`docs/validation.md`](validation.md#the-validation-suite) with each oracle's tier, enforcing test, fixture and
+  §11.2 tolerance.
 - **NFR-FIXTURES — Test fixtures.** Because the lab holds redistribution rights, a small cropped UCKOPSB movie
   slice + a few molecules are committed for unit/CI; a **redistributable ≥ 50-molecule curated SMD**
   (`example-data/tmaven-model/model-source-smd-281mol.hdf5` — the 281-molecule population that
@@ -1424,7 +1426,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
 | **Packaging & pre-release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog) is proven end to end on pre-release `v1.0.0-rcN` tags, which skip the docs publish by design; the versioned docs site deploys through a manual `docs.yml` dispatch; and ADR-0010's deferred standalone-tMAVEN GUI leg is discharged, since that ADR makes it part of M9 acceptance (met: [cross-OS record](maintainers/standalone-tmaven-cross-os-record.md), #543). No stable tag is cut by this row. | M9 |
-| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite (§9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly, including the docs deploy that pre-release tags skip. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
+| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite ([`docs/validation.md`](validation.md#the-validation-suite), summarized in §9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly, including the docs deploy that pre-release tags skip. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
 
 ### 9.4 Fixture policy
 
@@ -1454,14 +1456,14 @@ that table, which would drift.
 
 The seven validation oracles (a)–(g) of §8 NFR-VALID are, together, **the validation suite** that §9.3's *Stable release
 acceptance* bar and §12.10 require to "run end to end". **This table is a summary, not a second definition.** The
-suite's tier table lives in [`docs/validation.md`](validation.md#how-to-read-the-tiers), which also transcribes each
-oracle's enforcing tests and measured numbers; where the two differ, `docs/validation.md` governs. Making that table
-the normative definition, with the fixture column harvested here from the retired ledger's §2.3 (oracle → fixture →
-tolerance), is release-acceptance work owned by its GitHub milestone.
+suite is defined in [`docs/validation.md`](validation.md#the-validation-suite): its tier table, its four groups (every
+pull request; the gated, large and deep tiers; forced for the tag; recorded manual runs for the tag) and, for each
+oracle, the tier, the enforcing test, the fixture and the §11.2 tolerance. The page also transcribes each oracle's
+measured numbers; where the two differ, `docs/validation.md` governs.
 
 | Oracle | What it checks | Headline assertion runs in | Also on the required matrix | Fixture | Tolerance and evidence artifact | Standing |
 |---|---|---|---|---|---|---|
-| **(a)** Extraction vs Deep-LASI | recall, donor intensity Pearson, registration RMS | `large` — the headline leg **skips on every runner** (the ≈ 0.9 GB movie is on none), so its numbers come from a local run of the enforcing test `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb` with `TETHER_UCKOPSB_DIR` set, which supplies the `.tdat` detector settings and the 2 px gate (recorded in ADR-0022; `scripts/run_m1_oracle.py` reproduces the same configuration as a one-shot report, [#555](https://github.com/bioedca/tether/issues/555)) | scorer unit tests, the committed 4-molecule slice, the registration RMS gate (`tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance`; the headline run imports the `.tmap`, so its RMS is not applicable) | UCKOPSB pair (gated full movie + committed slice) | the §9.2 extraction gate (reframed — ADR-0022); constants in `src/tether/project/oracle.py` | gate; evidence is a recorded run until a runner holds the movie |
+| **(a)** Extraction vs Deep-LASI | recall, donor intensity Pearson, registration RMS | `workstation` — the ≈ 0.9 GB movie is on no runner, so the scheduled task on the maintainer's workstation runs the enforcing test `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb` ([ADR-0071](adr/0071-private-data-checks-run-from-a-workstation-task.md), [#699](https://github.com/bioedca/tether/issues/699)); the first numbers came from a local run of the same test with `TETHER_UCKOPSB_DIR` set, which supplies the `.tdat` detector settings and the 2 px gate (recorded in ADR-0022; `scripts/run_m1_oracle.py` reproduces the same configuration as a one-shot report, [#555](https://github.com/bioedca/tether/issues/555)) | scorer unit tests, the committed 4-molecule slice, the registration RMS gate (`tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance`; the headline run imports the `.tmap`, so its RMS is not applicable) | UCKOPSB pair (gated full movie + committed slice) | the §9.2 extraction gate (reframed — ADR-0022); constants in `src/tether/project/oracle.py` | gate; evidence is a recorded run until a runner holds the movie |
 | **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO; transition matrix (consensus VB-HMM, ebFRET) | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043; `$.transition_matrix`, ADR-0110); per-trace vbFRET is not yet evidenced (§9.6); the ebFRET gate fits two fixed seeds, so it gives one answer per commit ([#311](https://github.com/bioedca/tether/issues/311), ADR-0075) | gate |
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential and leave-one-video-out precision@k uplift over file order, median across videos (ADR-0114) | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`, for both protocols; the real-video uplift leg is withheld, no curated labelled set exists (ADR-0114, §9.6) | gate on the prequential protocol; the real-data leg is *not yet met* |
@@ -1481,7 +1483,7 @@ so §9.6 carries it as not yet validated on real data.
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
 recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
 produced at, a forced full `sidecar` run on the release commit so the path filter cannot report a pass without
-fitting, and the recorded local run for (a)) is release-acceptance work owned by the same milestone. Oracle (b)
+fitting, and the recorded local run for (a)) is release-acceptance work owned by the release-acceptance milestone. Oracle (b)
 binds only once [#311](https://github.com/bioedca/tether/issues/311) is closed, with the ebFRET band made
 deterministic or re-derived and never widened to fit (the observed miss was Viterbi 0.7568 against the frozen 0.9034
 floor), and the gate is shown green on consecutive runs on one commit; a single passing fit cannot be cherry-picked. A change to an
@@ -1651,6 +1653,9 @@ this section.
 - **Aggregation** of global correction factors defaults to the population **median**.
 
 ### 11.2 Default parameter values
+
+The rows that are tolerances of the validation oracles (a)–(g) of §8 NFR-VALID are mapped to their oracle, tier,
+enforcing test and fixture in [`docs/validation.md`](validation.md#the-validation-suite).
 
 | Parameter | Default | Source / rationale |
 |---|---|---|
@@ -2081,8 +2086,9 @@ merged into the base lock and is exercised in a **separate job** so the base sta
 
 **3-OS matrix.** `os: [ubuntu-latest, macos-latest, windows-latest]` × **one pinned Python** (the lock's version,
 inside Numba's supported window — §4.1). Note `macos-latest` runners are now Apple Silicon (**arm64**), so
-`osx-arm64` is the CI-exercised mac platform; `osx-64` (Intel mac) is **locked-but-not-CI-tested** unless a
-`macos-13` leg is added. Under pin-and-hold the matrix is "tested-against" on a single Python, not
+`osx-arm64` is the CI-exercised mac platform; `osx-64` (Intel mac) is **not on the required matrix**: its installer
+is built and install-smoked on `macos-15-intel` (the `macos-13` runners are retired) by the advisory `packaging.yml`
+and the tag-triggered `release.yml`, a decision recorded in [`docs/validation.md`](validation.md#the-validation-suite). Under pin-and-hold the matrix is "tested-against" on a single Python, not
 a range; a "next-Python readiness" canary, if ever wanted, is added as a **non-required** `allow-failure` leg, not
 a second required pin.
 

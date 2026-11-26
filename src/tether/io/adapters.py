@@ -21,8 +21,9 @@ built-in adapters, TIFF ([`tether.io.movie.TIFF_ADAPTER`][]), then CZI
 ([`tether.io.nd2.ND2_ADAPTER`][], ADR-0148), SIF
 ([`tether.io.sif.SIF_ADAPTER`][], ADR-0150), cellSens VSI
 ([`tether.io.bioformats.BIOFORMATS_ADAPTER`][], the optional Bio-Formats stack of
-ADR-0147) and SIRA ([`tether.io.sira.SIRA_ADAPTER`][], ADR-0152), are registered the
-first time the registry is read. ADR-0113 records the interface and the rule by which a
+ADR-0147), SIRA ([`tether.io.sira.SIRA_ADAPTER`][], ADR-0152) and AVI
+([`tether.io.avi.AVI_ADAPTER`][], ADR-0154), are registered the first time the registry
+is read. ADR-0113 records the interface and the rule by which a
 reader package can enter the base lock.
 """
 
@@ -245,6 +246,7 @@ def _ensure_builtins() -> None:
     with _LOCK:
         if _BUILTINS_LOADED:
             return
+        from tether.io.avi import AVI_ADAPTER
         from tether.io.bioformats import BIOFORMATS_ADAPTER
         from tether.io.czi import CZI_ADAPTER
         from tether.io.movie import TIFF_ADAPTER
@@ -263,6 +265,7 @@ def _ensure_builtins() -> None:
                 SIF_ADAPTER,
                 BIOFORMATS_ADAPTER,
                 SIRA_ADAPTER,
+                AVI_ADAPTER,
             ):
                 _register(adapter)
         except BaseException:
