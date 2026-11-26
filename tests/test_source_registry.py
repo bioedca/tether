@@ -672,3 +672,90 @@ def test_the_check_never_opens_the_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(builtins, "open", no_open)
     with pytest.raises(S.SourceReplaced):
         digest.check_path(path)
+
+
+def _vsi_project(tmp_path: Path, *, movie_sha: str = ""):
+    """A project whose movie is ``movie.vsi`` with one ``.ets`` frame file beside it (#1429)."""
+    movie = tmp_path / "movie.vsi"
+    movie.write_bytes(_MOVIE_BYTES)
+    ets = tmp_path / "_movie_" / "stack1" / "frame_t.ets"
+    ets.parent.mkdir(parents=True)
+    ets.write_bytes(b"frames, first acquisition")
+    donor = np.ones((3, 20))
+    project, _ = build_store_with_channels(tmp_path, donor, donor, uri="movie.vsi")
+    with h5py.File(project.path, "r+") as f:
+        table = f["movies"]["table"][:]
+        table["sha256"][0] = movie_sha
+        table["file_size"][0] = len(_MOVIE_BYTES)
+        f["movies"]["table"][:] = table
+    return project, movie, ets
+
+
+@pytest.mark.parametrize("change", ["none", "changed", "removed", "added"])
+@pytest.mark.parametrize("writer", ["relink", "checksum job"])
+def test_a_frame_file_changed_after_the_read_is_not_stored(
+    tmp_path, monkeypatch, writer, change
+) -> None:
+    """A ``.vsi`` checksum covers its ``.ets`` files, so the write checks them again (#1429)."""
+    project, movie, ets = _vsi_project(tmp_path)
+    sha = S.file_sha256(movie).sha256
+    if writer == "relink":
+        with h5py.File(project.path, "r+") as f:
+            table = f["movies"]["table"][:]
+            table["sha256"][0] = sha
+            f["movies"]["table"][:] = table
+    read = S.file_sha256
+
+    def read_then_change(path, **kwargs):
+        digest = read(path, **kwargs)
+        if change == "changed":
+            _replace_once(ets, b"frames, changed after the read")()
+        elif change == "removed":
+            ets.unlink()
+        elif change == "added":
+            (ets.parent / "frame_u.ets").write_bytes(b"another frame file")
+        return digest
+
+    monkeypatch.setattr(S, "file_sha256", read_then_change)
+    project.acquire_lock()
+    try:
+        before = project.path.read_bytes()
+        if writer == "relink":
+            if change == "none":
+                record = S.relink_source(project, "movie:mov-1", movie)
+                assert record.file_size == len(_MOVIE_BYTES)  # the .vsi file's own size
+            else:
+                with pytest.raises(S.SourceReplaced):
+                    S.relink_source(project, "movie:mov-1", movie)
+                assert project.path.read_bytes() == before
+        else:
+            out = run_checksum_job(project, submit_checksum_job(project).job_id)
+            refused = out.state is jobs.JobState.FAILED and "SourceReplaced" in out.error
+            assert refused is (change != "none")
+    finally:
+        project.release_lock()
+    stored = S.read_sources(project.path)[0]
+    assert stored.checksum_calculated is (change == "none")
+    if change == "none":
+        assert stored.sha256 == sha
+
+
+def test_the_frame_file_check_never_opens_a_file(tmp_path, monkeypatch) -> None:
+    """The ``.ets`` files are only stat'ed by the check, as the ``.vsi`` file is (#1429)."""
+    import builtins  # noqa: PLC0415
+
+    _, movie, ets = _vsi_project(tmp_path)
+    digest = S.file_sha256(movie)
+    assert digest.size == len(_MOVIE_BYTES)
+
+    def no_open(*_: object, **__: object) -> None:
+        raise AssertionError("the check opened a file")
+
+    monkeypatch.setattr(builtins, "open", no_open)
+    digest.check_path(movie)  # unchanged: accepted without an open
+    monkeypatch.undo()
+    later = os.stat(ets).st_mtime_ns + 2_000_000_000
+    os.utime(ets, ns=(later, later))  # same bytes, later time: a write into the file
+    monkeypatch.setattr(builtins, "open", no_open)
+    with pytest.raises(S.SourceReplaced):
+        digest.check_path(movie)
