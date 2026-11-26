@@ -20,7 +20,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +86,7 @@ class Request:
     head: str
     message: str
     joined: int  # the committer time of the request commit, in seconds since the epoch
+    commit: str = field(default="", compare=False)  # the request commit itself
 
 
 @dataclass(frozen=True)
@@ -386,7 +387,8 @@ def read_requests(git: Git) -> list[Request]:
         parents, joined, message = shown.split("\x00", 2)
         if not number.isdigit() or len(parents.split()) != 1:
             raise QueueError(f"{ref} is not a merge-queue request (one parent, numeric name)")
-        requests.append(Request(int(number), parents.strip(), message.rstrip("\n"), int(joined)))
+        request = Request(int(number), parents.strip(), message.rstrip("\n"), int(joined), commit)
+        requests.append(request)
     return sorted(requests, key=lambda r: (r.joined, r.pr))
 
 
@@ -622,8 +624,8 @@ def _pass(
         remove(github, front, removal_comment(front, failed=raw[0][1]))
         report["removed"].append({"pr": front.pr, "reason": "failed-checks"})
         return True
-    if github.request_commit(front.pr) is None:
-        return True  # it left after this pass read the requests; build again without it
+    if github.request_commit(front.pr) != request.commit:
+        return True  # it left or rejoined after this pass read the requests; build again
     github.set_status(front.head, "success", "its candidate passed every required check")
     title = f"{(pulls[front.pr] or {}).get('title') or 'merge queue'} (#{front.pr})"
     merged, said = github.merge(front.pr, front.head, title, request.message)

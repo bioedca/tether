@@ -886,3 +886,24 @@ def test_the_on_mode_command_prints_what_it_merged(
 
     assert [m["pr"] for m in json.loads(capsys.readouterr().out)["merged"]] == [1]
     assert "Merged: #1" in summary.read_text(encoding="utf-8")
+
+
+def test_a_rejoin_during_the_run_merges_the_new_request_and_not_the_old(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head = world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+    read, raced = world.github.check_runs, []
+
+    def rejoin_then_read(commit: str) -> list:
+        if not raced:  # a leave and a rejoin land after the pass read the requests
+            raced.append(mq.leave(world.github, 1))
+            mq.join(world.github, 1, head, "the replacement message")
+        return read(commit)
+
+    monkeypatch.setattr(world.github, "check_runs", rejoin_then_read)
+    run_on(world)
+
+    ((_, _, payload),) = world.merged
+    assert payload["commit_message"] == "the replacement message"
