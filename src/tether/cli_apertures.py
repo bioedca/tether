@@ -76,6 +76,23 @@ def add_apertures_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("--overwrite", action="store_true", help="replace existing outputs")
 
 
+def _input_overwritten(outputs: list[Path], args: argparse.Namespace) -> str | None:
+    """Return the refusal when an output is one of the inputs, ``None`` otherwise.
+
+    The movie, the profile and the registration file are checked, by path and as a hard
+    link, as ``tether export`` checks its source project. ``--overwrite`` does not lift it:
+    a report must never replace the raw movie it reviews.
+    """
+    from tether.cli_export import _is_source
+
+    inputs = [args.movie, args.profile, args.map_path, args.tmap]
+    for out in outputs:
+        for source in (Path(p) for p in inputs if p):
+            if _is_source(source, out):
+                return f"output {out} is the input {source}; refusing to overwrite it"
+    return None
+
+
 def run_apertures(args: argparse.Namespace) -> int:
     """Handle ``tether apertures``; return the exit code."""
     import dataclasses
@@ -84,6 +101,10 @@ def run_apertures(args: argparse.Namespace) -> int:
     from tether.services.apertures import review_movie, write_report
 
     outputs = [Path(args.json)] + ([Path(args.png)] if args.png else [])
+    refused = _input_overwritten(outputs, args)
+    if refused is not None:
+        print(f"tether apertures: {refused}", file=sys.stderr)
+        return 2
     existing = [str(p) for p in outputs if p.exists()]
     if existing and not args.overwrite:
         print(f"tether apertures: {', '.join(existing)} exists; pass --overwrite", file=sys.stderr)

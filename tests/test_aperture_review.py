@@ -191,3 +191,53 @@ def test_tether_apertures_is_a_subcommand(tmp_path, movie) -> None:
     out = tmp_path / "main.json"
     assert main(["apertures", str(movie), "--json", str(out), "--disk-radius", "5"]) == 0
     assert json.loads(out.read_text())["counts"]["at_edge"] == 1
+
+
+@pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
+def test_an_output_that_names_an_input_is_refused_even_with_overwrite(
+    tmp_path, movie, alias
+) -> None:
+    import os
+
+    before = movie.read_bytes()
+    target = movie
+    if alias == "symlink":
+        target = tmp_path / "link.tif"
+        target.symlink_to(movie)
+    elif alias == "hardlink":
+        target = tmp_path / "hard.tif"
+        os.link(movie, target)
+    for flag in ("--json", "--png"):
+        other = "--png" if flag == "--json" else "--json"
+        argv = [str(movie), flag, str(target), other, str(tmp_path / f"x{flag}")]
+        assert _cli([*argv, "--overwrite"]) == 2
+    assert movie.read_bytes() == before
+
+
+def test_an_output_that_names_the_profile_is_refused(tmp_path, movie) -> None:
+    from tether.services.profile import ExtractionProfile, write_profile
+
+    profile = tmp_path / "profile.json"
+    write_profile(ExtractionProfile.from_options(_OPTIONS), profile)
+    before = profile.read_bytes()
+    argv = [str(movie), "--json", str(profile), "--profile", str(profile), "--overwrite"]
+    assert _cli(argv) == 2
+    assert profile.read_bytes() == before
+
+
+def test_the_mean_frame_is_reduced_without_a_float64_copy_of_the_movie(tmp_path) -> None:
+    import tracemalloc
+
+    from tether.services.apertures import _mean_frame
+
+    shape = (400, 64, 96)  # a float64 copy would be about 19.7 MB
+    data = np.lib.format.open_memmap(tmp_path / "m.npy", mode="w+", dtype="<u2", shape=shape)
+    data[:] = np.arange(shape[0], dtype="<u2")[:, None, None]
+    data.flush()
+    tracemalloc.start()
+    frame = _mean_frame(data)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert frame.dtype == np.float32 and frame.shape == shape[1:]
+    np.testing.assert_allclose(frame, (shape[0] - 1) / 2)
+    assert peak < 4_000_000, peak

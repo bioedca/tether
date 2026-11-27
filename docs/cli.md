@@ -1825,7 +1825,7 @@ tether apertures [-h] --json FILE [--png FILE] [--profile FILE] [--map FILE | --
 | `--ring-inner PX` | the profile's | The inner radius of the background ring. |
 | `--ring-outer PX` | the profile's | The outer radius of the background ring. |
 | `--molecule N` | none | A molecule whose preview traces the report carries. Give it again for more. |
-| `--overwrite` | off | Replace an existing report. Without it the command refuses. |
+| `--overwrite` | off | Replace an existing report. Without it the command refuses. An output that is one of the inputs (the movie, the profile or the map file, also through a link) is refused even with it. |
 
 For example:
 

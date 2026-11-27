@@ -250,15 +250,24 @@ def review_movie(
     movie is closed before this returns. Raises ``ValueError`` when the preview stops before
     the traces, and what ``run_preview`` raises for inputs it cannot read.
     """
-    import numpy as np
-
     from tether.services.preview import run_preview
 
     reader, preview = run_preview(movie, options, tmap=tmap, map_path=map_path)
     with reader:
-        frame = np.asarray(reader.data, dtype=np.float64).mean(axis=0).astype(np.float32)
+        frame = _mean_frame(reader.data)
         review = build_review(preview, frame.shape, movie=Path(movie).name)
     return review, frame
+
+
+def _mean_frame(data: np.ndarray) -> np.ndarray:
+    """Return the mean of every frame of ``data``, as ``float32``.
+
+    The sum is accumulated in ``float64`` by the reduction itself, a buffer at a time, so the
+    movie (a memory map, for a TIFF) is never copied whole into ``float64``.
+    """
+    import numpy as np
+
+    return np.mean(data, axis=0, dtype=np.float64).astype(np.float32)
 
 
 def _jsonable(value: Any) -> Any:
