@@ -172,7 +172,8 @@ print(f"{result.n_manual} molecules corrected with the values you supplied")
 
 The `condition_id` is the one printed by step 1. A project with one condition may leave it
 out. In a project with several, a value with no `condition_id` is refused. So a factor
-measured on one sample never reaches another.
+measured on one sample never reaches another. A value you supplied earlier for another
+condition stays as it was.
 
 Molecules corrected this way are marked `manual` in `correction_method`. So a reader of the
 project can tell a supplied factor from an estimated one.

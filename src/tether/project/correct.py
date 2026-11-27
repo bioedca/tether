@@ -61,7 +61,10 @@ applies to **the condition the caller names** with ``condition_id``: it is writt
 staleness hash keys on) and the molecule is stamped [`METHOD_MANUAL`][]; the other
 conditions keep their estimated factors. Where the pass examines one condition only,
 ``condition_id`` may be left out and the override applies to it, as before #624; with
-several conditions an override that names none is refused. The finer per-molecule
+several conditions an override that names none is refused. A condition whose molecules
+carry a manual factor from an earlier pass keeps it, stamped [`METHOD_MANUAL`][] with its
+recorded factors and sources, when a later pass supplies one for another condition; a pass
+with no override at all stamps them [`METHOD_CORRECTED`][] as before #624. The finer per-molecule
 fallback scope of a γ override (re-stale fallback molecules only; PRD §5.1) is deferred
 to the staleness-flagging PR, which persists own-vs-fallback γ. ``apparent_e_only``
 takes precedence over an override (an explicit request to view apparent E wins).
@@ -327,6 +330,13 @@ def compute_corrected_fret(
             n_molecules += 1
             # A manual factor applies to its condition only (#624).
             applies = has_override and ids[i] == target
+            # A manual factor supplied earlier for another condition stays manual under a
+            # pass that supplies one for this condition: a pass names one condition (#624).
+            keeps_manual = (
+                has_override
+                and not applies
+                and _text(table["correction_method"][i]) == METHOD_MANUAL
+            )
 
             # Effective applied factors: a manual override replaces the stored factor
             # (and is persisted below so /molecules stays the source of the applied
@@ -350,12 +360,12 @@ def compute_corrected_fret(
                 method, confidence = METHOD_APPARENT_UNAVAILABLE, _CONFIDENCE_APPARENT
                 n_apparent += 1
                 counts[ids[i]][2] += 1
-            elif applies:
+            elif applies or keeps_manual:
                 method, confidence = METHOD_MANUAL, _CONFIDENCE_CORRECTED
                 # Persist the manual factor as the effective applied factor.
-                if alpha_override is not None:
+                if applies and alpha_override is not None:
                     table["alpha"][i] = alpha_override
-                if gamma_override is not None:
+                if applies and gamma_override is not None:
                     table["gamma"][i] = gamma_override
                 n_manual += 1
                 counts[ids[i]][1] += 1
@@ -439,7 +449,16 @@ def _condition_corrections(
     gamma_override: float | None,
     apparent_e_only: bool,
 ) -> list[ConditionCorrection]:
-    """Return each condition's applied factors and counts, for the provenance (#624)."""
+    """Return each condition's applied factors and counts, for the provenance (#624).
+
+    A condition other than ``target`` whose molecules kept a manual factor from an earlier
+    pass keeps that pass's record of it: its factors and sources come from the
+    ``/settings/correction`` this pass replaces, else from the factors its rows carry.
+    """
+    previous = {
+        str(c["condition_id"]): c
+        for c in read_conditions(f[_SETTINGS].get(_CORRECTION_SETTINGS)) or []  # type: ignore[index]
+    }
     gamma_grp = f[_SETTINGS].get("gamma")  # type: ignore[index]
     stamped = read_conditions(gamma_grp)
     if stamped is not None:
@@ -464,6 +483,8 @@ def _condition_corrections(
             gamma = finite_or_none(median) if median is not None else None
             gamma_source = "estimated" if gamma is not None else None
         corrected, n_manual, apparent = counts[cond]
+        if n_manual and not manual:
+            alpha, gamma, alpha_source, gamma_source = _kept_manual(table, rows, previous.get(cond))
         out.append(
             ConditionCorrection(
                 condition_id=cond,
@@ -479,6 +500,32 @@ def _condition_corrections(
             )
         )
     return out
+
+
+def _kept_manual(
+    table: np.ndarray, rows: list[int], previous: dict[str, object] | None
+) -> tuple[float | None, float | None, str | None, str | None]:
+    """Return the factors and sources of a condition that kept an earlier manual factor."""
+    if previous is not None and "manual" in (
+        previous.get("alpha_source"),
+        previous.get("gamma_source"),
+    ):
+        return (
+            finite_or_none(previous.get("alpha")),  # type: ignore[arg-type]
+            finite_or_none(previous.get("gamma")),  # type: ignore[arg-type]
+            previous.get("alpha_source"),  # type: ignore[return-value]
+            previous.get("gamma_source"),  # type: ignore[return-value]
+        )
+    # No record of the earlier pass: the factors its molecules carry, marked manual.
+    found = []
+    for name in ("alpha", "gamma"):
+        values = np.unique(np.asarray(table[name][rows], dtype=np.float64))
+        found.append(finite_or_none(values[0]) if values.size == 1 else None)
+    return found[0], found[1], "manual", "manual"
+
+
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
 def _rows_of_movie(table: np.ndarray, movie_id: str | None) -> np.ndarray:

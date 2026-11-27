@@ -273,3 +273,29 @@ def test_a_missing_alpha_outside_a_withheld_condition_is_still_an_error(tmp_path
         f["molecules"][TABLE][:] = table
     with pytest.raises(ValueError, match="row 3"):
         compute_gamma(path)
+
+
+def test_a_second_conditions_manual_factor_keeps_the_first_ones(tmp_path: Path) -> None:
+    # Codex P1 on #1486: one condition per call, so a manual factor for cond-B must not
+    # relabel cond-A's earlier manual factors as estimated or drop their provenance.
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+    compute_corrected_fret(path, alpha_override=0.05, gamma_override=2.0, condition_id="cond-A")
+    summary = compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+
+    table = read_molecules(path)
+    methods = _text(table["correction_method"])
+    assert methods == [METHOD_MANUAL] * 24
+    assert summary.n_manual == 24 and summary.n_corrected == 0
+    assert np.all(table["alpha"][:12] == 0.05) and np.all(table["gamma"][:12] == 2.0)
+    assert np.all(table["gamma"][12:] == 0.9)
+    correction = _conditions(path, "correction")
+    assert correction["cond-A"]["alpha"] == 0.05 and correction["cond-A"]["gamma"] == 2.0
+    assert correction["cond-A"]["alpha_source"] == "manual"
+    assert correction["cond-A"]["gamma_source"] == "manual"
+    assert correction["cond-A"]["n_manual"] == 12
+    # cond-B: its estimated α stays estimated, its γ is the one supplied now.
+    assert correction["cond-B"]["alpha_source"] == "estimated"
+    assert correction["cond-B"]["gamma"] == 0.9 and correction["cond-B"]["gamma_source"] == "manual"
