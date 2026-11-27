@@ -40,7 +40,7 @@ from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tether import __version__
+import tether
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -292,7 +292,7 @@ def report_dict(review: ApertureReview, molecules: Iterable[int] = ()) -> dict[s
     return {
         "format": REPORT_FORMAT,
         "version": REPORT_VERSION,
-        "tether_version": __version__,
+        "tether_version": tether.__version__,
         "movie": review.movie,
         "frame": "mean of all frames",
         "frame_shape": list(review.frame_shape),

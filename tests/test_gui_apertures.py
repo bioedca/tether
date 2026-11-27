@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Apertures and background tab of the Prepare page (#922), headless.
+"""The Apertures and background view of the Prepare page (#922), headless.
 
 The tab reviews the movie and the options of the extraction page on a background worker:
 it draws two apertures per spot, shows the counts of the spots at an edge and of the
@@ -64,13 +64,11 @@ def _wait(qtbot, tab) -> None:
 
 @pytest.mark.gui
 @needs_qt
-def test_the_tab_is_part_of_the_prepare_page(page) -> None:
-    tabs = page.tabs
-    assert [tabs.tabText(i) for i in range(tabs.count())] == [
-        "&Stages",
-        "&Apertures and background",
-    ]
-    assert tabs.widget(1) is page.apertures.widget
+def test_the_view_is_part_of_the_prepare_page(page) -> None:
+    assert page.view_names == ["&Stages", "&Apertures and background"]
+    assert page.views.currentIndex() == 0
+    page.show_view(1)
+    assert page.views.currentWidget() is page.apertures.widget
     assert page.apertures.last_review is None and page.apertures.n_drawn == 0
 
 

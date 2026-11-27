@@ -222,10 +222,10 @@ each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1
 
 ### Check the apertures before the run
 
-The **Apertures and background** tab of the same page reviews the apertures before you
+The **Apertures and background** view of the same page reviews the apertures before you
 extract. It uses the movie and the options on the left. Nothing is written to a project.
 
-1. Click **Review apertures**. The review runs in the background, and the window stays usable.
+1. Click **Apertures and background** above the stage table. Then click **Review apertures**. The review runs in the background, and the window stays usable.
 2. Look at the frame. It is the mean of all frames of the movie. Each spot has a solid circle,
    its signal aperture of `disk_radius`. Two dotted circles show its background ring, from
    `ring_inner` to `ring_outer`. Each spot is drawn twice: at the donor spot, and where the
@@ -239,7 +239,7 @@ extract. It uses the movie and the options on the left. Nothing is written to a 
    - **Grey** is a spot with no acceptor partner. The `partner-in-both` rule skips it.
 4. Select molecules in the list to see their preview traces, donor and acceptor. A preview
    trace is the trace the run gives that molecule.
-5. Change an option, for example `disk_radius`, and press Enter. The tab reviews the movie
+5. Change an option, for example `disk_radius`, and press Enter. The view reviews the movie
    again.
 6. Click **Save report…** to write the report. The JSON file has the options, the counts, every
    spot and the traces of the selected molecules. The PNG shows the frame with the apertures.

@@ -1801,7 +1801,7 @@ projects and exits `1`.
 ## `tether apertures`
 
 Write the aperture and background report of one movie before the run. It is the report that
-the **Apertures and background** tab of the Prepare page saves
+the **Apertures and background** view of the Prepare page saves
 ([Check the apertures before the run](how-to/extract-traces.md#check-the-apertures-before-the-run)).
 The command previews the movie as the extraction would run it. It writes nothing to a project.
 It calls the same two functions as the page. So for the same inputs the two write the same files.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The Apertures and background page of the Prepare section (#922; PRD §7.1 FR-EXTRACT).
 
-[`ApertureSection`][] is a tab of the extraction page
+[`ApertureSection`][] is a view of the extraction page
 ([`ExtractionSection`][tether.gui.extraction.ExtractionSection]). It reads the movie, the
 registration source and the options of that page, and **Review apertures** runs
 [`review_movie`][tether.services.apertures.review_movie] on a background worker, so the window
@@ -111,7 +111,6 @@ class ApertureSection:
         self._review_button = QtWidgets.QPushButton("&Review apertures")
         self._review_button.clicked.connect(self.review)
         self._save_button = QtWidgets.QPushButton("&Save report…")
-        self._save_button.setEnabled(False)
         self._save_button.clicked.connect(self._save_dialog)
         buttons.addWidget(self._review_button)
         buttons.addWidget(self._save_button)
@@ -156,7 +155,7 @@ class ApertureSection:
 
     @property
     def widget(self) -> Any:
-        """The page: the ``QWidget`` the extraction page shows as a tab."""
+        """The page: the ``QWidget`` the extraction page shows as its second view."""
         return self._widget
 
     @property
@@ -254,7 +253,6 @@ class ApertureSection:
             item.clear()
         self._spot_list.clear()
         self._trace_plot.clear()
-        self._save_button.setEnabled(False)
 
     def _show(self, review: ApertureReview, frame: np.ndarray) -> None:
         import numpy as np
@@ -291,18 +289,21 @@ class ApertureSection:
             self._spot_list.addItem(item)
             item.setSelected(spot.molecule in selected)
         self._spot_list.blockSignals(False)
-        self._save_button.setEnabled(True)
         self._show_traces()
 
     def _show_traces(self) -> None:
         self._trace_plot.clear()
         if self._review is None:
             return
+        from tether.gui import theme
+
+        active = theme.current()
         self._trace_plot.addLegend()
         for molecule in self.selected_molecules():
             trace = aperture_service.preview_trace(self._review, molecule)
-            for channel, color in (("donor", (60, 200, 90)), ("acceptor", (220, 60, 60))):
-                self._trace_plot.plot(trace[channel], pen=color, name=f"{molecule} {channel}")
+            for channel in ("donor", "acceptor"):
+                pen = active.trace(channel)
+                self._trace_plot.plot(trace[channel], pen=pen, name=f"{molecule} {channel}")
 
     # --- the report ---------------------------------------------------------------
 
@@ -323,6 +324,10 @@ class ApertureSection:
 
     def _save_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         from pyqtgraph.Qt import QtWidgets
+
+        if self._review is None:
+            self._status("Save report unavailable: review the apertures first")
+            return
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self._window, "Aperture report", "apertures.json", "Aperture report (*.json)"
