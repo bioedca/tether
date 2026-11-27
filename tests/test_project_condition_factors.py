@@ -619,3 +619,23 @@ def test_a_movie_scoped_pass_keeps_the_record_of_the_conditions_other_movies(
     assert methods[:6] == [METHOD_MANUAL] * 6
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 6)
+
+
+def test_a_later_override_that_reaches_the_rest_of_a_condition_keeps_its_manual_alpha(
+    tmp_path: Path,
+) -> None:
+    # Codex (closing review) on #1486: a manual α reaches 11 of cond-A's 12 molecules; a
+    # later γ override makes the 12th manual too, with its own α. The 11 still carry the
+    # manual α, so the record keeps it.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["gamma"][0] = np.nan
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, alpha_override=0.05, condition_id="cond-A")
+    compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-A")
+    assert _text(read_molecules(path)["correction_method"][:12]) == [METHOD_MANUAL] * 12
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
+    assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 12)

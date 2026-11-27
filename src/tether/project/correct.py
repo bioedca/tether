@@ -334,6 +334,13 @@ def compute_corrected_fret(
         held = {
             cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in recorded.items()
         }
+        # The molecules that carried an earlier manual factor into this pass.
+        was_manual = {
+            r
+            for rows in recorded.values()
+            for r in rows
+            if _text(table["correction_method"][r]) == METHOD_MANUAL
+        }
 
         for i in examined:
             n_molecules += 1
@@ -398,10 +405,12 @@ def compute_corrected_fret(
         for cond, rows in recorded.items():
             for r in rows[len(groups[cond]) :]:
                 counts[cond][_COUNT_SLOT[_text(table["correction_method"][r])]] += 1
-        # The record keeps a manual factor that the molecules stamped manual carry after this
-        # pass; a molecule this pass moved to apparent E no longer counts against it.
+        # The record keeps a manual factor that the molecules which brought it into this pass
+        # still carry. A molecule this pass moved to apparent E no longer counts against it, and
+        # nor does one this pass first made manual, which carries a factor of its own.
         held = {
-            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in recorded.items()
+            cond: _held_manual(table, [r for r in rows if r in was_manual], previous.get(cond))
+            for cond, rows in recorded.items()
         }
         per_condition = _condition_corrections(
             f,
