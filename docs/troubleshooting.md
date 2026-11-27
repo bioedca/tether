@@ -579,9 +579,10 @@ the destination, and removes that file when it stops.
 A write can also fail part way, for example on a full disk. The menu then moves the file and
 its provenance file into place together. If either move fails, it puts the previous pair back.
 If putting a file back fails too, the previous file stays beside the destination under its
-temporary name. That name starts with a dot and the destination's name. `tether export` and a
-script call the function directly. If its write fails part way, the data file can be left
-without its provenance file.
+temporary name. That name starts with a dot and the destination's name.
+
+`tether export` and a script call the function directly. If its write fails part way, the
+data file can be left without its provenance file.
 
 **What to do.**
 
