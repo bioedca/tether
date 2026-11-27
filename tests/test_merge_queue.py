@@ -181,9 +181,11 @@ class World:
                 return 502, b"{}"
             self.comments.append((int(found[1]), payload["body"]))
             return 201, b"{}"
-        if method == "GET" and (found := re.fullmatch(r"/issues/(\d+)/comments\?.*", path)):
+        if method == "GET" and (found := re.fullmatch(r"/issues/(\d+)/comments\?(.*)", path)):
+            query = dict(part.split("=", 1) for part in found[2].split("&"))
+            size, page = int(query["per_page"]), int(query["page"])
             bodies = [{"body": body} for number, body in self.comments if number == int(found[1])]
-            return 200, json.dumps(bodies).encode()
+            return 200, json.dumps(bodies[(page - 1) * size : page * size]).encode()
         if method == "POST" and (found := re.fullmatch(r"/issues/(\d+)/labels", path)):
             self.labels.add(int(found[1]))
             return 200, b"[]"
@@ -1106,3 +1108,14 @@ def test_a_ref_update_that_fails_for_another_reason_is_an_error(world: World) ->
 
     with pytest.raises(mq.QueueError):
         mq.take(world.git, request, mq.REMOVE)
+
+
+@pytest.mark.parametrize(("count", "tagged"), [(1000, None), (1050, 1049)], ids=["1000", "page-11"])
+def test_the_comment_lookup_reads_every_page(world: World, count: int, tagged: int | None) -> None:
+    world.comments = [
+        (1, f"comment {i}" + (" <!-- tag -->" if i == tagged else "")) for i in range(count)
+    ]
+
+    assert world.github.commented(1, "<!-- tag -->") is (tagged is not None)
+    pages = [p for m, p in world.calls if m == "GET" and "/comments?" in p]
+    assert len(pages) == count // 100 + 1

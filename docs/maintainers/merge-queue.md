@@ -94,7 +94,7 @@ title is `<pull request title> (#N)` and the message is the squash message of th
 after the join makes GitHub refuse.
 
 Then the queue deletes the candidate, takes the label off and deletes the pending ref. When the
-merge call fails with an error, so that GitHub neither merged nor refused, the pending ref stays.
+merge call fails with an error, the queue cannot tell whether GitHub merged, so the pending ref stays.
 The next run asks GitHub whether the pull request merged. If it did not, the run puts the request
 back in its place in the train.
 
@@ -200,9 +200,11 @@ a fork.
    `git ls-remote origin 'refs/heads/mq/*'`, then `git push origin --delete mq/pr-N` for each.
    Delete the requests the same way (`git push origin --delete refs/merge-queue/pr-N`) to empty the
    queue, and take the label `merge-queue` off the pull requests. A pending ref
-   (`refs/merge-queue/pending/pr-N`) is a merge or removal that a run did not finish. Its commit
-   message is the removal comment. Before you delete one, check that the comment is on the pull
-   request, because nothing writes it once the ref is gone.
+   (`refs/merge-queue/pending/pr-N`) is a merge or removal that a run did not finish, and the
+   first line of its commit message says which. For a removal, the rest of the message is the
+   comment, if it has one. Check that the comment is on the pull request before you delete the
+   ref, because nothing writes it once the ref is gone. For a merge, check whether the pull
+   request merged. If it did not, you can join it again after you delete the ref.
 
 ## Maintainer setup
 

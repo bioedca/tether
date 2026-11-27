@@ -265,15 +265,16 @@ class GitHub:
         return sha
 
     def commented(self, number: int, text: str) -> bool:
-        """Return whether a comment on ``number`` contains ``text``."""
-        for page in range(1, 11):
+        """Return whether a comment on ``number`` contains ``text``, reading every page."""
+        page = 1
+        while True:
             path = f"/issues/{number}/comments?per_page=100&page={page}"
             listed = self._call("GET", path, expect=list)[1]
             if any(isinstance(c, dict) and text in str(c.get("body") or "") for c in listed):
                 return True
             if len(listed) < 100:
                 return False
-        raise QueueError(f"#{number} has more comments than the queue reads")
+            page += 1
 
     def merge(self, number: int, head: str, title: str, message: str) -> tuple[str | None, str]:
         """Squash-merge ``number`` pinned to ``head``: ``(new main commit, "")``, or ``(None,
