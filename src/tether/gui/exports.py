@@ -58,10 +58,10 @@ _FILTER: dict[ExportKind, str] = {
 class ExportDialog:
     """The dialog of one export: the destination and the options its function takes.
 
-    *molecule_key* is the molecule selected in the window, or ``None``. For the Deep-LASI
-    export, "Only the movie of the selected molecule" then scopes the file to that movie, as
-    a project of movies of different lengths needs. **Export** is disabled while the
-    destination is empty.
+    *molecule* is the molecule selected in the window as ``(row, molecule_key)``, its
+    ``/molecules`` row and key, or ``None``. For the Deep-LASI export, "Only the movie of the
+    selected molecule" then scopes the file to that movie, as a project of movies of
+    different lengths needs. **Export** is disabled while the destination is empty.
     """
 
     def __init__(
@@ -69,13 +69,13 @@ class ExportDialog:
         kind: ExportKind,
         project_path: str | os.PathLike[str],
         *,
-        molecule_key: str | None = None,
+        molecule: tuple[int, str] | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._kind = kind
-        self._molecule_key = molecule_key
+        self._molecule = molecule
         dialog = QtWidgets.QDialog(parent)
         dialog.setWindowTitle(TITLES[kind])
         self._dialog = dialog
@@ -100,7 +100,7 @@ class ExportDialog:
             "A trace file has one frame axis. A project of movies of different lengths is "
             "exported one movie at a time."
         )
-        self._movie_only.setEnabled(molecule_key is not None)
+        self._movie_only.setEnabled(molecule is not None)
         self._include_raw = QtWidgets.QCheckBox("Include raw traces")
         self._replace_names = QtWidgets.QCheckBox("Replace curator names")
         self._alias = QtWidgets.QLineEdit(DEFAULT_CURATOR_ALIAS)
@@ -186,7 +186,7 @@ class ExportDialog:
                 self._alias.text() if subset and self._replace_names.isChecked() else None
             ),
             movie_of=(
-                self._molecule_key
+                self._molecule
                 if self._kind is ExportKind.TRACES and self._movie_only.isChecked()
                 else None
             ),

@@ -178,7 +178,8 @@ def test_the_traces_of_the_selected_molecules_movie(qtbot, shell, tmp_path):
         qtbot, shell, ExportKind.TRACES, out, movie_only=True, include_rejected=True
     )
     assert enabled["movie_only"]
-    assert request.movie_of == keys[shell.molecule_list.currentRow()]
+    row = shell.molecule_list.currentRow()
+    assert request.movie_of == (row, keys[row])
     reference = tmp_path / "reference.txt"
     export_deeplasi_txt(project, reference, molecule_keys=keys, include_rejected=True)
     assert out.read_bytes() == reference.read_bytes()
@@ -349,3 +350,55 @@ def test_an_export_replaces_the_previous_pair_and_leaves_nothing_else(tmp_path):
         "molecules.csv",
         "molecules.csv.provenance.json",
     ]
+
+
+def test_a_movie_whose_key_names_a_molecule_of_another_movie_is_refused(tmp_path, monkeypatch):
+    import numpy as np
+
+    import tether.imaging.extract as extract_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    project = _project(tmp_path)
+    # Two movies share the key "k": selecting it in m2 must not bring m1's row in.
+    table = np.array(
+        [(b"k", b"m1"), (b"j", b"m2"), (b"k", b"m2")],
+        dtype=[("molecule_key", "S1"), ("movie_id", "S2")],
+    )
+    monkeypatch.setattr(extract_module, "read_molecules", lambda _path: table)
+    out = tmp_path / "m2.txt"
+    request = ExportRequest(ExportKind.TRACES, out, include_rejected=True, movie_of=(2, "k"))
+    with pytest.raises(ValueError, match=r"\['k'\] of movie 'm2' also name molecules"):
+        run_export(project, request)
+    stale = ExportRequest(ExportKind.TRACES, out, include_rejected=True, movie_of=(1, "k"))
+    with pytest.raises(ValueError, match="is not row 1 of the project"):
+        run_export(project, stale)
+    assert not out.exists()
+
+
+def test_a_subset_is_refused_onto_a_project_another_writer_holds(tmp_path):
+    from tether.project.lock import LockedError, acquire, release
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    before = other.read_bytes()
+    held = acquire(other)  # another writer has project B open
+    try:
+        request = ExportRequest(ExportKind.SUBSET, other, include_rejected=False)
+        with pytest.raises(LockedError, match="is locked"):
+            run_export(project, request)
+    finally:
+        release(other, held)
+
+    def files() -> list[str]:
+        # The lock's own guard file stays beside a project once it was locked.
+        return sorted(p.name for p in other.parent.iterdir() if p.suffix != ".guard")
+
+    assert other.read_bytes() == before
+    assert files() == ["movie.tether"]
+    # With no writer holding it, the subset replaces it.
+    result = run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    assert result.n_molecules == 2
+    assert files() == ["movie.tether", "movie.tether.provenance.json"]

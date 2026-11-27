@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tether.project.export import ExportResult
 
 __all__ = [
@@ -74,8 +76,10 @@ DEFAULT_CURATOR_ALIAS = "curator"
 class ExportRequest:
     """The arguments of one export, as the dialog chose them.
 
-    ``movie_of`` is a ``molecule_key``: when set, the Deep-LASI export takes the molecules of
-    that molecule's movie, as ``molecule_keys``. ``curator_alias`` is the subset's
+    ``movie_of`` is the selected molecule as ``(row, molecule_key)``, its ``/molecules`` row
+    and the key the window shows for it: when set, the Deep-LASI export takes the molecules
+    of that row's movie, as ``molecule_keys``. The row names the movie, since a
+    ``molecule_key`` is not unique (§7.10). ``curator_alias`` is the subset's
     ``curator_alias`` (``None`` keeps the names).
     """
 
@@ -84,7 +88,7 @@ class ExportRequest:
     include_rejected: bool
     include_raw: bool = False
     curator_alias: str | None = None
-    movie_of: str | None = None
+    movie_of: tuple[int, str] | None = None
 
 
 def default_destination(kind: ExportKind, project_path: str | os.PathLike[str]) -> Path:
@@ -113,17 +117,39 @@ def _text(value: object) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
-def _movie_keys(project_path: Path, molecule_key: str) -> list[str]:
-    """Return the ``molecule_key`` of each molecule of the movie of ``molecule_key``."""
+def _movie_keys(project_path: Path, row: int, molecule_key: str) -> list[str]:
+    """Return the ``molecule_key`` of each molecule of the movie of ``/molecules`` row ``row``.
+
+    The export function selects by ``molecule_key``, which is not unique (§7.10): a key
+    the movie shares with a molecule of another movie would bring that molecule in too.
+    Such a movie is refused rather than exported with another movie's rows.
+
+    Raises
+    ------
+    ValueError
+        If ``row`` is not the molecule ``molecule_key`` (the project changed), or a key of
+        the movie also names a molecule of another movie.
+    """
     from tether.imaging.extract import read_molecules
 
     molecules = read_molecules(project_path)
     keys = [_text(k) for k in molecules["molecule_key"]]
     movies = [_text(m) for m in molecules["movie_id"]]
-    if molecule_key not in keys:
-        raise KeyError(f"no molecule with molecule_key(s) {[molecule_key]} in the store")
-    movie = movies[keys.index(molecule_key)]
-    return [k for k, m in zip(keys, movies, strict=True) if m == movie]
+    if not 0 <= row < len(keys) or keys[row] != molecule_key:
+        raise ValueError(
+            f"the selected molecule {molecule_key!r} is not row {row} of the project; "
+            "open the project again"
+        )
+    movie = movies[row]
+    chosen = [k for k, m in zip(keys, movies, strict=True) if m == movie]
+    elsewhere = {k for k, m in zip(keys, movies, strict=True) if m != movie}
+    shared = sorted(set(chosen) & elsewhere)
+    if shared:
+        raise ValueError(
+            f"molecule_key(s) {shared} of movie {movie!r} also name molecules of another "
+            "movie, so the trace file cannot hold this movie alone"
+        )
+    return chosen
 
 
 def _call(request: ExportRequest, project_path: Path, out_path: Path) -> ExportResult:
@@ -138,7 +164,7 @@ def _call(request: ExportRequest, project_path: Path, out_path: Path) -> ExportR
             project_path, out_path, include_rejected=request.include_rejected
         )
     if request.kind is ExportKind.TRACES:
-        keys = None if request.movie_of is None else _movie_keys(project_path, request.movie_of)
+        keys = None if request.movie_of is None else _movie_keys(project_path, *request.movie_of)
         return export_deeplasi_txt(
             project_path,
             out_path,
@@ -172,6 +198,9 @@ def run_export(
 
     Raises
     ------
+    LockedError
+        For a subset, when another writer holds the destination project
+        ([`publish_lock`][tether.project.lock.publish_lock]).
     ValueError, KeyError, FileExistsError, OSError
         As the export function raises them, and ``ValueError`` when the destination is the
         project itself
@@ -199,7 +228,15 @@ def run_export(
         result = _call(request, project, staged)
         if cancel is not None:
             cancel.raise_if_cancelled()
-        _publish([(staged, out_path), (staged_provenance, provenance)], staged)
+        moves = [(staged, out_path), (staged_provenance, provenance)]
+        if request.kind is ExportKind.SUBSET:
+            # The destination is a project: another writer may hold it (ADR-0112).
+            from tether.project.lock import publish_lock
+
+            with publish_lock(out_path) as guard:
+                _publish(moves, staged, guard=guard)
+        else:
+            _publish(moves, staged)
     except BaseException:
         for leftover in (staged, staged_provenance):
             with contextlib.suppress(FileNotFoundError):
@@ -208,13 +245,19 @@ def run_export(
     return ExportResult(path=out_path, provenance_path=provenance, n_molecules=result.n_molecules)
 
 
-def _publish(moves: list[tuple[Path, Path]], staged: Path) -> None:
+def _publish(
+    moves: list[tuple[Path, Path]], staged: Path, *, guard: Callable[[], None] | None = None
+) -> None:
     """Move each staged file onto its destination, all of them or none.
 
     The files already at the destinations are set aside first, under names beside the
     staged file. When a move fails, the files moved so far are removed and the previous
     ones are put back, so a failed export leaves the destination pair as it was: never new
     data with stale provenance, and never a lost previous export.
+
+    ``guard`` is the check of the destination project's
+    [`publish_lock`][tether.project.lock.publish_lock]: it runs before anything moves, and
+    the project's identity record follows the replace of the first move.
     """
     kept: list[tuple[Path, Path]] = []
     placed: list[Path] = []
@@ -224,8 +267,16 @@ def _publish(moves: list[tuple[Path, Path]], staged: Path) -> None:
                 aside = staged.with_name(f"{staged.name}.previous-{i}")
                 os.replace(target, aside)
                 kept.append((aside, target))
-        for source, target in moves:
-            os.replace(source, target)
+        if guard is not None:
+            guard()
+        for i, (source, target) in enumerate(moves):
+            if guard is not None and i == 0:
+                from tether.project.lock import replacement_identity
+
+                with replacement_identity(source, target):
+                    os.replace(source, target)
+            else:
+                os.replace(source, target)
             placed.append(target)
     except BaseException:
         for target in placed:

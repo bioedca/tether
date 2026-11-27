@@ -561,16 +561,25 @@ the fallback. [Staleness](glossary.md#staleness-stale-fresh-live) explains the r
 
 **What you see.** After **File → Export**, the status bar names the export, then `failed:` and
 the message of the export function, unchanged. `tether export` and a Python script give the
-same message. The common ones:
+same message for the first four. The common ones:
 
 ```text
 Export the traces for Deep-LASI failed: no molecules selected to export (empty selection, or every match rejected with include_rejected=False)
 Export the traces for Deep-LASI failed: selected molecules span multiple frame ranges [(0, 500), (0, 800)] (movies of differing length); a Deep-LASI .txt has a single shared frame axis — scope the export to one movie via molecule_keys
 Export a subset project failed: subset out_path …/movie.tether is the source project; refusing to overwrite
 Export a subset project failed: source /patches is missing the 'donor' channel; cannot export a curatable movie-less subset
+Export a subset project failed: …/shared.tether.lock is locked: held by …
+Export the traces for Deep-LASI failed: molecule_key(s) ['…'] of movie 'mov-2' also name molecules of another movie, so the trace file cannot hold this movie alone
 ```
 
-**What it means.** The export wrote nothing: no file and no provenance file.
+**What it means.** These messages come before anything is written, so there is no new file
+and no new provenance file.
+
+A write can also fail part way, for example on a full disk. The menu then keeps the
+destination as it was. It writes under a temporary name and moves the file and its provenance
+file into place together. If either move fails, it puts the previous pair back. `tether
+export` and a script call the function directly. If its write fails part way, the data file
+can be left without its provenance file.
 
 **What to do.**
 
@@ -582,9 +591,16 @@ Export a subset project failed: source /patches is missing the 'donor' channel; 
 4. **`/patches is missing`.** The project was imported for analysis only, so it has no image
    crops. Export the molecule table and the traces instead
    ([Export results](how-to/export-results.md#export-a-subset-project)).
+5. **`is locked`.** The destination is a project that is open, in this window or elsewhere.
+   Close it there, or choose another destination
+   ([The project is locked](#the-project-is-locked-by-another-user-or-machine)).
+6. **`also name molecules of another movie`.** Two movies share a `molecule_key`, so the trace
+   file cannot be limited to one of them. Export a subset project of that movie first, then
+   export its traces ([Export results](how-to/export-results.md#export-the-traces-for-deep-lasi)).
 
 **Why.** The menu calls the same function as `tether export`, so it refuses what the function
-refuses. It writes under a temporary name and moves the files into place only at the end.
+refuses. It also refuses two cases of its own. It does not replace a project that another
+writer holds. It does not mix molecules of two movies into one trace file.
 
 ### The project will not open
 

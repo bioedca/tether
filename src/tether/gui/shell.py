@@ -4489,9 +4489,11 @@ class TetherShell:
             return None
         if self._export_dialog is not None:
             self._export_dialog.dialog.close()
+        # The list holds one row for each /molecules row, in store order.
         row = self._molecule_list.currentRow()
         key = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
-        dialog = ExportDialog(kind, self._project_path, molecule_key=key, parent=self._window)
+        molecule = None if key is None else (row, key)
+        dialog = ExportDialog(kind, self._project_path, molecule=molecule, parent=self._window)
         self._export_dialog = dialog
 
         # A finished dialog is deleted: a hidden one can stay the active window (offscreen).
