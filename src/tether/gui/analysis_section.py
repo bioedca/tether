@@ -25,6 +25,18 @@ back through ``open-composition`` to the same layer list (#1438,
 [`tether.services.compositions`][]). A series whose project or molecules cannot be found is
 named under the buttons and left out of the layer list; nothing is drawn from a guess.
 
+**Stale fits** (#375, ADR-0124). A plot that reads an idealization model leaves out each
+series' molecules whose fit is stale — whose inputs changed since the fit — by default. Each
+row of the layer list then carries a badge beside the series' name, *"2 stale excluded
+(inputs changed since the fit)"*, so a smaller N is never unexplained. *Include stale fits in
+the selected series* is the explicit opt-out, one series at a time; the row then says
+*"includes 2 stale"*, and
+[`PlotOutcome.export_parameters`][tether.services.plots.PlotOutcome.export_parameters] records
+the choice for that series in an export's provenance. The model-Gaussian overlay over
+a series with stale members is drawn with a warning above the figure: its curves are the
+model's own fit, stale molecules included. The choice is not saved in a composition file
+(version 1); an opened composition draws every series with its stale fits left out.
+
 When the plot cannot be drawn the preview shows why — no project, no series, no
 idealization model, a state the model does not have, or the refusal of the population
 function or the renderer — and never a placeholder result.
@@ -36,6 +48,7 @@ canvas on the first draw, so importing this module costs neither. Constructing a
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -95,12 +108,26 @@ def _same_file(a: str | PathLike[str], b: str | PathLike[str]) -> bool:
         return os.path.normcase(Path(a).resolve()) == os.path.normcase(Path(b).resolve())
 
 
+def _n_molecules(result: Any) -> int | None:
+    """Return the N of one series' result (the histogram's, under the model Gaussians), if known."""
+    if isinstance(result, tuple):
+        result = result[0]
+    n = getattr(result, "n_molecules", None)
+    return None if n is None else int(n)
+
+
 def _drawn_message(outcome: PlotOutcome) -> str:
-    """Return the status line after a draw: the plot, then each series with its N if known."""
+    """Return the status line after a draw: the plot, then each series with its N if known.
+
+    A series that left out stale fits, or drew them, says so beside its N (#375).
+    """
+    badges = {entry.label: entry.badge() for entry in outcome.staleness}
     parts = []
     for label, result in outcome.results:
-        n = getattr(result, "n_molecules", None)
-        parts.append(label if n is None else f"{label}: {n} molecule(s)")
+        n = _n_molecules(result)
+        part = label if n is None else f"{label}: {n} molecule(s)"
+        badge = badges.get(label)
+        parts.append(part if badge is None else f"{part}, {badge}")
     return f"{plot_spec(outcome.plot_id).title} — {'; '.join(parts)}"
 
 
@@ -171,6 +198,13 @@ class AnalysisSection:
         self._remove_button = QtWidgets.QPushButton("Remove")
         buttons.addWidget(self._remove_button)
         form.addLayout(buttons)
+        self._stale_box = QtWidgets.QCheckBox("Include stale fits in the selected series")
+        self._stale_box.setObjectName("analysis-include-stale")
+        self._stale_box.setToolTip(
+            "Stale fits are left out by default: their inputs changed since the fit. "
+            "Including them is recorded in the export's provenance."
+        )
+        form.addWidget(self._stale_box)
 
         files = QtWidgets.QHBoxLayout()
         self._save_button = QtWidgets.QPushButton("Save composition…")
@@ -184,6 +218,14 @@ class AnalysisSection:
         form.addWidget(self._notice)
         row.addWidget(controls)
 
+        figure_side = QtWidgets.QWidget()
+        figure_column = QtWidgets.QVBoxLayout(figure_side)
+        figure_column.setContentsMargins(0, 0, 0, 0)
+        self._stale_warning = QtWidgets.QLabel()
+        self._stale_warning.setObjectName("analysis-stale-warning")
+        self._stale_warning.setWordWrap(True)
+        self._stale_warning.setVisible(False)
+        figure_column.addWidget(self._stale_warning)
         self._preview = QtWidgets.QStackedWidget()
         self._empty = QtWidgets.QLabel()
         self._empty.setObjectName("analysis-empty")
@@ -194,7 +236,8 @@ class AnalysisSection:
         self._canvas_layout = QtWidgets.QVBoxLayout(self._canvas_host)
         self._canvas_layout.setContentsMargins(0, 0, 0, 0)
         self._preview.addWidget(self._canvas_host)
-        row.addWidget(self._preview, 1)
+        figure_column.addWidget(self._preview, 1)
+        row.addWidget(figure_side, 1)
 
         self._plot_combo.currentIndexChanged.connect(self._on_plot_changed)
         self._model_combo.currentIndexChanged.connect(lambda _i: self.refresh())
@@ -205,6 +248,7 @@ class AnalysisSection:
         self._save_button.clicked.connect(lambda _c=False: self._ask_save())
         self._open_button.clicked.connect(lambda _c=False: self._ask_open())
         self._layers.currentRowChanged.connect(lambda _r: self._sync_buttons())
+        self._stale_box.clicked.connect(self._on_stale_clicked)
         self._add_menu.aboutToShow.connect(self._rebuild_add_menu)
 
         self._sync_plot_controls()
@@ -252,6 +296,21 @@ class AnalysisSection:
     def remove_button(self) -> QtWidgets.QPushButton:
         """Removes the selected series from the layer list."""
         return self._remove_button
+
+    @property
+    def stale_box(self) -> QtWidgets.QCheckBox:
+        """*Include stale fits in the selected series*: the per-series opt-out (#375).
+
+        Shown for a plot that reads a model, and checked when the selected series draws its
+        stale fits. It stays enabled (no disabled control without a declared requirement,
+        #898): with no series selected, a click changes nothing and says to select one.
+        """
+        return self._stale_box
+
+    @property
+    def stale_warning_text(self) -> str | None:
+        """The warning above the figure (the overlay over stale fits), or ``None``."""
+        return self._stale_warning.text() if self._outcome.warnings else None
 
     @property
     def save_button(self) -> QtWidgets.QPushButton:
@@ -350,7 +409,7 @@ class AnalysisSection:
         keeps a distinct name on the figure and in the export.
         """
         label = _unique(series.label, {s.label for s in self._series})
-        added = PlotSeries(label, series.selection)
+        added = replace(series, label=label)
         self._series.append(added)
         self._layers.addItem(label)
         self._layers.setCurrentRow(len(self._series) - 1)
@@ -363,6 +422,17 @@ class AnalysisSection:
         self._layers.takeItem(index)
         self.refresh()
         return removed
+
+    def set_include_stale(self, index: int, include: bool) -> PlotSeries:
+        """Draw the series at ``index`` with (``True``) or without its stale fits, and return it.
+
+        The opt-out of #375: the default leaves a series' stale fits out, and keeping them
+        is a choice of that one series, which an export's provenance records.
+        """
+        changed = replace(self._series[index], include_stale=bool(include))
+        self._series[index] = changed
+        self.refresh()
+        return changed
 
     def remove_selected(self) -> PlotSeries | None:
         """Take the selected series out (the *Remove* button); ``None`` when none is selected."""
@@ -402,7 +472,13 @@ class AnalysisSection:
         except ServiceError as exc:
             self._notice.setText(f"The composition was not saved: {exc}")
             return None
-        self._notice.setText(f"Saved the composition to {result.path.name}.")
+        message = f"Saved the composition to {result.path.name}."
+        if spec.needs_model and any(s.include_stale for s in self._series):
+            message += (
+                " The file does not keep the choice to include stale fits: "
+                "it opens with them left out."
+            )
+        self._notice.setText(message)
         return result
 
     def open_composition(self, path: str | PathLike[str]) -> OpenCompositionResult | None:
@@ -542,6 +618,9 @@ class AnalysisSection:
             previous.setParent(None)
             previous.deleteLater()
         self._outcome = outcome
+        self._stale_warning.setText("\n".join(outcome.warnings))
+        self._stale_warning.setVisible(bool(outcome.warnings))
+        self._sync_layer_texts()
         self._sync_buttons()
         if announce and self._status is not None and outcome.drawn:
             self._status(_drawn_message(outcome))
@@ -557,6 +636,7 @@ class AnalysisSection:
         spec = plot_spec(self.plot_id)
         self._model_label.setVisible(spec.needs_model)
         self._model_combo.setVisible(spec.needs_model)
+        self._stale_box.setVisible(spec.needs_model)
         defaults = spec.state_defaults()
         for name, box in self._state_boxes.items():
             shown = name in defaults
@@ -566,7 +646,32 @@ class AnalysisSection:
     def _sync_buttons(self) -> None:
         has_project = self._project is not None
         self._add_button.setEnabled(has_project)
-        self._remove_button.setEnabled(0 <= self._layers.currentRow() < len(self._series))
+        row = self._layers.currentRow()
+        selected = 0 <= row < len(self._series)
+        self._remove_button.setEnabled(selected)
+        blocker = self._stale_box.blockSignals(True)
+        self._stale_box.setChecked(selected and self._series[row].include_stale)
+        self._stale_box.blockSignals(blocker)
+
+    def _sync_layer_texts(self) -> None:
+        """Write each layer row: the series' name, then its stale badge when it has one."""
+        badges = {entry.label: entry.badge() for entry in self._outcome.staleness}
+        for row, series in enumerate(self._series):
+            item = self._layers.item(row)
+            if item is None:
+                continue
+            badge = badges.get(series.label)
+            item.setText(series.label if badge is None else f"{series.label} — {badge}")
+
+    def _on_stale_clicked(self, checked: bool) -> None:
+        row = self._layers.currentRow()
+        if 0 <= row < len(self._series):
+            self.set_include_stale(row, checked)
+            return
+        blocker = self._stale_box.blockSignals(True)
+        self._stale_box.setChecked(False)
+        self._stale_box.blockSignals(blocker)
+        self._notice.setText("Select a series in the layer list to include its stale fits.")
 
     def _unpin_model(self, _index: int) -> None:
         """Release the opened composition's model: a person chose one."""
