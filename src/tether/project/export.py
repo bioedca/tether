@@ -67,6 +67,7 @@ __all__ = [
     "export_deeplasi_txt",
     "export_molecule_table_csv",
     "export_subset_tether",
+    "refuse_source_destination",
     "write_provenance_sidecar",
 ]
 
@@ -1028,6 +1029,32 @@ def _preflight_source(src: object, n_molecules: int, include_raw: bool) -> None:
             )
 
 
+def refuse_source_destination(
+    project: Project | str | os.PathLike[str],
+    out_path: str | os.PathLike[str],
+    *,
+    what: str = "subset out_path",
+) -> None:
+    """Raise when ``out_path`` is the source project itself.
+
+    The check covers a hard-linked alias (the same inode), which ``resolve()`` does not
+    catch but an atomic ``os.replace`` onto it would truncate. ``what`` names the
+    destination in the message; [`export_subset_tether`][] uses the default.
+
+    Raises
+    ------
+    ValueError
+        If ``out_path`` is the source project.
+    """
+    path = _project_path(project)
+    out_path = Path(out_path)
+    same_file = out_path.resolve() == path.resolve()
+    if out_path.exists():
+        same_file = same_file or out_path.samefile(path)
+    if same_file:
+        raise ValueError(f"{what} {out_path} is the source project; refusing to overwrite")
+
+
 def export_subset_tether(
     project: Project | str | os.PathLike[str],
     out_path: str | os.PathLike[str],
@@ -1141,13 +1168,7 @@ def export_subset_tether(
     path = _project_path(project)
     assert_is_compatible_project(path)
     out_path = Path(out_path)
-    # Refuse to write over the source — including a hard-linked alias (same inode),
-    # which resolve() does not catch but the atomic os.replace below would truncate.
-    same_file = out_path.resolve() == path.resolve()
-    if out_path.exists():
-        same_file = same_file or out_path.samefile(path)
-    if same_file:
-        raise ValueError(f"subset out_path {out_path} is the source project; refusing to overwrite")
+    refuse_source_destination(path, out_path)
     if out_path.exists() and not overwrite:
         # Enforced here (not via create_project's w- mode) because the subset is staged
         # to a temp sibling and atomically moved into place — os.replace always clobbers.

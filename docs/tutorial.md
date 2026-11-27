@@ -227,38 +227,20 @@ To go back to the traces, choose **View → Section → Curate and correct**.
 
 ## 9. Export the molecule table
 
-The commands below use the default install folders. If you chose another folder, use that
-folder instead.
+The project stays open in the application for this step.
 
-1. Close the Tether application window.
-2. In the same `tether-tutorial` folder, start the Python that came with Tether. Use the line
-   for your system.
+1. Choose **File → Export → Molecule table (CSV)…**.
+2. The **Destination** box proposes `tutorial.csv`, in the `tether-tutorial` folder beside the
+   project. Keep it. To choose another place, click **Browse…**.
+3. Clear **Include rejected molecules**, so the table leaves out the molecule that you
+   rejected.
+4. Click **Export**.
 
-```bash
-~/tether/envs/tether/bin/python     # Linux
-~/Tether/envs/tether/bin/python     # macOS
+The status bar reads:
+
+```text
+Exported 2 molecule(s) -> tutorial.csv
 ```
-
-```powershell
-& "$env:USERPROFILE\Tether\envs\tether\python.exe"
-```
-
-In the Tether Command Prompt on Windows, the line is:
-
-```bat
-"%USERPROFILE%\Tether\envs\tether\python.exe"
-```
-
-At the `>>>` prompt, type these three lines:
-
-```pycon
->>> from tether.project.export import export_molecule_table_csv
->>> result = export_molecule_table_csv("tutorial.tether", "tutorial.csv", include_rejected=False)
->>> result.n_molecules
-2
-```
-
-Type `exit()` to leave Python.
 
 Your folder now holds two new files:
 

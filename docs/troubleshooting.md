@@ -42,6 +42,7 @@ file, with the result that confirms the entry.
 | `run compute_photobleach() before …`, or a similar `ValueError` | [A correction step refuses: run something else first](#a-correction-step-refuses-run-something-else-first) |
 | A `key=` query or overlay that returns no molecules | [A condition query or per-condition overlay returns nothing](#a-condition-query-or-per-condition-overlay-returns-nothing) |
 | A plot with fewer molecules than you curated | [A plot shows fewer molecules than you curated](#a-plot-shows-fewer-molecules-than-you-curated) |
+| `Export the … failed: <msg>` in the status bar | [An export stops with a message](#an-export-stops-with-a-message) |
 | `Open project failed: <msg>` | [The project will not open](#the-project-will-not-open) |
 | `tether: command not found`, or *"is not recognized"* | [The terminal does not find `tether`](#the-terminal-does-not-find-tether) |
 | `SidecarError: no sidecar interpreter …` | [Idealization cannot find the sidecar interpreter](#idealization-cannot-find-the-sidecar-interpreter) |
@@ -555,6 +556,35 @@ window or its applied α or γ changed after the model fit.
 **Why.** `compute_leakage_alpha` fits one dataset median over every molecule that it can analyze,
 with no split by condition. A change of the γ median makes stale only the molecules that took
 the fallback. [Staleness](glossary.md#staleness-stale-fresh-live) explains the rules.
+
+### An export stops with a message
+
+**What you see.** After **File → Export**, the status bar names the export, then `failed:` and
+the message of the export function, unchanged. `tether export` and a Python script give the
+same message. The common ones:
+
+```text
+Export the traces for Deep-LASI failed: no molecules selected to export (empty selection, or every match rejected with include_rejected=False)
+Export the traces for Deep-LASI failed: selected molecules span multiple frame ranges [(0, 500), (0, 800)] (movies of differing length); a Deep-LASI .txt has a single shared frame axis — scope the export to one movie via molecule_keys
+Export a subset project failed: subset out_path …/movie.tether is the source project; refusing to overwrite
+Export a subset project failed: source /patches is missing the 'donor' channel; cannot export a curatable movie-less subset
+```
+
+**What it means.** The export wrote nothing: no file and no provenance file.
+
+**What to do.**
+
+1. **`no molecules selected`.** Every molecule is rejected. Tick **Include rejected
+   molecules**, or accept some molecules first.
+2. **`span multiple frame ranges`.** Select a molecule of one movie, and tick **Only the movie
+   of the selected molecule**. Export each movie that way.
+3. **`is the source project`.** Choose another destination.
+4. **`/patches is missing`.** The project was imported for analysis only, so it has no image
+   crops. Export the molecule table and the traces instead
+   ([Export results](how-to/export-results.md#export-a-subset-project)).
+
+**Why.** The menu calls the same function as `tether export`, so it refuses what the function
+refuses. It writes under a temporary name and moves the files into place only at the end.
 
 ### The project will not open
 
