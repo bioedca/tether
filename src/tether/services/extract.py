@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, ClassVar
 
 from tether.services.base import CommandFailed, Request
-from tether.services.profile import ExtractionFields
+from tether.services.profile import ExtractionFields, frame_steps_from_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.project.extract import ExtractionSummary
@@ -72,6 +72,13 @@ class ExtractRequest(ExtractionFields, Request):
         With ``map_path``: use the map although its optics text differs (``--confirm-optics``).
     count_only
         Count the molecules of each colocalization rule and write nothing.
+    frame_steps
+        The movie's own frame steps (``--frame-steps``, #1435), applied to every frame
+        before the channel split, such as ``"rotate 90"``; ``"none"`` is no steps and
+        still replaces the map's default. ``None`` uses the map's default.
+    map_frame_steps
+        With ``tmap``: the ``.tmap``'s default frame steps (``--map-frame-steps``), which
+        the project keeps with the map's record, or ``None``.
     """
 
     COMMAND: ClassVar[str] = "extract"
@@ -88,6 +95,8 @@ class ExtractRequest(ExtractionFields, Request):
     map_optics: str | None = None
     confirm_optics: bool = False
     count_only: bool = False
+    frame_steps: str | None = None
+    map_frame_steps: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -127,6 +136,10 @@ def run(request: ExtractRequest) -> ExtractResult:
         # None tells "no explicit choice" from a choice; extract_options resolves it to
         # the library default. With a .tdat, extract_movie overrides it with the decoded mode.
         options = request.extract_options()
+        steps = {
+            "frame_steps": frame_steps_from_text(request.frame_steps),
+            "map_frame_steps": frame_steps_from_text(request.map_frame_steps, "map_frame_steps"),
+        }
         if request.count_only:
             counts = count_molecules_by_rule(
                 request.movie,
@@ -136,6 +149,7 @@ def run(request: ExtractRequest) -> ExtractResult:
                 map_path=request.map_path,
                 map_optics=request.map_optics,
                 confirm_optics=request.confirm_optics,
+                **steps,
             )
             return ExtractResult(summary=None, rule_counts=counts)
         # An overwrite replaces a project another writer may hold open, so it holds the
@@ -152,6 +166,7 @@ def run(request: ExtractRequest) -> ExtractResult:
                 map_optics=request.map_optics,
                 confirm_optics=request.confirm_optics,
                 publish_guard=guard,
+                **steps,
             )
     except (ExtractionError, LockError, OSError) as exc:
         # OSError: publish_lock opens the destination's guard file before

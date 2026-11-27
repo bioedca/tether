@@ -138,6 +138,16 @@ movie to `tether batch --into`
 ([ADR-0153](../adr/0153-a-cellsens-vsi-movie-s-checksum-covers-its-frame-files.md)). To rename the
 movie, rename the file and the folder together. The checksum stays the same.
 
+**Orientation.** Tether reads a `.vsi` movie in the orientation that its `.ets` files store. The
+reader does not rotate, flip or transpose a frame. A TIFF made from the same `.vsi` in ImageJ can
+have another orientation. An ImageJ step that turns each frame with *Rotate 90 Degrees Right*
+gives a TIFF turned 90° clockwise.
+
+A map that you made on such TIFFs does not fit the `.vsi`. Tether extracts it without an error,
+but reads the wrong part of the frame. Give the turn as
+[frame steps](../cli.md#frame-steps-turn-the-frame-before-the-split): `--frame-steps "rotate 90"`
+for each `.vsi`, or the same steps as the map's default.
+
 Of the series in the file, Tether reads the one with the most time points, at full resolution. It
 refuses the file in these cases:
 

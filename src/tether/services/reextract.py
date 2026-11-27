@@ -22,7 +22,7 @@ import dataclasses
 from typing import TYPE_CHECKING, ClassVar
 
 from tether.services.base import CommandFailed, Request
-from tether.services.profile import ExtractionFields
+from tether.services.profile import ExtractionFields, frame_steps_from_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.project.extract import GenerationSummary
@@ -56,6 +56,11 @@ class ReextractRequest(ExtractionFields, Request):
     match_px
         The "did not move" distance in pixels, or ``None`` for
         [`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX].
+    frame_steps
+        The movie's own frame steps (#1435), or ``None`` to use again the steps the movie
+        was last extracted with (a map's default gives way to the new map's own).
+    map_frame_steps
+        With ``tmap``: the ``.tmap``'s default frame steps, or ``None``.
     """
 
     COMMAND: ClassVar[str] = "reextract"
@@ -69,6 +74,8 @@ class ReextractRequest(ExtractionFields, Request):
     tdat: str | None = None
     map_path: str | None = None
     match_px: float | None = None
+    frame_steps: str | None = None
+    map_frame_steps: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -111,6 +118,8 @@ def run(request: ReextractRequest) -> ReextractResult:
                 map_path=request.map_path,
                 publish_guard=guard,
                 match_px=request.match_px,
+                frame_steps=frame_steps_from_text(request.frame_steps),
+                map_frame_steps=frame_steps_from_text(request.map_frame_steps, "map_frame_steps"),
             )
             # Read under the same lock, so the lists are those of this new generation.
             reconciliation = reconcile_generation(request.project, summary.extraction.movie_id)

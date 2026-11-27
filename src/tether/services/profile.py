@@ -55,6 +55,7 @@ __all__ = [
     "LAYOUT_FIELDS",
     "PROFILE_COMMAND",
     "ExtractionFields",
+    "frame_steps_from_text",
     "ExtractionProfile",
     "profile_from_text",
     "profile_to_text",
@@ -248,6 +249,26 @@ class ExtractionProfile(ExtractionFields, Request):
                 channel_layout_acceptor_rect=layout.acceptor_rect,
             )
         return cls(**values)
+
+
+def frame_steps_from_text(text: str | None, name: str = "frame_steps") -> Any:
+    """Read the text form of frame steps (#1435), such as ``"rotate 90"``; ``None`` is none.
+
+    Returns a [`ChannelRecipe`][tether.imaging.recipe.ChannelRecipe] (``"none"`` is the
+    empty one, a valid value), or ``None``. Raises
+    [`ExtractionError`][tether.project.extract.ExtractionError] naming ``name`` when the
+    text does not read. Frame steps are not a field of a profile: they describe how one
+    movie or map was acquired, not how to extract.
+    """
+    if text is None:
+        return None
+    from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError
+    from tether.project.extract import ExtractionError
+
+    try:
+        return ChannelRecipe.parse(text)
+    except ChannelRecipeError as exc:
+        raise ExtractionError(f"{name} {text!r}: {exc}") from exc
 
 
 def profile_to_text(profile: ExtractionProfile) -> str:
