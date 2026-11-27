@@ -166,3 +166,30 @@ def test_the_saved_report_is_the_report_of_the_core(page, qtbot, tmp_path) -> No
     assert [t["molecule"] for t in json.loads((tmp_path / "page.json").read_text())["traces"]] == [
         1
     ]
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_movie_chosen_by_the_file_picker_reviews_again(page, qtbot, tmp_path) -> None:
+    first = _write_movie(tmp_path / "first.tif")
+    page.set_movie(first)
+    tab = page.apertures
+    tab.review()
+    _wait(qtbot, tab)
+    assert tab.last_review.movie == "first.tif"
+    # The file picker sets the field's text; no Enter, no focus change.
+    page.set_movie(_write_movie(tmp_path / "second.tif"))
+    assert tab.busy
+    _wait(qtbot, tab)
+    assert tab.last_review.movie == "second.tif"
+
+
+@pytest.mark.gui
+@needs_qt
+def test_each_pixel_centre_is_at_its_integer_coordinate(page) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    # The review's (x, y) are pixel centres; pyqtgraph paints pixel [0, 0] over (0, 0)-(1, 1).
+    image = page.apertures._image_item
+    centre = image.mapToParent(QtCore.QPointF(0.5, 0.5))
+    assert (centre.x(), centre.y()) == (0.0, 0.0)

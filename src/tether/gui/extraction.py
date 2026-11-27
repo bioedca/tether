@@ -314,7 +314,11 @@ class ExtractionSection:
         views_layout.addLayout(switcher)
         views_layout.addWidget(self._views, 1)
         splitter.addWidget(views)
-        for widget in (self._movie_field, self._source_field, *self._fields.values()):
+        # The movie and the map file change by typing or by their file pickers, which set
+        # the text: textChanged sees both (the review waits for typing to settle).
+        for widget in (self._movie_field, self._source_field):
+            widget.textChanged.connect(self._apertures.inputs_changed)
+        for widget in self._fields.values():
             if hasattr(widget, "findData"):
                 widget.currentIndexChanged.connect(self._apertures.inputs_changed)
             else:

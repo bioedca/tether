@@ -128,6 +128,9 @@ class ApertureSection:
         self._image_plot.invertY(True)
         self._image_plot.setAspectLocked(True)
         self._image_item = pg.ImageItem(axisOrder="row-major")
+        # pyqtgraph paints pixel [row, col] over (col, row)-(col + 1, row + 1); the review's
+        # (x, y) are pixel centres, so shift the image to put each centre on its integer.
+        self._image_item.setPos(-0.5, -0.5)
         self._image_plot.addItem(self._image_item)
         self._rings: list[Any] = []
         for _ in ("disk", "ring inner", "ring outer"):
