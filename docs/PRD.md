@@ -379,7 +379,7 @@ uses the three words only in these meanings:
   laser power, date, replicate) + free tags; auto-parsed from filename (validation mandatory). **Condition identity
   key** = the chemistry/optics tuple **(construct/variant, dye, ligand + concentration, buffer, temperature, laser
   power)**; `date`, `replicate`, and source file deliberately **vary within** a condition. Laser power is part of
-  the key because it scales the intensities that feed α and γ. α is scoped **per-condition**; there is no separate finer "session" scope. **Validation is referential:** a
+  the key because it scales the intensities that feed α and γ. α and γ are estimated **per condition inside the project**: inside one project file there is no scope finer than the condition (no per-movie, per-day or "session" key), and a condition that spans several project files has one estimate in each file ([ADR-NNNN](adr/NNNN-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md)). **Validation is referential:** a
   molecule's `condition_id` is valid only when it resolves to a `/conditions` row built from that key, so two movies
   share a condition iff their key fields match. When two movies meant to be one condition parse to slightly
   different strings, the default is **keep-separate**, with an explicit human-confirmed **merge at M4** (re-keying
