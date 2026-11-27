@@ -105,7 +105,7 @@ refuses the write.
 ### Which molecules each factor was estimated on
 
 Tether estimates α and γ **per condition inside the project**
-([ADR-NNNN](adr/NNNN-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md)). A
+([ADR-0158](adr/0158-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md)). A
 condition is the `condition_id` of a molecule in `/molecules`. Each pass groups the molecules by
 that value and runs its estimator once for each group. So the α of a condition rests only on that
 condition's molecules in this project file, and it is the α that the same code gives when that
@@ -151,7 +151,7 @@ the decision to withhold α.
 **Notes**
 
 1. A project from before
-   [ADR-NNNN](adr/NNNN-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md) has
+   [ADR-0158](adr/0158-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md) has
    no `conditions` or `n_conditions` here, under `/settings/gamma` or under
    `/settings/correction`. Its passes pooled every molecule, which is the same as one condition.
 

@@ -54,7 +54,7 @@ methods (the toggle round-trips through ``/settings/correction``).
 
 **Manual override.** ``alpha_override`` / ``gamma_override`` supply a manual
 per-condition factor (a §7.2 recovery action, or an override of a successfully
-estimated factor). The factors are scoped per condition (#624, ADR-NNNN), so an override
+estimated factor). The factors are scoped per condition (#624, ADR-0158), so an override
 applies to **the condition the caller names** with ``condition_id``: it is written into
 ``/molecules.alpha`` / ``/molecules.gamma`` of every examined molecule of that condition
 (so those fields remain the single source of the *effective applied* factor the

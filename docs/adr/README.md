@@ -210,6 +210,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0154](0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md) | Tether reads AVI with its own reader, and only uncompressed 8-bit gray | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0155](0155-the-release-set-of-validation-evidence.md) | The release set of validation evidence lives beside the tag, and its one-commit rule runs only in the release workflow | accepted | §9.3 Stable release acceptance, §9.5 (the validation suite), §12.7 |
 | [0156](0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md) | A trace's calibration window is stored apart from its analysis window | accepted | §5 (data model), §7.2 FR-CORRECT (G03), §7.6 FR-ANNOTATE |
+| [0158](0158-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md) | Leakage and gamma are estimated per condition inside the project | accepted | §7.2 FR-CORRECT, §5.1 (conditions), §11.2 |
 
 <!-- gen:adr-index end -->
 

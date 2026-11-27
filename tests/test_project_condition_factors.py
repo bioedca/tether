@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Leakage α and γ are estimated per condition inside the project (#624, ADR-NNNN).
+"""Leakage α and γ are estimated per condition inside the project (#624, ADR-0158).
 
 Locks the scope of the three correction passes when one project holds several conditions:
 

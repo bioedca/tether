@@ -35,7 +35,7 @@ uncorrected data. A legitimately *withheld* leakage (α never computed) means th
 correction chain has already fallen to apparent-E, so the total-failure path — not
 this writer — is the caller's next step (PRD §7.2).
 
-**Per condition (#624, ADR-NNNN).** The molecules are grouped by ``condition_id`` and the
+**Per condition (#624, ADR-0158).** The molecules are grouped by ``condition_id`` and the
 estimator runs once for each group: a condition's median, its fallback and its gates are
 those the same code gives when the condition is alone in a project, and a project with one
 condition gives the numbers it gave before. The top-level ``gamma`` attribute and
@@ -225,7 +225,7 @@ def compute_gamma(
     """Estimate each condition's γ from acceptor-bleach steps and store it per molecule.
 
     The molecules are grouped by ``condition_id`` and the estimator runs on each group
-    with the same gates (#624, ADR-NNNN).
+    with the same gates (#624, ADR-0158).
 
     Parameters
     ----------

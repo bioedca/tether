@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# NNNN — Leakage and gamma are estimated per condition inside the project
+# 0158 — Leakage and gamma are estimated per condition inside the project
 
 - **Status:** accepted
 - **Date:** 2026-11-27

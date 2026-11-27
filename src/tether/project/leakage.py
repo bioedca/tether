@@ -14,7 +14,7 @@ Runs the post-acceptor-bleach-tail leakage estimator
   (NFR-REPRO), with the factor and the molecule counts of each condition in its
   ``conditions`` attribute. Recomputable — overwritten on each pass.
 
-**Per condition (#624, ADR-NNNN).** The molecules are grouped by ``condition_id`` and the
+**Per condition (#624, ADR-0158).** The molecules are grouped by ``condition_id`` and the
 estimator runs once for each group, so a condition's α is the α the same code gives when
 that condition is alone in a project, and a project with one condition gives the numbers it
 gave before. The top-level ``alpha`` attribute and [`LeakageAlphaSummary.alpha`][] carry the
@@ -178,7 +178,7 @@ def compute_leakage_alpha(
     """Estimate each condition's leakage α from post-acceptor-bleach tails and store it.
 
     The molecules are grouped by ``condition_id`` and the estimator runs on each group
-    with the same gates (#624, ADR-NNNN).
+    with the same gates (#624, ADR-0158).
 
     Parameters
     ----------
