@@ -149,7 +149,14 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     names = [entry.name for entry in services.COMMANDS]
     assert list(subparsers.choices)[: len(names)] == names
     # Recipe execution and project inspection use plain subcommands.
-    assert list(subparsers.choices)[len(names) :] == ["run", "info", "metadata", "export", "status"]
+    assert list(subparsers.choices)[len(names) :] == [
+        "run",
+        "info",
+        "metadata",
+        "export",
+        "apertures",
+        "status",
+    ]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:

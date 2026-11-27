@@ -238,6 +238,7 @@ def _write_held(
     from tether.project._guarded_publish import guarded_project_write  # noqa: PLC0415
     from tether.project.gamma import _compute_gamma  # noqa: PLC0415
     from tether.project.gamma_contributors import (  # noqa: PLC0415
+        _every_condition_applied,
         _send_follow_up,
         _stamped_parameters,
         _stored_withheld,
@@ -301,12 +302,13 @@ def _write_held(
             ds[n0:] = rows
         if params is not None:
             summary = _compute_gamma(staged, write_guard=guard, **params)
-            if not summary.applied and state is cs.CorrectionState.GAMMA_REVIEW:
+            # Every condition needs its γ (#624, ADR-0158), as for a contributor decision.
+            if not _every_condition_applied(summary) and state is cs.CorrectionState.GAMMA_REVIEW:
                 # A move to a state that cannot be approved is stored before the pass is
                 # published, as for a contributor decision: if it fails, nothing is
                 # published. The staged copy then takes the stored transition log.
                 cs.send_event(project, cs.CorrectionEvent.INSUFFICIENT_EVIDENCE, actor, note=note)
                 _copy_transitions(project.path, staged)
     if summary is not None:
-        _send_follow_up(project, actor, note, applied=summary.applied)
+        _send_follow_up(project, actor, note, applied=_every_condition_applied(summary))
     return summary

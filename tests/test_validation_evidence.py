@@ -312,3 +312,51 @@ def test_the_record_command_writes_an_oracle_e_record_with_both_runs(tmp_path: P
         "run_url": "https://github.com/bioedca/tether/actions/runs/123456",
         "log_sha256": ve._sha256(SCRIPT),
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("tolerance", [{}], "tolerance entries must be strings"),
+        ("tolerance", [[]], "tolerance entries must be strings"),
+        ("outcome", [], "outcome must be one of"),
+        ("outcome", {}, "outcome must be one of"),
+    ],
+)
+def test_a_non_string_tolerance_or_outcome_is_a_format_error(
+    field: str, value: object, message: str
+) -> None:
+    # An unhashable value once raised TypeError from the set-membership test (#1475).
+    for oracle in ("b", "e"):
+        record = _record(oracle)
+        record[field] = value
+        errors = ve.record_errors(record)
+        assert any(message in e for e in errors), errors
+
+
+def test_check_release_is_advisory_on_a_set_with_a_non_string_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "README").write_text("release commit\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "release commit")
+    release = _git(repo, "rev-parse", "HEAD")
+    records = {oracle: _record(oracle, commit=release) for oracle in ve.ORACLES}
+    records["b"]["outcome"] = []
+    records["d"]["tolerance"] = [{}]
+    _write_set(repo / ve.RELEASE_DIR / "v9.9.9", records)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "the release set")
+    _git(repo, "tag", "v9.9.9")
+    real_git, real_binding = ve._git, ve.binding_errors
+    monkeypatch.setattr(ve, "_git", lambda *args, root=repo: real_git(*args, root=repo))
+    monkeypatch.setattr(ve, "binding_errors", lambda tag, commit: real_binding(tag, commit, repo))
+    assert ve.main(["check-release", "--tag", "v9.9.9", "--required", "false"]) == 0
+    out = capsys.readouterr().out
+    assert "::warning::oracle-b.json: outcome must be one of" in out
+    assert "::warning::oracle-d.json: tolerance entries must be strings" in out
+    assert ve.main(["check-release", "--tag", "v9.9.9", "--required", "true"]) == 1
+    assert "::error::oracle-b.json: outcome must be one of" in capsys.readouterr().out

@@ -156,13 +156,17 @@ def record_errors(record: object) -> list[str]:
     tolerance = record.get("tolerance")
     if not isinstance(tolerance, list) or not tolerance:
         errors.append("tolerance must name at least one §11.2 row or frozen file")
+    elif not all(isinstance(t, str) for t in tolerance):
+        # Checked before the set-membership test, which raises on an unhashable entry (#1475).
+        errors.append("tolerance entries must be strings")
     elif spec is not None:
         unknown = [t for t in tolerance if t not in spec["tolerance"]]
         if unknown:
             errors.append(f"oracle ({oracle}) does not compare with {unknown}")
         if oracle == "e" and ALPHA_BAND not in tolerance:
             errors.append(f"the (e) record names {ALPHA_BAND!r}, the workstation α band")
-    if record.get("outcome") not in OUTCOMES:
+    outcome = record.get("outcome")
+    if not isinstance(outcome, str) or outcome not in OUTCOMES:
         errors.append(f"outcome must be one of {sorted(OUTCOMES)}")
     return errors
 
