@@ -359,3 +359,89 @@ def test_the_batch_correct_stage_estimates_gamma_for_each_condition(tmp_path: Pa
     table = read_molecules(path)
     assert np.all(np.isfinite(table["gamma"]))
     assert _text(table["correction_method"]) == [METHOD_CORRECTED] * 24
+
+
+def test_an_override_that_was_not_applied_is_not_recorded_as_manual(tmp_path: Path) -> None:
+    # Codex P2 on #1486: cond-B's α is withheld, so a γ alone cannot correct it; its
+    # provenance must not claim a manual γ its molecules do not carry.
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(*_COND_B[1:], 4))])
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+    summary = compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-B")
+    assert summary.n_manual == 0
+    table = read_molecules(path)
+    assert np.all(np.isnan(table["gamma"][12:]))
+    entry = _conditions(path, "correction")["cond-B"]
+    assert entry["gamma"] is None and entry["gamma_source"] is None
+    assert entry["alpha"] is None and entry["alpha_source"] is None
+    assert entry["total_failure"] is True
+
+
+def test_the_batch_detail_keeps_each_conditions_clean_step_warning(monkeypatch) -> None:
+    # Codex P2 on #1486: the multi-condition detail must carry ADR-0134's warning.
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    import tether.project.batch as batch  # noqa: PLC0415
+    from tether.project import correct, gamma, leakage, photobleach  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        photobleach,
+        "compute_photobleach",
+        lambda p, **kw: SimpleNamespace(n_donor_bleached=1, n_acceptor_bleached=1),
+    )
+    monkeypatch.setattr(
+        leakage,
+        "compute_leakage_alpha",
+        lambda p, **kw: SimpleNamespace(
+            applied=True,
+            alpha=None,
+            conditions=(
+                SimpleNamespace(condition_id="a", alpha=0.1),
+                SimpleNamespace(condition_id="b", alpha=0.2),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        gamma,
+        "compute_gamma",
+        lambda p, **kw: SimpleNamespace(
+            conditions=(
+                SimpleNamespace(
+                    condition_id="a",
+                    gamma=1.2,
+                    few_clean_steps=True,
+                    n_step_clean=3,
+                    n_step_evaluated=12,
+                ),
+                SimpleNamespace(
+                    condition_id="b",
+                    gamma=0.8,
+                    few_clean_steps=False,
+                    n_step_clean=12,
+                    n_step_evaluated=12,
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        correct,
+        "compute_corrected_fret",
+        lambda p, **kw: SimpleNamespace(total_failure=False, apparent_e_only=False, n_corrected=3),
+    )
+    monkeypatch.setattr(batch, "_assert_output_not_newer", lambda p: None)
+
+    class _Stage:
+        def __enter__(self):
+            return "x.tether"
+
+        def __exit__(self, *exc):
+            return False
+
+    import tether.project._guarded_publish as gp  # noqa: PLC0415
+
+    monkeypatch.setattr(gp, "guarded_project_write", lambda *a, **k: _Stage())
+    detail = batch.run_correct_stage("x.tether")
+    assert "a: α=0.100 γ=1.200 (γ from few clean steps: 3 of 12" in detail
+    assert "b: α=0.200 γ=0.800" in detail
+    assert detail.count("few clean steps") == 1

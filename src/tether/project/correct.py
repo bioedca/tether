@@ -476,7 +476,10 @@ def _condition_corrections(
         medians = {}
     out: list[ConditionCorrection] = []
     for cond, rows in groups.items():
-        manual = target == cond and not apparent_e_only
+        corrected, n_manual, apparent = counts[cond]
+        # An override is recorded only where it was applied: a molecule missing the other
+        # factor stays on apparent E and keeps its factors as they were.
+        manual = target == cond and not apparent_e_only and n_manual > 0
         values = np.unique(np.asarray(table["alpha"][rows], dtype=np.float64))
         alpha = finite_or_none(values[0]) if values.size == 1 else None
         alpha_source = "manual" if manual and alpha_override is not None else None
@@ -488,7 +491,6 @@ def _condition_corrections(
             median = medians.get(cond)
             gamma = finite_or_none(median) if median is not None else None
             gamma_source = "estimated" if gamma is not None else None
-        corrected, n_manual, apparent = counts[cond]
         if n_manual:
             kept = held[cond]
             if "alpha" in kept and not (manual and alpha_override is not None):

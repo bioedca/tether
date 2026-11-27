@@ -939,13 +939,21 @@ def run_correct_stage(
             # Several conditions, each with its own factors (#624, ADR-0158): no
             # project-wide α exists, so γ runs on the conditions that have one.
             gm = compute_gamma(write_path, write_guard=write_guard)
-            medians = {c.condition_id: c.gamma for c in gm.conditions}
+            by_condition = {c.condition_id: c for c in gm.conditions}
             entries = []
             for c in lk.conditions:
                 factors = "α withheld" if c.alpha is None else f"α={c.alpha:.3f}"
+                g = by_condition.get(c.condition_id)
                 if c.alpha is not None:
-                    median = medians.get(c.condition_id)
-                    factors += " γ withheld" if median is None else f" γ={median:.3f}"
+                    factors += (
+                        " γ withheld" if g is None or g.gamma is None else f" γ={g.gamma:.3f}"
+                    )
+                if g is not None and g.gamma is not None and g.few_clean_steps:
+                    # The condition's γ rests on few clean steps (ADR-0134).
+                    factors += (
+                        f" (γ from few clean steps: {g.n_step_clean} of "
+                        f"{g.n_step_evaluated} {_FLAG_MARK})"
+                    )
                 entries.append(f"{c.condition_id or '(no condition)'}: {factors}")
             parts.append(", ".join(entries))
         else:
