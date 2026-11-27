@@ -321,6 +321,53 @@ def test_a_request_without_a_reply_is_a_runner_error(tmp_path, fake_runner, monk
     assert _ended(started[0])
 
 
+def test_a_watchdog_firing_as_its_reply_completes_is_over_first(
+    tmp_path, fake_runner, monkeypatch
+) -> None:
+    """A reply that completes as the deadline fires waits for the kill, and says so next (#1460)."""
+    source = BIOFORMATS_ADAPTER.open(_vsi(tmp_path, np.arange(12, dtype="<u2").reshape(3, 2, 2)))
+    runner = source._runner
+    fired = threading.Event()
+    killed = threading.Event()
+    real_timer = threading.Timer
+
+    class LateTimer(real_timer):
+        # The callback begins as the reply completes (so ``cancel`` cannot stop it), then
+        # gives the request every chance to release its lock before it kills the runner.
+        def __init__(self, interval, function, *args, **kwargs):
+            def late() -> None:
+                fired.set()
+                deadline = time.monotonic() + 0.5
+                while runner._lock.locked() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                function()
+                killed.set()
+
+            super().__init__(interval, late, *args, **kwargs)
+
+    real_exchange = runner._exchange
+
+    def exchange(proc, payload):
+        reply = real_exchange(proc, payload)
+        assert fired.wait(5.0)  # the whole reply is in as the watchdog fires
+        return reply
+
+    monkeypatch.setattr(bioformats.threading, "Timer", LateTimer)
+    monkeypatch.setattr(bioformats, "_REPLY_DEADLINE", 0.05)
+    monkeypatch.setattr(runner, "_exchange", exchange)
+    try:
+        frames = source.read_frames(0, 1)
+        assert killed.is_set()  # the watchdog was over before the request returned
+        assert frames.tolist() == [[[0, 1], [2, 3]]]
+        monkeypatch.setattr(bioformats, "_REPLY_DEADLINE", 300.0)
+        monkeypatch.setattr(runner, "_exchange", real_exchange)
+        with pytest.raises(BioformatsRunnerError, match="reached the 0.05 s deadline"):
+            source.read_frames(1, 2)
+    finally:
+        source.close()
+    assert _ended(runner)
+
+
 def test_close_does_not_wait_for_a_request_in_flight(tmp_path, fake_runner, monkeypatch) -> None:
     monkeypatch.setattr(bioformats, "_EXIT_WAIT", 0.5)
     monkeypatch.setenv("TETHER_FAKE_RUNNER_STALL", "read")

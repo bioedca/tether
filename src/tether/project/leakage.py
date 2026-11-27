@@ -7,26 +7,36 @@ Runs the post-acceptor-bleach-tail leakage estimator
 
 * ``/molecules.alpha`` — the applied leakage factor, into the **already-frozen**
   ``/molecules`` field (schema-guard stays green — no structural change). Leakage α
-  is a per-condition instrument/dye property, so the single dataset-median factor is
-  written to every processed molecule (PRD §7.2 / §5.1).
+  is a per-condition instrument/dye property, so each condition's median factor is
+  written to every processed molecule of that condition (PRD §7.2 / §5.1).
 * ``/settings/leakage`` — an additive provenance group (like ``/settings/extraction``):
   the source estimator, the effective gates, ``n_qualifying``, and the app version
-  (NFR-REPRO). Recomputable — overwritten on each pass.
+  (NFR-REPRO), with the factor and the molecule counts of each condition in its
+  ``conditions`` attribute. Recomputable — overwritten on each pass.
+
+**Per condition (#624, ADR-0158).** The molecules are grouped by ``condition_id`` and the
+estimator runs once for each group, so a condition's α is the α the same code gives when
+that condition is alone in a project, and a project with one condition gives the numbers it
+gave before. The top-level ``alpha`` attribute and [`LeakageAlphaSummary.alpha`][] carry the
+factor only when the project holds one condition; with several they are ``NaN`` and ``None``,
+and the factors are in ``conditions`` and [`LeakageAlphaSummary.conditions`][].
 
 The tail estimate needs the per-channel first-bleach frames written by
 [`tether.project.photobleach.compute_photobleach`][], so that pass must run first.
 Detection and this estimate both run on the **background-subtracted** (``corrected``)
 traces by default.
 
-The factor is **withheld** (processed ``/molecules.alpha`` rows reset to ``NaN``)
-when fewer than ``min_qualifying_traces`` molecules yield a valid donor-only tail —
+A condition's factor is **withheld** (its processed ``/molecules.alpha`` rows reset to
+``NaN``) when fewer than ``min_qualifying_traces`` of its molecules yield a valid donor-only
+tail —
 a per-condition α is only trustworthy with enough donor-only tails behind it, and a
 fabricated one would silently bias every corrected E (PRD §7.2 total-failure path;
 §Data-gaps). Because γ is derived from leakage-corrected intensities, withholding α
-also resets processed ``/molecules.gamma`` rows to ``NaN`` so a downstream factor
-from the superseded α cannot remain applied, and removes ``/settings/gamma`` so no
-provenance remains for that factor (#549). The leakage provenance group is still
-stamped (``withheld = True``) so the attempt is auditable.
+also resets that condition's processed ``/molecules.gamma`` rows to ``NaN`` so a downstream
+factor from the superseded α cannot remain applied, and removes ``/settings/gamma`` so no
+provenance remains for that factor (#549); the next γ pass writes it again. The leakage
+provenance group is still stamped (``withheld = True`` when no condition has a factor) so the
+attempt is auditable.
 
 The separate Cy3-only donor-only *sample* path (a global α from a dedicated
 calibration acquisition, cross-checked against this tail α under the §11.2
@@ -59,10 +69,16 @@ from tether.fret.leakage import (
     estimate_leakage_alpha,
 )
 from tether.io.schema import TABLE
+from tether.project._condition_scope import (
+    condition_ids,
+    finite_or_none,
+    group_by_condition,
+    write_conditions,
+)
 from tether.project._guarded_publish import guarded_project_write
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
-__all__ = ["LeakageAlphaSummary", "compute_leakage_alpha"]
+__all__ = ["ConditionLeakage", "LeakageAlphaSummary", "compute_leakage_alpha"]
 
 _MOLECULES = "molecules"
 _TRACES = "traces"
@@ -77,26 +93,58 @@ LEAKAGE_SOURCE_TAIL = "post-acceptor-bleach-tail"
 
 
 @dataclass(frozen=True)
+class ConditionLeakage:
+    """The leakage α of one condition in a [`compute_leakage_alpha`][] pass (#624).
+
+    Attributes
+    ----------
+    condition_id
+        The ``/molecules.condition_id`` the molecules share (``""`` when unassigned).
+    n_molecules
+        Molecules of the condition examined.
+    n_qualifying
+        Of those, the molecules that yielded a valid per-trace donor-only-tail α.
+    alpha
+        The condition's factor (median of its qualifying per-trace α), or ``None`` when
+        withheld (< ``min_qualifying_traces`` qualified).
+    """
+
+    condition_id: str
+    n_molecules: int
+    n_qualifying: int
+    alpha: float | None
+
+    @property
+    def applied(self) -> bool:
+        """Whether the condition's factor was applied (``alpha is not None``)."""
+        return self.alpha is not None
+
+
+@dataclass(frozen=True)
 class LeakageAlphaSummary:
     """Outcome of a [`compute_leakage_alpha`][] pass.
 
     Attributes
     ----------
     n_molecules
-        Molecules examined (rows with a valid ``frame_range``).
+        Molecules examined (rows with a valid ``frame_range``), over every condition.
     n_qualifying
-        Molecules that yielded a valid per-trace donor-only-tail α.
+        Molecules that yielded a valid per-trace donor-only-tail α, over every condition.
     alpha
-        The applied dataset leakage factor (median of the qualifying per-trace α),
-        or ``None`` when withheld (< ``min_qualifying_traces`` qualified).
+        With one condition, its applied leakage factor (median of the qualifying
+        per-trace α), or ``None`` when withheld (< ``min_qualifying_traces`` qualified).
+        With several conditions always ``None``: read ``conditions``.
     applied
-        Whether an estimated factor was applied (i.e. ``alpha is not None``). When
-        false, processed ``/molecules.alpha`` and downstream ``gamma`` rows are
-        cleared to ``NaN`` and ``/settings/gamma`` is removed.
+        Whether a factor was applied to at least one condition. A condition whose
+        factor was withheld has its processed ``/molecules.alpha`` and downstream
+        ``gamma`` rows cleared to ``NaN``, and ``/settings/gamma`` is removed.
     source
         Estimator provenance tag stamped into ``/settings/leakage``.
     intensity_quantity
         Which ``/traces`` layer the estimate ran on.
+    conditions
+        One [`ConditionLeakage`][] for each condition, in the order the condition first
+        appears in ``/molecules`` (#624).
     """
 
     n_molecules: int
@@ -105,6 +153,7 @@ class LeakageAlphaSummary:
     applied: bool
     source: str
     intensity_quantity: str
+    conditions: tuple[ConditionLeakage, ...] = ()
 
 
 def _app_version() -> str:
@@ -126,7 +175,10 @@ def compute_leakage_alpha(
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
     write_guard: Callable[[], None] | None = None,
 ) -> LeakageAlphaSummary:
-    """Estimate the dataset leakage α from post-acceptor-bleach tails and store it.
+    """Estimate each condition's leakage α from post-acceptor-bleach tails and store it.
+
+    The molecules are grouped by ``condition_id`` and the estimator runs on each group
+    with the same gates (#624, ADR-0158).
 
     Parameters
     ----------
@@ -143,8 +195,8 @@ def compute_leakage_alpha(
     ceiling
         Reject a per-trace α outside ``[0, ceiling]`` (PRD §11.2, default 0.3).
     min_qualifying_traces
-        Withhold the dataset α below this many qualifying traces (PRD §11.2,
-        default 10).
+        Withhold a condition's α below this many qualifying traces of that condition
+        (PRD §11.2, default 10).
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete
         ``/molecules.alpha`` update, any downstream ``gamma`` invalidation (rows and
@@ -225,26 +277,48 @@ def compute_leakage_alpha(
             acceptor_pbs.append(int(np.clip(acceptor_pb_abs - start, 0, n_local)))
             processed_rows.append(i)
 
-        estimate = estimate_leakage_alpha(
-            donor_traces,
-            acceptor_traces,
-            acceptor_pbs,
-            donor_pbs,
-            min_window_frames=min_window_frames,
-            ceiling=ceiling,
-            min_qualifying_traces=min_qualifying_traces,
-        )
+        # One estimate for each condition, on that condition's molecules only (#624).
+        ids = condition_ids(table)
+        local = {row: k for k, row in enumerate(processed_rows)}
+        per_condition: list[ConditionLeakage] = []
+        for cond, rows in group_by_condition(ids, processed_rows).items():
+            picks = [local[row] for row in rows]
+            estimate = estimate_leakage_alpha(
+                [donor_traces[k] for k in picks],
+                [acceptor_traces[k] for k in picks],
+                [acceptor_pbs[k] for k in picks],
+                [donor_pbs[k] for k in picks],
+                min_window_frames=min_window_frames,
+                ceiling=ceiling,
+                min_qualifying_traces=min_qualifying_traces,
+            )
+            per_condition.append(
+                ConditionLeakage(cond, estimate.n_traces, estimate.n_qualifying, estimate.alpha)
+            )
+            for i in rows:
+                table["alpha"][i] = estimate.alpha if estimate.alpha is not None else np.nan
+                if estimate.alpha is None:
+                    table["gamma"][i] = np.nan
 
-        applied = estimate.alpha is not None
-        for i in processed_rows:
-            table["alpha"][i] = estimate.alpha if applied else np.nan
-            if not applied:
-                table["gamma"][i] = np.nan
+        n_molecules = sum(c.n_molecules for c in per_condition)
+        n_qualifying = sum(c.n_qualifying for c in per_condition)
+        if len(per_condition) == 1:
+            alpha = per_condition[0].alpha
+        elif per_condition:
+            alpha = None  # several factors; none of them is the project's
+        else:
+            # No molecule was examined: the estimator withholds on an empty set.
+            alpha = estimate_leakage_alpha(
+                [], [], [], [], min_qualifying_traces=min_qualifying_traces
+            ).alpha
+        applied = any(c.applied for c in per_condition)
+        any_withheld = not per_condition or not all(c.applied for c in per_condition)
+
         if write_guard is not None:
             write_guard()
         f[_MOLECULES][TABLE][:] = table
 
-        if not applied:
+        if any_withheld:
             if write_guard is not None:
                 write_guard()
             _drop_gamma_settings(f)
@@ -253,22 +327,25 @@ def compute_leakage_alpha(
             write_guard()
         _stamp_leakage_settings(
             f,
-            alpha=estimate.alpha,
-            n_qualifying=estimate.n_qualifying,
-            n_molecules=estimate.n_traces,
+            alpha=alpha,
+            withheld=not applied,
+            n_qualifying=n_qualifying,
+            n_molecules=n_molecules,
             min_window_frames=min_window_frames,
             ceiling=ceiling,
             min_qualifying_traces=min_qualifying_traces,
             intensity_quantity=intensity_quantity,
+            conditions=per_condition,
         )
 
     return LeakageAlphaSummary(
-        n_molecules=estimate.n_traces,
-        n_qualifying=estimate.n_qualifying,
-        alpha=estimate.alpha,
+        n_molecules=n_molecules,
+        n_qualifying=n_qualifying,
+        alpha=alpha,
         applied=applied,
         source=LEAKAGE_SOURCE_TAIL,
         intensity_quantity=intensity_quantity,
+        conditions=tuple(per_condition),
     )
 
 
@@ -296,18 +373,23 @@ def _stamp_leakage_settings(
     f: object,
     *,
     alpha: float | None,
+    withheld: bool,
     n_qualifying: int,
     n_molecules: int,
     min_window_frames: int,
     ceiling: float,
     min_qualifying_traces: int,
     intensity_quantity: str,
+    conditions: list[ConditionLeakage],
 ) -> None:
     """Write the ``/settings/leakage`` provenance group (additive; recomputable).
 
     Mirrors ``/settings/extraction``: an additive child of the frozen ``/settings``
     container recording how the leakage α was derived (NFR-REPRO). Overwritten on
     each pass so the stamp always reflects the latest computation.
+
+    ``withheld`` is true when no condition has a factor. ``conditions`` (#624) records each
+    condition's factor and counts; ``alpha`` is ``NaN`` whenever there is not exactly one.
     """
     settings = f[_SETTINGS]  # type: ignore[index]
     if _LEAKAGE_SETTINGS in settings:
@@ -317,11 +399,26 @@ def _stamp_leakage_settings(
     grp.attrs["source"] = LEAKAGE_SOURCE_TAIL
     # NaN is the honest "no factor derived" marker (HDF5 float attr has no None).
     grp.attrs["alpha"] = float(alpha) if alpha is not None else float("nan")
-    grp.attrs["withheld"] = bool(alpha is None)
+    grp.attrs["withheld"] = bool(withheld)
     grp.attrs["n_qualifying"] = int(n_qualifying)
     grp.attrs["n_molecules"] = int(n_molecules)
     grp.attrs["min_window_frames"] = int(min_window_frames)
     grp.attrs["ceiling"] = float(ceiling)
     grp.attrs["min_qualifying_traces"] = int(min_qualifying_traces)
     grp.attrs["intensity_quantity"] = intensity_quantity
+    # Additive (#624): each condition's factor, written so #926 can add its source and version.
+    write_conditions(
+        grp,
+        [
+            {
+                "condition_id": c.condition_id,
+                "alpha": finite_or_none(c.alpha),
+                "withheld": not c.applied,
+                "n_molecules": c.n_molecules,
+                "n_qualifying": c.n_qualifying,
+                "source": LEAKAGE_SOURCE_TAIL,
+            }
+            for c in conditions
+        ],
+    )
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()

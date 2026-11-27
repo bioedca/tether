@@ -896,7 +896,9 @@ def run_correct_stage(
 ) -> str:
     """Run the ordered corrections on one extracted ``.tether`` (PRD §7.2, Appendix B).
 
-    photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. γ is
+    photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. With
+    several conditions α is estimated for each one (ADR-0158), γ runs when any of them
+    has α, and the detail names each condition's factors. γ is
     skipped when leakage *withholds* the dataset α: that is a deliberate
     "withhold rather than fabricate" outcome (fewer than ``min_qualifying_traces``
     donor-only tails), and [`compute_gamma`][tether.project.gamma.compute_gamma] would raise on
@@ -952,6 +954,27 @@ def run_correct_stage(
                     )
             else:
                 parts.append("γ withheld")
+        elif lk.applied:
+            # Several conditions, each with its own factors (#624, ADR-0158): no
+            # project-wide α exists, so γ runs on the conditions that have one.
+            gm = compute_gamma(write_path, write_guard=write_guard)
+            by_condition = {c.condition_id: c for c in gm.conditions}
+            entries = []
+            for c in lk.conditions:
+                factors = "α withheld" if c.alpha is None else f"α={c.alpha:.3f}"
+                g = by_condition.get(c.condition_id)
+                if c.alpha is not None:
+                    factors += (
+                        " γ withheld" if g is None or g.gamma is None else f" γ={g.gamma:.3f}"
+                    )
+                if g is not None and g.gamma is not None and g.few_clean_steps:
+                    # The condition's γ rests on few clean steps (ADR-0134).
+                    factors += (
+                        f" (γ from few clean steps: {g.n_step_clean} of "
+                        f"{g.n_step_evaluated} {_FLAG_MARK})"
+                    )
+                entries.append(f"{c.condition_id or '(no condition)'}: {factors}")
+            parts.append(", ".join(entries))
         else:
             parts.append("α withheld")
         cf = compute_corrected_fret(write_path, write_guard=write_guard)

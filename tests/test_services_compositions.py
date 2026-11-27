@@ -477,6 +477,33 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
 
     monkeypatch.setattr(os, "replace", refuse)
     with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"], overwrite=True)
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+    # Without overwrite and without hard links, a POSIX save writes the new file in place;
+    # when that write fails, neither a temporary file nor the new name stays.
+    from tether.services import compositions
+
+    monkeypatch.setattr(os, "link", refuse)
+    monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
+    real_fdopen = os.fdopen
+    calls = []
+
+    def second_write_fails(fd, *args, **kwargs):
+        calls.append(fd)
+        if len(calls) == 2:  # the in-place write, after the temporary file's
+            os.close(fd)
+            raise OSError("disk full")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", second_write_fails)
+    with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"])
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+    assert not (tmp_path / "c.json").exists()
+    monkeypatch.setattr(os, "fdopen", real_fdopen)
+    # A write that fails before the publish leaves no temporary file either.
+    monkeypatch.setattr(os, "fstat", refuse)
+    with pytest.raises(CommandFailed, match="disk full"):
         _save(tmp_path / "c.json", project, ["all"])
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
 
@@ -493,3 +520,233 @@ def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -
         assert mode == 0o644  # not mkstemp's private 0600
     else:  # Windows: no fchmod, and the file keeps its ordinary read-write default
         assert mode & stat.S_IREAD and mode & stat.S_IWRITE
+
+
+# --- #1470: publish exclusively, and only the file the save wrote ------------------
+
+
+def _record_temporary(monkeypatch) -> list:
+    """Make ``tempfile.mkstemp`` record each name it makes, and return that list."""
+    import tempfile
+
+    names: list = []
+    real = tempfile.mkstemp
+
+    def mkstemp(*args, **kwargs):
+        fd, name = real(*args, **kwargs)
+        names.append(name)
+        return fd, name
+
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    return names
+
+
+def test_a_destination_created_after_the_check_is_never_replaced(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Gap 1: another process creates the destination between the check and the publish."""
+    import os
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):  # runs after the existence check, before the publish
+        out.write_text('{"theirs": true}', encoding="utf-8")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(out, project, ["all"])
+    assert out.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert names and not any(os.path.lexists(n) for n in names)
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_a_temporary_entry_replaced_before_the_publish_is_never_published(
+    modelled, tmp_path, monkeypatch, overwrite
+) -> None:
+    """Gap 2: the temporary entry is swapped for another file after the write."""
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    if overwrite:
+        _save(out, project, ["all"])
+    before = out.read_bytes() if overwrite else None
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    class Swapped:
+        """The written file; on close, its name is given to another file."""
+
+        def __init__(self, f) -> None:
+            self.f = f
+
+        def __enter__(self):
+            return self.f.__enter__()
+
+        def __exit__(self, *exc):
+            result = self.f.__exit__(*exc)
+            other = tmp_path / "other"
+            other.write_text('{"swapped": true}', encoding="utf-8")
+            os.replace(other, names[-1])
+            return result
+
+    monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: Swapped(real_fdopen(fd, *a, **k)))
+    with pytest.raises(CommandFailed, match="was replaced before the save published it"):
+        _save(out, project, ["all"], overwrite=overwrite)
+    if overwrite:
+        assert out.read_bytes() == before
+    else:
+        assert not os.path.lexists(out)
+    # The swapped entry is not the save's, so the save leaves it where it found it.
+    assert (tmp_path / os.path.basename(names[-1])).read_text(encoding="utf-8") == (
+        '{"swapped": true}'
+    )
+
+
+def test_without_hard_links_a_save_still_publishes_exclusively(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """On POSIX without hard links, the new file is created exclusively and written in place."""
+    import os
+
+    project, _keys = modelled
+
+    from tether.services import compositions
+
+    def no_links(*_args, **_kwargs):
+        raise PermissionError("hard links are not supported")
+
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    later = tmp_path / "d.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):
+        later.write_text('{"theirs": true}', encoding="utf-8")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(later, project, ["all"])
+    assert later.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert not any(os.path.lexists(n) for n in names)
+
+
+def test_a_temporary_entry_removed_before_the_publish_publishes_nothing(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Gap 2, its other form: the temporary name is gone by the time of the publish."""
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    class Removed:
+        def __init__(self, f) -> None:
+            self.f = f
+
+        def __enter__(self):
+            return self.f.__enter__()
+
+        def __exit__(self, *exc):
+            result = self.f.__exit__(*exc)
+            os.unlink(names[-1])
+            return result
+
+    monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: Removed(real_fdopen(fd, *a, **k)))
+    with pytest.raises(CommandFailed, match="was replaced before the save published it"):
+        _save(out, project, ["all"])
+    assert not os.path.lexists(out)
+
+
+# --- review findings of the CodeRabbit review on PR #1508 --------------------------
+
+
+def test_without_hard_links_a_file_another_writer_puts_there_is_never_replaced(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """The in-place route never replaces a file that another writer puts at the name."""
+    import os
+
+    from tether.services import CommandFailed, compositions
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+
+    def no_links(*_args, **_kwargs):
+        raise PermissionError("hard links are not supported")
+
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
+    real_lstat = os.lstat
+    swapped = []
+
+    def overwritten_before_the_check(name, *args, **kwargs):
+        # An overwriting save lands after the in-place write and before its check. The
+        # write's descriptor is closed by then, so Windows lets the replace happen too.
+        if os.fspath(name) == os.fspath(out) and not swapped:
+            swapped.append(name)
+            other = tmp_path / "theirs"
+            other.write_text('{"theirs": true}', encoding="utf-8")
+            os.replace(other, out)
+        return real_lstat(name, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", overwritten_before_the_check)
+    with pytest.raises(CommandFailed, match="was replaced while the save wrote it"):
+        _save(out, project, ["all"])
+    assert out.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+def test_where_rename_never_replaces_a_save_publishes_by_rename(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Without hard links on Windows, a rename publishes, and it never replaces a file."""
+    import os
+
+    from tether.services import compositions
+
+    project, _keys = modelled
+
+    def no_links(*_args, **_kwargs):
+        raise PermissionError("hard links are not supported")
+
+    real_rename = os.rename
+
+    def windows_rename(src, dst, *args, **kwargs):  # what os.rename does on Windows
+        if os.path.lexists(dst):
+            raise FileExistsError(dst)
+        real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "rename", windows_rename)
+    monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", True)
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    later = tmp_path / "d.json"
+    real_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):
+        later.write_text('{"theirs": true}', encoding="utf-8")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(later, project, ["all"])
+    assert later.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
