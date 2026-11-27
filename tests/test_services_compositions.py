@@ -856,3 +856,15 @@ def test_without_hard_links_a_failed_save_never_removes_a_file_swapped_in(
         _save(out, project, ["all"])
     assert out.read_text(encoding="utf-8") == '{"theirs": true}'
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+def test_only_an_empty_regular_file_counts_as_empty(tmp_path) -> None:
+    from tether.services.compositions import _is_empty_file
+
+    empty = tmp_path / "empty.json"
+    empty.write_bytes(b"")
+    assert _is_empty_file(empty)
+    assert not _is_empty_file(tmp_path / "gone.json")  # vanished since the caller's check
+    assert not _is_empty_file(tmp_path)  # a directory is not a file to replace
+    (tmp_path / "full.json").write_bytes(b"{")
+    assert not _is_empty_file(tmp_path / "full.json")
