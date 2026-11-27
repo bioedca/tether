@@ -154,6 +154,33 @@ def _warn_conflict_copies(project_path: str | os.PathLike[str]) -> None:
         print(f"  warning: {warning}.", file=sys.stderr)
 
 
+#: The ``--frame-steps`` help text of ``extract``, ``reextract`` and ``batch`` (#1435).
+_FRAME_STEPS_HELP = (
+    "steps applied to the whole of every frame before the channel split, in order, "
+    "separated by commas: 'rotate 90|180|270' (clockwise; 'rotate 90' is ImageJ's Rotate "
+    "90 Degrees Right), 'flip h|v|vh', 'translate DOWN RIGHT' (whole pixels) and 'crop "
+    "Y1 X1 Y2 X2' (1-based, inclusive); no pixel is resampled. The map's or layout's cut "
+    "is read in the frame after them. They replace the map's default; 'none' is no steps"
+)
+_MAP_FRAME_STEPS_HELP = (
+    "with --tmap: the .tmap's default frame steps (it holds none of its own), kept with "
+    "the map's record in the project; a movie's --frame-steps replaces it"
+)
+
+
+def _add_frame_steps_arguments(parser: argparse.ArgumentParser, *, batch: bool = False) -> None:
+    """Add ``--frame-steps`` and ``--map-frame-steps`` to an extraction command (#1435)."""
+    parser.add_argument(
+        "--frame-steps",
+        default=None,
+        metavar="STEPS",
+        help=_FRAME_STEPS_HELP + (" (one value for every movie)" if batch else ""),
+    )
+    parser.add_argument(
+        "--map-frame-steps", default=None, metavar="STEPS", help=_MAP_FRAME_STEPS_HELP
+    )
+
+
 def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
     """Register the ``extract`` subcommand (movie -> ``.tether``)."""
     extract = subparsers.add_parser(
@@ -336,6 +363,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
             "It cannot be combined with an option flag (--donor-side ... --rms-gate)"
         ),
     )
+    _add_frame_steps_arguments(extract)
 
 
 class _ProfileRefused(Exception):
@@ -400,6 +428,8 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         map_optics=args.map_optics,
         confirm_optics=args.confirm_optics,
         count_only=args.count_only,
+        frame_steps=args.frame_steps,
+        map_frame_steps=args.map_frame_steps,
         **values,  # type: ignore[arg-type]
     )
 
@@ -438,6 +468,8 @@ def _run_extract(args: argparse.Namespace) -> int:
         print(f"  registration: map file {request.map_path}")
     if request.tdat is not None:
         print(f"  detection: mode '{summary.detection_mode}' from {request.tdat}")
+    if summary.frame_steps_source is not None:
+        print(f"  frame steps: {summary.frame_steps} (from the {summary.frame_steps_source})")
     if summary.low_confidence_registration:
         # A map file is judged against its own gate, not --rms-gate (#353).
         gate = request.rms_gate if summary.rms_gate is None else summary.rms_gate
@@ -522,6 +554,7 @@ def _add_reextract_parser(subparsers: argparse._SubParsersAction, summary: str) 
         metavar="PX",
         help=('the "did not move" distance in pixels (default: GENERATION_MATCH_PX, 0.5)'),
     )
+    _add_frame_steps_arguments(reextract)
 
 
 def _reextract_request(args: argparse.Namespace) -> ReextractRequest:
@@ -534,6 +567,8 @@ def _reextract_request(args: argparse.Namespace) -> ReextractRequest:
         tdat=args.tdat,
         map_path=args.map_path,
         match_px=args.match_px,
+        frame_steps=args.frame_steps,
+        map_frame_steps=args.map_frame_steps,
         **values,  # type: ignore[arg-type]
     )
 
@@ -672,6 +707,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         metavar="PATH",
         help=f"a shared Deep-LASI .tdat detection config applied to every movie; {_TDAT_RULE}",
     )
+    _add_frame_steps_arguments(batch, batch=True)
     batch.add_argument(
         "--profile",
         default=None,
@@ -794,6 +830,8 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         sidecar_python=args.sidecar_python,
         defer_if_unavailable=not args.no_defer,
         recursive=args.recursive,
+        frame_steps=args.frame_steps,
+        map_frame_steps=args.map_frame_steps,
         **values,  # type: ignore[arg-type]
     )
 
@@ -1094,6 +1132,16 @@ def _add_map_parser(subparsers: argparse._SubParsersAction, summary: str) -> Non
             "pixel size is refused (default: not known, not compared)"
         ),
     )
+    create.add_argument(
+        "--frame-steps",
+        default=None,
+        metavar="STEPS",
+        help=(
+            "the map's default frame steps, kept in the map: how the frames it is made on "
+            "relate to the movies it will be used with (e.g. 'rotate 90'); a movie's own "
+            "'tether extract --frame-steps' replaces it (default: none)"
+        ),
+    )
 
 
 def _map_request(args: argparse.Namespace) -> MapCreateRequest:
@@ -1110,6 +1158,7 @@ def _map_request(args: argparse.Namespace) -> MapCreateRequest:
         rms_gate=args.rms_gate,
         optics=args.optics or "",
         pixel_size_um=args.pixel_size_um,
+        frame_steps=args.frame_steps,
     )
 
 

@@ -148,7 +148,10 @@ class MovieJob:
     """One input movie and the ``.tether`` it extracts into.
 
     ``tmap`` / ``tdat`` are optional per-movie Deep-LASI imports (a condition
-    typically shares one ``.tmap``); paths are coerced to `Path`.
+    typically shares one ``.tmap``); paths are coerced to `Path`. ``frame_steps`` are the
+    movie's own frame steps and ``map_frame_steps`` the default of its ``.tmap`` (#1435),
+    each a [`ChannelRecipe`][tether.imaging.recipe.ChannelRecipe] or its text form;
+    ``None`` gives none, and the extraction then decides as without a batch.
     """
 
     movie_path: Path
@@ -158,14 +161,30 @@ class MovieJob:
     #: The job's name in the log and the summary; ``None`` is the output's stem. Jobs
     #: that share one output project (``tether batch --into``, #1151) each need one.
     name: str | None = None
+    frame_steps: Any = None
+    map_frame_steps: Any = None
 
     def __post_init__(self) -> None:
+        from tether.imaging.recipe import ChannelRecipe  # noqa: PLC0415
+
+        for name in ("frame_steps", "map_frame_steps"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, ChannelRecipe):
+                object.__setattr__(self, name, ChannelRecipe.parse(str(value)))
         object.__setattr__(self, "movie_path", Path(self.movie_path))
         object.__setattr__(self, "output_path", Path(self.output_path))
         if self.tmap is not None:
             object.__setattr__(self, "tmap", Path(self.tmap))
         if self.tdat is not None:
             object.__setattr__(self, "tdat", Path(self.tdat))
+
+    def steps_kwargs(self) -> dict[str, Any]:
+        """Return the frame-step keywords of this job's extraction: only those given."""
+        return {
+            name: getattr(self, name)
+            for name in ("frame_steps", "map_frame_steps")
+            if getattr(self, name) is not None
+        }
 
     @property
     def label(self) -> str:
@@ -1564,6 +1583,7 @@ def _do_extract(
                 tmap=job.tmap,
                 tdat=job.tdat,
                 overwrite=overwrite,
+                **job.steps_kwargs(),
                 **runner_kwargs,
             )
         if ownership_guard is not None:
@@ -2018,6 +2038,7 @@ def _do_append(
                 tmap=job.tmap,
                 tdat=job.tdat,
                 refuse_over_gate=refuse,
+                **job.steps_kwargs(),
             )
         else:
             from tether.project.lock import publish_lock  # noqa: PLC0415
@@ -2039,6 +2060,7 @@ def _do_append(
                         tdat=job.tdat,
                         publish_guard=guard,
                         refuse_over_gate=refuse,
+                        **job.steps_kwargs(),
                     )
             if existing is not None:
                 return _skip_present(rec, project, existing)

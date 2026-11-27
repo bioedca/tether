@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from tether.services.base import CommandFailed, Request, RequestRefused
-from tether.services.profile import ExtractionFields
+from tether.services.profile import ExtractionFields, frame_steps_from_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.idealize.supervisor import SidecarSupervision
@@ -93,6 +93,11 @@ class BatchRequest(ExtractionFields, Request):
         ``--no-defer``.
     recursive
         Make a folder in ``movies`` include its sub-folders.
+    frame_steps
+        One value of frame steps for every movie (``--frame-steps``, #1435), replacing the
+        map's default; ``"none"`` is no steps. ``None`` uses the map's default.
+    map_frame_steps
+        With ``tmap``: the ``.tmap``'s default frame steps, or ``None``.
     """
 
     COMMAND: ClassVar[str] = "batch"
@@ -122,6 +127,8 @@ class BatchRequest(ExtractionFields, Request):
     sidecar_python: str | None = None
     defer_if_unavailable: bool = True
     recursive: bool = False
+    frame_steps: str | None = None
+    map_frame_steps: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -230,8 +237,12 @@ def _settings(request: BatchRequest) -> tuple[ExtractOptions, SidecarSupervision
         )
     try:
         extract_options = request.extract_options()
+        frame_steps_from_text(request.frame_steps)
+        frame_steps_from_text(request.map_frame_steps, "map_frame_steps")
     except ExtractionError as exc:
         raise RequestRefused(str(exc)) from exc
+    if request.map_frame_steps is not None and request.tmap is None:
+        raise RequestRefused("--map-frame-steps is the default frame steps of a --tmap")
     # A .tmap splits each frame at its own crops, so extraction refuses a layout beside it
     # for every movie; refusing it here keeps the dry run from promising a run that fails.
     if request.tmap is not None and extract_options.channel_layout is not None:
@@ -292,6 +303,8 @@ def _jobs(request: BatchRequest, out_dir: Path, movie_root: Path | None = None) 
                 tmap=request.tmap,
                 tdat=request.tdat,
                 name=stem,
+                frame_steps=request.frame_steps,
+                map_frame_steps=request.map_frame_steps,
             )
             for movie, stem in zip(movies, stems, strict=True)
         ]
@@ -301,6 +314,8 @@ def _jobs(request: BatchRequest, out_dir: Path, movie_root: Path | None = None) 
             output_path=out_dir / f"{stem}.tether",
             tmap=request.tmap,
             tdat=request.tdat,
+            frame_steps=request.frame_steps,
+            map_frame_steps=request.map_frame_steps,
         )
         for movie, stem in zip(movies, stems, strict=True)
     ]
@@ -342,6 +357,16 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
 
 def _rect_text(rect: tuple[int, ...] | None) -> str:
     return "[" + " ".join(str(v) for v in rect or ()) + "]"
+
+
+def _frame_steps_settings(request: BatchRequest) -> tuple[str, ...]:
+    """Return the frame-steps entries of the plan's settings line (#1435), if any."""
+    out = []
+    if request.frame_steps is not None:
+        out.append(f"frame-steps={request.frame_steps} (every movie)")
+    if request.map_frame_steps is not None:
+        out.append(f"map-frame-steps={request.map_frame_steps}")
+    return tuple(out)
 
 
 def _extraction_settings(options: ExtractOptions, *, tmap: bool, tdat: bool) -> tuple[str, ...]:
@@ -423,6 +448,7 @@ def plan(request: BatchRequest) -> BatchPlan:
             f"recursive={'on' if request.recursive else 'off'}",
             f"tmap={request.tmap or 'none'}",
             f"tdat={request.tdat or 'none'}",
+            *_frame_steps_settings(request),
             *_extraction_settings(
                 extract_options, tmap=request.tmap is not None, tdat=request.tdat is not None
             ),

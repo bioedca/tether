@@ -210,6 +210,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0154](0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md) | Tether reads AVI with its own reader, and only uncompressed 8-bit gray | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0155](0155-the-release-set-of-validation-evidence.md) | The release set of validation evidence lives beside the tag, and its one-commit rule runs only in the release workflow | accepted | §9.3 Stable release acceptance, §9.5 (the validation suite), §12.7 |
 | [0156](0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md) | A trace's calibration window is stored apart from its analysis window | accepted | §5 (data model), §7.2 FR-CORRECT (G03), §7.6 FR-ANNOTATE |
+| [0157](0157-frame-steps-run-on-the-whole-frame-before-the-split.md) | Frame steps run on the whole frame before the split, and a movie's own replace the map's default | accepted | §7.1 (FR-EXTRACT), Appendix E stages 1 and 10, §5 (data model) |
 
 <!-- gen:adr-index end -->
 
