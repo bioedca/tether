@@ -148,6 +148,10 @@ class ConditionCorrection:
     alpha_source, gamma_source
         ``"manual"`` for an override, ``"estimated"`` for a stored factor, ``None`` when
         the factor is missing.
+    alpha_manual, gamma_manual
+        The manual values of the factor that the condition's molecules carry, when they carry
+        more than one: two movies of one condition can take different overrides. The factor
+        itself is then ``None``. Empty otherwise.
     n_molecules, n_corrected, n_manual, n_apparent
         As in [`CorrectionSummary`][], for this condition's molecules only.
     total_failure
@@ -164,6 +168,8 @@ class ConditionCorrection:
     n_manual: int
     n_apparent: int
     total_failure: bool
+    alpha_manual: tuple[float, ...] = ()
+    gamma_manual: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -474,7 +480,7 @@ def _override_condition(groups: dict[str, list[int]], condition_id: str | None) 
 def _condition_corrections(
     f: object,
     table: np.ndarray,
-    held: dict[str, dict[str, float]],
+    held: dict[str, dict[str, tuple[float, ...]]],
     groups: dict[str, list[int]],
     counts: dict[str, list[int]],
     *,
@@ -520,12 +526,18 @@ def _condition_corrections(
             median = medians.get(cond)
             gamma = finite_or_none(median) if median is not None else None
             gamma_source = "estimated" if gamma is not None else None
+        manual_values: dict[str, tuple[float, ...]] = {"alpha": (), "gamma": ()}
         if n_manual:
-            kept = held[cond]
-            if "alpha" in kept and not (manual and alpha_override is not None):
-                alpha, alpha_source = kept["alpha"], "manual"
-            if "gamma" in kept and not (manual and gamma_override is not None):
-                gamma, gamma_source = kept["gamma"], "manual"
+            supplied = {"alpha": alpha_override, "gamma": gamma_override}
+            for name, kept in held[cond].items():
+                values = set(kept)
+                if manual and supplied[name] is not None:
+                    values.add(float(supplied[name]))  # type: ignore[arg-type]
+                manual_values[name] = tuple(sorted(values))
+            if manual_values["alpha"]:
+                alpha, alpha_source = _one_or_none(manual_values["alpha"]), "manual"
+            if manual_values["gamma"]:
+                gamma, gamma_source = _one_or_none(manual_values["gamma"]), "manual"
         out.append(
             ConditionCorrection(
                 condition_id=cond,
@@ -538,9 +550,16 @@ def _condition_corrections(
                 n_manual=n_manual,
                 n_apparent=apparent,
                 total_failure=(corrected + n_manual) == 0,
+                alpha_manual=manual_values["alpha"] if len(manual_values["alpha"]) > 1 else (),
+                gamma_manual=manual_values["gamma"] if len(manual_values["gamma"]) > 1 else (),
             )
         )
     return out
+
+
+def _one_or_none(values: tuple[float, ...]) -> float | None:
+    """Return the one manual value, or ``None`` when a condition carries several."""
+    return values[0] if len(values) == 1 else None
 
 
 #: Which per-condition count a stamped ``correction_method`` adds to: corrected, manual, apparent.
@@ -583,32 +602,35 @@ def _previous_conditions(f: object) -> dict[str, dict[str, object]]:
 
 def _held_manual(
     table: np.ndarray, rows: list[int], previous: dict[str, object] | None
-) -> dict[str, float]:
-    """Return the factors ``previous`` recorded as manual that its manual rows still carry.
+) -> dict[str, tuple[float, ...]]:
+    """Return the manual values ``previous`` recorded that the condition's manual rows carry.
 
-    The rows are those of the condition stamped [`METHOD_MANUAL`][]. A factor holds while at
-    least one of them carries it: an override reaches only the molecules that have both
-    factors, and a later override of the other factor can make the rest manual with a factor
-    of their own. A γ or leakage pass rewrites the factor of every molecule of the condition,
-    and then the record lapses.
+    The rows are those of the condition stamped [`METHOD_MANUAL`][]. A recorded value holds
+    while at least one of them carries it: an override reaches only the molecules that have
+    both factors, a later override of the other factor can make the rest manual with a factor
+    of their own, and two movies of one condition can take different overrides. A γ or
+    leakage pass rewrites the factor of every molecule of the condition, and then the value
+    lapses.
     """
-    held: dict[str, float] = {}
+    held: dict[str, tuple[float, ...]] = {}
     if previous is None:
         return held
     manual_rows = [r for r in rows if _text(table["correction_method"][r]) == METHOD_MANUAL]
     for name in ("alpha", "gamma"):
-        value = previous.get(name)
-        if previous.get(f"{name}_source") != "manual" or value is None:
+        if previous.get(f"{name}_source") != "manual":
             continue
+        listed = previous.get(f"{name}_manual") or [previous.get(name)]
+        recorded = [float(v) for v in listed if v is not None]  # type: ignore[union-attr]
         carried = np.asarray(table[name][manual_rows], dtype=np.float64)
-        if np.any(carried == float(value)):  # type: ignore[arg-type]
-            held[name] = float(value)  # type: ignore[arg-type]
+        values = tuple(v for v in recorded if np.any(carried == v))
+        if values:
+            held[name] = values
     return held
 
 
-def _carries_held(table: np.ndarray, row: int, held: dict[str, float]) -> bool:
-    """Return whether ``row`` still carries one of its condition's held manual factors."""
-    return any(float(table[name][row]) == value for name, value in held.items())
+def _carries_held(table: np.ndarray, row: int, held: dict[str, tuple[float, ...]]) -> bool:
+    """Return whether ``row`` still carries one of its condition's held manual values."""
+    return any(float(table[name][row]) in values for name, values in held.items())
 
 
 def _text(value: object) -> str:
@@ -671,8 +693,9 @@ def _stamp_correction_settings(
     # condition's factors and counts, in a form #926 extends with a source and a version.
     if override_condition_id is not None:
         grp.attrs["override_condition_id"] = override_condition_id
-    entries = {
-        c.condition_id: {
+    entries: dict[str, dict[str, object]] = {}
+    for c in conditions or []:
+        entry: dict[str, object] = {
             "condition_id": c.condition_id,
             "alpha": c.alpha,
             "alpha_source": c.alpha_source,
@@ -684,8 +707,12 @@ def _stamp_correction_settings(
             "n_apparent": c.n_apparent,
             "total_failure": c.total_failure,
         }
-        for c in conditions or []
-    }
+        # Only when the condition's molecules carry several manual values of a factor.
+        if c.alpha_manual:
+            entry["alpha_manual"] = list(c.alpha_manual)
+        if c.gamma_manual:
+            entry["gamma_manual"] = list(c.gamma_manual)
+        entries[c.condition_id] = entry
     for cond, entry in (carried or {}).items():
         entries.setdefault(cond, entry)
     # In the order the conditions first appear in /molecules; a record of a condition no

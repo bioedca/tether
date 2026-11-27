@@ -245,7 +245,7 @@ movies.
 | `n_corrected`, `n_manual`, `n_apparent` | `int` | count | — | How many molecules this pass classified `corrected`, `manual` or apparent E. |
 | `total_failure` | `bool` | — | — | `True` when no molecule carries a correction (note 2). |
 | `override_condition_id` | `str` | — | absent (no override, or note 3) | The condition that `alpha_override` and `gamma_override` were applied to. |
-| `conditions` | `str` (JSON) | — | absent (note 3) | For each condition: `condition_id`, `alpha` and `gamma` with their `alpha_source` and `gamma_source` (`estimated`, `manual` or `null`), `n_molecules`, `n_corrected`, `n_manual`, `n_apparent` and `total_failure` (note 4). |
+| `conditions` | `str` (JSON) | — | absent (note 3) | For each condition: `condition_id`, `alpha` and `gamma` with their `alpha_source` and `gamma_source` (`estimated`, `manual` or `null`), `n_molecules`, `n_corrected`, `n_manual`, `n_apparent` and `total_failure`. Also `alpha_manual` or `gamma_manual` when it carries several manual values (note 4). |
 | `n_conditions` | `int` | count | absent (note 3) | The number of conditions in `conditions`. |
 | `app_version`, `created_utc` | `str` | — | — | The version and the time of the pass. |
 
@@ -259,7 +259,9 @@ movies.
 4. `total_failure` of a condition is `True` when no molecule of that condition carries a
    correction. That condition is then on apparent E, while the others may be corrected. `gamma`
    is the condition's median from `/settings/gamma`, or the manual factor. A molecule whose own
-   step qualified keeps its own γ in `/molecules`.
+   step qualified keeps its own γ in `/molecules`. Two movies of one condition can take
+   different manual factors. Then `gamma` is `null`, and `gamma_manual` lists the values. The
+   same holds for α.
 
 Direct excitation (δ) has no attribute here. Tether's two-color, single-laser scheme carries δ as
 an inert `0` ([ADR-0008](adr/0008-correction-factor-remap.md)). Tether stores it for each molecule

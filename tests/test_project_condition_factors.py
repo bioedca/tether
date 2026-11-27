@@ -671,3 +671,38 @@ def test_a_molecule_keeps_its_manual_stamp_only_while_it_carries_a_held_factor(
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.05, "manual", 11)
     assert entry["gamma_source"] == "estimated"
+
+
+def test_two_movies_of_a_condition_keep_their_different_manual_factors(
+    tmp_path: Path,
+) -> None:
+    # Codex (closing review) on #1486: two movies of cond-A take different manual γ through
+    # movie-scoped passes. The record keeps both, and both movies stay manual under a later
+    # override for cond-B.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["movie_id"][6:12] = "mov-2"
+        table["movie_id"][12:] = "mov-3"
+        f["molecules"][TABLE][:] = table
+    first = _text(read_molecules(path)["movie_id"][:1])[0]
+    compute_corrected_fret(path, gamma_override=2.0, movie_id=first)
+    compute_corrected_fret(path, gamma_override=3.0, movie_id="mov-2")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["gamma"], entry["gamma_source"], entry["gamma_manual"]) == (
+        None,
+        "manual",
+        [2.0, 3.0],
+    )
+    assert entry["n_manual"] == 12
+
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    assert _text(read_molecules(path)["correction_method"][:12]) == [METHOD_MANUAL] * 12
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["gamma_source"], entry["gamma_manual"], entry["n_manual"]) == (
+        "manual",
+        [2.0, 3.0],
+        12,
+    )
+    assert "gamma_manual" not in _conditions(path, "correction")["cond-B"]
