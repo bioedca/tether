@@ -325,6 +325,12 @@ def compute_corrected_fret(
         groups = group_by_condition(ids, examined)
         target = _override_condition(groups, condition_id) if has_override else None
         counts = {cond: [0, 0, 0] for cond in groups}  # corrected, manual, apparent
+        # The manual factors an earlier pass recorded that each condition's molecules still
+        # carry: a later γ or leakage pass replaces them, and then the record lapses (#624).
+        previous = _previous_conditions(f)
+        held = {
+            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in groups.items()
+        }
 
         for i in examined:
             n_molecules += 1
@@ -335,6 +341,7 @@ def compute_corrected_fret(
             keeps_manual = (
                 has_override
                 and not applies
+                and any(held[ids[i]].values())
                 and _text(table["correction_method"][i]) == METHOD_MANUAL
             )
 
@@ -385,6 +392,7 @@ def compute_corrected_fret(
         per_condition = _condition_corrections(
             f,
             table,
+            held,
             groups,
             counts,
             target=target,
@@ -441,6 +449,7 @@ def _override_condition(groups: dict[str, list[int]], condition_id: str | None) 
 def _condition_corrections(
     f: object,
     table: np.ndarray,
+    held: dict[str, dict[str, float]],
     groups: dict[str, list[int]],
     counts: dict[str, list[int]],
     *,
@@ -451,15 +460,11 @@ def _condition_corrections(
 ) -> list[ConditionCorrection]:
     """Return each condition's applied factors and counts, for the provenance (#624).
 
-    A condition other than ``target`` whose molecules kept a manual factor from an earlier
-    pass keeps that pass's record of it: its factors and sources come from the
-    ``/settings/correction`` this pass replaces, else from the factors its rows carry. In
-    ``target`` itself, the factor this pass does not supply keeps its earlier manual record.
+    ``held`` holds, for each condition, the manual factors the replaced
+    ``/settings/correction`` recorded that its molecules still carry. A factor this pass does
+    not supply keeps such a record, in ``target`` as in every other condition; a record whose
+    factor a later γ or leakage pass replaced has lapsed and is not restored.
     """
-    previous = {
-        str(c["condition_id"]): c
-        for c in read_conditions(f[_SETTINGS].get(_CORRECTION_SETTINGS)) or []  # type: ignore[index]
-    }
     gamma_grp = f[_SETTINGS].get("gamma")  # type: ignore[index]
     stamped = read_conditions(gamma_grp)
     if stamped is not None:
@@ -484,16 +489,12 @@ def _condition_corrections(
             gamma = finite_or_none(median) if median is not None else None
             gamma_source = "estimated" if gamma is not None else None
         corrected, n_manual, apparent = counts[cond]
-        prev = previous.get(cond)
-        if n_manual and not manual:
-            alpha, gamma, alpha_source, gamma_source = _kept_manual(table, rows, prev)
-        elif n_manual and prev is not None:
-            # The factor this pass does not supply keeps the manual record an earlier pass
-            # wrote for it: the molecules still carry that factor.
-            if alpha_override is None and prev.get("alpha_source") == "manual":
-                alpha, alpha_source = finite_or_none(prev.get("alpha")), "manual"  # type: ignore[arg-type]
-            if gamma_override is None and prev.get("gamma_source") == "manual":
-                gamma, gamma_source = finite_or_none(prev.get("gamma")), "manual"  # type: ignore[arg-type]
+        if n_manual:
+            kept = held[cond]
+            if "alpha" in kept and not (manual and alpha_override is not None):
+                alpha, alpha_source = kept["alpha"], "manual"
+            if "gamma" in kept and not (manual and gamma_override is not None):
+                gamma, gamma_source = kept["gamma"], "manual"
         out.append(
             ConditionCorrection(
                 condition_id=cond,
@@ -511,26 +512,27 @@ def _condition_corrections(
     return out
 
 
-def _kept_manual(
+def _previous_conditions(f: object) -> dict[str, dict[str, object]]:
+    """Return the per-condition record of the ``/settings/correction`` this pass replaces."""
+    group = f[_SETTINGS].get(_CORRECTION_SETTINGS)  # type: ignore[index]
+    return {str(c["condition_id"]): c for c in read_conditions(group) or []}
+
+
+def _held_manual(
     table: np.ndarray, rows: list[int], previous: dict[str, object] | None
-) -> tuple[float | None, float | None, str | None, str | None]:
-    """Return the factors and sources of a condition that kept an earlier manual factor."""
-    if previous is not None and "manual" in (
-        previous.get("alpha_source"),
-        previous.get("gamma_source"),
-    ):
-        return (
-            finite_or_none(previous.get("alpha")),  # type: ignore[arg-type]
-            finite_or_none(previous.get("gamma")),  # type: ignore[arg-type]
-            previous.get("alpha_source"),  # type: ignore[return-value]
-            previous.get("gamma_source"),  # type: ignore[return-value]
-        )
-    # No record of the earlier pass: the factors its molecules carry, marked manual.
-    found = []
+) -> dict[str, float]:
+    """Return the factors ``previous`` recorded as manual that every row still carries."""
+    held: dict[str, float] = {}
+    if previous is None:
+        return held
     for name in ("alpha", "gamma"):
-        values = np.unique(np.asarray(table[name][rows], dtype=np.float64))
-        found.append(finite_or_none(values[0]) if values.size == 1 else None)
-    return found[0], found[1], "manual", "manual"
+        value = previous.get(name)
+        if previous.get(f"{name}_source") != "manual" or value is None:
+            continue
+        carried = np.asarray(table[name][rows], dtype=np.float64)
+        if carried.size and np.all(carried == float(value)):  # type: ignore[arg-type]
+            held[name] = float(value)  # type: ignore[arg-type]
+    return held
 
 
 def _text(value: object) -> str:

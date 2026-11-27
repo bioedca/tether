@@ -320,3 +320,23 @@ def test_a_later_override_of_one_factor_keeps_the_other_manual_one(tmp_path: Pat
     assert (entry["gamma"], entry["gamma_source"]) == (1.5, "manual")
     table = read_molecules(path)
     assert np.all(table["alpha"][:12] == 0.05) and np.all(table["gamma"][:12] == 1.5)
+
+
+def test_a_manual_record_does_not_outlive_a_re_estimated_factor(tmp_path: Path) -> None:
+    # Codex P2 on #1486: a manual γ for cond-A, a new γ pass, then an override for cond-B
+    # must not restore cond-A's obsolete manual record over its re-estimated factors.
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+    compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-A")
+    compute_gamma(path)  # replaces cond-A's manual γ with estimated ones
+    estimated = read_molecules(path)["gamma"][:12].copy()
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+
+    table = read_molecules(path)
+    assert np.array_equal(table["gamma"][:12], estimated)
+    assert _text(table["correction_method"][:12]) == [METHOD_CORRECTED] * 12
+    entry = _conditions(path, "correction")["cond-A"]
+    assert entry["gamma_source"] == "estimated" and entry["gamma"] != 2.0
+    assert entry["n_manual"] == 0
