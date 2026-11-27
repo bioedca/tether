@@ -31,9 +31,25 @@ candidate and, in `on` mode, takes the label off. In observe mode, the request o
 that merged stays, as `remove`, until a `leave`. In `on` mode the reconcile deletes it.
 
 **One owner.** Every write but the request ref is the reconcile's. Reconciles run one at a time
-and one follows every `leave`, so the last writer of `mq/pr-N` always read after the `leave`. Before
-a merge or a removal the reconcile reads the request ref again. If it changed, because the pull request left or
-joined again, the run builds the train again and merges only the request it now reads.
+and one follows every `leave`, so the last writer of `mq/pr-N` always read after the `leave`.
+
+**One write boundary: the take.** A `join` or `leave` and the reconcile run in different
+concurrency groups, so they can overlap. The request ref is the boundary between them. Before a
+merge or a removal writes anything, the reconcile *takes* the request with one atomic push
+(`git push --atomic` with `--force-with-lease`). The push deletes `refs/merge-queue/pr-N` only if
+it still holds the request this pass read, and creates `refs/merge-queue/pending/pr-N` in the same
+step. Git applies both refs or neither.
+
+- A `leave` or a rejoin that lands **before** the take changes the request ref, so the push fails
+  and the run writes nothing. The run builds the train again and judges only the request it now
+  reads. A merge never uses an old squash message, and a removal never deletes the new request.
+- A `leave` that lands **after** the take finds no request and changes nothing (its output says
+  `"request": false`). The merge or removal goes on, as it would if the `leave` came after it. A
+  rejoin after the take records a new request. If the pull request merged, the next run removes
+  that request quietly, because the pull request is closed.
+
+A server without atomic pushes makes the push fail, and the run fails with an error. It does not
+fall back to a write that is not atomic.
 
 ## The train and a candidate
 
@@ -69,25 +85,48 @@ come from a pull request ahead. Until then it is `pending`.
 
 ## The merge
 
-When the front candidate passed, the queue sets the status `merge-queue` to `success` on the pinned
-head. It reads `main` again, and when `main` moved after the verdict, it builds the train again
-instead of merging. Otherwise it squash-merges the pull request through the API with `sha` equal to
+When the front candidate passed, the queue takes the request (see
+[the take](#join-and-leave)) and sets the status `merge-queue` to `success` on the pinned head. It
+reads `main` again, and when `main` moved after the verdict, it puts the request back and builds
+the train again instead of merging. Otherwise it squash-merges the pull request through the API with `sha` equal to
 the pinned head. The
 title is `<pull request title> (#N)` and the message is the squash message of the join. A push
 after the join makes GitHub refuse.
 
-Then the queue deletes the request and the candidate and takes the label off. It compares the tree
-of the new `main` commit with the tree of the candidate. When they differ, because `main` moved in the
-instant before the merge, the queue comments on the merged pull request. The run then fails with an
-error that names both trees, and it merges nothing more in that run. Otherwise the run builds the train
-again and goes on, so several passed candidates at the front merge in order in one run.
+Then the queue deletes the candidate, takes the label off and deletes the pending ref. When the
+merge call fails with an error, the queue cannot tell whether GitHub merged, so the pending ref stays.
+The next run asks GitHub whether the pull request merged. If it did not, the run puts the request
+back in its place in the train.
+
+After a merge, the queue compares the tree of the new `main` commit with the
+tree of the candidate. When they differ, because `main` moved in the instant before the merge,
+the queue comments on the merged pull request. The run then fails with an error that names both
+trees, and it merges nothing more in that run. Otherwise the run builds the train again and goes
+on, so several passed candidates at the front merge in order in one run.
+
+**The base window stays open until #1269.** `main` can still move in the instant between the
+last read of `main` and `PUT /pulls/N/merge`, because the merge API does not pin the base. Then an
+untested tree lands on `main`. The queue detects it after the merge, as above, but cannot stop it.
+The maintainer decided (2026-11-27, #1480) that the queue's code does not close this window.
+Issue #1269 closes it: when every merge to `main` goes through the queue, no direct merge can land
+in that instant.
 
 ## A removal and the rejoin
 
 A pull request is removed for a `remove` state of the plan, or when GitHub refuses its merge. It is
-also removed when its candidate failed and every candidate ahead passed. The queue sets the status
-`merge-queue` to `failure` on the pinned head, deletes the request, writes **one** comment, and
-deletes the candidate. The request goes before the comment, so a later run cannot comment twice.
+also removed when its candidate failed and every candidate ahead passed. The queue takes the
+request and sets the status `merge-queue` to `failure` on the pinned head. It writes **one**
+comment, deletes the candidate, takes the label off and, last, deletes the pending ref.
+
+**A durable comment.** The pending ref holds the comment until it is written. Its commit message
+is the comment, and its one parent is the request commit. When the comment POST fails, the run
+fails, and the pull request is out of the queue with the pending ref still there. Every run
+finishes the pending refs it finds before it builds the train, so the next run writes the comment.
+A `leave` does not delete a pending ref.
+
+Each comment ends with a hidden tag that names the pending commit. A run writes the comment only
+when no comment on the pull request has that tag. So a POST whose reply was lost, after GitHub
+saved the comment, gets no second comment.
 
 The comment gives the reason, which is one of these:
 
@@ -134,9 +173,9 @@ requests read.
 
 | Permission | Access | The calls that need it |
 |---|---|---|
-| Contents | write | push and delete `mq/pr-N`; create and delete `refs/merge-queue/pr-N` (`POST /git/commits`, `POST /git/refs`, `DELETE /git/refs/...`); the merge (`PUT /pulls/N/merge`) |
+| Contents | write | push and delete `mq/pr-N`; create and delete `refs/merge-queue/pr-N` (`POST /git/commits`, `POST /git/refs`, `DELETE /git/refs/...`); the take, a `git push` of `refs/merge-queue/pr-N` and `refs/merge-queue/pending/pr-N`; the merge (`PUT /pulls/N/merge`) |
 | Workflows | write | push a candidate whose tree changes a file under `.github/workflows/` |
-| Pull requests | write | read a pull request (`GET /pulls/N`); the comment (`POST /issues/N/comments`); the label (`POST /issues/N/labels`, `DELETE /issues/N/labels/merge-queue`, `GET /issues?labels=merge-queue`) |
+| Pull requests | write | read a pull request (`GET /pulls/N`); the comment (`POST /issues/N/comments`, and `GET /issues/N/comments` to find a comment already written); the label (`POST /issues/N/labels`, `DELETE /issues/N/labels/merge-queue`, `GET /issues?labels=merge-queue`) |
 | Commit statuses | write | the status `merge-queue` (`POST /statuses/SHA`) |
 | Checks | read | the runs of a candidate (`GET /commits/SHA/check-runs`) |
 | Metadata | read | the required checks (`GET /rules/branches/main`); every App has it |
@@ -160,7 +199,12 @@ a fork.
 3. Delete the candidate branches, because their CI still runs on a push and they stay with `off`:
    `git ls-remote origin 'refs/heads/mq/*'`, then `git push origin --delete mq/pr-N` for each.
    Delete the requests the same way (`git push origin --delete refs/merge-queue/pr-N`) to empty the
-   queue, and take the label `merge-queue` off the pull requests.
+   queue, and take the label `merge-queue` off the pull requests. A pending ref
+   (`refs/merge-queue/pending/pr-N`) is a merge or removal that a run did not finish, and the
+   first line of its commit message says which. For a removal, the rest of the message is the
+   comment, if it has one. Check that the comment is on the pull request before you delete the
+   ref, because nothing writes it once the ref is gone. For a merge, check whether the pull
+   request merged. If it did not, you can join it again after you delete the ref.
 
 ## Maintainer setup
 
