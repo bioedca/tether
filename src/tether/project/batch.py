@@ -877,7 +877,9 @@ def run_correct_stage(
 ) -> str:
     """Run the ordered corrections on one extracted ``.tether`` (PRD §7.2, Appendix B).
 
-    photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. γ is
+    photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. With
+    several conditions α is estimated for each one (ADR-0158), γ runs when any of them
+    has α, and the detail names each condition's factors. γ is
     skipped when leakage *withholds* the dataset α: that is a deliberate
     "withhold rather than fabricate" outcome (fewer than ``min_qualifying_traces``
     donor-only tails), and [`compute_gamma`][tether.project.gamma.compute_gamma] would raise on
@@ -933,6 +935,11 @@ def run_correct_stage(
                     )
             else:
                 parts.append("γ withheld")
+        elif lk.applied:
+            # Several conditions, each with its own factors (#624, ADR-0158): no
+            # project-wide α exists, so γ runs on the conditions that have one.
+            gm = compute_gamma(write_path, write_guard=write_guard)
+            parts.append(_condition_factor_detail(lk.conditions, gm.conditions))
         else:
             parts.append("α withheld")
         cf = compute_corrected_fret(write_path, write_guard=write_guard)
@@ -941,6 +948,18 @@ def run_correct_stage(
     else:
         parts.append(f"{cf.n_corrected} corrected")
     return "; ".join(parts)
+
+
+def _condition_factor_detail(leakage: Any, gamma: Any) -> str:
+    """One ``condition α=… γ=…`` entry for each condition of a pass (#624)."""
+    medians = {c.condition_id: c.gamma for c in gamma}
+    entries = []
+    for c in leakage:
+        alpha = "α withheld" if c.alpha is None else f"α={c.alpha:.3f}"
+        median = medians.get(c.condition_id)
+        g = "" if c.alpha is None else (" γ withheld" if median is None else f" γ={median:.3f}")
+        entries.append(f"{c.condition_id or '(no condition)'}: {alpha}{g}")
+    return ", ".join(entries)
 
 
 def _idealize_detail(stored: Any) -> str:

@@ -340,3 +340,22 @@ def test_a_manual_record_does_not_outlive_a_re_estimated_factor(tmp_path: Path) 
     entry = _conditions(path, "correction")["cond-A"]
     assert entry["gamma_source"] == "estimated" and entry["gamma"] != 2.0
     assert entry["n_manual"] == 0
+
+
+def test_the_batch_correct_stage_estimates_gamma_for_each_condition(tmp_path: Path) -> None:
+    # Codex P1 on #1486: with several conditions no project-wide α exists, and the batch
+    # stage must still run γ on the conditions that have one rather than read "withheld".
+    from tether.project.batch import run_correct_stage  # noqa: PLC0415
+
+    # The stage runs the real bleach detector, so cond-B gets a step it detects
+    # (α = 0.05, γ = 0.9: the acceptor drops from 390 to 50 counts).
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(0.9, 0.05, 101, 12))])
+    detail = run_correct_stage(path)
+
+    assert "α withheld" not in detail
+    assert "cond-A: α=" in detail and "cond-B: α=" in detail
+    assert detail.count("γ=") == 2
+    table = read_molecules(path)
+    assert np.all(np.isfinite(table["gamma"]))
+    assert _text(table["correction_method"]) == [METHOD_CORRECTED] * 24
