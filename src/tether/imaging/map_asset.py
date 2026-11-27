@@ -630,8 +630,13 @@ def save_project_map(
     channel_layout: ChannelLayout | None = _RECORDED,
     optics: str = _RECORDED,
     pixel_size_um: float | None = _RECORDED,
+    frame_steps: ChannelRecipe | None = _RECORDED,
 ) -> MapAsset:
     """Save the map a project holds in ``/calibration/<calibration_id>`` as a separate asset.
+
+    The map's default frame steps (#1435), which the calibration records as
+    ``map_frame_steps`` (a map file's own, or a ``.tmap``'s given at use), become the saved
+    file's default unless the call gives another value (``None`` for no default).
 
     The project is only read. A map that came from a map file keeps that file's id and,
     unless the call gives another value, its channel layout, optics text and pixel size,
@@ -663,6 +668,9 @@ def save_project_map(
         optics = str(recorded.get("optics") or "")
     if pixel_size_um is _RECORDED:
         pixel_size_um = recorded.get("pixel_size_um")
+    if frame_steps is _RECORDED:
+        steps = reg_map.provenance.get("map_frame_steps")
+        frame_steps = None if steps is None else ChannelRecipe.parse(str(steps))
     # A project written before map ids has the file's checksum only; its id is then
     # ``sha256:<hex>``, as project_map_links and load_map_asset name it.
     map_id = recorded.get("map_id") or (
@@ -674,6 +682,7 @@ def save_project_map(
         channel_layout=channel_layout,
         optics=optics,
         pixel_size_um=pixel_size_um,
+        frame_steps=frame_steps,
     )
     # Written to a sibling temporary file and published the way ``tether map create``
     # publishes, never replacing a file: a failed publish removes only the file this

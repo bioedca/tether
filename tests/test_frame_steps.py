@@ -530,3 +530,25 @@ def test_a_map_file_without_a_default_ignores_one_in_its_provenance(tmp_path, ba
     assert summary.frame_steps_source is None
     _assert_same_extraction(baseline["with_map"], out)
     assert "map_frame_steps" not in read_calibration(out, summary.calibration_id).provenance
+
+
+def test_saving_a_project_map_keeps_its_default_steps(tmp_path, baseline, monkeypatch) -> None:
+    """A ``.tmap``'s default recorded in /calibration goes into the saved map file (Codex P2)."""
+    from tether.imaging.map_asset import save_project_map
+
+    tmap = _stub_tmap(tmp_path, baseline, monkeypatch)
+    movie = _write_be(tmp_path / "stored.tif", _stored_against(_original(), "rotate 90"))
+    project = tmp_path / "tmap.tether"
+    summary = extract_movie(movie, project, tmap=tmap, map_frame_steps=_steps("rotate 90"))
+    saved = save_project_map(project, summary.calibration_id, tmp_path / "saved.npz")
+    assert saved.frame_steps == _steps("rotate 90")
+    assert load_map_asset(tmp_path / "saved.npz").frame_steps == _steps("rotate 90")
+    # Reused on the same movie, the saved map turns it again.
+    again = tmp_path / "again.tether"
+    assert extract_movie(movie, again, map_path=tmp_path / "saved.npz").frame_steps_source == "map"
+    _assert_same_extraction(baseline["with_map"], again)
+    # The call can still clear it.
+    none = save_project_map(
+        project, summary.calibration_id, tmp_path / "none.npz", frame_steps=None
+    )
+    assert none.frame_steps is None
