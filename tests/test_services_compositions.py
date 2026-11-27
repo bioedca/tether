@@ -479,32 +479,22 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
     with pytest.raises(CommandFailed, match="disk full"):
         _save(tmp_path / "c.json", project, ["all"], overwrite=True)
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
-    # Without overwrite and without hard links, a POSIX save writes the new file in place;
-    # when that write fails, neither a temporary file nor the new name stays.
+    # Without overwrite and without hard links, a POSIX save reserves the new name and
+    # replaces the reservation; when that fails, no temporary file stays, and the empty
+    # reservation is left rather than removed by name (#1523).
     from tether.services import compositions
 
     monkeypatch.setattr(os, "link", refuse)
     monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
-    real_fdopen = os.fdopen
-    calls = []
-
-    def second_write_fails(fd, *args, **kwargs):
-        calls.append(fd)
-        if len(calls) == 2:  # the in-place write, after the temporary file's
-            os.close(fd)
-            raise OSError("disk full")
-        return real_fdopen(fd, *args, **kwargs)
-
-    monkeypatch.setattr(os, "fdopen", second_write_fails)
     with pytest.raises(CommandFailed, match="disk full"):
         _save(tmp_path / "c.json", project, ["all"])
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
-    assert not (tmp_path / "c.json").exists()
-    monkeypatch.setattr(os, "fdopen", real_fdopen)
+    assert (tmp_path / "c.json").read_bytes() == b""
+    monkeypatch.undo()
     # A write that fails before the publish leaves no temporary file either.
     monkeypatch.setattr(os, "fstat", refuse)
     with pytest.raises(CommandFailed, match="disk full"):
-        _save(tmp_path / "c.json", project, ["all"])
+        _save(tmp_path / "d.json", project, ["all"])
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
 
 
@@ -612,7 +602,7 @@ def test_a_temporary_entry_replaced_before_the_publish_is_never_published(
 def test_without_hard_links_a_save_still_publishes_exclusively(
     modelled, tmp_path, monkeypatch
 ) -> None:
-    """On POSIX without hard links, the new file is created exclusively and written in place."""
+    """On POSIX without hard links, the new name is reserved exclusively, then replaced."""
     import os
 
     project, _keys = modelled
@@ -679,7 +669,7 @@ def test_a_temporary_entry_removed_before_the_publish_publishes_nothing(
 def test_without_hard_links_a_file_another_writer_puts_there_is_never_replaced(
     modelled, tmp_path, monkeypatch
 ) -> None:
-    """The in-place route never replaces a file that another writer puts at the name."""
+    """The reserving route never replaces a file that another writer puts at the name."""
     import os
 
     from tether.services import CommandFailed, compositions
@@ -706,7 +696,7 @@ def test_without_hard_links_a_file_another_writer_puts_there_is_never_replaced(
         return real_lstat(name, *args, **kwargs)
 
     monkeypatch.setattr(os, "lstat", overwritten_before_the_check)
-    with pytest.raises(CommandFailed, match="was replaced while the save wrote it"):
+    with pytest.raises(CommandFailed, match="was replaced while the save reserved it"):
         _save(out, project, ["all"])
     assert out.read_text(encoding="utf-8") == '{"theirs": true}'
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
@@ -749,4 +739,120 @@ def test_where_rename_never_replaces_a_save_publishes_by_rename(
     with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
         _save(later, project, ["all"])
     assert later.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+# --- #1523: composition save leftovers -------------------------------------------
+
+
+class _Killed(BaseException):
+    """Stands in for a kill: nothing the save does after it runs in a killed process."""
+
+
+def _no_hard_links(monkeypatch) -> None:
+    """Take the POSIX route of a file system without hard links."""
+    import os
+
+    from tether.services import compositions
+
+    def no_links(*_args, **_kwargs):
+        raise PermissionError("hard links are not supported")
+
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
+
+
+def test_without_hard_links_a_killed_save_leaves_no_half_file(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Leftover 1: the text is never written through the destination's name."""
+    import os
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    _no_hard_links(monkeypatch)
+    seen = []
+
+    def killed_at_the_publish(src, dst, *args, **kwargs):
+        seen.append(out.read_bytes())  # the destination as the kill would leave it
+        raise _Killed
+
+    monkeypatch.setattr(os, "replace", killed_at_the_publish)
+    with pytest.raises(_Killed):
+        _save(out, project, ["all"])
+    assert seen == [b""]  # an empty reservation, never part of the composition
+    monkeypatch.undo()
+    # Without --force the leftover is refused like any existing file ...
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(out, project, ["all"])
+    # ... and with --force it is replaced, since an empty file holds nothing to lose.
+    _save(out, project, ["all"], overwrite=True)
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+
+
+def test_force_still_refuses_a_file_that_is_not_empty_nor_a_composition(modelled, tmp_path) -> None:
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    out.write_text("{", encoding="utf-8")  # a half file of any other writer
+    with pytest.raises(RequestRefused, match="is not a plot composition"):
+        _save(out, project, ["all"], overwrite=True)
+    assert out.read_text(encoding="utf-8") == "{"
+
+
+@pytest.mark.parametrize("hard_links", [True, False])
+@pytest.mark.parametrize("failures", [1, 99])
+def test_a_failed_cleanup_after_the_publish_is_not_a_failed_save(
+    modelled, tmp_path, monkeypatch, hard_links, failures
+) -> None:
+    """Leftover 2: the composition is published, so the save succeeds."""
+    import os
+    from pathlib import Path
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    names = _record_temporary(monkeypatch)
+    if not hard_links:
+        _no_hard_links(monkeypatch)
+    real_unlink = Path.unlink
+    refused = []
+
+    def unlink(self, *args, **kwargs):
+        if names and os.fspath(self) == names[-1] and len(refused) < failures:
+            refused.append(self)
+            raise PermissionError("the temporary file is busy")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    saved = _save(out, project, ["all"])
+    assert saved.path == out
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    if hard_links:
+        assert refused
+        # Where a later removal succeeds, no temporary file stays behind.
+        assert os.path.lexists(names[-1]) == (failures > 1)
+    else:  # the reservation route moves the temporary name, so nothing is left to remove
+        assert not os.path.lexists(names[-1])
+
+
+def test_without_hard_links_a_failed_save_never_removes_a_file_swapped_in(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Leftover 4: a file put at the name after the reservation is left where it is."""
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    _no_hard_links(monkeypatch)
+
+    def swapped_then_failed(src, dst, *args, **kwargs):
+        os.unlink(out)  # another writer removes the reservation ...
+        out.write_text('{"theirs": true}', encoding="utf-8")  # ... and creates its own
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", swapped_then_failed)
+    with pytest.raises(CommandFailed, match="disk full"):
+        _save(out, project, ["all"])
+    assert out.read_text(encoding="utf-8") == '{"theirs": true}'
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []

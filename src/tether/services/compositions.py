@@ -26,10 +26,10 @@ core loads only when a command runs.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -279,17 +279,47 @@ def _is_composition_file(path: Path) -> bool:
     return isinstance(data, Mapping) and data.get("format") == COMPOSITION_FORMAT
 
 
+def _is_empty_file(path: Path) -> bool:
+    """Say whether ``path`` is an empty regular file, such as a reservation `_create_new` left.
+
+    It holds nothing to lose, so ``--force`` may replace it like a composition.
+    """
+    try:
+        entry = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(entry.st_mode) and entry.st_size == 0
+
+
 class _Exists(Exception):
     """The destination appeared after the check, so a save without ``overwrite`` stops."""
 
 
 # Windows ``os.rename`` never replaces an existing name (it raises FileExistsError);
-# on POSIX it does, so there a file system without hard links is written in place.
+# on POSIX it does, so there a file system without hard links reserves the name first.
 _RENAME_REFUSES_EXISTING = os.name == "nt"
 
 
-def _publish_new(tmp: Path, path: Path, text: str) -> None:
-    """Give the written file the name ``path``, failing if that name already exists."""
+def _discard(tmp: Path) -> None:
+    """Remove the temporary name after a publish; a failure here never fails the save.
+
+    The composition is at its destination already, so an error is not reported: one
+    retry runs, and a name both attempts leave is a stray dot file, never a half file.
+    """
+    for _ in range(2):
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            continue
+        return
+
+
+def _publish_new(tmp: Path, path: Path) -> None:
+    """Give the written file the name ``path``, failing if that name already exists.
+
+    Returns once ``path`` holds the composition; removing ``tmp`` is the caller's
+    separate step, so a failure there is not a failed publish (#1523).
+    """
     try:
         os.link(tmp, path)  # exclusive: a hard link never replaces an entry
     except FileExistsError:
@@ -301,33 +331,34 @@ def _publish_new(tmp: Path, path: Path, text: str) -> None:
             except FileExistsError:
                 raise _Exists from None
             return
-        _create_new(path, text)
-    tmp.unlink(missing_ok=True)
+        _create_new(tmp, path)
 
 
-def _create_new(path: Path, text: str) -> None:
-    """Create ``path`` exclusively and write ``text`` through its own descriptor.
+def _create_new(tmp: Path, path: Path) -> None:
+    """Reserve ``path`` with an exclusive, empty create, then replace it with ``tmp``.
 
-    Nothing replaces an entry here, so a file another writer puts at ``path`` is never
-    overwritten, and the save fails rather than report it. A failed write removes
-    ``path`` after checking that it is still this file; a file swapped in between that
-    check and the removal is not guarded against (#1523).
+    Nothing that another writer created is replaced: the exclusive create fails on an
+    existing name (`_Exists`), and the replace runs only while ``path`` is still this
+    call's own reservation. The text is never written in place, so a save killed at
+    any point leaves either the whole composition or an empty file at ``path``, never
+    a half file; ``--force`` replaces an empty file (`_is_empty_file`).
+
+    A save that fails after the reservation leaves it in place rather than remove it:
+    no removal by name can rule out a file swapped in after its check, and losing
+    another writer's file is worse than an empty one (#1523). A swap between the
+    reservation check and the replace is the window `_write` states.
     """
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     except FileExistsError:
         raise _Exists from None
-    created = os.fstat(fd)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        if not os.path.samestat(created, os.lstat(path)):
-            raise OSError(f"{path.name} was replaced while the save wrote it")
-    except BaseException:
-        with contextlib.suppress(OSError):  # gone already, or not this file: leave it
-            if os.path.samestat(created, os.lstat(path)):
-                path.unlink()
-        raise
+        reserved = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if not os.path.samestat(reserved, os.lstat(path)):
+        raise OSError(f"{path.name} was replaced while the save reserved it")
+    os.replace(tmp, path)  # atomic, and the entry it replaces is this reservation
 
 
 def _write(path: Path, text: str, *, overwrite: bool) -> None:
@@ -336,9 +367,16 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
     Without ``overwrite`` the publish itself is exclusive, so a file that appears at
     ``path`` after the caller's check is never replaced (`_Exists`). Before the publish,
     the temporary name is checked to still be the file this call wrote, so a swapped
-    entry is never published. A failed save leaves neither a temporary file nor a half
-    file; only on a POSIX file system without hard links, where a new file is written in
-    place, can a save killed mid-write leave a half file at ``path``.
+    entry is never published. A failed save leaves no temporary file, and no route
+    writes ``path`` in place, so not even a killed save leaves a half file there; on a
+    POSIX file system without hard links it may leave an empty file (`_create_new`).
+    Once ``path`` holds the composition the save succeeds, whatever happens when the
+    temporary name is then removed (`_discard`).
+
+    Known limit: the publish resolves the temporary name again after its check, so an
+    entry swapped in that window is still published. Closing it needs a publish bound
+    to the descriptor (``linkat`` with ``AT_EMPTY_PATH`` on Linux), which is
+    platform-specific and which the standard library does not expose (#1523).
     """
     # A unique file, created exclusively: never a fixed name that a link could point
     # elsewhere, or that a second save to the same path would share.
@@ -368,10 +406,11 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
         if overwrite:
             os.replace(tmp, path)
         else:
-            _publish_new(tmp, path, text)
+            _publish_new(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    _discard(tmp)
 
 
 def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
@@ -384,7 +423,7 @@ def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
             raise RequestRefused(f"{request.path} is the project the composition reads")
         if not request.overwrite:
             raise RequestRefused(f"{request.path} exists; give --force to replace it")
-        if not _is_composition_file(path):
+        if not (_is_composition_file(path) or _is_empty_file(path)):
             raise RequestRefused(
                 f"{request.path} is not a plot composition; only a composition file is replaced"
             )
