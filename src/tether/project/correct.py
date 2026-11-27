@@ -531,9 +531,10 @@ def _stamp_correction_settings(
     grp.attrs["n_manual"] = int(n_manual)
     grp.attrs["n_apparent"] = int(n_apparent)
     grp.attrs["total_failure"] = bool(total_failure)
-    # Additive (#624): the condition an override applied to ("" when none), and each
+    # Additive (#624): the condition an override applied to (absent when none), and each
     # condition's factors and counts, in a form #926 extends with a source and a version.
-    grp.attrs["override_condition_id"] = override_condition_id or ""
+    if override_condition_id is not None:
+        grp.attrs["override_condition_id"] = override_condition_id
     write_conditions(
         grp,
         [

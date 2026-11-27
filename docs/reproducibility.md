@@ -108,17 +108,18 @@ Tether estimates α and γ **per condition inside the project**
 ([ADR-0158](adr/0158-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md)). A
 condition is the `condition_id` of a molecule in `/molecules`. Each pass groups the molecules by
 that value and runs its estimator once for each group. So the α of a condition rests only on that
-condition's molecules in this project file, and it is the α that the same code gives when that
-condition is alone in a project. The same holds for the γ median and its fallback. Molecules
-with no `condition_id` form one group.
+condition's molecules in this project file. It is the α that the same code gives when that
+condition is alone in a project.
+
+The same holds for the γ median and its fallback. Molecules with no `condition_id` form one
+group.
 
 Two consequences matter when you report a factor:
 
 - **A condition that spans several project files has one estimate in each file.** A project is one
   experiment, one day or one session of acquisition
   ([ADR-0068](adr/0068-a-project-holds-one-experiment.md)). Tether does not pool a condition's
-  molecules across files for α or γ, so report the factor of each file, or say which file's
-  factor you used.
+  molecules across files for α or γ. Report the factor of each file, or say which one you used.
 - **The condition of a molecule is the key that Tether holds for it.** A key parsed from a
   filename is provisional until you confirm it. It carries no buffer, temperature or laser power,
   so two conditions that differ only in those fields share one group, and one α.
@@ -165,7 +166,9 @@ the acceptor bleach step of the molecule.
 
 Each molecule that passes the gates stores its own value in the `gamma` column of `/molecules`.
 The median is taken for each condition. The `n_fallback` molecules that failed the gates receive
-their condition's median instead. When a condition's median is withheld, Tether clears the
+their condition's median instead.
+
+When a condition's median is withheld, Tether clears the
 `gamma` of every processed molecule of that condition to `NaN`. This includes the molecules that
 had an estimate of their own. A condition whose α was withheld is not examined, and its γ is
 withheld with it. The counts below are the sums over the conditions.
@@ -237,7 +240,7 @@ manual factor into `alpha` and `gamma`. It does not compute a corrected E itself
 | `n_molecules` | `int` | count | — | The number of molecules in the pass. |
 | `n_corrected`, `n_manual`, `n_apparent` | `int` | count | — | How many molecules this pass classified `corrected`, `manual` or apparent E. |
 | `total_failure` | `bool` | — | — | `True` when no molecule carries a correction (note 2). |
-| `override_condition_id` | `str` | — | `""` (no override), absent (note 3) | The condition that `alpha_override` and `gamma_override` were applied to. |
+| `override_condition_id` | `str` | — | absent (no override, or note 3) | The condition that `alpha_override` and `gamma_override` were applied to. |
 | `conditions` | `str` (JSON) | — | absent (note 3) | For each condition: `condition_id`, `alpha` and `gamma` with their `alpha_source` and `gamma_source` (`estimated`, `manual` or `null`), `n_molecules`, `n_corrected`, `n_manual`, `n_apparent` and `total_failure` (note 4). |
 | `n_conditions` | `int` | count | absent (note 3) | The number of conditions in `conditions`. |
 | `app_version`, `created_utc` | `str` | — | — | The version and the time of the pass. |
@@ -250,9 +253,9 @@ manual factor into `alpha` and `gamma`. It does not compute a corrected E itself
    attribute first.
 3. As note 1 under `/settings/leakage`.
 4. `total_failure` of a condition is `True` when no molecule of that condition carries a
-   correction; that condition is on apparent E while the others may be corrected. `gamma` is the
-   condition's median from `/settings/gamma` or the manual factor; a molecule whose own step
-   qualified keeps its own γ in `/molecules`.
+   correction. That condition is then on apparent E, while the others may be corrected. `gamma`
+   is the condition's median from `/settings/gamma`, or the manual factor. A molecule whose own
+   step qualified keeps its own γ in `/molecules`.
 
 Direct excitation (δ) has no attribute here. Tether's two-color, single-laser scheme carries δ as
 an inert `0` ([ADR-0008](adr/0008-correction-factor-remap.md)). Tether stores it for each molecule
@@ -499,10 +502,12 @@ replacement can leave only the `<model>.__writing__` staging group, which the sc
   alpha = 0.07964339582206567
   app_version = <your version>
   ceiling = 0.3
+  conditions = [{"condition_id": "cond-09baefb9a15b", "alpha": 0.07964339582206567, "withheld": false, "n_molecules": 16, "n_qualifying": 15, "source": "post-acceptor-bleach-tail"}]
   created_utc = <time of the run>
   intensity_quantity = corrected
   min_qualifying_traces = 10
   min_window_frames = 20
+  n_conditions = 1
   n_molecules = 16
   n_qualifying = 15
   source = post-acceptor-bleach-tail
@@ -510,6 +515,7 @@ replacement can leave only the `<model>.__writing__` staging group, which the sc
 [/settings/gamma]
   app_version = <your version>
   ceiling = 5.0
+  conditions = [{"condition_id": "cond-09baefb9a15b", "gamma": 1.002771186368295, "withheld": false, "leakage_withheld": false, "n_molecules": 16, "n_qualifying": 15, "n_fallback": 1, "n_excluded": 0, "n_step_evaluated": 15, "n_step_clean": 15, "few_clean_steps": false, "source": "acceptor-bleach-step"}]
   created_utc = <time of the run>
   few_clean_steps = False
   gamma = 1.002771186368295
@@ -519,6 +525,7 @@ replacement can leave only the `<model>.__writing__` staging group, which the sc
   min_clean_step_fraction = 0.65
   min_qualifying_traces = 10
   min_window_frames = 20
+  n_conditions = 1
   n_excluded = 0
   n_fallback = 1
   n_molecules = 16
@@ -531,9 +538,11 @@ replacement can leave only the `<model>.__writing__` staging group, which the sc
   alpha_override = nan
   app_version = <your version>
   apparent_e_only = False
+  conditions = [{"condition_id": "cond-09baefb9a15b", "alpha": 0.07964339582206567, "alpha_source": "estimated", "gamma": 1.002771186368295, "gamma_source": "estimated", "n_molecules": 16, "n_corrected": 16, "n_manual": 0, "n_apparent": 0, "total_failure": false}]
   created_utc = <time of the run>
   gamma_override = nan
   n_apparent = 0
+  n_conditions = 1
   n_corrected = 16
   n_manual = 0
   n_molecules = 16

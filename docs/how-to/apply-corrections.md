@@ -34,14 +34,15 @@ shortened stays as it was. New α and γ settings take full effect.
   between the two bleaches must be at least 20 frames long. For γ, the stretch before the
   acceptor bleaches must be longer than 20 frames. So must the stretch after it.
 - Molecules whose [condition](../glossary.md#condition) is right. Tether estimates α and γ
-  **for each condition in the project**: the α of a condition comes only from that
-  condition's molecules, and so does its γ median. A molecule with no own γ takes the median
-  of its own condition. One sample on one optical setup can still give two conditions, for
-  example at two laser powers, and each gets its own factors. Tether gives every molecule the
-  provisional condition parsed from the filename of its movie. That key has no buffer,
-  temperature or laser power, so two conditions that differ only there share one α. Tether
-  does not check the sample. Before you follow these steps, make sure that each movie holds
-  molecules of one condition only, and confirm the condition of each movie.
+  **for each condition in the project**. The α of a condition comes only from its own
+  molecules. So does its γ median. A molecule with no own γ takes the median of its own
+  condition.
+- The right conditions. One sample on one optical setup can still give two conditions. An
+  example is two laser powers. Each condition gets its own factors. Tether gives every
+  molecule the provisional condition parsed from the filename of its movie. That key has no
+  buffer, temperature or laser power. So two conditions that differ only there share one α.
+- Movies you checked. Tether does not check the sample. Make sure that each movie holds
+  molecules of one condition only. Confirm the condition of each movie.
 - Enough molecules in **each** condition. The minimum of 10 applies to each condition on its
   own. A condition with fewer stays at apparent E, while the others are corrected.
 - One project file is one experiment. A condition recorded on three days, in three project
@@ -106,9 +107,10 @@ for c in result.conditions:
 ```
 
 The order matters. Photobleach detection finds the frames that the other steps read. Tether
-measures γ on leakage-corrected traces, so γ runs only when α was estimated for at least one
-condition, and a condition whose α was withheld gets no γ either. Each line names its
-condition. The last step decides, molecule by molecule, whether both factors are there. It records the outcome.
+measures γ on leakage-corrected traces. So γ runs only when at least one condition has an
+α. A condition whose α was withheld gets no γ either. Each line names its condition.
+
+The last step decides, molecule by molecule, whether both factors are there. It records the outcome.
 
 ## 2. Check that the correction can be trusted
 
@@ -140,8 +142,9 @@ Then look at the molecules themselves:
    ([molecule-table columns](../reference/exports.md#molecule-table-columns)).
 
 `correction_method` reads `corrected` where both factors were applied. It reads
-`apparent-E (corrections unavailable)` where one was missing. The molecules of one condition
-share its α. When a condition's γ was computed, a molecule whose own bleach step qualified
+`apparent-E (corrections unavailable)` where one was missing.
+
+The molecules of one condition share its α. When a condition's γ was computed, a molecule whose own bleach step qualified
 keeps its own γ. Every other molecule of the condition takes the condition's median. When γ
 was withheld, no molecule of that condition carries one. The project records each
 condition's factors and counts under `conditions` in `/settings/leakage`, `/settings/gamma`
@@ -152,6 +155,7 @@ and `/settings/correction` ([reproducibility](../reproducibility.md#which-molecu
 You may have α and γ from your own calibration of the same setup. Then give Tether those
 values instead
 ([`alpha_override` / `gamma_override`](../reference/parameters.md#param-alpha-gamma-override)).
+
 A molecule is corrected only when it has both factors. A withheld α means that γ was never
 estimated. So in that case, supply both. A value you supply applies to one condition: name it
 with `condition_id`. The other conditions keep their estimated factors. Replace the two
@@ -167,7 +171,7 @@ print(f"{result.n_manual} molecules corrected with the values you supplied")
 ```
 
 The `condition_id` is the one printed by step 1. A project with one condition may leave it
-out. In a project with several, a value with no `condition_id` is refused, so that a factor
+out. In a project with several, a value with no `condition_id` is refused. So a factor
 measured on one sample never reaches another.
 
 Molecules corrected this way are marked `manual` in `correction_method`. So a reader of the
@@ -218,10 +222,12 @@ To report a corrected efficiency, compute it from the exported factors, as
 [Reading the exports elsewhere](../reference/exports.md#reading-the-exports-elsewhere) shows.
 
 The project records the settings that the α, γ and correction steps used. Photobleach
-detection records none of its own. You may run the steps again, and α may be withheld this
-time, for one condition or for all. Then that condition's γ is cleared, and the α step removes
-the γ settings of the earlier run, because they describe a γ that a molecule no longer carries.
-Run the γ step again for the conditions that kept their α.
+detection records none of its own.
+
+You may run the steps again, and α may be withheld this
+time, for one condition or for all. Then that condition's γ is cleared. The α step also
+removes the γ settings of the earlier run. They describe a γ that a molecule no longer
+carries. Run the γ step again for the conditions that kept their α.
 [Analysis parameters](../reference/parameters.md#correction-factors) lists the settings, with
 what each one changes.
 
