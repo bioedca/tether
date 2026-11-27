@@ -65,6 +65,7 @@ _EXPECTED_OPTION_COUNTS = {
     "export table": 4,
     "export traces": 5,
     "export subset": 6,
+    "apertures": 11,
 }
 
 # The top-level subcommands, each a column of the exit-code table. `export` is one column:
@@ -251,6 +252,7 @@ def test_every_subcommand_is_documented() -> None:
         "export table",
         "export traces",
         "export subset",
+        "apertures",
     }
     assert names == expected, f"unexpected subcommand set: {sorted(names)}"
     for name in sorted(names):

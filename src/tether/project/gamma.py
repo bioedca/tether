@@ -13,7 +13,8 @@ project's stored intensity traces and writes:
   later staleness scope re-stales on a γ-median shift.
 * ``/settings/gamma`` — an additive provenance group (like ``/settings/leakage``):
   the effective gates, the dataset median, ``n_qualifying``, ``n_fallback``, the
-  clean-step counts and their warning (ADR-0134), and the app version (NFR-REPRO).
+  clean-step counts and their warning (ADR-0134), and the app version (NFR-REPRO),
+  with each condition's median and counts in its ``conditions`` attribute (#624).
   Recomputable — overwritten on each pass.
 * ``/settings/gamma_contributors`` — the γ evidence table, one row for each examined
   molecule ([`tether.project.gamma_contributors`][], #927). A molecule that a person or a
@@ -34,8 +35,19 @@ uncorrected data. A legitimately *withheld* leakage (α never computed) means th
 correction chain has already fallen to apparent-E, so the total-failure path — not
 this writer — is the caller's next step (PRD §7.2).
 
-The dataset γ is **withheld** (processed ``/molecules.gamma`` rows reset to ``NaN``)
-when fewer than ``min_qualifying_traces`` molecules yield a valid acceptor-bleach
+**Per condition (#624, ADR-0158).** The molecules are grouped by ``condition_id`` and the
+estimator runs once for each group: a condition's median, its fallback and its gates are
+those the same code gives when the condition is alone in a project, and a project with one
+condition gives the numbers it gave before. The top-level ``gamma`` attribute and
+[`GammaSummary.gamma`][] carry the median only when the project holds one condition; with
+several they are ``NaN`` and ``None``, and the medians are in ``conditions`` and
+[`GammaSummary.conditions`][]. A condition whose leakage pass withheld α (its rows hold the
+``NaN`` sentinel and ``/settings/leakage`` records it withheld) is not examined: its γ is
+withheld with it, while the other conditions are estimated. A missing α outside such a
+condition, or in every condition, is still the prerequisite error.
+
+A condition's γ is **withheld** (its processed ``/molecules.gamma`` rows reset to ``NaN``)
+when fewer than ``min_qualifying_traces`` of its molecules yield a valid acceptor-bleach
 step — the typical pure-FRET case lacking clean steps (PRD §7.2 total-failure path;
 §Data-gaps). The provenance group is still stamped (``withheld = True``) so the
 attempt is auditable.
@@ -73,11 +85,18 @@ from tether.fret.gamma import (
 )
 from tether.io.schema import TABLE
 from tether.project import gamma_contributors as contributors
+from tether.project._condition_scope import (
+    condition_ids,
+    finite_or_none,
+    group_by_condition,
+    read_conditions,
+    write_conditions,
+)
 from tether.project._guarded_publish import guarded_project_write
 from tether.project.calibration_windows import resolved_calibration_windows
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
-__all__ = ["GammaSummary", "compute_gamma"]
+__all__ = ["ConditionGamma", "GammaSummary", "compute_gamma"]
 
 _MOLECULES = "molecules"
 _TRACES = "traces"
@@ -94,24 +113,60 @@ GAMMA_LEVEL_WINDOW_HALF_WINDOW = "half-window"
 
 
 @dataclass(frozen=True)
+class ConditionGamma:
+    """The γ of one condition in a [`compute_gamma`][] pass (#624).
+
+    Attributes
+    ----------
+    condition_id
+        The ``/molecules.condition_id`` the molecules share (``""`` when unassigned).
+    n_molecules
+        Molecules of the condition examined; ``0`` when its leakage was withheld.
+    n_qualifying, n_fallback, n_excluded, n_step_evaluated, n_step_clean, few_clean_steps
+        As in [`GammaSummary`][], for this condition's molecules only.
+    gamma
+        The condition's median γ (also its fallback), or ``None`` when withheld.
+    leakage_withheld
+        ``True`` when the condition was not examined because its leakage α was withheld.
+    """
+
+    condition_id: str
+    n_molecules: int
+    n_qualifying: int
+    n_fallback: int
+    gamma: float | None
+    n_excluded: int = 0
+    n_step_evaluated: int = 0
+    n_step_clean: int = 0
+    few_clean_steps: bool = False
+    leakage_withheld: bool = False
+
+    @property
+    def applied(self) -> bool:
+        """Whether the condition's γ was applied (``gamma is not None``)."""
+        return self.gamma is not None
+
+
+@dataclass(frozen=True)
 class GammaSummary:
     """Outcome of a [`compute_gamma`][] pass.
 
     Attributes
     ----------
     n_molecules
-        Molecules examined (rows with a valid ``frame_range``).
+        Molecules examined (rows with a valid ``frame_range``), over every condition.
     n_qualifying
         Molecules that yielded a valid per-trace acceptor-bleach-step γ.
     n_fallback
-        Molecules that were written the median fallback (examined but did not
-        qualify) — ``0`` when the dataset γ was withheld.
+        Molecules that were written their condition's median fallback (examined but did
+        not qualify) — ``0`` for a condition whose γ was withheld.
     gamma
-        The dataset median γ (also the fallback value), or ``None`` when withheld
-        (< ``min_qualifying_traces`` qualified).
+        With one condition, its median γ (also the fallback value), or ``None`` when
+        withheld (< ``min_qualifying_traces`` qualified). With several conditions always
+        ``None``: read ``conditions``.
     applied
-        Whether an estimated factor was applied (i.e. ``gamma is not None``). When
-        false, processed ``/molecules.gamma`` rows are cleared to ``NaN``.
+        Whether a γ was applied to at least one condition. A withheld condition's
+        processed ``/molecules.gamma`` rows are cleared to ``NaN``.
     source
         Estimator provenance tag stamped into ``/settings/gamma``.
     intensity_quantity
@@ -127,6 +182,9 @@ class GammaSummary:
     n_excluded
         Molecules that a person or a recipe excluded from the estimate (#927); they are
         not counted in ``n_qualifying``.
+    conditions
+        One [`ConditionGamma`][] for each condition, in the order the condition first
+        appears in ``/molecules`` (#624).
     """
 
     n_molecules: int
@@ -140,6 +198,7 @@ class GammaSummary:
     n_step_clean: int = 0
     few_clean_steps: bool = False
     n_excluded: int = 0
+    conditions: tuple[ConditionGamma, ...] = ()
 
 
 def _app_version() -> str:
@@ -163,7 +222,10 @@ def compute_gamma(
     min_clean_step_fraction: float = DEFAULT_MIN_CLEAN_STEP_FRACTION,
     write_guard: Callable[[], None] | None = None,
 ) -> GammaSummary:
-    """Estimate the dataset γ from acceptor-bleach steps and store it per molecule.
+    """Estimate each condition's γ from acceptor-bleach steps and store it per molecule.
+
+    The molecules are grouped by ``condition_id`` and the estimator runs on each group
+    with the same gates (#624, ADR-0158).
 
     Parameters
     ----------
@@ -186,8 +248,8 @@ def compute_gamma(
     ceiling
         Reject a per-trace γ outside ``(0, ceiling]`` (PRD §11.2, default 5).
     min_qualifying_traces
-        Withhold the dataset γ below this many qualifying traces (PRD §11.2,
-        default 10).
+        Withhold a condition's γ below this many qualifying traces of that condition
+        (PRD §11.2, default 10).
     min_clean_step_fraction
         Warn (``few_clean_steps``) when an applied γ rests on fewer than this fraction
         of clean evaluated steps (PRD §11.2, default 0.65, ADR-0134). A value outside
@@ -211,7 +273,8 @@ def compute_gamma(
         ``[0, 1]``, or if a molecule's
         ``bleach_frames`` are still the undetected sentinel (run
         [`compute_photobleach`][tether.project.photobleach.compute_photobleach] first), or if its
-        ``alpha`` is the ``NaN`` "not computed" sentinel (run
+        ``alpha`` is the ``NaN`` "not computed" sentinel outside a condition whose
+        leakage was withheld, or in every condition (run
         [`compute_leakage_alpha`][tether.project.leakage.compute_leakage_alpha] first).
     KeyError
         If the project lacks the selected donor/acceptor trace layer.
@@ -271,6 +334,11 @@ def _compute_gamma(
         calibration, _ = resolved_calibration_windows(f, table)
         bleach_frames = table["bleach_frames"]
         alpha_col = table["alpha"]
+        ids = condition_ids(table)
+        # The conditions whose α the last leakage pass withheld (#624): γ is withheld with it.
+        leak_conditions = read_conditions(f[_SETTINGS].get("leakage")) or []
+        leak_withheld = {str(c["condition_id"]) for c in leak_conditions if c.get("withheld")}
+        skipped_rows: list[int] = []
 
         donor_traces: list[np.ndarray] = []
         acceptor_traces: list[np.ndarray] = []
@@ -300,6 +368,9 @@ def _compute_gamma(
             # NaN is the leakage "no factor computed" sentinel (PR #75). γ is measured
             # on leakage-corrected intensities, so α must exist first — enforce the
             # correction order rather than silently correcting with an undefined α.
+            if np.isnan(alpha) and ids[i] in leak_withheld:
+                skipped_rows.append(i)  # its condition's α was withheld (#624)
+                continue
             if np.isnan(alpha):
                 raise ValueError(
                     f"/molecules row {i} has no leakage factor (alpha is NaN); run "
@@ -318,6 +389,13 @@ def _compute_gamma(
             starts.append(start)
             steps.append(acceptor_pb_abs)  # the detected step, also outside the window
 
+        if skipped_rows and not processed_rows:
+            # No condition has α: the correction order is still the caller's to fix.
+            raise ValueError(
+                f"/molecules row {skipped_rows[0]} has no leakage factor (alpha is NaN); run "
+                "compute_leakage_alpha() before compute_gamma()"
+            )
+
         keys = [_text(table["molecule_key"][row]) for row in processed_rows]
         decisions = contributors.latest_decisions(f)
         if decision is not None:
@@ -328,37 +406,85 @@ def _compute_gamma(
                 str(decision["by"]),
                 str(decision["actor"]),
             )
-        excluded = contributors.excluded_indices(keys, decisions)
-        estimate = estimate_gamma(
-            donor_traces,
-            acceptor_traces,
-            alphas,
-            acceptor_pbs,
-            donor_pbs,
-            half_window=half_window,
-            min_window_frames=min_window_frames,
-            ceiling=ceiling,
-            min_qualifying_traces=min_qualifying_traces,
-            exclude=excluded,
+        level_window = (
+            GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT
+            if half_window is None
+            else GAMMA_LEVEL_WINDOW_HALF_WINDOW
         )
+        contributor_table = np.zeros(len(processed_rows), dtype=contributors.CONTRIBUTORS_DTYPE)
+        local = {row: k for k, row in enumerate(processed_rows)}
+        per_condition: list[ConditionGamma] = []
+        n_excluded = 0
+        # One estimate for each condition, on that condition's molecules only (#624).
+        for cond, rows in group_by_condition(ids, processed_rows).items():
+            picks = [local[row] for row in rows]
+            group_keys = [keys[k] for k in picks]
+            excluded = contributors.excluded_indices(group_keys, decisions)
+            n_excluded += len(excluded)
+            estimate = estimate_gamma(
+                [donor_traces[k] for k in picks],
+                [acceptor_traces[k] for k in picks],
+                [alphas[k] for k in picks],
+                [acceptor_pbs[k] for k in picks],
+                [donor_pbs[k] for k in picks],
+                half_window=half_window,
+                min_window_frames=min_window_frames,
+                ceiling=ceiling,
+                min_qualifying_traces=min_qualifying_traces,
+                exclude=excluded,
+            )
+            group_applied = estimate.gamma is not None
+            n_fallback = 0
+            if group_applied:
+                # Per-molecule retention + median fallback: a qualifying molecule keeps
+                # its own γ; the rest take its condition's median (PRD §5.1 / §7.2).
+                for group_i, row in enumerate(rows):
+                    table["gamma"][row] = estimate.effective_gamma(group_i)
+                    if estimate.is_fallback(group_i):
+                        n_fallback += 1
+            else:
+                table["gamma"][rows] = np.nan
+            # Only an applied γ can mislead; a withheld one is already reported as withheld.
+            warn = group_applied and few_clean_steps(
+                estimate.n_step_clean, estimate.n_step_evaluated, min_clean_step_fraction
+            )
+            per_condition.append(
+                ConditionGamma(
+                    condition_id=cond,
+                    n_molecules=estimate.n_traces,
+                    n_qualifying=estimate.n_qualifying,
+                    n_fallback=n_fallback,
+                    gamma=estimate.gamma,
+                    n_excluded=len(excluded),
+                    n_step_evaluated=estimate.n_step_evaluated,
+                    n_step_clean=estimate.n_step_clean,
+                    few_clean_steps=warn,
+                )
+            )
+            contributor_table[picks] = contributors.contributor_rows(
+                estimate,
+                group_keys,
+                [starts[k] for k in picks],
+                decisions,
+                alphas=[alphas[k] for k in picks],
+                steps=[steps[k] for k in picks],
+                level_window=level_window,
+                half_window=0 if half_window is None else int(half_window),
+            )
+        for cond, rows in group_by_condition(ids, skipped_rows).items():
+            table["gamma"][rows] = np.nan
+            if not any(c.condition_id == cond for c in per_condition):
+                per_condition.append(ConditionGamma(cond, 0, 0, 0, None, leakage_withheld=True))
 
-        applied = estimate.gamma is not None
-        n_step_evaluated = estimate.n_step_evaluated
-        n_step_clean = estimate.n_step_clean
-        # Only an applied γ can mislead; a withheld one is already reported as withheld.
-        warn_steps = applied and few_clean_steps(
-            n_step_clean, n_step_evaluated, min_clean_step_fraction
-        )
-        n_fallback = 0
-        if applied:
-            # Per-molecule retention + median fallback: a qualifying molecule keeps
-            # its own γ; the rest take the dataset median (PRD §5.1 / §7.2).
-            for local_i, row in enumerate(processed_rows):
-                table["gamma"][row] = estimate.effective_gamma(local_i)
-                if estimate.is_fallback(local_i):
-                    n_fallback += 1
-        else:
-            table["gamma"][processed_rows] = np.nan
+        # With several medians none of them is the project's; with none nothing was examined.
+        gamma = per_condition[0].gamma if len(per_condition) == 1 else None
+        applied = any(c.applied for c in per_condition)
+        n_molecules = sum(c.n_molecules for c in per_condition)
+        n_qualifying = sum(c.n_qualifying for c in per_condition)
+        n_fallback_all = sum(c.n_fallback for c in per_condition)
+        n_step_evaluated = sum(c.n_step_evaluated for c in per_condition)
+        n_step_clean = sum(c.n_step_clean for c in per_condition)
+        warn_steps = any(c.few_clean_steps for c in per_condition)
         if write_guard is not None:
             write_guard()
         f[_MOLECULES][TABLE][:] = table
@@ -367,10 +493,11 @@ def _compute_gamma(
             write_guard()
         _stamp_gamma_settings(
             f,
-            gamma=estimate.gamma,
-            n_qualifying=estimate.n_qualifying,
-            n_fallback=n_fallback,
-            n_molecules=estimate.n_traces,
+            gamma=gamma,
+            withheld=not applied,
+            n_qualifying=n_qualifying,
+            n_fallback=n_fallback_all,
+            n_molecules=n_molecules,
             half_window=half_window,
             min_window_frames=min_window_frames,
             ceiling=ceiling,
@@ -380,39 +507,27 @@ def _compute_gamma(
             n_step_clean=n_step_clean,
             min_clean_step_fraction=min_clean_step_fraction,
             few_clean_steps=warn_steps,
-            n_excluded=len(excluded),
-        )
-        rows = contributors.contributor_rows(
-            estimate,
-            keys,
-            starts,
-            decisions,
-            alphas=alphas,
-            steps=steps,
-            level_window=(
-                GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT
-                if half_window is None
-                else GAMMA_LEVEL_WINDOW_HALF_WINDOW
-            ),
-            half_window=0 if half_window is None else int(half_window),
+            n_excluded=n_excluded,
+            conditions=per_condition,
         )
         # The guard before the stamp also covers the table, which is written with it.
-        contributors.write_contributors(f, rows)
+        contributors.write_contributors(f, contributor_table)
         if decision is not None:
             contributors.append_decision(f, decision)
 
     return GammaSummary(
-        n_molecules=estimate.n_traces,
-        n_qualifying=estimate.n_qualifying,
-        n_fallback=n_fallback,
-        gamma=estimate.gamma,
+        n_molecules=n_molecules,
+        n_qualifying=n_qualifying,
+        n_fallback=n_fallback_all,
+        gamma=gamma,
         applied=applied,
         source=GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP,
         intensity_quantity=intensity_quantity,
         n_step_evaluated=n_step_evaluated,
         n_step_clean=n_step_clean,
         few_clean_steps=warn_steps,
-        n_excluded=len(excluded),
+        n_excluded=n_excluded,
+        conditions=tuple(per_condition),
     )
 
 
@@ -424,6 +539,7 @@ def _stamp_gamma_settings(
     f: object,
     *,
     gamma: float | None,
+    withheld: bool,
     n_qualifying: int,
     n_fallback: int,
     n_molecules: int,
@@ -437,6 +553,7 @@ def _stamp_gamma_settings(
     min_clean_step_fraction: float,
     few_clean_steps: bool,
     n_excluded: int = 0,
+    conditions: list[ConditionGamma] | None = None,
 ) -> None:
     """Write the ``/settings/gamma`` provenance group (additive; recomputable).
 
@@ -452,7 +569,7 @@ def _stamp_gamma_settings(
     grp.attrs["source"] = GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP
     # NaN is the honest "no factor derived" marker (HDF5 float attr has no None).
     grp.attrs["gamma"] = float(gamma) if gamma is not None else float("nan")
-    grp.attrs["withheld"] = bool(gamma is None)
+    grp.attrs["withheld"] = bool(withheld)
     grp.attrs["n_qualifying"] = int(n_qualifying)
     grp.attrs["n_fallback"] = int(n_fallback)
     grp.attrs["n_molecules"] = int(n_molecules)
@@ -474,4 +591,25 @@ def _stamp_gamma_settings(
     grp.attrs["few_clean_steps"] = bool(few_clean_steps)
     # Additive (#927): the molecules a person or a recipe excluded from the median.
     grp.attrs["n_excluded"] = int(n_excluded)
+    # Additive (#624): each condition's median and counts, in a form #926 and #927 extend.
+    write_conditions(
+        grp,
+        [
+            {
+                "condition_id": c.condition_id,
+                "gamma": finite_or_none(c.gamma),
+                "withheld": not c.applied,
+                "leakage_withheld": c.leakage_withheld,
+                "n_molecules": c.n_molecules,
+                "n_qualifying": c.n_qualifying,
+                "n_fallback": c.n_fallback,
+                "n_excluded": c.n_excluded,
+                "n_step_evaluated": c.n_step_evaluated,
+                "n_step_clean": c.n_step_clean,
+                "few_clean_steps": c.few_clean_steps,
+                "source": GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP,
+            }
+            for c in conditions or []
+        ],
+    )
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()
