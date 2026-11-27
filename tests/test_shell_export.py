@@ -30,6 +30,30 @@ pytestmark = [
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+class _ReplaceFailsOnto:
+    """``os`` for the export module: moving a staged file onto one path fails.
+
+    A put-back of the file set aside (``…previous-<n>``) onto that path still works.
+    """
+
+    def __init__(self, real, target: Path, message: str) -> None:
+        self._real, self._target, self._message = real, target, message
+
+    def replace(self, source, destination):
+        if Path(destination) == self._target and ".previous-" not in Path(source).name:
+            raise OSError(self._message)
+        return self._real.replace(source, destination)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _fail_replace_onto(monkeypatch, exports_module, target: Path, message: str) -> None:
+    import os
+
+    monkeypatch.setattr(exports_module, "os", _ReplaceFailsOnto(os, target, message))
+
+
 def _project(tmp_path: Path, *, rejected: list[bool] | None = None) -> Path:
     import numpy as np
 
@@ -528,14 +552,7 @@ def test_no_takeover_can_land_while_a_subset_publish_moves_files(tmp_path, monke
     monkeypatch.setattr(exports_module, "_undo", undo)
     request = ExportRequest(ExportKind.SUBSET, other, include_rejected=False)
     if failing:
-        import contextlib
-
-        @contextlib.contextmanager
-        def failing_replace(_stage, _destination):
-            raise OSError("the project replace failed")
-            yield  # pragma: no cover
-
-        monkeypatch.setattr(lock_module, "replacement_identity", failing_replace)
+        _fail_replace_onto(monkeypatch, exports_module, other, "the project replace failed")
         with pytest.raises(OSError, match="project replace failed"):
             run_export(project, request)
         assert blocked == ["place", "undo"]
@@ -548,3 +565,91 @@ def test_no_takeover_can_land_while_a_subset_publish_moves_files(tmp_path, monke
     monkeypatch.setattr(lock_module, "_GUARD_ACQUIRE_TIMEOUT_S", 5.0)
     held = lock_module.acquire(other)
     lock_module.release(other, held)
+
+
+def test_the_identity_record_is_written_outside_the_lifecycle_guard(tmp_path, monkeypatch):
+    import contextlib
+
+    import tether.project.lock as lock_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    # A claim takes the identity guard, then the lifecycle guard. The identity record takes
+    # the identity guard on entry and on exit, so the lifecycle guard must be free then:
+    # holding it there would take the two guards in the opposite order.
+    monkeypatch.setattr(lock_module, "_GUARD_ACQUIRE_TIMEOUT_S", 0.2)
+    free: list[str] = []
+    real = lock_module.replacement_identity
+
+    def lifecycle_guard_is_free(step: str) -> None:
+        with lock_module._lifecycle_guard(lock_module.lock_path(other)):  # noqa: SLF001
+            free.append(step)
+
+    @contextlib.contextmanager
+    def watched(stage, destination):
+        lifecycle_guard_is_free("enter")
+        with real(stage, destination):
+            yield
+        lifecycle_guard_is_free("exit")
+
+    monkeypatch.setattr(lock_module, "replacement_identity", watched)
+    run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    assert free == ["enter", "exit"]
+
+
+def test_a_failure_after_the_project_replace_keeps_the_new_pair(tmp_path, monkeypatch):
+    import contextlib
+
+    import tether.project.lock as lock_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    provenance = other.with_name(other.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    before = other.read_bytes()
+
+    @contextlib.contextmanager
+    def bookkeeping_fails_after(_stage, _destination):
+        yield
+        raise TimeoutError("the identity record could not be updated")
+
+    monkeypatch.setattr(lock_module, "replacement_identity", bookkeeping_fails_after)
+    with pytest.raises(TimeoutError, match="identity record"):
+        run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    # The project is the new subset and the provenance is its own: a consistent pair.
+    assert other.read_bytes() != before
+    assert _provenance(other)["tether_export"] == "subset-tether"
+    assert sorted(p.name for p in other.parent.iterdir() if p.suffix != ".guard") == [
+        "movie.tether",
+        "movie.tether.provenance.json",
+    ]
+
+
+def test_a_failed_provenance_move_of_a_subset_leaves_the_project_and_restores_its_pair(
+    tmp_path, monkeypatch
+):
+    import tether.services.exports as exports_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    provenance = other.with_name(other.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    before = other.read_bytes()
+    _fail_replace_onto(monkeypatch, exports_module, provenance, "the provenance move failed")
+    with pytest.raises(OSError, match="provenance move failed"):
+        run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    assert other.read_bytes() == before
+    assert provenance.read_text(encoding="utf-8") == "{}\n"
+    assert sorted(p.name for p in other.parent.iterdir() if p.suffix != ".guard") == [
+        "movie.tether",
+        "movie.tether.provenance.json",
+    ]

@@ -230,19 +230,14 @@ def run_export(
             cancel.raise_if_cancelled()
         moves = [(staged, out_path), (staged_provenance, provenance)]
         if request.kind is ExportKind.SUBSET:
-            # The destination is a project: another writer may hold it (ADR-0112). The
-            # moves run inside the lock's lifecycle guard (`holding`), which every acquire,
-            # steal, refresh and release takes too, so no takeover lands between the
-            # ownership check and a move or a put-back. They are renames only: the slow
-            # write happened above.
-            from tether.project.lock import LockError, holding, publish_lock, read_lock
+            # The destination is a project: another writer may hold it (ADR-0112).
+            from tether.project.lock import LockError, publish_lock, read_lock
 
             with publish_lock(out_path) as guard:
                 current = read_lock(out_path)
                 if current is None:
                     raise LockError(f"{out_path} lock ownership changed before publish")
-                with holding(out_path, current):
-                    _publish(moves, staged, guard=guard)
+                _publish(moves, staged, guard=guard, held=current)
         else:
             _publish(moves, staged)
     except BaseException:
@@ -254,7 +249,11 @@ def run_export(
 
 
 def _publish(
-    moves: list[tuple[Path, Path]], staged: Path, *, guard: Callable[[], None] | None = None
+    moves: list[tuple[Path, Path]],
+    staged: Path,
+    *,
+    guard: Callable[[], None] | None = None,
+    held: Any = None,
 ) -> None:
     """Move each staged file onto its destination, all of them or none.
 
@@ -264,33 +263,42 @@ def _publish(
     data with stale provenance, and never a lost previous export.
 
     ``guard`` is the check of the destination project's
-    [`publish_lock`][tether.project.lock.publish_lock], and the first move is then that
-    project. The project file is never set aside, since another writer could take the lock
-    while it is away. The other files are placed first; then ``guard`` runs immediately
-    before one atomic replace of the project, which its identity record follows. When the
-    check or the replace fails, the other files are put back only if the lock is still held;
-    after a takeover nothing at the destination is touched, and the files set aside stay
-    beside it under their temporary names.
+    [`publish_lock`][tether.project.lock.publish_lock], ``held`` its lock record, and the
+    first move is then that project. The moves run inside the lock's lifecycle guard
+    ([`holding`][tether.project.lock.holding]), which every acquire, steal, refresh and
+    release takes too, so no takeover lands between the ownership check and a move or a
+    put-back. They are renames only: the slow write happened before. The project's identity
+    record ([`replacement_identity`][tether.project.lock.replacement_identity]) is written
+    outside that guard, as a claim takes the identity guard before the lifecycle guard; the
+    two are never held at once. The project file is never set aside. The other files are
+    placed first, then ``guard`` runs immediately before one atomic replace of the project.
+    When the check or the replace fails, the other files are put back while the lock is
+    still held. Once the project is replaced, the new pair stands whatever fails after it.
     """
     if guard is None:
         kept, placed = _place(moves, staged)
         _drop(kept)
         return
-    (source, target), others = moves[0], moves[1:]
-    guard()
-    kept, placed = _place(others, staged)
-    try:
-        guard()
-        from tether.project.lock import replacement_identity
+    from tether.project.lock import holding, replacement_identity
 
-        with replacement_identity(source, target):
-            os.replace(source, target)
+    (source, target), others = moves[0], moves[1:]
+    kept: list[tuple[Path, Path]] = []
+    replaced = False
+    try:
+        with replacement_identity(source, target), holding(target, held):
+            guard()
+            kept, placed = _place(others, staged)
+            try:
+                guard()
+                os.replace(source, target)
+                replaced = True
+            except BaseException:
+                if _still_held(guard):
+                    _undo(kept, placed)
+                raise
     except BaseException:
-        # Put the other files back only while this export still holds the lock: after a
-        # takeover the files there may be the new owner's, and the ones set aside stay
-        # under their temporary names.
-        if _still_held(guard):
-            _undo(kept, placed)
+        if replaced:  # the new project and its provenance are both in place
+            _drop(kept)
         raise
     _drop(kept)
 
