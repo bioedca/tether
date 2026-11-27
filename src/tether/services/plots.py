@@ -496,8 +496,10 @@ def _staleness(
 
     A molecule counts when the series selects it, curation does not reject it (the
     default of every population function, §7.5) and ``Project.stale_idealization_keys``
-    names it. The key-level granularity is the population functions' own: a
-    ``molecule_key`` with any stale row is left out whole (ADR-0029).
+    names its key. The key-level granularity is the population functions' own: a
+    ``molecule_key`` with any stale row is left out whole (ADR-0029). The count is of
+    ``/molecules`` rows, not of keys, so two accepted rows that share a stale key (§7.10)
+    count as the two molecules the plot leaves out.
     """
     from tether.analysis.selection import resolve_selection  # noqa: PLC0415
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
@@ -507,7 +509,7 @@ def _staleness(
     proj = Project.open(project)
     stale = set(proj.stale_idealization_keys(model_name))
     counts: list[SeriesStaleness] = []
-    accepted: set[str] | None = None
+    accepted: list[str] | None = None
     for entry in series:
         if not stale:
             counts.append(SeriesStaleness(entry.label, model_name, entry.include_stale, 0))
@@ -515,12 +517,11 @@ def _staleness(
         if accepted is None:
             molecules = read_molecules(proj.path)
             keep = curation_filter_mask(molecules)
-            accepted = {_text(k) for k in molecules["molecule_key"][keep]}
+            accepted = [_text(k) for k in molecules["molecule_key"][keep]]
         keys = resolve_selection(entry.selection, proj)
-        cohort = accepted if keys is None else accepted.intersection(keys)
-        counts.append(
-            SeriesStaleness(entry.label, model_name, entry.include_stale, len(cohort & stale))
-        )
+        chosen = None if keys is None else set(keys)
+        n_stale = sum(1 for k in accepted if k in stale and (chosen is None or k in chosen))
+        counts.append(SeriesStaleness(entry.label, model_name, entry.include_stale, n_stale))
     return tuple(counts)
 
 

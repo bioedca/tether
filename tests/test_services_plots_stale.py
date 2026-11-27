@@ -142,6 +142,27 @@ def test_a_rejected_stale_molecule_is_not_counted(stale_store) -> None:
     assert [e.stale for e in outcome.staleness] == [2, 1]
 
 
+def test_two_rows_that_share_a_stale_key_count_as_two_molecules(stale_store, monkeypatch) -> None:
+    # A molecule_key can name several rows (§7.10); the freshness rule leaves the key out
+    # whole, so both rows are left out and the badge counts two, not one (#1481 review).
+    import tether.imaging.extract as extract
+    from tether.project.core import Project
+
+    project, _keys = stale_store
+    rows = np.zeros(3, dtype=[("molecule_key", "U8"), ("curation_label", "i4")])
+    rows["molecule_key"] = ["K", "K", "F"]
+    monkeypatch.setattr(extract, "read_molecules", lambda _path: rows)
+    monkeypatch.setattr(Project, "stale_idealization_keys", lambda _self, _model: ["K"])
+    from tether.services.plots import _staleness
+
+    counted = _staleness(
+        project.path,
+        MODEL,
+        [PlotSeries("all", None), PlotSeries("one key", ["K"]), PlotSeries("fresh", ["F"])],
+    )
+    assert [entry.stale for entry in counted] == [2, 2, 0]
+
+
 def test_a_series_with_no_stale_fit_has_no_badge(stale_store) -> None:
     project, keys = stale_store
     outcome = compose_plot(

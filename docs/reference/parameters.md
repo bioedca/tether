@@ -587,9 +587,10 @@ row. It chooses which state's analysis comes back, and does not change the fit o
     - The Analyze section of the application (#375) passes this argument for every series of a
       plot that reads a model. It is `False` unless the series opts in. The section passes the
       selection on as it is and does not cut it first. So the A2 heatmap above leaves a stale
-      molecule out even where its own guard does not catch the change. Each series shows how many stale
-      molecules it left out beside its name, counted with `Project.stale_idealization_keys`
-      among the selected molecules that curation accepts. The histogram under the model
+      molecule out even where its own guard does not catch the change. Beside its name, each
+      series shows how many stale molecules it left out, or with the opt-out how many it drew.
+      The count is of the selected molecules that curation accepts and whose key
+      `Project.stale_idealization_keys` names. The histogram under the model
       Gaussians reads no model. So the section leaves the same stale molecules out of it. A
       warning above the figure says that the curves still include their fit.
 7. A double or stretched form in place of a single exponential changes the reported rate constants,
@@ -651,8 +652,9 @@ row. It chooses which state's analysis comes back, and does not change the fit o
     - A centroid shows where the cloud is dense. It is not a state count, which comes from the model
       view.
 
-**Six rows say "no GUI control yet".** They are `per_molecule_equal_weight`, `include_rejected`,
-`include_stale`, `dt` / `time_dt`, the dwell-fit `model` / `ci_level` and the kinetics `nstates`.
+**Five rows say "no GUI control yet".** They are `per_molecule_equal_weight`, `include_rejected`,
+`dt` / `time_dt`, the dwell-fit `model` / `ci_level` and the kinetics `nstates`. `include_stale`
+has its control in the Analyze section.
 Until the plot builder ships, set these from Python, as the table says. The
 [Background](#the-planned-plot-builder) tells what the builder is planned to do.
 
