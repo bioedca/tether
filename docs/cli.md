@@ -1864,6 +1864,52 @@ A blank prefix fails the export of that project. So does a prefix that contains 
 stored in the project. Tether then writes no file for that project, still exports the other
 projects and exits `1`.
 
+## `tether apertures`
+
+Write the aperture and background report of one movie before the run. It is the report that
+the **Apertures and background** view of the Prepare page saves
+([Check the apertures before the run](how-to/extract-traces.md#check-the-apertures-before-the-run)).
+The command previews the movie as the extraction would run it. It writes nothing to a project.
+It calls the same two functions as the page. So for the same inputs the two write the same files.
+
+```text
+tether apertures [-h] --json FILE [--png FILE] [--profile FILE] [--map FILE | --tmap FILE]
+                 [--window PX] [--disk-radius PX] [--ring-inner PX] [--ring-outer PX]
+                 [--molecule N] [--overwrite] movie
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `movie` | *(required)* | The dual-channel movie. |
+| `--json FILE` | *(required)* | The JSON report to write: the options, the aperture geometry, the counts, every spot with its mark, and the preview traces of each `--molecule`. |
+| `--png FILE` | none | A PNG of the mean frame with the aperture and the background ring of every spot, coloured by mark. |
+| `--profile FILE` | none | An [extraction profile](#extraction-profiles) with the options. Without one, the default options. |
+| `--map FILE` | none | A channel map file for the registration. Without `--map` or `--tmap`, a native fit. |
+| `--tmap FILE` | none | A Deep-LASI `.tmap` for the registration. |
+| `--window PX` | the profile's | The aperture / crop-box side length, odd. |
+| `--disk-radius PX` | the profile's | The radius of the signal aperture. |
+| `--ring-inner PX` | the profile's | The inner radius of the background ring. |
+| `--ring-outer PX` | the profile's | The outer radius of the background ring. |
+| `--molecule N` | none | A molecule whose preview traces the report carries. Give it again for more. |
+| `--overwrite` | off | Replace an existing report. Without it the command refuses. An output that is one of the inputs (the movie, the profile or the map file, also through a link) is refused even with it. |
+
+For example:
+
+```sh
+tether apertures movie.tif --json apertures.json --png apertures.png --profile profile.json --molecule 0
+```
+
+Each spot of the report has a mark:
+
+- `at-edge`: its crop leaves the donor or the acceptor channel, so the run skips it.
+- `overlap`: its aperture overlaps the aperture of its nearest molecule.
+- `no-partner`: the `partner-in-both` rule skips it, because no acceptor spot is near it.
+- `ok`: none of these.
+
+The command prints the counts. It exits `0` when it wrote the report. It exits `1` when the
+review failed, for example when the preview stopped before the traces. It exits `2` when it
+refused the options or an existing output.
+
 ## Sync-conflict copies beside a project
 
 OneDrive and SharePoint can leave a second copy of a file when two computers save it at the same
