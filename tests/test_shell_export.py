@@ -55,6 +55,11 @@ def shell(qapp, qtbot, tmp_path, monkeypatch):
     qtbot.addWidget(shell.window)
     yield shell
     shell.close()
+    # A finished export dialog is deleted later; delete it now, so a hidden dialog keeps
+    # neither the active window nor the focus for the next test (offscreen).
+    from pyqtgraph.Qt import QtCore
+
+    qapp.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 def _latest(shell) -> str:
@@ -62,15 +67,22 @@ def _latest(shell) -> str:
 
 
 def _export(qtbot, shell, kind, out: Path, **ticks: bool):
-    """Open the dialog of *kind*, choose *out* and the options, and press Export."""
+    """Open the dialog of *kind*, choose *out* and the options, and press Export.
+
+    Returns the request, the defaults the dialog showed, and whether each ticked box was
+    enabled, all read before Export: the finished dialog is deleted.
+    """
     dialog = shell.show_export_dialog(kind)
     assert dialog is not None and dialog.dialog.isVisible()
     dialog.destination.setText(str(out))
+    defaults = {"include_rejected": dialog.include_rejected.isChecked()}
     for name, value in ticks.items():
         getattr(dialog, name).setChecked(value)
-    dialog.ok_button.click()
+    enabled = {name: getattr(dialog, name).isEnabled() for name in ticks}
+    request = dialog.request()
+    dialog.ok_button.click()  # the finished dialog is deleted
     qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
-    return dialog
+    return request, defaults, enabled
 
 
 def _provenance(path: Path) -> dict:
@@ -97,8 +109,8 @@ def test_the_menu_holds_the_three_exports_while_a_project_is_open(shell, tmp_pat
 
 @pytest.mark.parametrize("include_rejected", [True, False])
 def test_the_table_equals_the_functions_file(qtbot, shell, tmp_path, include_rejected):
-    from tether.gui.exports import ExportKind
     from tether.project.export import export_molecule_table_csv
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
@@ -122,7 +134,7 @@ def test_the_table_equals_the_functions_file(qtbot, shell, tmp_path, include_rej
 
 
 def test_the_table_dialog_defaults_to_the_functions_default(shell, tmp_path):
-    from tether.gui.exports import ExportKind
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
@@ -139,14 +151,14 @@ def test_the_table_dialog_defaults_to_the_functions_default(shell, tmp_path):
 
 
 def test_the_traces_equal_the_functions_file(qtbot, shell, tmp_path):
-    from tether.gui.exports import ExportKind
     from tether.project.export import export_deeplasi_txt
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
     out = tmp_path / "movie-donc-accc-w.txt"
-    dialog = _export(qtbot, shell, ExportKind.TRACES, out)
-    assert not dialog.include_rejected.isChecked()  # the function's include_rejected=False
+    _request, defaults, _enabled = _export(qtbot, shell, ExportKind.TRACES, out)
+    assert not defaults["include_rejected"]  # the function's include_rejected=False
     assert _latest(shell) == "Exported 2 molecule(s) -> movie-donc-accc-w.txt"
     reference = tmp_path / "reference.txt"
     export_deeplasi_txt(project, reference)
@@ -155,16 +167,18 @@ def test_the_traces_equal_the_functions_file(qtbot, shell, tmp_path):
 
 
 def test_the_traces_of_the_selected_molecules_movie(qtbot, shell, tmp_path):
-    from tether.gui.exports import ExportKind
     from tether.project.export import export_deeplasi_txt
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
     keys = [t.molecule_key for t in shell._traces]  # noqa: SLF001 - the molecules shown
     out = tmp_path / "one-movie.txt"
-    dialog = _export(qtbot, shell, ExportKind.TRACES, out, movie_only=True, include_rejected=True)
-    assert dialog.movie_only.isEnabled()
-    assert dialog.request().movie_of == keys[shell.molecule_list.currentRow()]
+    request, _defaults, enabled = _export(
+        qtbot, shell, ExportKind.TRACES, out, movie_only=True, include_rejected=True
+    )
+    assert enabled["movie_only"]
+    assert request.movie_of == keys[shell.molecule_list.currentRow()]
     reference = tmp_path / "reference.txt"
     export_deeplasi_txt(project, reference, molecule_keys=keys, include_rejected=True)
     assert out.read_bytes() == reference.read_bytes()
@@ -176,8 +190,8 @@ def test_the_subset_equals_the_functions_file(qtbot, shell, tmp_path, include_ra
     import h5py
     import numpy as np
 
-    from tether.gui.exports import ExportKind
     from tether.project.export import export_subset_tether
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
@@ -208,7 +222,7 @@ def test_the_subset_equals_the_functions_file(qtbot, shell, tmp_path, include_ra
 
 
 def test_a_cancelled_dialog_writes_nothing(shell, tmp_path):
-    from tether.gui.exports import ExportKind
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
@@ -223,7 +237,7 @@ def test_a_cancelled_dialog_writes_nothing(shell, tmp_path):
 
 def test_a_cancelled_export_writes_nothing(qtbot, shell, tmp_path, monkeypatch):
     import tether.project.export as export_module
-    from tether.gui.exports import ExportKind
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path)
     assert shell.load_project(project) is not None
@@ -251,8 +265,8 @@ def test_a_cancelled_export_writes_nothing(qtbot, shell, tmp_path, monkeypatch):
 
 
 def test_an_empty_selection_reaches_the_status_bar_unchanged(qtbot, shell, tmp_path):
-    from tether.gui.exports import ExportKind
     from tether.project.export import export_deeplasi_txt
+    from tether.services.exports import ExportKind
 
     project = _project(tmp_path, rejected=[True, True, True])
     with pytest.raises(ValueError, match="no molecules selected") as raised:
@@ -266,8 +280,8 @@ def test_an_empty_selection_reaches_the_status_bar_unchanged(qtbot, shell, tmp_p
 
 
 def test_the_source_as_destination_is_refused_with_the_functions_message(qtbot, shell, tmp_path):
-    from tether.gui.exports import ExportKind, ExportRequest
     from tether.project.export import export_subset_tether
+    from tether.services.exports import ExportKind, ExportRequest
 
     project = _project(tmp_path)
     with pytest.raises(ValueError, match="is the source project") as raised:
@@ -288,7 +302,7 @@ def test_the_source_as_destination_is_refused_with_the_functions_message(qtbot, 
 
 
 def test_a_missing_molecule_key_reads_without_quotes():
-    from tether.gui.exports import error_text
+    from tether.services.exports import error_text
 
     assert error_text(KeyError("no molecule with molecule_key(s) ['x'] in the store")) == (
         "no molecule with molecule_key(s) ['x'] in the store"
@@ -297,7 +311,7 @@ def test_a_missing_molecule_key_reads_without_quotes():
 
 
 def test_no_export_without_a_project(shell):
-    from tether.gui.exports import ExportKind
+    from tether.services.exports import ExportKind
 
     assert shell.show_export_dialog(ExportKind.TABLE) is None
     assert _latest(shell) == "Export the molecule table: open a project first"

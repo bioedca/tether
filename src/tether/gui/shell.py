@@ -4456,7 +4456,8 @@ class TetherShell:
     # --- File -> Export (#621): the project exports, on the background-task service ---
 
     def _build_export_menu(self) -> None:
-        from tether.gui.exports import MENU_TEXT, ExportKind
+        from tether.gui.exports import MENU_TEXT
+        from tether.services.exports import ExportKind
 
         self._export_menu = self._file_menu.addMenu("&Export")
         self._export_dialog: Any | None = None
@@ -4476,7 +4477,7 @@ class TetherShell:
         return self._export_dialog
 
     def show_export_dialog(self, kind: Any) -> Any | None:
-        """Open the dialog of the export *kind* ([`tether.gui.exports.ExportKind`][]).
+        """Open the dialog of the export *kind* ([`tether.services.exports.ExportKind`][]).
 
         Its **Export** starts [`export_project`][] with the choice; **Cancel** writes
         nothing. ``None``, with a status message, when no project is open.
@@ -4493,12 +4494,15 @@ class TetherShell:
         dialog = ExportDialog(kind, self._project_path, molecule_key=key, parent=self._window)
         self._export_dialog = dialog
 
+        # A finished dialog is deleted: a hidden one can stay the active window (offscreen).
         def accepted() -> None:
             self._export_dialog = None
+            dialog.dialog.deleteLater()
             self.export_project(dialog.request())
 
         def rejected() -> None:
             self._export_dialog = None
+            dialog.dialog.deleteLater()
             self._status(f"{TITLES[kind]}: cancelled, nothing was written")
 
         dialog.dialog.accepted.connect(accepted)
@@ -4507,14 +4511,15 @@ class TetherShell:
         return dialog
 
     def export_project(self, request: Any) -> bool:
-        """Start the export *request* ([`tether.gui.exports.ExportRequest`][]) of the project.
+        """Start the export *request* ([`tether.services.exports.ExportRequest`][]).
 
-        It runs [`run_export`][tether.gui.exports.run_export] on the background-task service
+        It runs [`run_export`][tether.services.exports.run_export] on the background-task service
         with **Cancel**. The export only reads the project, so it takes no lock and the
         project stays open; every project write waits for it, as for the project fit.
         Returns whether it started; a refusal is a status message.
         """
-        from tether.gui.exports import TITLES, run_export
+        from tether.gui.exports import TITLES
+        from tether.services.exports import run_export
 
         title = TITLES[request.kind]
         if self._project_path is None:
@@ -4538,9 +4543,10 @@ class TetherShell:
 
     def _finish_export(self, outcome: TaskOutcome) -> None:
         """Report a finished export on the main thread."""
-        from tether.gui.exports import TITLES, error_text, export_message
+        from tether.gui.exports import TITLES
         from tether.gui.messages import Level
         from tether.gui.tasks import TaskState
+        from tether.services.exports import error_text, export_message
 
         self._sync_project_write_controls()
         if self._curation_project is None:

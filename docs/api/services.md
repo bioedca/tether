@@ -25,6 +25,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.curation
 
+::: tether.services.exports
+
 ::: tether.services.extract
 
 ::: tether.services.idealize

@@ -59,7 +59,8 @@ BINDINGS: dict[str, tuple[str, ...] | None] = {
     "Quality ranker": ("tether.ml", "tether.project.gbranking", "tether.project.ranking"),
     # The Analyze section's plot registry (#374) runs every population plot.
     "Analysis plots": ("tether.services.plots",),
-    "Exports": ("tether.project.export", "tether.analysis.plot_export"),
+    # File -> Export runs the export functions through tether.services.exports (#621).
+    "Exports": ("tether.services.exports", "tether.project.export", "tether.analysis.plot_export"),
     "Movie panel": ("tether.gui.movie_panel",),
     "Trace ⇄ movie round trip": ("tether.gui.roundtrip",),
     "Category keys": None,
