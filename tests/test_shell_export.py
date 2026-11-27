@@ -658,12 +658,12 @@ def test_a_failed_provenance_move_of_a_subset_leaves_the_project_and_restores_it
 class _ReplaceHoldsAfterTheData:
     """``os`` for the export module: one thread's export stops after its data move.
 
-    The first thread that moves a staged file onto ``target`` sets ``held`` and waits up to
-    ``wait_s`` for ``release`` before going on to its provenance move; other threads pass.
+    The first thread that moves a staged file onto ``target`` sets ``held`` and waits for
+    ``release`` before going on to its provenance move; other threads pass.
     """
 
-    def __init__(self, real, target: Path, wait_s: float) -> None:
-        self._real, self._target, self._wait_s = real, target, wait_s
+    def __init__(self, real, target: Path) -> None:
+        self._real, self._target = real, target
         self.held, self.release = threading.Event(), threading.Event()
         self._holder: int | None = None
 
@@ -673,8 +673,26 @@ class _ReplaceHoldsAfterTheData:
         if moved_data and self._holder is None:
             self._holder = threading.get_ident()
             self.held.set()
-            self.release.wait(self._wait_s)
+            assert self.release.wait(10.0), "the test never released the first export"
         return result
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+class _SleepSignalsContention:
+    """``time`` for the lock module: a guard retry's sleep sets ``contended``.
+
+    The lifecycle guard sleeps only after a failed non-blocking attempt, on POSIX and on
+    Windows alike, so a sleep there proves that the caller waits for another holder.
+    """
+
+    def __init__(self, real, contended: threading.Event) -> None:
+        self._real, self._contended = real, contended
+
+    def sleep(self, seconds):
+        self._contended.set()
+        return self._real.sleep(seconds)
 
     def __getattr__(self, name):
         return getattr(self._real, name)
@@ -689,7 +707,9 @@ def _pair_parameter(out: Path) -> tuple[int, bool]:
 def test_two_exports_to_one_destination_publish_one_whole_pair(tmp_path, monkeypatch):
     """#1490: a second export cannot land between the two moves of the first."""
     import os
+    import time
 
+    import tether.project.lock as lock_module
     import tether.services.exports as exports_module
     from tether.services.exports import ExportKind, ExportRequest, run_export
 
@@ -697,22 +717,29 @@ def test_two_exports_to_one_destination_publish_one_whole_pair(tmp_path, monkeyp
     folder = tmp_path / "out"
     folder.mkdir()
     out = folder / "molecules.csv"
-    fake = _ReplaceHoldsAfterTheData(os, out, wait_s=1.0)
+    fake = _ReplaceHoldsAfterTheData(os, out)
     monkeypatch.setattr(exports_module, "os", fake)
+    # The second export is ready once it waits for the guard or has published its pair.
+    second_ready = threading.Event()
+    monkeypatch.setattr(lock_module, "time", _SleepSignalsContention(time, second_ready))
     errors: list[BaseException] = []
 
-    def export(include_rejected: bool) -> None:
+    def export(include_rejected: bool, done: threading.Event | None = None) -> None:
         try:
             run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected))
         except BaseException as exc:  # noqa: BLE001 - reported by the assertion below
             errors.append(exc)
+        finally:
+            if done is not None:
+                done.set()
 
     first = threading.Thread(target=export, args=(True,))
     first.start()
     assert fake.held.wait(10.0)
-    second = threading.Thread(target=export, args=(False,))
+    second = threading.Thread(target=export, args=(False, second_ready))
     second.start()
-    second.join(0.5)  # unfixed, the second export publishes its whole pair meanwhile
+    # Unfixed, the second export publishes its whole pair here; fixed, it waits.
+    assert second_ready.wait(10.0), "the second export neither waited nor published"
     fake.release.set()
     first.join(10.0)
     second.join(10.0)
@@ -720,6 +747,72 @@ def test_two_exports_to_one_destination_publish_one_whole_pair(tmp_path, monkeyp
     assert errors == []
     # One export won as a whole: 3 rows with rejected, 2 without (the second, published last).
     assert _pair_parameter(out) == (2, False)
+    assert sorted(p.name for p in folder.iterdir() if p.suffix != ".guard") == [
+        "molecules.csv",
+        "molecules.csv.provenance.json",
+    ]
+
+
+class _Cancelled(Exception):
+    pass
+
+
+class _Token:
+    """A cancel token: ``raise_if_cancelled()`` raises once ``cancel()`` was called."""
+
+    def __init__(self) -> None:
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def raise_if_cancelled(self) -> None:
+        if self._cancelled.is_set():
+            raise _Cancelled
+
+
+def test_a_cancel_asked_while_the_export_waits_for_its_destination_writes_nothing(
+    tmp_path, monkeypatch
+):
+    """#1490: the export checks the cancel again once it holds the destination's guard."""
+    import time
+
+    import tether.project.lock as lock_module
+    from tether.services.exports import (
+        ExportKind,
+        ExportRequest,
+        _destination_guard,
+        run_export,
+    )
+
+    project = _project(tmp_path)
+    folder = tmp_path / "out"
+    folder.mkdir()
+    out = folder / "molecules.csv"
+    out.write_text("previous table\n", encoding="utf-8")
+    provenance = out.with_name(out.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    waiting = threading.Event()
+    monkeypatch.setattr(lock_module, "time", _SleepSignalsContention(time, waiting))
+    token = _Token()
+    errors: list[BaseException] = []
+
+    def export() -> None:
+        try:
+            run_export(project, ExportRequest(ExportKind.TABLE, out, True), cancel=token)
+        except BaseException as exc:  # noqa: BLE001 - reported by the assertion below
+            errors.append(exc)
+
+    worker = threading.Thread(target=export)
+    with _destination_guard(out):  # another export is publishing to the destination
+        worker.start()
+        assert waiting.wait(10.0), "the export never waited for the destination's guard"
+        token.cancel()
+    worker.join(10.0)
+    assert not worker.is_alive()
+    assert [type(error) for error in errors] == [_Cancelled]
+    assert out.read_text(encoding="utf-8") == "previous table\n"
+    assert provenance.read_text(encoding="utf-8") == "{}\n"
     assert sorted(p.name for p in folder.iterdir() if p.suffix != ".guard") == [
         "molecules.csv",
         "molecules.csv.provenance.json",

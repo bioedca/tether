@@ -193,9 +193,11 @@ def run_export(
     The function writes to a temporary name in the destination's folder, so a relative path
     the subset stores still names the same file. When ``cancel`` was asked for by the time
     the function returns, both files are removed and the token's ``raise_if_cancelled()``
-    raises: a cancelled export writes nothing. Otherwise the export and its provenance file
-    replace the destination's; a cancel asked after that is too late, and the export
-    finishes as usual.
+    raises: a cancelled export writes nothing. A table or trace export checks ``cancel``
+    again once it holds its destination's publish guard, so a cancel asked while it waited
+    for another export to the same destination writes nothing either. Otherwise the export
+    and its provenance file replace the destination's; a cancel asked after that is too
+    late, and the export finishes as usual.
 
     Raises
     ------
@@ -246,6 +248,8 @@ def run_export(
         else:
             # Nothing else holds a table or trace destination: serialize its pair (#1490).
             with _destination_guard(out_path):
+                if cancel is not None:  # a cancel asked while the export waited
+                    cancel.raise_if_cancelled()
                 _publish(moves, staged)
     except BaseException:
         for leftover in (staged, staged_provenance):
