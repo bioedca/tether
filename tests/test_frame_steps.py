@@ -515,3 +515,18 @@ def test_a_batch_extracts_with_the_steps(tmp_path, baseline) -> None:
     _assert_same_extraction(baseline["native"], out)
     assert _profile(out)["frame_steps"] == {"steps": "rotate 90", "source": "movie"}
     assert json.loads(json.dumps(_profile(out)))["frame_steps"]["source"] == "movie"
+
+
+def test_a_map_file_without_a_default_ignores_one_in_its_provenance(tmp_path, baseline) -> None:
+    """The file's ``frame_steps`` is the default; an inherited provenance key is not (Codex P2)."""
+    reg_map = load_map_asset(baseline["map_file"]).registration_map
+    stale = dataclasses.replace(
+        reg_map, provenance={**reg_map.provenance, "map_frame_steps": "rotate 90"}
+    )
+    map_file = save_map_asset(MapAsset.from_registration_map(stale), tmp_path / "stale.npz")
+    assert load_map_asset(map_file).frame_steps is None
+    out = tmp_path / "plain.tether"
+    summary = extract_movie(_TUTORIAL_MOVIE, out, map_path=map_file)
+    assert summary.frame_steps_source is None
+    _assert_same_extraction(baseline["with_map"], out)
+    assert "map_frame_steps" not in read_calibration(out, summary.calibration_id).provenance

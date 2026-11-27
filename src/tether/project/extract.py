@@ -647,7 +647,10 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     provenance["map_file"] = {"name": path.name, "sha256": digest, **asset.record()}
     if asset.quality is not None:  # the file's record, so a saved copy keeps it
         provenance["map_quality"] = asset.quality
-    if asset.frame_steps is not None:  # the map's default frame steps (#1435)
+    # The file's own default frame steps are the map's default (#1435); a key inherited in
+    # the provenance (a calibration saved with save_project_map) is not.
+    provenance.pop(_MAP_FRAME_STEPS, None)
+    if asset.frame_steps is not None:
         provenance[_MAP_FRAME_STEPS] = str(asset.frame_steps)
     return replace(reg_map, provenance=provenance)
 
