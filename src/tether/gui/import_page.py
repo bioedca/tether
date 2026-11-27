@@ -141,6 +141,8 @@ class ImportPage:
         import pyqtgraph as pg
         from pyqtgraph.Qt import QtCore, QtWidgets
 
+        from tether.gui import theme
+
         outer = self._widget = _DropWidget(self.add_movies)
         outer.setAccessibleName("Import")
         outer_layout = QtWidgets.QVBoxLayout(outer)
@@ -188,7 +190,7 @@ class ImportPage:
         layout.addWidget(self._metadata_table)
 
         geometry = QtWidgets.QGroupBox("Channels")
-        form = QtWidgets.QFormLayout(geometry)
+        form = self._layout_form = QtWidgets.QFormLayout(geometry)
         self._kind_combo = QtWidgets.QComboBox()
         self._kind_combo.setAccessibleName("Channel layout")
         for kind in mi.LAYOUT_KINDS:
@@ -236,9 +238,10 @@ class ImportPage:
         self._image = pg.ImageItem()
         self._plot.addItem(self._image)
         self._rect_items = {}
-        for role, color in (("donor", "#2ca02c"), ("acceptor", "#d62728")):
+        colors = theme.current()
+        for role in ("donor", "acceptor"):
             item = QtWidgets.QGraphicsRectItem()
-            item.setPen(pg.mkPen(color, width=2))
+            item.setPen(pg.mkPen(colors.trace(role), width=2))
             item.setVisible(False)
             self._plot.addItem(item)
             self._rect_items[role] = item
@@ -513,13 +516,19 @@ class ImportPage:
         self._donor_combo.blockSignals(False)
 
     def _enable_layout_fields(self) -> None:
+        """Show the rows the layout uses: the donor half, or the two rectangles.
+
+        A movie pair uses neither, since each file is one whole channel. Rows are hidden
+        rather than disabled, so no control waits on a step it cannot name.
+        """
         entry = self._current()
         pair = entry is not None and entry.is_pair
         rects = str(self._kind_combo.currentData()) == "rectangles"
-        self._kind_combo.setEnabled(not pair)
-        self._donor_combo.setEnabled(not pair and not rects)
-        self._donor_rect.setEnabled(not pair and rects)
-        self._acceptor_rect.setEnabled(not pair and rects)
+        form = self._layout_form
+        form.setRowVisible(self._kind_combo, not pair)
+        form.setRowVisible(self._donor_combo, not pair and not rects)
+        form.setRowVisible(self._donor_rect, not pair and rects)
+        form.setRowVisible(self._acceptor_rect, not pair and rects)
 
     def _kind_changed(self, *_args: object) -> None:
         if self._loading:
@@ -553,7 +562,7 @@ class ImportPage:
         what = (
             "Each file is one whole channel."
             if entry.is_pair
-            else "Green outlines the donor channel, red the acceptor channel."
+            else "The donor and the acceptor trace colors outline the two channels."
         )
         warning = f" Warning: {self._view.warning}" if self._view.warning else ""
         self._view_note.setText(f"{state} {what}{warning}")
@@ -709,9 +718,6 @@ class ImportPage:
                 for t in self._frame_times
             ],
         )
-        writable = self._project is not None
-        for button in (self._relink_button, self._give_button, self._confirm_button):
-            button.setEnabled(writable)
 
     def relink(self, source_id: str, new_path: str | Path) -> bool:
         """Link the source ``source_id`` to ``new_path`` on the worker; return if it started."""

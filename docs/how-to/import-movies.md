@@ -51,7 +51,7 @@ Select **Unpair** to split a pair into two movies again.
 2. In **Donor**, choose the half that holds the donor channel.
 3. For `rectangles`, type each rectangle as `y1, x1, y2, x2`.
 4. In **Frame steps**, type the steps that turn the whole frame, for example `rotate 90`.
-5. Look at the frame view. A green outline shows the donor and a red outline the acceptor.
+5. Look at the frame view. The donor and the acceptor trace colors outline the two channels.
 6. Select **Apply**.
 
 Each change shows on the frame view at once, and the note says *Preview, not applied yet*.
