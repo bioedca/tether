@@ -572,14 +572,16 @@ Export a subset project failed: …/shared.tether.lock is locked: held by …
 Export the traces for Deep-LASI failed: molecule_key(s) ['…'] of movie 'mov-2' also name molecules of another movie, so the trace file cannot hold this movie alone
 ```
 
-**What it means.** These messages come before anything is written, so there is no new file
-and no new provenance file.
+**What it means.** After one of these messages from the menu, the destination is as it was:
+no new file and no new provenance file there. The menu writes under a temporary name beside
+the destination, and removes that file when it stops.
 
-A write can also fail part way, for example on a full disk. The menu then keeps the
-destination as it was. It writes under a temporary name and moves the file and its provenance
-file into place together. If either move fails, it puts the previous pair back. `tether
-export` and a script call the function directly. If its write fails part way, the data file
-can be left without its provenance file.
+A write can also fail part way, for example on a full disk. The menu then moves the file and
+its provenance file into place together. If either move fails, it puts the previous pair back.
+If putting a file back fails too, the previous file stays beside the destination under its
+temporary name. That name starts with a dot and the destination's name. `tether export` and a
+script call the function directly. If its write fails part way, the data file can be left
+without its provenance file.
 
 **What to do.**
 
