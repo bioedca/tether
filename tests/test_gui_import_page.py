@@ -407,3 +407,61 @@ def test_the_page_is_the_import_dock_of_prepare_and_asks_for_the_frame_time(sect
     assert page.time_table.item(0, 2).text() == "from you, not verified"
     assert page.confirm_frame_time(time.movie_id)
     assert page.frame_times[0].state == "from you, confirmed"
+
+
+@needs_qt
+def test_a_runner_that_fails_on_one_movie_refuses_only_that_movie(
+    page, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.io import adapters
+    from tether.io.bioformats import BioformatsRunnerError
+
+    real = adapters.open_movie_source
+    broken = _write_movie(tmp_path / "broken.tif")
+
+    def open_source(path):
+        if str(path) == str(broken):
+            raise BioformatsRunnerError("the runner stopped")
+        return real(path)
+
+    monkeypatch.setattr(adapters, "open_movie_source", open_source)
+    _add(page, qtbot, broken, _write_movie(tmp_path / "good.tif"))
+    assert [e.name for e in page.entries] == ["good.tif"]
+    assert "broken.tif: the runner stopped" in page.message
+
+
+@needs_qt
+def test_no_write_while_another_writer_owns_the_project(qtbot, tmp_path) -> None:
+    pytest.importorskip("pytestqt")
+    from tether.gui.import_page import ImportPage
+
+    asked: list[str] = []
+    page = ImportPage(status=lambda _t: None, write_blocked=lambda f: asked.append(f) or True)
+    qtbot.addWidget(page.widget)
+    project, movie = _project_with_moved_movie(tmp_path)
+    project.acquire_lock()
+    try:
+        page.set_project(project.path, project)
+        (time,) = page.frame_times
+        assert not page.give_frame_time(time.movie_id, 0.1)
+        assert page.frame_times[0].state == "unknown"
+        (source,) = [s for s in page.sources if s.role == "movie"]
+        assert not page.relink(source.source_id, movie)
+        assert not page.busy and "background task" in page.message
+    finally:
+        page.close()
+        project.release_lock()
+    assert asked == ["Frame time", "Link again"]
+
+
+@needs_qt
+def test_no_fit_or_correction_pass_starts_while_a_source_is_linked_again(
+    section_shell, monkeypatch
+) -> None:
+    from tether.gui.import_page import ImportPage
+
+    shell = section_shell("prepare")
+    assert shell._idealize_unavailable() is None
+    monkeypatch.setattr(ImportPage, "writing", property(lambda _self: True))
+    assert "linked again" in shell._idealize_unavailable()
+    assert "linked again" in shell._correction_pass_unavailable()

@@ -153,6 +153,19 @@ def _pixel_name(pixel_type: object) -> str:
         return str(pixel_type)
 
 
+def _reader_errors() -> tuple[type[BaseException], ...]:
+    """Return the errors a reader raises for one file it cannot open or read.
+
+    ``OSError`` is a file that cannot be read, and ``ValueError`` a reader that refuses the
+    file's content. The Bio-Formats runner error is a runner that stopped, timed out or
+    failed on one ``.vsi`` file. Each one refuses that file only, so a batch of movies goes
+    on with the next file.
+    """
+    from tether.io.bioformats import BioformatsRunnerError  # noqa: PLC0415
+
+    return (OSError, ValueError, BioformatsRunnerError)
+
+
 def _open(path: Path) -> Any:
     from tether.io.adapters import (  # noqa: PLC0415
         InvalidPixelError,
@@ -164,9 +177,9 @@ def _open(path: Path) -> Any:
 
     try:
         return select_adapter(path), open_movie_source(path)
-    except (UnsupportedContainerError, LossyCodecError, InvalidPixelError, OSError) as exc:
+    except (UnsupportedContainerError, LossyCodecError, InvalidPixelError) as exc:
         raise RequestRefused(f"{path.name}: {exc}") from exc
-    except ValueError as exc:  # a reader that refuses the file's content
+    except _reader_errors() as exc:
         raise RequestRefused(f"{path.name}: {exc}") from exc
 
 
@@ -212,7 +225,7 @@ def read_first_frame(path: str | PathLike[str]) -> np.ndarray:
     with source:
         try:
             return np.asarray(source.read_frames(0, 1)[0])
-        except (OSError, ValueError) as exc:
+        except _reader_errors() as exc:
             raise RequestRefused(f"{path.name}: {exc}") from exc
 
 

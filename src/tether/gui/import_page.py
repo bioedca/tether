@@ -108,8 +108,11 @@ class ImportPage:
 
     ``status`` shows one line in the window's status bar; ``window`` parents the file
     dialogs; ``use_movie`` receives ``(movie path, layout form texts)`` for **Use in
-    extraction**, or is ``None`` to hide that button. Create this on the main thread, after
-    the ``QApplication``. The page is [`widget`][].
+    extraction**, or is ``None`` to hide that button. ``write_blocked(feature)`` answers
+    whether another background writer owns the project now (the shell's fit or correction
+    pass), and reports it; the page asks it before each write, because such a writer
+    replaces the whole file when it finishes and would drop the change. Create this on the
+    main thread, after the ``QApplication``. The page is [`widget`][].
     """
 
     def __init__(
@@ -118,12 +121,15 @@ class ImportPage:
         status: Callable[[str], None],
         window: Any = None,
         use_movie: Callable[[Path, dict[str, str]], None] | None = None,
+        write_blocked: Callable[[str], bool] | None = None,
     ) -> None:
         from tether.gui.task_service import TaskService
 
         self._status = status
         self._window = window
         self._use_movie = use_movie
+        self._write_blocked = write_blocked
+        self._relinking = False
         self._tasks = TaskService(poll_ms=_POLL_MS)
         self._entries: list[ImportEntry] = []
         self._frames: dict[Path, np.ndarray] = {}
@@ -338,6 +344,11 @@ class ImportPage:
     def busy(self) -> bool:
         """Whether a read or a link runs, its outcome not yet applied."""
         return self._tasks.busy
+
+    @property
+    def writing(self) -> bool:
+        """Whether a link again runs: it writes the project, so no other writer may start."""
+        return self._relinking and self._tasks.busy
 
     @property
     def movie_list(self) -> Any:
@@ -726,6 +737,9 @@ class ImportPage:
             return False
         if self._refuse_while_busy("Link again"):
             return False
+        if self._blocked("Link again"):
+            self._say("Not linked: a background task writes the project; wait for it to finish")
+            return False
         self._say(f"Reading {Path(new_path).name} to compare its checksum…")
         task = self._tasks.start(
             self._relink_work,
@@ -736,6 +750,7 @@ class ImportPage:
             on_finished=self._relinked,
             reports_progress=True,
         )
+        self._relinking = task is not None
         return task is not None
 
     @staticmethod
@@ -745,6 +760,7 @@ class ImportPage:
     def _relinked(self, outcome: TaskOutcome) -> None:
         from tether.gui.tasks import TaskState
 
+        self._relinking = False
         if outcome.state is TaskState.DONE:
             self._say(f"Linked {outcome.value.name} again: {outcome.value.path.name}")
         else:
@@ -762,6 +778,12 @@ class ImportPage:
     def _frame_time_action(self, action: Callable[[Project], mi.FrameTime]) -> bool:
         if self._project is None:
             self._say("Frame time not changed: open the project writable first")
+            return False
+        if self._blocked("Frame time") or self.writing:
+            self._say(
+                "Frame time not changed: a background task writes the project; wait for it "
+                "to finish"
+            )
             return False
         try:
             record = action(self._project)
@@ -827,6 +849,9 @@ class ImportPage:
             self.relink(source.source_id, path)
 
     # --- helpers ---------------------------------------------------------------------
+
+    def _blocked(self, feature: str) -> bool:
+        return self._write_blocked is not None and self._write_blocked(feature)
 
     def _refuse_while_busy(self, feature: str) -> bool:
         if not self._tasks.busy:

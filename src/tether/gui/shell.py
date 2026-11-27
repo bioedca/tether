@@ -243,6 +243,9 @@ DEPOSIT_VISIBLE = False
 #: The section that shows when the shell opens: its page holds the start page (#629).
 _DEFAULT_SECTION = CURATE_SECTION
 
+#: Why a project writer cannot start while the Import dock links a source again (#913).
+_RELINK_RUNNING = "a source of the project is being linked again; wait for it to finish"
+
 # Initial acquisition treats the same host/user/PID as one identity. Separate shells
 # in one QApplication therefore need an additional process-local ownership boundary
 # or they can both become writable before retained-session refresh takes over.
@@ -1771,7 +1774,10 @@ class TetherShell:
                 self._extraction.set_field(name, text)
 
         self._import_page = ImportPage(
-            status=self._status, window=self._window, use_movie=use_movie
+            status=self._status,
+            window=self._window,
+            use_movie=use_movie,
+            write_blocked=self._idealization_blocks_write,
         )
         return self._import_page.widget
 
@@ -4745,6 +4751,8 @@ class TetherShell:
 
         if self._idealize_future is not None:
             return "a background task is running; wait for it to finish"
+        if self._import_page.writing:
+            return _RELINK_RUNNING
         project = self._curation_project
         if project is None:
             reason = self._curation_read_only_reason or "load a writable project first"
@@ -6079,6 +6087,8 @@ class TetherShell:
         """Why "Idealize project…" cannot run now, or ``None`` when it can."""
         if self._idealize_future is not None:
             return "a background task is running; wait for it to finish"
+        if self._import_page.writing:
+            return _RELINK_RUNNING
         if self._curation_project is not None:
             self._refresh_project_lock()
         if self._idealizer is None or self._curation_project is None:
