@@ -149,7 +149,7 @@ def test_the_table_equals_the_functions_file(qtbot, shell, tmp_path, include_rej
     assert out.read_bytes() == reference.read_bytes()
     assert _provenance(out) == _provenance(reference)
     # Only the two files: the staged names are gone.
-    assert sorted(p.name for p in out.parent.iterdir()) == [
+    assert sorted(p.name for p in out.parent.iterdir() if p.suffix != ".guard") == [
         "molecules.csv",
         "molecules.csv.provenance.json",
     ]
@@ -350,11 +350,11 @@ def test_a_failed_publish_keeps_the_previous_export_and_its_provenance(tmp_path)
     out.write_text("previous table\n", encoding="utf-8")
     # A folder where the provenance file goes: the second move fails after the first.
     (tmp_path / "molecules.csv.provenance.json").mkdir()
-    before = sorted(p.name for p in tmp_path.iterdir())
+    before = sorted(p.name for p in tmp_path.iterdir() if p.suffix != ".guard")
     with pytest.raises(OSError):
         run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected=True))
     assert out.read_text(encoding="utf-8") == "previous table\n"
-    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    assert sorted(p.name for p in tmp_path.iterdir() if p.suffix != ".guard") == before
 
 
 def test_an_export_replaces_the_previous_pair_and_leaves_nothing_else(tmp_path):
@@ -370,7 +370,7 @@ def test_an_export_replaces_the_previous_pair_and_leaves_nothing_else(tmp_path):
     assert result.n_molecules == 2
     assert out.read_text(encoding="utf-8").startswith("molecule_id,")
     assert _provenance(out)["parameters"]["include_rejected"] is False
-    assert sorted(p.name for p in folder.iterdir()) == [
+    assert sorted(p.name for p in folder.iterdir() if p.suffix != ".guard") == [
         "molecules.csv",
         "molecules.csv.provenance.json",
     ]
@@ -466,7 +466,7 @@ def test_a_lock_taken_during_a_subset_publish_leaves_the_project_where_it_is(tmp
     assert other.read_bytes() == before
     # The lock is lost, so nothing at the destination is touched: the previous provenance
     # file stays beside it under its temporary name.
-    names = sorted(p.name for p in other.parent.iterdir())
+    names = sorted(p.name for p in other.parent.iterdir() if p.suffix != ".guard")
     assert any(n.startswith(".movie.tether.") and n.endswith(".previous-0") for n in names)
     aside = next(p for p in other.parent.iterdir() if p.name.endswith(".previous-0"))
     assert aside.read_text(encoding="utf-8") == "{}\n"
@@ -652,4 +652,134 @@ def test_a_failed_provenance_move_of_a_subset_leaves_the_project_and_restores_it
     assert sorted(p.name for p in other.parent.iterdir() if p.suffix != ".guard") == [
         "movie.tether",
         "movie.tether.provenance.json",
+    ]
+
+
+class _ReplaceHoldsAfterTheData:
+    """``os`` for the export module: one thread's export stops after its data move.
+
+    The first thread that moves a staged file onto ``target`` sets ``held`` and waits up to
+    ``wait_s`` for ``release`` before going on to its provenance move; other threads pass.
+    """
+
+    def __init__(self, real, target: Path, wait_s: float) -> None:
+        self._real, self._target, self._wait_s = real, target, wait_s
+        self.held, self.release = threading.Event(), threading.Event()
+        self._holder: int | None = None
+
+    def replace(self, source, destination):
+        result = self._real.replace(source, destination)
+        moved_data = Path(destination) == self._target and ".previous-" not in Path(source).name
+        if moved_data and self._holder is None:
+            self._holder = threading.get_ident()
+            self.held.set()
+            self.release.wait(self._wait_s)
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _pair_parameter(out: Path) -> tuple[int, bool]:
+    """Return the data rows of the table ``out`` and its provenance's ``include_rejected``."""
+    rows = len(out.read_text(encoding="utf-8").splitlines()) - 1
+    return rows, _provenance(out)["parameters"]["include_rejected"]
+
+
+def test_two_exports_to_one_destination_publish_one_whole_pair(tmp_path, monkeypatch):
+    """#1490: a second export cannot land between the two moves of the first."""
+    import os
+
+    import tether.services.exports as exports_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    project = _project(tmp_path)  # three molecules, the first rejected
+    folder = tmp_path / "out"
+    folder.mkdir()
+    out = folder / "molecules.csv"
+    fake = _ReplaceHoldsAfterTheData(os, out, wait_s=1.0)
+    monkeypatch.setattr(exports_module, "os", fake)
+    errors: list[BaseException] = []
+
+    def export(include_rejected: bool) -> None:
+        try:
+            run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected))
+        except BaseException as exc:  # noqa: BLE001 - reported by the assertion below
+            errors.append(exc)
+
+    first = threading.Thread(target=export, args=(True,))
+    first.start()
+    assert fake.held.wait(10.0)
+    second = threading.Thread(target=export, args=(False,))
+    second.start()
+    second.join(0.5)  # unfixed, the second export publishes its whole pair meanwhile
+    fake.release.set()
+    first.join(10.0)
+    second.join(10.0)
+    assert not first.is_alive() and not second.is_alive()
+    assert errors == []
+    # One export won as a whole: 3 rows with rejected, 2 without (the second, published last).
+    assert _pair_parameter(out) == (2, False)
+    assert sorted(p.name for p in folder.iterdir() if p.suffix != ".guard") == [
+        "molecules.csv",
+        "molecules.csv.provenance.json",
+    ]
+
+
+_HOLD_THE_PUBLISH_GUARD = """
+import sys
+from pathlib import Path
+
+from tether.services.exports import _destination_guard
+
+with _destination_guard(Path(sys.argv[1])):
+    print("held", flush=True)
+    sys.stdin.readline()
+"""
+
+
+def test_an_export_is_refused_while_another_process_publishes_to_its_destination(
+    tmp_path, monkeypatch
+):
+    """#1490: the per-destination publish guard holds across processes, not only threads."""
+    import os
+    import subprocess
+
+    import tether.project.lock as lock_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    project = _project(tmp_path)
+    folder = tmp_path / "out"
+    folder.mkdir()
+    out = folder / "molecules.csv"
+    out.write_text("previous table\n", encoding="utf-8")
+    provenance = out.with_name(out.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(lock_module, "_GUARD_ACQUIRE_TIMEOUT_S", 0.5)
+    src = Path(__file__).resolve().parent.parent / "src"
+    env = {**os.environ, "PYTHONPATH": str(src)}
+    holder = subprocess.Popen(  # noqa: S603 - the test's own interpreter and script
+        [sys.executable, "-c", _HOLD_THE_PUBLISH_GUARD, str(out)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    try:
+        assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
+        with pytest.raises(TimeoutError):
+            run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected=True))
+        assert out.read_text(encoding="utf-8") == "previous table\n"
+        assert provenance.read_text(encoding="utf-8") == "{}\n"
+    finally:
+        assert holder.stdin is not None
+        holder.stdin.write("\n")
+        holder.stdin.close()
+        holder.wait(10.0)
+    result = run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected=True))
+    assert result.n_molecules == 3
+    assert _pair_parameter(out) == (3, True)
+    assert sorted(p.name for p in folder.iterdir() if p.suffix != ".guard") == [
+        "molecules.csv",
+        "molecules.csv.provenance.json",
     ]

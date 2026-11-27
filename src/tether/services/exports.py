@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
     from tether.project.export import ExportResult
 
@@ -201,6 +202,10 @@ def run_export(
     LockedError
         For a subset, when another writer holds the destination project
         ([`publish_lock`][tether.project.lock.publish_lock]).
+    TimeoutError
+        For a table or trace export, when another export kept publishing to the same
+        destination for longer than the guard waits (`_destination_guard`); the
+        destination pair is then left as that export publishes it.
     ValueError, KeyError, FileExistsError, OSError
         As the export function raises them, and ``ValueError`` when the destination is the
         project itself
@@ -239,13 +244,32 @@ def run_export(
                     raise LockError(f"{out_path} lock ownership changed before publish")
                 _publish(moves, staged, guard=guard, held=current)
         else:
-            _publish(moves, staged)
+            # Nothing else holds a table or trace destination: serialize its pair (#1490).
+            with _destination_guard(out_path):
+                _publish(moves, staged)
     except BaseException:
         for leftover in (staged, staged_provenance):
             with contextlib.suppress(FileNotFoundError):
                 leftover.unlink()
         raise
     return ExportResult(path=out_path, provenance_path=provenance, n_molecules=result.n_molecules)
+
+
+def _destination_guard(out_path: Path) -> AbstractContextManager[None]:
+    """Return the guard that serializes publishing onto ``out_path`` and its provenance.
+
+    One export at a time sets the destination pair aside, moves both staged files in and,
+    on a failure, puts the pair back, so two exports to one destination never leave one's
+    data beside the other's provenance (#1490). The guard is the operating-system file
+    lock of the project lock's lifecycle guard, so it holds across threads and processes:
+    a hidden ``.<name>.publish.guard`` file beside the destination, kept once created. A
+    second export waits for the first; it is refused with ``TimeoutError`` when the wait
+    exceeds the guard's bound. The publish is renames only, the slow write having happened
+    before, so the wait is short.
+    """
+    from tether.project.lock import _lifecycle_guard  # noqa: PLC0415, PLC2701
+
+    return _lifecycle_guard(out_path.with_name(f".{out_path.name}.publish"))
 
 
 def _publish(
