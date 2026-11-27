@@ -692,17 +692,20 @@ def test_without_hard_links_a_file_another_writer_puts_there_is_never_replaced(
 
     monkeypatch.setattr(os, "link", no_links)
     monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", False)
-    real_open = os.open
+    real_lstat = os.lstat
+    swapped = []
 
-    def open_then_overwritten(name, flags, *args, **kwargs):
-        fd = real_open(name, flags, *args, **kwargs)
-        if os.fspath(name) == os.fspath(out):  # an overwriting save lands at once
+    def overwritten_before_the_check(name, *args, **kwargs):
+        # An overwriting save lands after the in-place write and before its check. The
+        # write's descriptor is closed by then, so Windows lets the replace happen too.
+        if os.fspath(name) == os.fspath(out) and not swapped:
+            swapped.append(name)
             other = tmp_path / "theirs"
             other.write_text('{"theirs": true}', encoding="utf-8")
             os.replace(other, out)
-        return fd
+        return real_lstat(name, *args, **kwargs)
 
-    monkeypatch.setattr(os, "open", open_then_overwritten)
+    monkeypatch.setattr(os, "lstat", overwritten_before_the_check)
     with pytest.raises(CommandFailed, match="was replaced while the save wrote it"):
         _save(out, project, ["all"])
     assert out.read_text(encoding="utf-8") == '{"theirs": true}'
