@@ -168,7 +168,8 @@ def test_the_dock_menu_offers_only_the_current_sections_docks(shell, tmp_path) -
     shell.set_section("curate")
     assert sorted(_dock_menu_titles(shell)) == ["Browser", "Overlap"]
     shell.set_section("prepare")
-    assert _dock_menu_titles(shell) == []
+    # Prepare holds only its own Import dock (#913).
+    assert _dock_menu_titles(shell) == ["Import"]
     assert shell.browser_dock.isHidden()
 
 
