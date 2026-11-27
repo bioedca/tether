@@ -531,3 +531,41 @@ def test_an_override_that_reached_part_of_a_condition_keeps_its_record(tmp_path:
     assert methods[1:12] == [METHOD_MANUAL] * 11
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.05, "manual", 11)
+
+
+def test_a_calibration_window_edit_blocks_on_one_conditions_withheld_gamma(
+    tmp_path: Path,
+) -> None:
+    # Codex (closing review) on #1486: a calibration-window edit that withholds cond-A's γ
+    # while cond-B keeps its γ must block the calibration, as a contributor decision does.
+    from tether.project import correction_states as cs  # noqa: PLC0415
+    from tether.project.calibration_windows import (  # noqa: PLC0415
+        reset_calibration_window,
+        set_calibration_window,
+    )
+    from tether.project.core import Project  # noqa: PLC0415
+
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 11)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    assert all(c.applied for c in compute_gamma(path).conditions)
+    keys = _text(read_molecules(path)["molecule_key"])
+    actor = cs.Actor.person("tester")
+    proj = Project.open(path)
+    proj.acquire_lock()
+    try:
+        # A window that ends before the step leaves no measurable step for that molecule.
+        set_calibration_window(proj, keys[0], 0, 10, actor=actor, reason="test")
+        assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
+        summary = set_calibration_window(proj, keys[1], 0, 10, actor=actor, reason="test")
+        assert summary is not None and summary.applied
+        assert {c.condition_id: c.applied for c in summary.conditions} == {
+            "cond-A": False,
+            "cond-B": True,
+        }
+        assert cs.read_correction_state(path).state is cs.CorrectionState.CALIBRATION_BLOCKED
+
+        reset_calibration_window(proj, keys[1], actor=actor)
+        assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
+    finally:
+        proj.release_lock()
