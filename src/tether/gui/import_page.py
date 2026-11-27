@@ -77,12 +77,12 @@ class ImportEntry:
 
 
 def _read_movies(paths: Sequence[Path]) -> tuple[list[tuple[Any, Any]], list[str]]:
-    """Describe each movie and read its first frame (worker thread)."""
+    """Describe each movie and read its first frame, from one open of it (worker thread)."""
     found: list[tuple[Any, Any]] = []
     refused: list[str] = []
     for path in paths:
         try:
-            found.append((mi.describe_movie(path), mi.read_first_frame(path)))
+            found.append(mi.inspect_movie(path))
         except RequestRefused as exc:
             refused.append(str(exc))
     return found, refused
@@ -391,12 +391,38 @@ class ImportPage:
             self._say(f"Movies not added: {outcome.error}")
             return
         found, refused = outcome.value
+        current = None
         for description, frame in found:
             self._frames[description.path] = frame
-            self._entries.append(ImportEntry(description))
-        self._refresh_list(len(self._entries) - 1 if found else None)
+            current = self._place(description)
+        self._refresh_list(current)
         added = f"Added {len(found)} movie(s)."
         self._say(" ".join([added, *(f"Not added: {r}" for r in refused)]))
+
+    def _place(self, movie: mi.MovieDescription) -> int:
+        """Add ``movie``, or replace the entry that already holds its file; return its row.
+
+        A file read again may have changed, so the entry that holds it loses its applied
+        layout: the user applies again after seeing the new frame. A pair whose file
+        changed is checked again and split when it is no longer one acquisition.
+        """
+        for row, entry in enumerate(self._entries):
+            if movie.path not in (entry.donor.path, getattr(entry.acceptor, "path", None)):
+                continue
+            if entry.acceptor is None:
+                self._entries[row] = ImportEntry(movie)
+                return row
+            donor = movie if entry.donor.path == movie.path else entry.donor
+            acceptor = movie if entry.acceptor.path == movie.path else entry.acceptor
+            try:
+                mi.check_movie_pair(donor, acceptor)
+            except RequestRefused:
+                self._entries[row : row + 1] = [ImportEntry(donor), ImportEntry(acceptor)]
+                return row
+            self._entries[row] = ImportEntry(donor, acceptor)
+            return row
+        self._entries.append(ImportEntry(movie))
+        return len(self._entries) - 1
 
     # --- pair -----------------------------------------------------------------------
 
@@ -645,34 +671,49 @@ class ImportPage:
     def recipe_requests(self) -> list[Any]:
         """Return one ``extract`` request for each applied single movie, in list order.
 
-        Each project is ``<movie name>.tether`` beside the movie. Raises
-        [`RequestRefused`][tether.services.base.RequestRefused] naming a movie pair, which an
-        extract step cannot hold yet.
+        Each project is ``<movie name>.tether`` beside the movie. A movie pair is left out,
+        because an extract step cannot hold one yet ([`excluded_pairs`][] names them). Raises
+        [`RequestRefused`][tether.services.base.RequestRefused] naming both movies when two
+        of them would write the same project, such as ``sample.tif`` and ``sample.nd2``.
         """
         requests = []
+        outputs: dict[Path, Path] = {}
         for entry in self._entries:
-            if not entry.applied:
+            if not entry.applied or entry.is_pair:
                 continue
             path = entry.donor.path
-            requests.append(
-                mi.extract_request(
-                    path,
-                    path.with_suffix(".tether"),
-                    entry.layout,
-                    entry.frame_steps,
-                    acceptor_movie=None if entry.acceptor is None else entry.acceptor.path,
+            output = path.with_suffix(".tether")
+            if output in outputs:
+                raise RequestRefused(
+                    f"{outputs[output].name} and {path.name} would both write {output.name}; "
+                    "rename one of the movies"
                 )
-            )
+            outputs[output] = path
+            requests.append(mi.extract_request(path, output, entry.layout, entry.frame_steps))
         return requests
 
+    def excluded_pairs(self) -> list[str]:
+        """Return the names of the applied movie pairs that a recipe leaves out."""
+        return [e.name for e in self._entries if e.applied and e.is_pair]
+
     def save_recipe(self, path: str | Path) -> Path | None:
-        """Write a recipe with one ``extract`` step for each applied movie; return its path."""
+        """Write a recipe with one ``extract`` step for each applied single movie.
+
+        Returns the recipe's path, or ``None`` with the reason in the message. The message
+        names each applied movie pair that the recipe leaves out.
+        """
+        pairs = self.excluded_pairs()
+        left_out = (
+            f" Left out (a recipe cannot hold a movie pair yet): {', '.join(pairs)}"
+            if pairs
+            else ""
+        )
         try:
             written = mi.save_recipe(path, self.recipe_requests())
         except ServiceError as exc:
-            self._say(f"Recipe not saved: {exc}")
+            self._say(f"Recipe not saved: {exc}.{left_out}")
             return None
-        self._say(f"Recipe saved: {written.name}")
+        self._say(f"Recipe saved: {written.name}.{left_out}")
         return written
 
     def use_in_extraction(self) -> bool:
@@ -681,10 +722,14 @@ class ImportPage:
         if self._use_movie is None or entry is None or not entry.applied:
             self._say("Not used: select a movie and apply its layout first")
             return False
-        if entry.is_pair or entry.frame_steps:
+        if entry.is_pair:
             self._say(
-                "Not used: the extraction page cannot take a movie pair or frame steps yet. "
-                "Save a recipe instead"
+                "Not used: neither the extraction page nor a recipe can take a movie pair yet"
+            )
+            return False
+        if entry.frame_steps:
+            self._say(
+                "Not used: the extraction page cannot take frame steps yet. Save a recipe instead"
             )
             return False
         self._use_movie(entry.donor.path, entry.layout.profile_texts())

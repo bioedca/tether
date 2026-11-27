@@ -63,6 +63,7 @@ __all__ = [
     "extract_request",
     "frame_view",
     "give_frame_time",
+    "inspect_movie",
     "read_first_frame",
     "read_frame_times",
     "read_project_sources",
@@ -193,24 +194,51 @@ def describe_movie(path: str | PathLike[str]) -> MovieDescription:
     path = Path(path)
     adapter, source = _open(path)
     with source:
-        meta = source.metadata
-        items = tuple(
-            MetadataItem(label, _value_text(field.value), field.origin)
-            for label, field in (
-                ("Frame time (s)", meta.frame_time),
-                ("Pixel size (µm)", meta.pixel_size),
-                ("Channels", meta.channels),
-            )
+        return _describe(path, adapter, source)
+
+
+def _describe(path: Path, adapter: Any, source: Any) -> MovieDescription:
+    """Describe the movie that ``source``, opened by ``adapter``, reads."""
+    meta = source.metadata
+    items = tuple(
+        MetadataItem(label, _value_text(field.value), field.origin)
+        for label, field in (
+            ("Frame time (s)", meta.frame_time),
+            ("Pixel size (µm)", meta.pixel_size),
+            ("Channels", meta.channels),
         )
-        shape = tuple(int(v) for v in source.shape)
-        return MovieDescription(
-            path=path,
-            reader=adapter.describe(),
-            shape=(shape[0], shape[1], shape[2]),
-            pixel_type=_pixel_name(source.pixel_type),
-            frame_time=None if meta.frame_time.value is None else float(meta.frame_time.value),
-            metadata=items,
-        )
+    )
+    shape = tuple(int(v) for v in source.shape)
+    return MovieDescription(
+        path=path,
+        reader=adapter.describe(),
+        shape=(shape[0], shape[1], shape[2]),
+        pixel_type=_pixel_name(source.pixel_type),
+        frame_time=None if meta.frame_time.value is None else float(meta.frame_time.value),
+        metadata=items,
+    )
+
+
+def _first_frame(path: Path, source: Any) -> np.ndarray:
+    import numpy as np  # noqa: PLC0415
+
+    try:
+        return np.asarray(source.read_frames(0, 1)[0])
+    except _reader_errors() as exc:
+        raise RequestRefused(f"{path.name}: {exc}") from exc
+
+
+def inspect_movie(path: str | PathLike[str]) -> tuple[MovieDescription, np.ndarray]:
+    """Return the description and the first frame of the movie at ``path``, from one open.
+
+    Both come from the same open file, so the frame the page shows is a frame of the movie
+    the row describes, even when the file is replaced on disk at that moment. Raises
+    [`RequestRefused`][tether.services.base.RequestRefused] as [`describe_movie`][].
+    """
+    path = Path(path)
+    adapter, source = _open(path)
+    with source:
+        return _describe(path, adapter, source), _first_frame(path, source)
 
 
 def read_first_frame(path: str | PathLike[str]) -> np.ndarray:
@@ -218,15 +246,10 @@ def read_first_frame(path: str | PathLike[str]) -> np.ndarray:
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] as [`describe_movie`][].
     """
-    import numpy as np  # noqa: PLC0415
-
     path = Path(path)
     _adapter, source = _open(path)
     with source:
-        try:
-            return np.asarray(source.read_frames(0, 1)[0])
-        except _reader_errors() as exc:
-            raise RequestRefused(f"{path.name}: {exc}") from exc
+        return _first_frame(path, source)
 
 
 def check_movie_pair(donor: MovieDescription, acceptor: MovieDescription) -> None:
@@ -235,11 +258,16 @@ def check_movie_pair(donor: MovieDescription, acceptor: MovieDescription) -> Non
     The frame count, the frame time, the pixel type and the frame size must be the same
     ([`tether.io.pair.check_pair`][]). Raises
     [`RequestRefused`][tether.services.base.RequestRefused] naming each value that differs,
-    and also when the two are the same file.
+    and also when the two are the same file: one path, or two names of one file (a hard
+    link). A file whose identity cannot be read is refused too.
     """
     from tether.io.pair import MoviePairError, check_pair  # noqa: PLC0415
 
-    if donor.path.resolve() == acceptor.path.resolve():
+    try:
+        same = donor.path.samefile(acceptor.path)
+    except OSError as exc:
+        raise RequestRefused(f"{donor.name} and {acceptor.name}: {exc}") from exc
+    if same:
         raise RequestRefused(f"{donor.name} cannot be paired with itself")
 
     def view(movie: MovieDescription) -> SimpleNamespace:

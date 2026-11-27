@@ -465,3 +465,116 @@ def test_no_fit_or_correction_pass_starts_while_a_source_is_linked_again(
     monkeypatch.setattr(ImportPage, "writing", property(lambda _self: True))
     assert "linked again" in shell._idealize_unavailable()
     assert "linked again" in shell._correction_pass_unavailable()
+
+
+# --- the CodeRabbit review of PR #1511 ------------------------------------------------
+
+
+def test_a_hard_link_to_one_file_cannot_pair_with_it(tmp_path) -> None:
+    import os
+
+    movie = _write_movie(tmp_path / "d.tif")
+    alias = tmp_path / "alias.tif"
+    try:
+        os.link(movie, alias)
+    except OSError:
+        pytest.skip("this filesystem makes no hard link")
+    donor, acceptor = mi.describe_movie(movie), mi.describe_movie(alias)
+    with pytest.raises(RequestRefused, match="itself"):
+        mi.check_movie_pair(donor, acceptor)
+    gone = mi.MovieDescription(tmp_path / "gone.tif", "TIFF", (1, 1, 1), "uint16", None, ())
+    with pytest.raises(RequestRefused, match="gone.tif"):
+        mi.check_movie_pair(donor, gone)
+
+
+def test_the_description_and_the_frame_come_from_one_open(tmp_path, monkeypatch) -> None:
+    from tether.io import adapters
+
+    real, opened = adapters.open_movie_source, []
+
+    def counting(path):
+        opened.append(path)
+        return real(path)
+
+    monkeypatch.setattr(adapters, "open_movie_source", counting)
+    movie, frame = mi.inspect_movie(_write_movie(tmp_path / "a.tif"))
+    assert len(opened) == 1
+    assert movie.frame_shape == frame.shape == (_H, _W)
+
+
+@needs_qt
+def test_a_movie_added_again_replaces_its_entry_and_must_be_applied_again(
+    page, qtbot, tmp_path
+) -> None:
+    movie = _write_movie(tmp_path / "a.tif")
+    _add(page, qtbot, movie)
+    assert page.apply() and page.entries[0].applied
+    _write_movie(movie, frames=_FRAMES + 2, seed=5)  # the file changes on disk
+    _add(page, qtbot, movie)
+    (entry,) = page.entries
+    assert entry.donor.shape[0] == _FRAMES + 2
+    assert not entry.applied
+    assert page.recipe_requests() == []
+    assert not page.use_in_extraction()
+
+
+@needs_qt
+def test_a_pair_whose_file_changed_is_split_when_added_again(page, qtbot, tmp_path) -> None:
+    donor = _write_movie(tmp_path / "d.tif")
+    _add(page, qtbot, donor, _write_movie(tmp_path / "a.tif", seed=1))
+    page.movie_list.item(0).setSelected(True)
+    page.movie_list.item(1).setSelected(True)
+    assert page.pair_selected()
+    _write_movie(donor, frames=_FRAMES + 2)
+    _add(page, qtbot, donor)
+    assert [e.name for e in page.entries] == ["d.tif", "a.tif"]
+
+
+@needs_qt
+def test_two_movies_that_would_write_one_project_are_refused_by_name(page, qtbot, tmp_path) -> None:
+    _add(page, qtbot, _write_movie(tmp_path / "sample.tif"), _write_movie(tmp_path / "sample.tiff"))
+    for row in (0, 1):
+        page.movie_list.setCurrentRow(row)
+        assert page.apply()
+    assert page.save_recipe(tmp_path / "r.json") is None
+    assert "sample.tif and sample.tiff would both write sample.tether" in page.message
+
+
+@needs_qt
+def test_a_recipe_leaves_out_a_pair_and_says_so(page, qtbot, tmp_path) -> None:
+    from tether.services.recipe import read_recipe
+
+    _add(
+        page,
+        qtbot,
+        _write_movie(tmp_path / "d.tif"),
+        _write_movie(tmp_path / "a.tif", seed=1),
+        _write_movie(tmp_path / "single.tif", seed=2),
+    )
+    page.movie_list.clearSelection()
+    page.movie_list.item(0).setSelected(True)
+    page.movie_list.item(1).setSelected(True)
+    assert page.pair_selected()
+    for row in (0, 1):
+        page.movie_list.setCurrentRow(row)
+        assert page.apply()
+    written = page.save_recipe(tmp_path / "r.json")
+    assert written is not None
+    assert [step.request.movie for step in read_recipe(written).steps] == [
+        str(tmp_path / "single.tif")
+    ]
+    assert "Left out" in page.message and "d.tif + a.tif" in page.message
+    page.movie_list.setCurrentRow(0)
+    assert not page.use_in_extraction()
+    assert "nor a recipe" in page.message
+
+
+@needs_qt
+def test_no_curation_write_while_a_source_is_linked_again(section_shell, monkeypatch) -> None:
+    from tether.gui.import_page import ImportPage
+
+    shell = section_shell("prepare")
+    assert shell._writable_project("Accept") is not None
+    monkeypatch.setattr(ImportPage, "writing", property(lambda _self: True))
+    assert shell._writable_project("Accept") is None
+    assert "linked again" in shell.status_message

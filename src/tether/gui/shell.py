@@ -3357,7 +3357,15 @@ class TetherShell:
         self._act_import_deeplasi.setEnabled(self._idealize_future is None)
 
     def _idealization_blocks_write(self, feature: str) -> bool:
-        """Report and reject a source-project mutation while idealization owns HDF5."""
+        """Report and reject a source-project mutation while another writer owns HDF5.
+
+        The writers are idealization (or another task of the shell's service) and a link
+        again of the Import dock (#913), which runs on the dock's own worker.
+        """
+        import_page = getattr(self, "_import_page", None)
+        if import_page is not None and import_page.writing:
+            self._status(f"{feature} unavailable: {_RELINK_RUNNING}")
+            return True
         if self._idealize_future is None:
             return False
         self._status(f"{feature} unavailable: Idealize in progress; wait for it to finish")
