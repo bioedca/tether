@@ -81,10 +81,13 @@ def _input_overwritten(outputs: list[Path], args: argparse.Namespace) -> str | N
 
     The movie, the profile and the registration file are checked, by path and as a hard
     link, as ``tether export`` checks its source project. ``--overwrite`` does not lift it:
-    a report must never replace the raw movie it reviews.
+    a report must never replace the raw movie it reviews. ``--json`` and ``--png`` naming
+    one file, also through a link, is refused too: the PNG would replace the report.
     """
     from tether.cli_export import _is_source
 
+    if len(outputs) == 2 and _is_source(outputs[0], outputs[1]):
+        return f"--json {outputs[0]} and --png {outputs[1]} are the same file"
     inputs = [args.movie, args.profile, args.map_path, args.tmap]
     for out in outputs:
         for source in (Path(p) for p in inputs if p):

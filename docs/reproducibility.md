@@ -74,8 +74,8 @@ must use the same `window`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_wi
 refuses the write.
 
 > **Read `profile_json` and `app_version` as the record of the first movie only.** Tether compares
-> nothing else for a later movie. So a later movie's detection or registration settings are not
-> recorded.
+> nothing else for a later movie, and it never rewrites the stamp. Read a later movie's settings
+> and version from `/settings/extraction/movies` (below).
 
 > **Do not read the `/settings/extraction` of a Deep-LASI reconstruction as the settings of an
 > integration.** In a project rebuilt from a Deep-LASI acquisition, it holds Tether's standard
@@ -101,6 +101,22 @@ refuses the write.
    registration and colocalization settings. It also holds the registration source and its RMS
    error. From a Deep-LASI reconstruction, it holds only where the traces came from: `source`,
    `coordinate_source`, `movie_name` and `exported_by`.
+
+**`/settings/extraction/movies`**, written by `src/tether/imaging/extract.py`. This child group
+of the stamp holds one `str` attribute for each movie. The attribute is named by the movie's
+`movie_id`, and its value is that movie's settings profile as JSON. The first movie gets one too, so the record is the same for every movie
+([ADR-0117](adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
+
+- From the native pipeline, `src/tether/project/extract.py` builds the profile. It holds the
+  movie's own `app_version`, its detection settings and its registration source.
+- `read_movie_settings` in `src/tether/imaging/extract.py` returns the record as
+  `{movie_id: profile}`.
+- The group is absent in a project written before ADR-0117. That project's one movie has its
+  profile in the stamp's `profile_json`.
+- A movie extracted with no settings profile has no attribute here.
+
+The read-back script below prints the attributes of each group under `/settings`, not of this
+child group. So its output does not show it.
 
 ### Which molecules each factor was estimated on
 
@@ -277,6 +293,14 @@ rewrites it on every run.
 | `idealize_requested` | `bool` | — | — | `True` when the run asked for the idealization stage. |
 | `extract_status`, `correct_status`, `idealize_status` | `str` | — | — | How each stage ended, one `<stage>_status` for each stage. |
 | `app_version`, `created_utc` | `str` | — | — | The version and the time of the run. |
+| `correct_movies`, `idealize_movies` | `str` | — | absent | The digest of the movies that this project stage covers, one `<stage>_movies` for each stage (note 1). |
+
+**Notes**
+
+1. Only a `tether batch --into` run writes a digest. It is the SHA-256 of the content hashes of
+   every movie in the project, in sorted order. An empty value means that the stage does not cover
+   every movie. An append from Python with `add_movie_to_project` writes both marks empty. If no
+   batch run wrote `/settings/batch`, the append creates it with only these two attributes.
 
 **`/settings/analysis_only`**, written by `src/tether/project/analysis_import.py`. It is present
 only in a project file imported from someone else's traces, where there is no movie to go back to.
@@ -348,8 +372,9 @@ Some steps leave no version or parameter stamp in the project, and one leaves on
   under (`tether_version` in its model manifest). The deep classifier records none.
 - The SMD file handed off to standalone tMAVEN has no provenance file. A fit run there is stamped
   only with the Tether version that imported it, so report the tMAVEN version you ran.
-- Extraction is stamped once, for the first movie (see `/settings/extraction` above). Tether
-  records no per-movie version, so the release that extracted a later movie is not recorded.
+- In a project written before ADR-0117, extraction is stamped once, for the first movie. Such a
+  project has no `/settings/extraction/movies`, so the settings and the release that extracted a
+  later movie are not recorded.
 
 For those, keep your own note of the version and settings. See
 [Citing Tether](citing.md#reporting-a-tether-analysis) for what to quote.
@@ -473,8 +498,9 @@ keys can differ too, because Tether writes some of them only when a step ran or 
 - `/idealization/<model>` is absent when no fit completed. `elbo` and `elbo_by_nstates` appear only
   when the backend reports them.
 - `profile_json` appears only when a settings profile was supplied.
-- `/settings/batch` appears only for a `tether batch` run. `/settings/analysis_only` appears only
-  for an imported analysis-only project file.
+- `/settings/batch` appears only for a `tether batch` run, or with only its two `<stage>_movies`
+  marks after an append from Python.
+- `/settings/analysis_only` appears only for an imported analysis-only project file.
 
 In an intact project, a missing group means that the step left no completed record. The step did
 not run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status` in
