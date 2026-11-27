@@ -433,11 +433,48 @@ def test_a_lock_taken_during_a_subset_publish_leaves_the_project_where_it_is(tmp
     monkeypatch.setattr(lock_module, "publish_lock", taken_after_the_first_check)
     with pytest.raises(LockError, match="ownership changed"):
         run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
-    # The project file was never moved, so nothing is put back over the new owner's file.
-    assert present == [True, True]
+    # The project file was never moved, so it is where it was at every check, unchanged.
+    assert present == [True, True, True]  # the third is the check before any put-back
     assert other.read_bytes() == before
-    assert provenance.read_text(encoding="utf-8") == "{}\n"
-    assert sorted(p.name for p in other.parent.iterdir()) == [
-        "movie.tether",
-        "movie.tether.provenance.json",
-    ]
+    # The lock is lost, so nothing at the destination is touched: the previous provenance
+    # file stays beside it under its temporary name.
+    names = sorted(p.name for p in other.parent.iterdir())
+    assert any(n.startswith(".movie.tether.") and n.endswith(".previous-0") for n in names)
+    aside = next(p for p in other.parent.iterdir() if p.name.endswith(".previous-0"))
+    assert aside.read_text(encoding="utf-8") == "{}\n"
+
+
+def test_a_new_owners_pair_is_kept_when_the_lock_is_taken_mid_publish(tmp_path, monkeypatch):
+    import contextlib
+
+    import tether.project.lock as lock_module
+    from tether.project.lock import LockError
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    provenance = other.with_name(other.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    checks: list[int] = []
+
+    @contextlib.contextmanager
+    def taken_and_published(_path):
+        def guard() -> None:
+            checks.append(1)
+            if len(checks) == 2:
+                # Another writer takes the lock and publishes its own project and provenance.
+                other.write_bytes(b"successor project")
+                provenance.write_text("successor provenance\n", encoding="utf-8")
+            if len(checks) > 1:
+                raise LockError("lock ownership changed before publish")
+
+        yield guard
+
+    monkeypatch.setattr(lock_module, "publish_lock", taken_and_published)
+    with pytest.raises(LockError, match="ownership changed"):
+        run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    # The new owner's pair is left as it published it.
+    assert other.read_bytes() == b"successor project"
+    assert provenance.read_text(encoding="utf-8") == "successor provenance\n"

@@ -260,7 +260,9 @@ def _publish(
     project. The project file is never set aside, since another writer could take the lock
     while it is away. The other files are placed first; then ``guard`` runs immediately
     before one atomic replace of the project, which its identity record follows. When the
-    check or the replace fails, only the other files are put back.
+    check or the replace fails, the other files are put back only if the lock is still held;
+    after a takeover nothing at the destination is touched, and the files set aside stay
+    beside it under their temporary names.
     """
     if guard is None:
         kept, placed = _place(moves, staged)
@@ -276,9 +278,22 @@ def _publish(
         with replacement_identity(source, target):
             os.replace(source, target)
     except BaseException:
-        _undo(kept, placed)
+        # Put the other files back only while this export still holds the lock: after a
+        # takeover the files there may be the new owner's, and the ones set aside stay
+        # under their temporary names.
+        if _still_held(guard):
+            _undo(kept, placed)
         raise
     _drop(kept)
+
+
+def _still_held(guard: Callable[[], None]) -> bool:
+    """Return whether the lock check ``guard`` still passes."""
+    try:
+        guard()
+    except Exception:  # noqa: BLE001 - any failed check means the lock is not ours
+        return False
+    return True
 
 
 def _place(
