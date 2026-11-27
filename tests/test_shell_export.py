@@ -402,3 +402,42 @@ def test_a_subset_is_refused_onto_a_project_another_writer_holds(tmp_path):
     result = run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
     assert result.n_molecules == 2
     assert files() == ["movie.tether", "movie.tether.provenance.json"]
+
+
+def test_a_lock_taken_during_a_subset_publish_leaves_the_project_where_it_is(tmp_path, monkeypatch):
+    import contextlib
+
+    import tether.project.lock as lock_module
+    from tether.project.lock import LockError
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    provenance = other.with_name(other.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    before = other.read_bytes()
+    present: list[bool] = []
+
+    @contextlib.contextmanager
+    def taken_after_the_first_check(_path):
+        def guard() -> None:
+            # The project must still be at its name whenever the lock is checked.
+            present.append(other.read_bytes() == before)
+            if len(present) > 1:  # another writer took the lock after the first check
+                raise LockError("lock ownership changed before publish")
+
+        yield guard
+
+    monkeypatch.setattr(lock_module, "publish_lock", taken_after_the_first_check)
+    with pytest.raises(LockError, match="ownership changed"):
+        run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
+    # The project file was never moved, so nothing is put back over the new owner's file.
+    assert present == [True, True]
+    assert other.read_bytes() == before
+    assert provenance.read_text(encoding="utf-8") == "{}\n"
+    assert sorted(p.name for p in other.parent.iterdir()) == [
+        "movie.tether",
+        "movie.tether.provenance.json",
+    ]

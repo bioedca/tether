@@ -256,9 +256,35 @@ def _publish(
     data with stale provenance, and never a lost previous export.
 
     ``guard`` is the check of the destination project's
-    [`publish_lock`][tether.project.lock.publish_lock]: it runs before anything moves, and
-    the project's identity record follows the replace of the first move.
+    [`publish_lock`][tether.project.lock.publish_lock], and the first move is then that
+    project. The project file is never set aside, since another writer could take the lock
+    while it is away. The other files are placed first; then ``guard`` runs immediately
+    before one atomic replace of the project, which its identity record follows. When the
+    check or the replace fails, only the other files are put back.
     """
+    if guard is None:
+        kept, placed = _place(moves, staged)
+        _drop(kept)
+        return
+    (source, target), others = moves[0], moves[1:]
+    guard()
+    kept, placed = _place(others, staged)
+    try:
+        guard()
+        from tether.project.lock import replacement_identity
+
+        with replacement_identity(source, target):
+            os.replace(source, target)
+    except BaseException:
+        _undo(kept, placed)
+        raise
+    _drop(kept)
+
+
+def _place(
+    moves: list[tuple[Path, Path]], staged: Path
+) -> tuple[list[tuple[Path, Path]], list[Path]]:
+    """Set the destination files aside and move the staged ones in; undo on a failure."""
     kept: list[tuple[Path, Path]] = []
     placed: list[Path] = []
     try:
@@ -267,24 +293,26 @@ def _publish(
                 aside = staged.with_name(f"{staged.name}.previous-{i}")
                 os.replace(target, aside)
                 kept.append((aside, target))
-        if guard is not None:
-            guard()
-        for i, (source, target) in enumerate(moves):
-            if guard is not None and i == 0:
-                from tether.project.lock import replacement_identity
-
-                with replacement_identity(source, target):
-                    os.replace(source, target)
-            else:
-                os.replace(source, target)
+        for source, target in moves:
+            os.replace(source, target)
             placed.append(target)
     except BaseException:
-        for target in placed:
-            with contextlib.suppress(FileNotFoundError):
-                target.unlink()
-        for aside, target in kept:
-            os.replace(aside, target)
+        _undo(kept, placed)
         raise
+    return kept, placed
+
+
+def _undo(kept: list[tuple[Path, Path]], placed: list[Path]) -> None:
+    """Remove the files placed and put the ones set aside back."""
+    for target in placed:
+        with contextlib.suppress(FileNotFoundError):
+            target.unlink()
+    for aside, target in kept:
+        os.replace(aside, target)
+
+
+def _drop(kept: list[tuple[Path, Path]]) -> None:
+    """Delete the files set aside, once every move succeeded."""
     for aside, _target in kept:
         with contextlib.suppress(FileNotFoundError):
             aside.unlink()
