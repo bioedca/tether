@@ -569,3 +569,24 @@ def test_a_calibration_window_edit_blocks_on_one_conditions_withheld_gamma(
         assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
     finally:
         proj.release_lock()
+
+
+def test_a_movie_scoped_pass_keeps_the_other_conditions_records(tmp_path: Path) -> None:
+    # Codex (closing review) on #1486: a pass scoped to cond-B's movie must not drop
+    # cond-A's manual record from /settings/correction.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["movie_id"][12:] = "mov-2"
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, alpha_override=0.05, gamma_override=2.0, condition_id="cond-A")
+    compute_corrected_fret(path, movie_id="mov-2")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["gamma"], entry["n_manual"]) == (0.05, 2.0, 12)
+    assert entry["alpha_source"] == "manual" and entry["gamma_source"] == "manual"
+
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    assert _text(read_molecules(path)["correction_method"][:12]) == [METHOD_MANUAL] * 12
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["gamma"], entry["alpha_source"]) == (0.05, 2.0, "manual")

@@ -416,6 +416,9 @@ def compute_corrected_fret(
             n_apparent=n_apparent,
             total_failure=total_failure,
             conditions=per_condition,
+            # A pass scoped to one movie leaves the other conditions' records as they were.
+            carried={c: e for c, e in previous.items() if c not in groups},
+            order=list(dict.fromkeys(ids)),
             override_condition_id=applied_target,
         )
 
@@ -577,6 +580,8 @@ def _stamp_correction_settings(
     total_failure: bool,
     conditions: list[ConditionCorrection] | None = None,
     override_condition_id: str | None = None,
+    carried: dict[str, dict[str, object]] | None = None,
+    order: list[str] | None = None,
 ) -> None:
     """Write the ``/settings/correction`` provenance group (additive; recomputable).
 
@@ -607,22 +612,25 @@ def _stamp_correction_settings(
     # condition's factors and counts, in a form #926 extends with a source and a version.
     if override_condition_id is not None:
         grp.attrs["override_condition_id"] = override_condition_id
-    write_conditions(
-        grp,
-        [
-            {
-                "condition_id": c.condition_id,
-                "alpha": c.alpha,
-                "alpha_source": c.alpha_source,
-                "gamma": c.gamma,
-                "gamma_source": c.gamma_source,
-                "n_molecules": c.n_molecules,
-                "n_corrected": c.n_corrected,
-                "n_manual": c.n_manual,
-                "n_apparent": c.n_apparent,
-                "total_failure": c.total_failure,
-            }
-            for c in conditions or []
-        ],
-    )
+    entries = {
+        c.condition_id: {
+            "condition_id": c.condition_id,
+            "alpha": c.alpha,
+            "alpha_source": c.alpha_source,
+            "gamma": c.gamma,
+            "gamma_source": c.gamma_source,
+            "n_molecules": c.n_molecules,
+            "n_corrected": c.n_corrected,
+            "n_manual": c.n_manual,
+            "n_apparent": c.n_apparent,
+            "total_failure": c.total_failure,
+        }
+        for c in conditions or []
+    }
+    for cond, entry in (carried or {}).items():
+        entries.setdefault(cond, entry)
+    # In the order the conditions first appear in /molecules; a record of a condition no
+    # molecule holds any more is dropped.
+    ordered = [entries[c] for c in (order or list(entries)) if c in entries]
+    write_conditions(grp, ordered)
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()

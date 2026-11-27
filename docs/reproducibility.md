@@ -224,7 +224,8 @@ withheld with it. The counts below are the sums over the conditions.
 **`/settings/correction`**, written by `src/tether/project/correct.py`. Tether rewrites it on every
 correction pass. The pass decides, for each molecule, whether its α and γ are usable. It records
 the outcome in `/molecules` as `correction_method` and `correction_confidence`, and it writes any
-manual factor into `alpha` and `gamma`. It does not compute a corrected E itself.
+manual factor into `alpha` and `gamma`. It does not compute a corrected E itself. A pass limited
+to one movie keeps the `conditions` records of the conditions it did not examine.
 
 > **Do not read `corrected` as proof that the factors were estimated.** `corrected` means that
 > the molecule had a finite stored α and a positive stored γ, and that this pass requested no
