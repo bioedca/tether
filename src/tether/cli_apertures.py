@@ -47,24 +47,29 @@ def add_apertures_parser(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument("movie", help="the dual-channel movie")
-    parser.add_argument("--json", required=True, help="the JSON report to write")
-    parser.add_argument("--png", help="the PNG of the frame with the apertures to write")
-    parser.add_argument("--profile", help="an extraction profile (.json) with the options")
+    parser.add_argument("--json", required=True, metavar="FILE", help="the JSON report to write")
+    parser.add_argument(
+        "--png", metavar="FILE", help="the PNG of the frame with the apertures to write"
+    )
+    parser.add_argument(
+        "--profile", metavar="FILE", help="an extraction profile (.json) with the options"
+    )
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--map", dest="map_path", help="a channel map file (.npz)")
-    source.add_argument("--tmap", help="a Deep-LASI .tmap")
+    source.add_argument("--map", dest="map_path", metavar="FILE", help="a channel map file (.npz)")
+    source.add_argument("--tmap", metavar="FILE", help="a Deep-LASI .tmap")
     for name, kind, text in _APERTURE_FLAGS:
         parser.add_argument(
             "--" + name.replace("_", "-"),
             type=kind,
             default=None,
-            help=f"{text} (default: profile)",
+            metavar="PX",
+            help=f"{text} (default: the profile's)",
         )
     parser.add_argument(
         "--molecule",
         type=int,
         action="append",
-        default=[],
+        default=None,
         metavar="N",
         help="a molecule whose preview traces the report carries (repeatable)",
     )
@@ -97,7 +102,7 @@ def run_apertures(args: argparse.Namespace) -> int:
         return 2
     try:
         review, frame = review_movie(args.movie, options, tmap=args.tmap, map_path=args.map_path)
-        written = write_report(review, frame, args.json, args.png, molecules=args.molecule)
+        written = write_report(review, frame, args.json, args.png, molecules=args.molecule or ())
     except (ExtractionError, OSError, ValueError, IndexError) as exc:
         print(f"tether apertures: {exc}", file=sys.stderr)
         return 1
