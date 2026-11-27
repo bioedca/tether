@@ -26,6 +26,7 @@ core loads only when a command runs.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import os
@@ -282,24 +283,50 @@ class _Exists(Exception):
     """The destination appeared after the check, so a save without ``overwrite`` stops."""
 
 
-def _publish_new(tmp: Path, path: Path) -> None:
+# Windows ``os.rename`` never replaces an existing name (it raises FileExistsError);
+# on POSIX it does, so there a file system without hard links is written in place.
+_RENAME_REFUSES_EXISTING = os.name == "nt"
+
+
+def _publish_new(tmp: Path, path: Path, text: str) -> None:
     """Give the written file the name ``path``, failing if that name already exists."""
     try:
         os.link(tmp, path)  # exclusive: a hard link never replaces an entry
     except FileExistsError:
         raise _Exists from None
-    except OSError:  # a file system without hard links: hold the name, then fill it
-        try:
-            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
-        except FileExistsError:
-            raise _Exists from None
-        try:
-            os.replace(tmp, path)
-        except BaseException:
-            path.unlink(missing_ok=True)  # the empty placeholder this call created
-            raise
-        return
+    except OSError:  # a file system without hard links
+        if _RENAME_REFUSES_EXISTING:
+            try:
+                os.rename(tmp, path)  # atomic, and never replaces an entry
+            except FileExistsError:
+                raise _Exists from None
+            return
+        _create_new(path, text)
     tmp.unlink(missing_ok=True)
+
+
+def _create_new(path: Path, text: str) -> None:
+    """Create ``path`` exclusively and write ``text`` through its own descriptor.
+
+    Nothing replaces an entry here, so a file another writer puts at ``path`` is never
+    overwritten, and the save fails rather than report it; a failed write removes
+    ``path`` only while it is still this file.
+    """
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        raise _Exists from None
+    created = os.fstat(fd)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        if not os.path.samestat(created, os.lstat(path)):
+            raise OSError(f"{path.name} was replaced while the save wrote it")
+    except BaseException:
+        with contextlib.suppress(OSError):  # gone already, or not this file: leave it
+            if os.path.samestat(created, os.lstat(path)):
+                path.unlink()
+        raise
 
 
 def _write(path: Path, text: str, *, overwrite: bool) -> None:
@@ -308,7 +335,9 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
     Without ``overwrite`` the publish itself is exclusive, so a file that appears at
     ``path`` after the caller's check is never replaced (`_Exists`). Before the publish,
     the temporary name is checked to still be the file this call wrote, so a swapped
-    entry is never published.
+    entry is never published. A failed save leaves neither a temporary file nor a half
+    file; only on a POSIX file system without hard links, where a new file is written in
+    place, can a save killed mid-write leave a half file at ``path``.
     """
     # A unique file, created exclusively: never a fixed name that a link could point
     # elsewhere, or that a second save to the same path would share.
@@ -338,7 +367,7 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
         if overwrite:
             os.replace(tmp, path)
         else:
-            _publish_new(tmp, path)
+            _publish_new(tmp, path, text)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
