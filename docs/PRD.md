@@ -356,6 +356,12 @@ uses the three words only in these meanings:
   copied into the project; the checksum is a job (§7.13), a moved file is linked again only when its checksum
   matches, and a copy for sharing keeps no absolute path from it. A movie with no row reads as one made from
   `/movies`, its checksum not calculated (ADR-0140).
+- **`/calibration_windows`** (table, `schema_version` 4) — the **calibration window** of a trace, the frames whose
+  acceptor-bleach step is the γ evidence, kept apart from its `analysis_window` (G03 note 03). Append-only, the
+  latest row of a molecule holds; a molecule with no row has the default from its `frame_range` and
+  `bleach_frames`, so an older store keeps its γ. An analysis-window edit in ANALYSIS_READY returns to
+  CORRECTED_REVIEW and leaves the γ evidence alone; a calibration-window edit is *calibration evidence changes*
+  (ADR-0156).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the

@@ -65,7 +65,7 @@ import h5py
 
 with h5py.File("experiment.tether", "r") as f:
     assert f.attrs["format"] == "tether-project"
-    print(int(f.attrs["schema_version"]))          # 3
+    print(int(f.attrs["schema_version"]))          # 4
     mols = f["/molecules/table"][:]                # a structured (compound) array
     print(mols["molecule_key"][0].decode("utf-8")) # vlen UTF-8 reads back as bytes
 ```
@@ -122,8 +122,8 @@ If you write your own reader:
 > that you do not know, because a later Tether release can add them without a `schema_version`
 > bump.
 
-You can rely on the **frozen skeleton** above for as long as `schema_version` stays `3`. The group
-paths, the field names, dtypes and order of the six tables, and the three root attributes stay
+You can rely on the **frozen skeleton** above for as long as `schema_version` stays `4`. The group
+paths, the field names, dtypes and order of the seven tables, and the three root attributes stay
 unchanged. `app_version` is the exception: it is present only in a file whose writer stamped it
 (see the root group section below). That is exactly the set that `schema-guard` enforces against
 the writer.
@@ -147,15 +147,17 @@ change without a change to the store's `schema_version`.
 Pin your reader to the writer module named in each section, and treat a missing or unfamiliar
 payload as normal.
 
-`schema_version` is now **`3`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
+`schema_version` is now **`4`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
 Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)),
-and version 3 the `/sources` table ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)).
-A store stamped `1` has neither table and a store stamped `2` has no `/sources` table.
+version 3 the `/sources` table ([ADR-0140](../adr/0140-a-source-registry-records-each-source-file-and-what-was-derived-from-it.md)),
+and version 4 the `/calibration_windows` table ([ADR-0156](../adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)).
+A store stamped `1` has none of them, a store stamped `2` has no `/sources` table, and a store
+stamped `3` has no `/calibration_windows` table.
 
 Each is still a complete project, and it reads as one source record for each movie. A store
 stamped `1` also reads as generation 1 of each of its movies. The first write that adds a
-table also adds every other table of version 3. It keeps the file as it was beside it, as
-`<stem>.v1-backup.tether` or `<stem>.v2-backup.tether`.
+table also adds every other table of version 4. It keeps the file as it was beside it, as
+`<stem>.v<n>-backup.tether` (`n` is the version it had).
 
 [Project file compatibility](../stability.md#project-file-compatibility) tells what a bump means
 for a file that you already hold. It also tells what a non-additive change must carry before it
@@ -188,7 +190,7 @@ Tether rejects a file that is missing one as not a project. Do not assume that a
 
 | Path | In a fresh store | First written by |
 |---|---|---|
-| `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table`, `/generations/table`, `/sources/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
+| `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table`, `/generations/table`, `/sources/table`, `/calibration_windows/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
 | `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction`, `/generations` rows | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
@@ -205,6 +207,7 @@ Tether rejects a file that is missing one as not a project. Do not assume that a
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/sources` rows | 0 rows | `register_source` / `relink_source` (`src/tether/project/sources.py`) and the checksum job (`src/tether/services/sources.py`) |
+| `/calibration_windows` rows | 0 rows | `set_calibration_window` / `reset_calibration_window` (`src/tether/project/calibration_windows.py`) |
 | `/settings/correction_transitions` | absent | `send_event` (`src/tether/project/correction_states.py`) |
 | `/settings/gamma_contributors`, `/settings/gamma_contributor_decisions` | absent | `compute_gamma` (`src/tether/project/gamma.py`) / `set_gamma_contributor` (`src/tether/project/gamma_contributors.py`) |
 | `/settings/approvals` | absent | `record_approval` (`src/tether/project/approvals.py`), which `tether approve` and a recipe policy call |
@@ -275,7 +278,7 @@ third **by default, but the third is optional** (see below):
 | Field | Type | Shape | Unit | Empty value | Meaning |
 |---|---|---|---|---|---|
 | `format` | `str` | scalar | — | — | `tether-project` (`FORMAT_TAG`). Frozen: the name, the type **and the value**. |
-| `schema_version` | `int` | scalar | — | — | `3` (`SCHEMA_VERSION`). Frozen: the name, the type **and the value**, and the value never goes down. |
+| `schema_version` | `int` | scalar | — | — | `4` (`SCHEMA_VERSION`). Frozen: the name, the type **and the value**, and the value never goes down. |
 | `app_version` | `str` | scalar | — | absent | The writing Tether version, such as `0.8.1.dev16+g…`. Frozen: the name and the type only. |
 
 `app_version` is provenance, not structure. What is frozen is the **writer's** declaration, not
@@ -885,6 +888,42 @@ curator and time. A confirmed reject that has a reason also gets a copy of its
 `/labels/reject_log` row, with who confirmed and when, so the reason stays joined. The
 reconciliation of a later generation passes over a confirmation that kept the label, so
 the curator shown is still the person who set it.
+
+## `/calibration_windows` — the calibration windows
+
+Group holding `/calibration_windows/table` (`CALIBRATION_WINDOWS_DTYPE`, 8 fields), new in
+`schema_version` 4 ([ADR-0156](../adr/0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md)). A trace has two windows. Its `/molecules.analysis_window` is
+the frames the analysis reads. Its **calibration window** is the `[start, stop)` frames that
+`compute_gamma` reads the acceptor-bleach step from, the γ evidence. The module is
+`src/tether/project/calibration_windows.py` (`read_calibration_windows`,
+`set_calibration_window`, `reset_calibration_window`).
+
+A row of `/molecules` with no stored window has the **default**. It runs from `frame_range[0]`
+to the donor's first-bleach frame (`bleach_frames[0]`). When that bleach is not detected, or is
+at the first frame, the default is the whole `frame_range`. A γ pass read the same frames before
+this table existed. So a store stamped before 4 keeps its γ, and reading writes nothing.
+
+The table is append-only: one row for each change of one `/molecules` row, and the latest row
+of a `molecule_id` holds.
+
+| Field | Type | Shape | Unit | Empty value | Meaning |
+|---|---|---|---|---|---|
+| `molecule_id` | `str:utf-8` | scalar | — | — | The `/molecules.molecule_id` of the row. |
+| `molecule_key` | `str:utf-8` | scalar | — | — | Its `molecule_key`, as the edit named it. |
+| `window` | `i4` | `(2,)` | frames | `(-1, -1)` (the default again) | The absolute `[start, stop)`, clamped into the row's `frame_range`. |
+| `by` | `str:utf-8` | scalar | — | — | `person` or `policy`. |
+| `actor` | `str:utf-8` | scalar | — | — | The person's name or the policy text. |
+| `reason` | `str:utf-8` | scalar | — | `""` | Why the window was set. |
+| `timestamp` | `str:utf-8` | scalar | — | — | The ISO-8601 UTC time of the change. |
+| `app_version` | `str:utf-8` | scalar | — | — | The Tether version that wrote the row. |
+
+**The two events of G03.** An edit of an analysis window in ANALYSIS_READY is *edit analysis
+windows or curation*. The state returns to CORRECTED_REVIEW. The calibration windows and the γ
+evidence table do not change.
+
+An edit of a calibration window is *calibration evidence changes*. It is refused in CALIBRATION_APPROVED, where the evidence is frozen. In CORRECTED_REVIEW or
+ANALYSIS_READY it makes the calibration stale (CALIBRATION_STALE). When the project has a γ pass,
+the same write computes it again with the parameters stamped in `/settings/gamma`.
 
 ## `/sources` — the source registry
 

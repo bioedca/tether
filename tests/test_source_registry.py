@@ -56,7 +56,7 @@ def _project(tmp_path: Path, *, version: int = SCHEMA_VERSION, movie_sha: str = 
 
 
 def test_the_registry_is_a_version_3_table_with_every_field() -> None:
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION >= 3
     assert SOURCES_DTYPE.names == (
         "source_id",
         "relative_path",
@@ -158,7 +158,7 @@ def test_the_first_registry_write_backs_up_an_older_store(tmp_path) -> None:
         S.ensure_registry(project)
     backup = tmp_path / "chan.v2-backup.tether"
     assert backup.read_bytes() == original
-    assert read_schema_version(project.path) == 3
+    assert read_schema_version(project.path) == SCHEMA_VERSION
     with h5py.File(project.path, "r") as f:
         assert f["sources"]["table"].shape == (0,)
 

@@ -97,12 +97,12 @@ The project file is HDF5. These parts are covered for `1.x`:
 - the root `format` attribute value `tether-project` (`FORMAT_TAG`),
 - the `schema_version` attribute and its rules,
 - the top-level group skeleton,
-- the field sets of the compound dtypes of the six entity tables.
+- the field sets of the compound dtypes of the seven entity tables.
 
 | Covered | Promise |
 |---|---|
 | Format marker | The root attribute `format == "tether-project"`. |
-| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions`, `/generations` (from version 2) and `/sources` (from version 3). Each holds a compound dataset named `table`. |
+| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions`, `/generations` (from version 2), `/sources` (from version 3) and `/calibration_windows` (from version 4). Each holds a compound dataset named `table`. |
 | Container groups | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features` and `/models`. |
 | Existing fields | A field in a frozen compound dtype is never removed, renamed, retyped or reordered. New fields go *after* the existing ones (note 1). |
 | `schema_version` | It only increases, and it is never decremented. |
@@ -231,7 +231,7 @@ older app.**
 
 | Rule | What it means |
 |---|---|
-| Monotonic | `schema_version` only increases. `SCHEMA_VERSION` is currently **3** (`tether.io.schema`). |
+| Monotonic | `schema_version` only increases. `SCHEMA_VERSION` is currently **4** (`tether.io.schema`). |
 | Additive-only | A release can add a group, a dataset, or a field *appended to the end of* a compound dtype. It cannot remove, rename, retype or reorder one (note 1). |
 | Structural changes are deliberate | A change that is not purely additive needs an ADR, a `schema_version` bump and a regenerated `schema/schema_frozen.json` in the same pull request. `schema-guard` fails the PR otherwise. |
 | Forward-only | Tether refuses, loudly, a file stamped with a `schema_version` newer than the running app's. There is no downgrade path and no partial read. |
@@ -299,11 +299,11 @@ permitted inside `1.x` without the bump.
 
 This is the failure that two people in the same lab actually hit. One of them upgrades and saves a
 project, and the other cannot open it. `assert_compatible` raises `ValueError`, and the guarded
-entry points reach it through `assert_is_compatible_project`. With `SCHEMA_VERSION = 3`, a file
-stamped version 4 gives exactly this:
+entry points reach it through `assert_is_compatible_project`. With `SCHEMA_VERSION = 4`, a file
+stamped version 5 gives exactly this:
 
 ```text
-file schema_version 4 is newer than this app's 3; refusing to open (PRD section 5.4).
+file schema_version 5 is newer than this app's 4; refusing to open (PRD section 5.4).
 ```
 
 Five call sites in `src/tether/` call that guard, and they are the ones that a person goes

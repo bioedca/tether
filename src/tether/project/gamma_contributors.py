@@ -157,8 +157,13 @@ def contributor_rows(
     alphas: list[float],
     level_window: str,
     half_window: int,
+    steps: list[int] | None = None,
 ) -> np.ndarray:
     """Build the table rows of a γ pass; ``starts`` turn local frames into absolute ones.
+
+    ``steps`` are the detected absolute steps. A step outside the row's calibration window
+    (#928) reaches the estimator clipped to the window's edge, and the row still records the
+    step the detector found.
 
     ``alphas`` are the leakage factors that corrected the acceptor levels of each row, so a
     row can be computed again after a later leakage pass changes ``/molecules.alpha``.
@@ -170,7 +175,7 @@ def contributor_rows(
     for i, (t, key, start, alpha) in enumerate(rows_in):
         row = rows[i]
         row["molecule_key"] = key
-        row["step"] = t.step + start
+        row["step"] = steps[i] if steps is not None else t.step + start
         row["step_source"] = STEP_SOURCE_DETECTOR
         row["level_window"] = level_window
         row["half_window"] = half_window

@@ -886,3 +886,38 @@ def test_a_new_trace_keeps_the_cursor_frame_and_clear_hides_it(qtbot) -> None:
         dock.clear()
         assert dock.frame_cursor is None
         assert not any(line.isVisible() for line in dock.cursor_lines)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_marks_the_calibration_window_apart_from_the_analysis_window(qtbot) -> None:
+    from tether.gui.trace_dock import ANALYSIS_WINDOW_TEXT, CALIBRATION_WINDOW_TEXT, TraceDock
+
+    with TraceDock(seconds_by_default=False) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(TraceView(donor=np.ones(20), acceptor=np.ones(20), analysis_window=(2, 9)))
+        assert dock.calibration_window is None and not dock.calibration_band.isVisible()
+
+        dock.set_trace(
+            TraceView(
+                donor=np.ones(20),
+                acceptor=np.ones(20),
+                analysis_window=(2, 9),
+                calibration_window=(2, 16),
+            )
+        )
+        assert dock.calibration_window == (2, 16)
+        assert dock.calibration_band.isVisible()
+        assert dock.calibration_band.getRegion() == (1.5, 15.5)
+        assert [line.value() for line in dock.window_lines] == [1.5, 8.5]
+        # Two different marks, and the text names each one.
+        assert dock.calibration_band not in dock.window_lines
+        assert dock.calibration_band.toolTip() == CALIBRATION_WINDOW_TEXT
+        assert {line.toolTip() for line in dock.window_lines} == {ANALYSIS_WINDOW_TEXT}
+        assert "Calibration window" in CALIBRATION_WINDOW_TEXT
+        assert "Analysis window" in ANALYSIS_WINDOW_TEXT
+
+        dock.clear()
+        assert dock.calibration_window is None and not dock.calibration_band.isVisible()
+    with pytest.raises(ValueError, match="calibration_window"):
+        TraceView(donor=np.ones(10), acceptor=np.ones(10), calibration_window=(4, 11))

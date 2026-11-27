@@ -10,11 +10,66 @@
       },
       "schema_version": {
         "dtype": "int",
-        "value": 3
+        "value": 4
       }
     }
   },
   "datasets": {
+    "/calibration_windows/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "molecule_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "molecule_key",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "window",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "by",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "actor",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "reason",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "timestamp",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "app_version",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    },
     "/conditions/table": {
       "dtype": {
         "fields": [
@@ -541,6 +596,7 @@
   "groups": [
     "/",
     "/calibration",
+    "/calibration_windows",
     "/conditions",
     "/features",
     "/generations",
@@ -554,5 +610,5 @@
     "/sources",
     "/traces"
   ],
-  "schema_version": 3
+  "schema_version": 4
 }

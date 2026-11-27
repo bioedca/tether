@@ -690,14 +690,18 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.set_analysis_window(
-            self.path,
-            molecule_key,
-            start,
-            stop,
-            labeler=labeler,
-            reason=reason,
-            timestamp=timestamp,
+        return self._window_edit(
+            labeler,
+            lambda dry_run: molecule_edits.set_analysis_window(
+                self.path,
+                molecule_key,
+                start,
+                stop,
+                labeler=labeler,
+                reason=reason,
+                timestamp=timestamp,
+                dry_run=dry_run,
+            ),
         )
 
     def reset_analysis_window(
@@ -716,8 +720,16 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.reset_analysis_window(
-            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        return self._window_edit(
+            labeler,
+            lambda dry_run: molecule_edits.reset_analysis_window(
+                self.path,
+                molecule_key,
+                labeler=labeler,
+                reason=reason,
+                timestamp=timestamp,
+                dry_run=dry_run,
+            ),
         )
 
     def restore_analysis_windows(
@@ -738,9 +750,45 @@ class Project:
         from tether.project import molecule_edits
 
         self._assert_writable()
-        return molecule_edits.restore_analysis_windows(
-            self.path, molecule_key, windows, labeler=labeler, reason=reason, timestamp=timestamp
+        return self._window_edit(
+            labeler,
+            lambda dry_run: molecule_edits.restore_analysis_windows(
+                self.path,
+                molecule_key,
+                windows,
+                labeler=labeler,
+                reason=reason,
+                timestamp=timestamp,
+                dry_run=dry_run,
+            ),
         )
+
+    def _window_edit(self, labeler: str | None, write: Callable[[bool], np.ndarray]) -> np.ndarray:
+        """Run an analysis-window ``write``; in ANALYSIS_READY a change returns to review.
+
+        G03's *edit analysis windows or curation* (#928, ADR-0156): a window that changes in
+        ANALYSIS_READY sends the project to CORRECTED_REVIEW. The calibration windows and the
+        γ evidence are not touched. ``write(True)`` is a dry run that says which rows would
+        change; when one would, the event is stored first and the window is then written in
+        place. A failed event writes no window, so a window is never stored in
+        ANALYSIS_READY; a failed window write leaves the project in review with its old
+        window, and a retry writes it.
+        """
+        from tether.project import correction_states as cs
+
+        with cs._transition_lock(self.path):
+            if cs.read_correction_state(self.path).state is not cs.CorrectionState.ANALYSIS_READY:
+                return write(False)
+            cs._held_nonce(self)
+            planned = write(True)
+            if len(planned):
+                cs.send_event(
+                    self,
+                    cs.CorrectionEvent.EDIT_WINDOWS_OR_CURATION,
+                    cs.Actor.person(labeler),
+                    note=f"analysis window of {len(planned)} row(s) changed",
+                )
+            return write(False)
 
     def restore_categories(
         self,

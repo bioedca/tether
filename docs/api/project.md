@@ -41,6 +41,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.export
 
+::: tether.project.calibration_windows
+
 ::: tether.project.extract
 
 ::: tether.project.features
