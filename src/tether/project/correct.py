@@ -586,8 +586,11 @@ def _held_manual(
 ) -> dict[str, float]:
     """Return the factors ``previous`` recorded as manual that its manual rows still carry.
 
-    The rows are those of the condition stamped [`METHOD_MANUAL`][]: an override reaches
-    only the molecules that have both factors, so the others keep their own.
+    The rows are those of the condition stamped [`METHOD_MANUAL`][]. A factor holds while at
+    least one of them carries it: an override reaches only the molecules that have both
+    factors, and a later override of the other factor can make the rest manual with a factor
+    of their own. A γ or leakage pass rewrites the factor of every molecule of the condition,
+    and then the record lapses.
     """
     held: dict[str, float] = {}
     if previous is None:
@@ -598,7 +601,7 @@ def _held_manual(
         if previous.get(f"{name}_source") != "manual" or value is None:
             continue
         carried = np.asarray(table[name][manual_rows], dtype=np.float64)
-        if carried.size and np.all(carried == float(value)):  # type: ignore[arg-type]
+        if np.any(carried == float(value)):  # type: ignore[arg-type]
             held[name] = float(value)  # type: ignore[arg-type]
     return held
 

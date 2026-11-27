@@ -639,3 +639,9 @@ def test_a_later_override_that_reaches_the_rest_of_a_condition_keeps_its_manual_
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
     assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 12)
+
+    # Codex (closing review) on #1486: and it keeps them under a later override for cond-B.
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
+    assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 12)
