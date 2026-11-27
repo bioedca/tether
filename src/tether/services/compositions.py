@@ -309,8 +309,9 @@ def _create_new(path: Path, text: str) -> None:
     """Create ``path`` exclusively and write ``text`` through its own descriptor.
 
     Nothing replaces an entry here, so a file another writer puts at ``path`` is never
-    overwritten, and the save fails rather than report it; a failed write removes
-    ``path`` only while it is still this file.
+    overwritten, and the save fails rather than report it. A failed write removes
+    ``path`` after checking that it is still this file; a file swapped in between that
+    check and the removal is not guarded against (#1523).
     """
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
