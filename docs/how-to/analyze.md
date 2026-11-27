@@ -91,6 +91,9 @@ come from the fit of every molecule the model was fitted on, the stale ones too.
 series has stale molecules, a warning above the figure says so. The histogram under the curves
 leaves the stale molecules out unless you check the box.
 
+A series can be all stale, with its box unchecked. Then the plot cannot be drawn, and the
+section says why. The series still says how many it left out in **Layers**.
+
 The better fix is to [fit the stale molecules again](idealize.md#after-you-change-the-project).
 
 ### Save the composition and open it again

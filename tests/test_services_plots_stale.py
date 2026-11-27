@@ -270,6 +270,47 @@ def test_the_overlay_over_a_fresh_cohort_does_not_warn(stale_store) -> None:
     assert outcome.drawn and outcome.warnings == ()
 
 
+def test_a_refused_overlay_keeps_the_stale_counts_it_made(stale_store) -> None:
+    # #1485: every accepted molecule of "stale" has a stale fit, so the overlay refuses for
+    # want of a fresh window; the counts made before that refusal still reach the outcome.
+    project, keys = stale_store
+    outcome = compose_plot(
+        project.path,
+        "population_model_gaussian_overlay",
+        [PlotSeries("stale", [keys[1], keys[4]]), PlotSeries("fresh", [keys[0]])],
+        model_name=MODEL,
+    )
+    assert not outcome.drawn and outcome.figure is None
+    assert outcome.missing.startswith(
+        "FRET-efficiency histogram with model Gaussians (A1) cannot be drawn for 'stale': "
+        f"model '{MODEL}' describes no molecule of this selection"
+    )
+    assert [(e.label, e.stale, e.excluded) for e in outcome.staleness] == [
+        ("stale", 2, 2),
+        ("fresh", 0, 0),
+    ]
+    assert outcome.staleness[0].badge() == "2 stale excluded (inputs changed since the fit)"
+    assert outcome.results == () and outcome.warnings == ()
+
+
+def test_a_renderer_refusal_keeps_the_stale_counts(stale_store, monkeypatch) -> None:
+    import dataclasses
+
+    import tether.services.plots as plots
+
+    project, keys = stale_store
+    spec = plots.plot_spec("population_state_number")
+
+    def refuse(_results):
+        raise ValueError("no room")
+
+    monkeypatch.setattr(plots, "plot_spec", lambda _id: dataclasses.replace(spec, render=refuse))
+    outcome = compose_plot(project.path, spec.id, _halves(project.path, keys), model_name=MODEL)
+    assert outcome.missing == f"{spec.title} cannot be drawn: no room"
+    assert outcome.figure is None and outcome.results == ()
+    assert [(e.label, e.excluded) for e in outcome.staleness] == [("first", 1), ("second", 1)]
+
+
 def test_the_choice_is_stamped_into_the_export_provenance(stale_store, tmp_path) -> None:
     from tether.analysis.plot_export import export_figure
 
