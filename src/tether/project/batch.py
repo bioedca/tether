@@ -939,7 +939,15 @@ def run_correct_stage(
             # Several conditions, each with its own factors (#624, ADR-0158): no
             # project-wide α exists, so γ runs on the conditions that have one.
             gm = compute_gamma(write_path, write_guard=write_guard)
-            parts.append(_condition_factor_detail(lk.conditions, gm.conditions))
+            medians = {c.condition_id: c.gamma for c in gm.conditions}
+            entries = []
+            for c in lk.conditions:
+                factors = "α withheld" if c.alpha is None else f"α={c.alpha:.3f}"
+                if c.alpha is not None:
+                    median = medians.get(c.condition_id)
+                    factors += " γ withheld" if median is None else f" γ={median:.3f}"
+                entries.append(f"{c.condition_id or '(no condition)'}: {factors}")
+            parts.append(", ".join(entries))
         else:
             parts.append("α withheld")
         cf = compute_corrected_fret(write_path, write_guard=write_guard)
@@ -948,18 +956,6 @@ def run_correct_stage(
     else:
         parts.append(f"{cf.n_corrected} corrected")
     return "; ".join(parts)
-
-
-def _condition_factor_detail(leakage: Any, gamma: Any) -> str:
-    """One ``condition α=… γ=…`` entry for each condition of a pass (#624)."""
-    medians = {c.condition_id: c.gamma for c in gamma}
-    entries = []
-    for c in leakage:
-        alpha = "α withheld" if c.alpha is None else f"α={c.alpha:.3f}"
-        median = medians.get(c.condition_id)
-        g = "" if c.alpha is None else (" γ withheld" if median is None else f" γ={median:.3f}")
-        entries.append(f"{c.condition_id or '(no condition)'}: {alpha}{g}")
-    return ", ".join(entries)
 
 
 def _idealize_detail(stored: Any) -> str:
