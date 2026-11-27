@@ -351,8 +351,8 @@ def compute_corrected_fret(
             keeps_manual = (
                 has_override
                 and not applies
-                and bool(held[ids[i]])
                 and _text(table["correction_method"][i]) == METHOD_MANUAL
+                and _carries_held(table, i, held[ids[i]])
             )
 
             # Effective applied factors: a manual override replaces the stored factor
@@ -604,6 +604,11 @@ def _held_manual(
         if np.any(carried == float(value)):  # type: ignore[arg-type]
             held[name] = float(value)  # type: ignore[arg-type]
     return held
+
+
+def _carries_held(table: np.ndarray, row: int, held: dict[str, float]) -> bool:
+    """Return whether ``row`` still carries one of its condition's held manual factors."""
+    return any(float(table[name][row]) == value for name, value in held.items())
 
 
 def _text(value: object) -> str:

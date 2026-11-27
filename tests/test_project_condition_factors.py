@@ -645,3 +645,29 @@ def test_a_later_override_that_reaches_the_rest_of_a_condition_keeps_its_manual_
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
     assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 12)
+
+
+def test_a_molecule_keeps_its_manual_stamp_only_while_it_carries_a_held_factor(
+    tmp_path: Path,
+) -> None:
+    # Codex (closing review) on #1486: a manual α reaches 11 of cond-A's 12 molecules, a γ
+    # override reaches all 12, then a γ pass re-estimates γ. Only the 11 still carry a
+    # manual factor, so only they stay manual under a later override for cond-B.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["gamma"][0] = np.nan
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, alpha_override=0.05, condition_id="cond-A")
+    compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-A")
+    compute_gamma(path)
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    table = read_molecules(path)
+    assert float(table["alpha"][0]) != 0.05
+    methods = _text(table["correction_method"])
+    assert methods[0] == METHOD_CORRECTED
+    assert methods[1:12] == [METHOD_MANUAL] * 11
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.05, "manual", 11)
+    assert entry["gamma_source"] == "estimated"
