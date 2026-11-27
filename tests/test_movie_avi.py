@@ -321,17 +321,28 @@ def test_a_read_that_waits_on_a_close_gives_the_closed_movie_error(tmp_path: Pat
 
 
 def test_close_waits_for_a_read_in_progress(tmp_path: Path) -> None:
-    """#1464: ``close`` takes the read lock, so it never closes the file under a read."""
+    """#1464: ``close`` takes the read lock, so it never closes the file under a read.
+
+    #1483: the closer is seen to reach the lock (``lock.waiting``) before the first
+    assertion, so a ``close`` that skips the lock fails here whatever the scheduling:
+    it never sets ``waiting``.
+    """
     import threading
 
     path = write_avi(tmp_path / "movie.avi", _frames())
     source = AviMovie(path)
-    with source._lock:
-        closer = threading.Thread(target=source.close)
+    lock = _SignalingLock()
+    source._lock = lock  # type: ignore[assignment]
+    closer = threading.Thread(target=source.close)
+    lock.inner.acquire()  # a read in progress holds the lock
+    try:
         closer.start()
-        closer.join(0.2)
+        assert lock.waiting.wait(5), "close() never waited on the read lock"
         assert not source._fh.closed
-    closer.join(5)
+    finally:
+        lock.inner.release()
+        closer.join(5)
+    assert not closer.is_alive()
     assert source._fh.closed
 
 
