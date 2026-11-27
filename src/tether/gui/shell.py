@@ -1203,6 +1203,8 @@ class TetherShell:
         self._act_save_recipe = self._file_menu.addAction("Save as &recipe…")
         self._act_save_recipe.triggered.connect(self._save_recipe_dialog)
         self._act_save_recipe.setEnabled(False)
+        # File -> Export (#621): the three project exports, from the open project.
+        self._build_export_menu()
         self._file_menu.addSeparator()
         # The name written into new labels (#628). Shown in the status bar too, so a
         # user on a shared computer sees whose labels they are writing.
@@ -3581,6 +3583,7 @@ class TetherShell:
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         self._act_save_recipe.setEnabled(True)
+        self._export_menu.setEnabled(True)
         movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
@@ -4085,6 +4088,7 @@ class TetherShell:
         self._sync_guided()
         self._act_close_project.setEnabled(False)
         self._act_save_recipe.setEnabled(False)
+        self._export_menu.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
         self.set_section(CURATE_SECTION)
@@ -4448,6 +4452,114 @@ class TetherShell:
             return None
         self._status(f"Saved the recipe {written.name} ({len(requests)} step(s))")
         return written
+
+    # --- File -> Export (#621): the project exports, on the background-task service ---
+
+    def _build_export_menu(self) -> None:
+        from tether.gui.exports import MENU_TEXT
+        from tether.services.exports import ExportKind
+
+        self._export_menu = self._file_menu.addMenu("&Export")
+        self._export_dialog: Any | None = None
+        for kind in ExportKind:
+            action = self._export_menu.addAction(MENU_TEXT[kind])
+            action.triggered.connect(lambda _checked=False, k=kind: self.show_export_dialog(k))
+        self._export_menu.setEnabled(False)
+
+    @property
+    def export_menu(self) -> QtWidgets.QMenu:
+        """The **File → Export** menu (#621)."""
+        return self._export_menu
+
+    @property
+    def export_dialog(self) -> Any | None:
+        """The open export dialog ([`show_export_dialog`][]), or ``None``."""
+        return self._export_dialog
+
+    def show_export_dialog(self, kind: Any) -> Any | None:
+        """Open the dialog of the export *kind* ([`tether.services.exports.ExportKind`][]).
+
+        Its **Export** starts [`export_project`][] with the choice; **Cancel** writes
+        nothing. ``None``, with a status message, when no project is open.
+        """
+        from tether.gui.exports import TITLES, ExportDialog
+
+        if self._project_path is None:
+            self._status(f"{TITLES[kind]}: open a project first")
+            return None
+        if self._export_dialog is not None:
+            self._export_dialog.dialog.close()
+        # The list holds one row for each /molecules row, in store order.
+        row = self._molecule_list.currentRow()
+        key = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
+        molecule = None if key is None else (row, key)
+        dialog = ExportDialog(kind, self._project_path, molecule=molecule, parent=self._window)
+        self._export_dialog = dialog
+
+        # A finished dialog is deleted: a hidden one can stay the active window (offscreen).
+        def accepted() -> None:
+            self._export_dialog = None
+            dialog.dialog.deleteLater()
+            self.export_project(dialog.request())
+
+        def rejected() -> None:
+            self._export_dialog = None
+            dialog.dialog.deleteLater()
+            self._status(f"{TITLES[kind]}: cancelled, nothing was written")
+
+        dialog.dialog.accepted.connect(accepted)
+        dialog.dialog.rejected.connect(rejected)
+        dialog.dialog.open()
+        return dialog
+
+    def export_project(self, request: Any) -> bool:
+        """Start the export *request* ([`tether.services.exports.ExportRequest`][]).
+
+        It runs [`run_export`][tether.services.exports.run_export] on the background-task service
+        with **Cancel**. The export only reads the project, so it takes no lock and the
+        project stays open; every project write waits for it, as for the project fit.
+        Returns whether it started; a refusal is a status message.
+        """
+        from tether.gui.exports import TITLES
+        from tether.services.exports import run_export
+
+        title = TITLES[request.kind]
+        if self._project_path is None:
+            self._status(f"{title}: open a project first")
+            return False
+        if self._tasks.busy:
+            self._status(f"{title} unavailable: a background task is running; wait for it")
+            return False
+        self._status(f"{title}…")
+        started = self._tasks.start(
+            run_export,
+            self._project_path,
+            request,
+            context=request,
+            label=title,
+            on_finished=self._finish_export,
+            cancellable=True,
+        )
+        self._sync_project_write_controls()
+        return started is not None
+
+    def _finish_export(self, outcome: TaskOutcome) -> None:
+        """Report a finished export on the main thread."""
+        from tether.gui.exports import TITLES
+        from tether.gui.messages import Level
+        from tether.gui.tasks import TaskState
+        from tether.services.exports import error_text, export_message
+
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        title = TITLES[outcome.context.kind]
+        if outcome.state is TaskState.CANCELLED:
+            self._status(f"{title}: cancelled, nothing was written")
+        elif outcome.state is not TaskState.DONE:
+            self._status(f"{title} failed: {error_text(outcome.error)}", Level.ERROR)
+        else:
+            self._status(export_message(outcome.value))
 
     def _save_recipe_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: choose where the recipe goes, then [`save_recipe`][]."""

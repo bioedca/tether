@@ -72,6 +72,10 @@ to the application.
   condition. Rejected molecules are left out ([how-to](docs/how-to/analyze.md)). The figure
   shown is the one an export writes. Saving it from the application comes with
   [#377](https://github.com/bioedca/tether/issues/377).
+- **Exports.** **File → Export** writes the molecule table, the Deep-LASI traces or a subset
+  project from the open project, each with its provenance file
+  ([how-to](docs/how-to/export-results.md#export-from-the-application)). Saving a figure comes
+  with [#377](https://github.com/bioedca/tether/issues/377).
 - **Movie panel.** A **napari** movie panel in the application window shows the project's
   movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
   missing or changed movie file is listed but not shown. A movie with no recorded geometry has
@@ -113,10 +117,6 @@ links a how-to guide, that guide shows the script. The quality ranker has no how
   orders traces for review. It retrains incrementally. It only sorts and ranks traces, and it
   never drops a trace by itself. The application gets it with [#639](https://github.com/bioedca/tether/issues/639) and
   [#640](https://github.com/bioedca/tether/issues/640) (M16).
-- **Exports.** Provenance-stamped tables and figures
-  ([how-to](docs/how-to/export-results.md)). The application gets them with
-  [#621](https://github.com/bioedca/tether/issues/621) and
-  [M17](https://github.com/bioedca/tether/milestone/19).
 
 ### Not in Tether yet
 

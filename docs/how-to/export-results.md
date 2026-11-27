@@ -21,7 +21,9 @@ the analysis plots.
 
 - The project file, here called `movie.tether`. Exporting reads it and never changes it. It
   takes no lock, so you can export a project that another user has open.
-- The `tether` command. If typing `tether --version` does not print a version, put the
+- For the menu way, first in each section: the Tether application, with the project open. You
+  do not close it to export.
+- Only for the command way: the `tether` command. If typing `tether --version` does not print a version, put the
   launcher folder on your `PATH` first ([Command line](../cli.md#launching-tether-after-an-installer-install)).
   Every export on this page is one `tether export` command. The [Command
   line](../cli.md#tether-export) page lists all of its options.
@@ -47,7 +49,30 @@ made the file. Keep it with the file when you move or share it. For the CSV and 
 matrix, it is the only such record. To put these files in a public repository, follow
 [Share and deposit a dataset](share-a-dataset.md).
 
+## Export from the application
+
+Each export is one item of **File → Export** in the application. It exports the open project,
+which stays open. While it runs, the busy indicator at the right of the status bar shows its
+name and a **Cancel** button. A cancelled export writes nothing. Changes to the project, such
+as a curation decision, wait until the export ends.
+
+When it ends, the status bar names the count and the file, for example
+`Exported 412 molecule(s) -> molecules.csv`. When the export function refuses, the status bar
+shows its message after the name of the export, for example
+`Export the traces for Deep-LASI failed: no molecules selected to export (…)`.
+[An export stops with a message](../troubleshooting.md#an-export-stops-with-a-message) lists
+them.
+
 ## Export the molecule table
+
+1. Choose **File → Export → Molecule table (CSV)…**.
+2. **Destination** proposes `movie.csv` beside the project. Type another path, or click
+   **Browse…**.
+3. **Include rejected molecules** is ticked, as for the command. Clear it to leave the rejected
+   molecules out.
+4. Click **Export**.
+
+The same export from the command line:
 
 ```bash
 tether export table movie.tether -o molecules.csv
@@ -90,6 +115,16 @@ Two columns need care when you read the file:
   how.
 
 ## Export the traces for Deep-LASI
+
+1. Select a molecule of the movie that you want, if the project holds several movies.
+2. Choose **File → Export → Traces (Deep-LASI text)…**.
+3. **Destination** proposes `movie-donc-accc-w.txt` beside the project.
+4. Tick **Include rejected molecules** to keep them.
+5. Tick **Only the movie of the selected molecule** to export one movie. A project of movies of
+   different lengths needs it, as the end of this section explains.
+6. Click **Export**.
+
+The same export from the command line:
 
 ```bash
 tether export traces movie.tether -o traces
@@ -152,6 +187,17 @@ molecules as `molecule_keys=` (or `--molecule-key`), like `one_movie` in the scr
 Otherwise the export stops with an error naming the frame ranges.
 
 ## Export a subset project
+
+1. Choose **File → Export → Subset project…**.
+2. **Destination** proposes `movie-subset.tether` beside the project. It cannot be the project
+   itself.
+3. Tick **Include rejected molecules** or **Include raw traces** if you want them.
+4. Tick **Replace curator names** to send a copy without the user names. Keep the prefix
+   `curator` or type another
+   ([Share a subset without your user name](#share-a-subset-without-your-user-name)).
+5. Click **Export**. A file of that name is replaced.
+
+The same export from the command line:
 
 ```bash
 tether export subset movie.tether -o subset.tether

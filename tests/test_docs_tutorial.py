@@ -11,9 +11,10 @@ both on the page and what the program actually produces:
   and stays under the 200 KB budget the page's size line quotes;
 * ``tether extract``, run through :func:`tether.cli.main`, prints the summary line and the
   donor-side check's line;
-* the shell opens the project, browses, rejects, accepts and draws the population
-  histogram with the status-bar lines the page quotes (``gui``; headless);
-* the export call on the page returns the molecule count it shows.
+* the shell opens the project, browses, rejects, accepts, draws the population
+  histogram and exports the molecule table with the status-bar lines the page quotes
+  (``gui``; headless);
+* **File → Export** writes the molecule table with the count the page shows (#621).
 
 Step 7 (idealize) needs the tMAVEN sidecar for the fit itself, so the store-backed
 idealizer the shell wires is replaced by a stub that returns a path; the **I** key, the
@@ -68,6 +69,8 @@ ACCEPT_LINES = (
     f"Accepted {ACCEPTED_IDS[1]}; end of the list reached",
 )
 HISTOGRAM_LINE = "FRET-efficiency histogram (A1) — All molecules: 2 molecule(s)"
+#: Step 9's line: the molecule table of the two accepted molecules (#621).
+EXPORT_LINE = "Exported 2 molecule(s) -> tutorial.csv"
 #: Frames in each molecule's trace: the histogram's 48 frames are two molecules of 24.
 N_FRAMES = 24
 IDEALIZING_LINE = "Idealizing project (consensus VB-HMM)…"
@@ -202,7 +205,6 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
 
     import tether.gui.shell as shell_module
     from tether.gui.app import create_shell
-    from tether.project.export import export_molecule_table_csv
 
     _extract(tmp_path, monkeypatch, capsys)
     page = _page()
@@ -315,21 +317,31 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         assert status.currentMessage() == HISTOGRAM_LINE
         assert section.figure is not None
         assert section.outcome.results[0][1].n_samples == 48
+
+        # Step 9: File -> Export -> Molecule table (CSV)…, in the open project (#621).
+        assert "**File → Export → Molecule table (CSV)…**" in page
+        table = next(a for a in shell.export_menu.actions() if a.text() == "Molecule &table (CSV)…")
+        table.trigger()
+        dialog = shell.export_dialog
+        assert dialog is not None and dialog.dialog.isVisible()
+        assert Path(dialog.destination.text()) == tmp_path / "tutorial.csv"
+        assert dialog.include_rejected.text() == "Include rejected molecules"
+        assert "Clear **Include rejected molecules**" in page
+        dialog.include_rejected.setChecked(False)
+        assert dialog.ok_button.text() == "Export"
+        dialog.ok_button.click()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
+        assert status.currentMessage() == EXPORT_LINE
     finally:
         shell.close()
 
-    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, REJECT_LINE, *ACCEPT_LINES):
+    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, REJECT_LINE, *ACCEPT_LINES, EXPORT_LINE):
         assert f"```text\n{line}\n```" in page, line
     for line in (IDEALIZING_LINE, IDEALIZED_LINE):
         assert f"```text\n{line}\n```" in page, line
 
-    # Step 9: the export call on the page, after the shell has closed.
-    result = export_molecule_table_csv("tutorial.tether", "tutorial.csv", include_rejected=False)
-    assert result.n_molecules == 2
-    assert (
-        '>>> result = export_molecule_table_csv("tutorial.tether", "tutorial.csv", '
-        "include_rejected=False)\n>>> result.n_molecules\n2\n"
-    ) in page
+    # Step 9 ends in the application: no Python prompt is left on the page (#621).
+    assert ">>>" not in page
     with (tmp_path / "tutorial.csv").open(newline="", encoding="utf-8") as handle:
         labels = [row["curation_label"] for row in csv.DictReader(handle)]
     assert labels == ["accept", "accept"]
