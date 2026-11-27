@@ -177,8 +177,10 @@ class PlotOutcome:
     Exactly one of ``figure`` and ``missing`` is set. ``results`` holds the result of the
     population function for each series, in layer-list order, when a figure was drawn.
     ``staleness`` holds one [`SeriesStaleness`][] per series, in the same order, when the
-    plot reads a model, and is empty otherwise. ``warnings`` holds what the section shows
-    with the figure: the model-Gaussian overlay drawn over a cohort with stale members.
+    plot reads a model, and is empty otherwise; it is kept when the population function or
+    the renderer refuses after the counts were made, so each series still shows what it left
+    out (#1485). ``warnings`` holds what the section shows with the figure: the
+    model-Gaussian overlay drawn over a cohort with stale members.
     """
 
     plot_id: str
@@ -582,7 +584,8 @@ def compose_plot(
     ``warnings``. Returns a [`PlotOutcome`][] whose ``missing`` names
     the first missing prerequisite — an open project, a series, an idealization model, or a
     ``ValueError`` or ``KeyError`` that the population function or the renderer refused with —
-    rather than a figure. Raises `KeyError` for a ``plot_id`` that is not in [`PLOTS`][].
+    rather than a figure; a refusal after the stale counts were made still carries them in
+    ``staleness``. Raises `KeyError` for a ``plot_id`` that is not in [`PLOTS`][].
     """
     spec = plot_spec(plot_id)
     if project is None:
@@ -622,13 +625,17 @@ def compose_plot(
         except (ValueError, KeyError) as exc:
             reason = exc.args[0] if exc.args else type(exc).__name__
             return PlotOutcome(
-                plot_id, missing=f"{spec.title} cannot be drawn for {entry.label!r}: {reason}"
+                plot_id,
+                missing=f"{spec.title} cannot be drawn for {entry.label!r}: {reason}",
+                staleness=staleness,
             )
     try:
         figure = spec.render(results)
     except (ValueError, KeyError) as exc:
         reason = exc.args[0] if exc.args else type(exc).__name__
-        return PlotOutcome(plot_id, missing=f"{spec.title} cannot be drawn: {reason}")
+        return PlotOutcome(
+            plot_id, missing=f"{spec.title} cannot be drawn: {reason}", staleness=staleness
+        )
     return PlotOutcome(
         plot_id, figure=figure, results=tuple(results), staleness=staleness, warnings=warnings
     )

@@ -89,7 +89,9 @@ leaves the stale molecules out again.
 The **FRET-efficiency histogram with model Gaussians (A1)** draws the model's own curves. They
 come from the fit of every molecule the model was fitted on, the stale ones too. So when a
 series has stale molecules, a warning above the figure says so. The histogram under the curves
-leaves the stale molecules out unless you check the box.
+leaves the stale molecules out unless you check the box. If every molecule of a series is
+stale, the plot cannot be drawn and the section says why. The series still says how many it
+left out in **Layers**.
 
 The better fix is to [fit the stale molecules again](idealize.md#after-you-change-the-project).
 
