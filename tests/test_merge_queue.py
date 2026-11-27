@@ -64,6 +64,7 @@ class World:
         self.runs: dict[str, list[dict]] = {}  # check runs by commit
         self.statuses: list[tuple[str, str, str]] = []  # (commit, state, description)
         self.comments: list[tuple[int, str]] = []
+        self.comment_failures: list[str] = []  # how the next comment POSTs fail, in order
         self.labels: set[int] = set()
         self.refusal: tuple[int, str] | None = None  # the next merge answers this
         self.skew = False  # the fake merge lands the tree of `main`, not the candidate's
@@ -172,8 +173,17 @@ class World:
             self.statuses.append((found[1], payload["state"], payload["description"]))
             return 201, b"{}"
         if method == "POST" and (found := re.fullmatch(r"/issues/(\d+)/comments", path)):
+            if self.comment_failures:  # this POST fails; "lost" means it lands but the reply fails
+                failure = self.comment_failures.pop(0)
+                if failure != "lost":
+                    return 502, b"{}"
+                self.comments.append((int(found[1]), payload["body"]))
+                return 502, b"{}"
             self.comments.append((int(found[1]), payload["body"]))
             return 201, b"{}"
+        if method == "GET" and (found := re.fullmatch(r"/issues/(\d+)/comments\?.*", path)):
+            bodies = [{"body": body} for number, body in self.comments if number == int(found[1])]
+            return 200, json.dumps(bodies).encode()
         if method == "POST" and (found := re.fullmatch(r"/issues/(\d+)/labels", path)):
             self.labels.add(int(found[1]))
             return 200, b"[]"
@@ -955,3 +965,144 @@ def test_a_rejoin_during_the_run_is_not_removed_for_the_old_candidate(
 
     assert world.origin_ref("refs/merge-queue/pr-1"), "the new request is judged on its own"
     assert not world.comments and "failure" not in [s for _, s, _ in world.statuses]
+
+
+# --- #1480: one write boundary and a durable removal comment -------------------------------------
+
+
+def _race_the_take(world: World, monkeypatch: pytest.MonkeyPatch, race) -> None:
+    """Run ``race`` once, just before the first atomic push: after the last read of the pass."""
+    update, raced = world.git.update_refs, []
+
+    def race_then_update(moves: dict) -> bool:
+        if not raced:
+            raced.append(race())
+        return update(moves)
+
+    monkeypatch.setattr(world.git, "update_refs", race_then_update)
+
+
+def test_a_rejoin_just_before_the_merge_never_merges_the_old_message(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head = world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+
+    def rejoin() -> None:
+        mq.leave(world.github, 1)
+        mq.join(world.github, 1, head, "the replacement message")
+
+    _race_the_take(world, monkeypatch, rejoin)
+    run_on(world)
+
+    ((_, _, payload),) = world.merged
+    assert payload["commit_message"] == "the replacement message"
+    assert not _git(world.origin, "for-each-ref", "refs/merge-queue")
+
+
+def test_a_leave_just_before_the_merge_merges_nothing(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+    _race_the_take(world, monkeypatch, lambda: mq.leave(world.github, 1))
+
+    run_on(world)
+
+    assert not world.merged and not world.comments
+    assert not _git(world.origin, "for-each-ref", "refs/merge-queue", "refs/heads/mq")
+
+
+def test_a_leave_after_the_take_is_too_late_and_the_merge_goes_on(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+    read, left = world.github.main_commit, []
+
+    def leave_then_read() -> str:
+        left.append(mq.leave(world.github, 1))  # the request is taken: nothing to delete
+        return read()
+
+    monkeypatch.setattr(world.github, "main_commit", leave_then_read)
+    run_on(world)
+
+    assert left[0] == {"request": False}
+    ((_, _, payload),) = world.merged
+    assert payload["commit_message"] == "squash message of #1"
+
+
+def test_a_rejoin_just_before_a_removal_keeps_the_replacement_request(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates(lint="failure")
+
+    def rejoin() -> None:
+        mq.leave(world.github, 1)
+        world.pulls[1]["head"]["sha"] = world.commit("pr-1", {"a.txt": "fixed\n"})
+        mq.join(world.github, 1, world.pulls[1]["head"]["sha"], "message")
+
+    _race_the_take(world, monkeypatch, rejoin)
+    run_on(world)
+
+    request = mq.read_requests(world.git)[0]
+    assert request.head == world.pulls[1]["head"]["sha"], "the new request is judged on its own"
+    assert not world.comments and "failure" not in [s for _, s, _ in world.statuses]
+
+
+@pytest.mark.parametrize("failure", ["refused", "lost"])
+def test_a_failed_removal_comment_is_written_exactly_once_by_a_later_run(
+    world: World, failure: str
+) -> None:
+    head = world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.passing(world.origin_ref("refs/heads/mq/pr-1"), lint="failure")
+    world.comment_failures = [failure]  # "lost": the comment lands, but its reply fails
+
+    assert main_exit(world, "build", "--mode", "on") == 2
+    assert world.origin_ref("refs/merge-queue/pr-1") is None, "out of the queue"
+    assert world.origin_ref("refs/merge-queue/pending/pr-1"), "the comment is still owed"
+    assert mq.leave(world.github, 1) == {"request": False}, "a leave cannot drop what is owed"
+
+    report = run_on(world)
+    run_on(world)
+
+    assert report["finished"] == [{"pr": 1, "action": "remove"}]
+    ((number, body),) = world.comments
+    assert number == 1 and "- `lint` concluded `failure`" in body and "To rejoin" in body
+    assert [s for c, s, _ in world.statuses if c == head][-1] == "failure"
+    assert not _git(world.origin, "for-each-ref", "refs/merge-queue", "refs/heads/mq")
+    assert not world.labels
+
+
+def test_a_merge_call_that_errors_puts_the_request_back(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    run_on(world)
+    world.pass_candidates()
+    world.refusal = (502, "bad gateway")  # no verdict from GitHub: an error, not a refusal
+
+    with pytest.raises(mq.QueueError, match="HTTP 502"):
+        run_on(world)
+    assert world.origin_ref("refs/merge-queue/pending/pr-1") and not world.merged
+
+    report = run_on(world)
+
+    assert report["finished"] == [{"pr": 1, "action": "merge"}]
+    ((_, _, payload),) = world.merged
+    assert payload["commit_message"] == "squash message of #1" and not world.comments
+    assert not _git(world.origin, "for-each-ref", "refs/merge-queue", "refs/heads/mq")
+
+
+def test_a_ref_update_that_fails_for_another_reason_is_an_error(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    world.git.fetch()
+    (request,) = mq.read_requests(world.git)
+    world.git.remote = str(world.origin.parent / "missing.git")
+
+    with pytest.raises(mq.QueueError):
+        mq.take(world.git, request, mq.REMOVE)

@@ -6,6 +6,12 @@ It runs on bare runner Python (ADR-0135). In ``observe`` mode it writes only req
 candidate branches. In ``on`` mode the reconcile also judges the candidates, merges the front of
 the train, removes a pull request that cannot merge and writes the statuses, comments and label.
 The reconcile is the one owner of every write but the request ref: a ``leave`` deletes only that.
+
+Before it merges or removes, the reconcile *takes* the request (#1480): one atomic push deletes the
+request ref, if it still holds the request the pass read, and creates a pending ref that records
+what the run is doing. A ``leave`` or a rejoin that lands first makes the push fail, so the run
+writes nothing; one that lands later finds no request to change. A run that stops halfway leaves
+the pending ref, and the next run finishes it, writing the removal comment exactly once.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ import verify_postmerge_checks as checks  # noqa: E402  (a sibling script, stand
 
 BASE = "main"
 REQUEST_PREFIX = "refs/merge-queue/pr-"
+PENDING_PREFIX = "refs/merge-queue/pending/pr-"  # a taken request: a merge or a removal under way
 CANDIDATE_PREFIX = "mq/pr-"
 DEFAULT_WINDOW = 5
 TIMEOUT_SECONDS = 30
@@ -57,6 +64,7 @@ REPOSITORY_LOCATION_VARS = frozenset(
 CANDIDATE = "candidate"
 HELD = "held"
 REMOVE = "remove"
+MERGE = "merge"  # the other action a pending ref records
 
 OBSERVE, ON = "observe", "on"
 PASSED, FAILED, PENDING = "passed", "failed", "pending"
@@ -87,6 +95,18 @@ class Request:
     message: str
     joined: int  # the committer time of the request commit, in seconds since the epoch
     commit: str = field(default="", compare=False)  # the request commit itself
+
+
+@dataclass(frozen=True)
+class Pending:
+    """A taken request: the ref ``PENDING_PREFIX + pr`` holds ``commit``, whose one parent is the
+    request commit. ``comment`` is the removal comment still to write, or empty."""
+
+    pr: int
+    action: str  # MERGE or REMOVE
+    commit: str
+    request: Request
+    comment: str = ""
 
 
 @dataclass(frozen=True)
@@ -244,17 +264,16 @@ class GitHub:
             raise QueueError(f"GitHub returned no commit for {BASE}")
         return sha
 
-    def request_commit(self, number: int) -> str | None:
-        """Return the commit of the request ref of ``number`` now, or ``None``."""
-        ref = f"{REQUEST_PREFIX}{number}"
-        found = self._call("GET", f"/git/matching-refs/{ref.removeprefix('refs/')}", expect=list)[1]
-        for item in found:
-            if isinstance(item, dict) and item.get("ref") == ref:
-                sha = (item.get("object") or {}).get("sha")
-                if not isinstance(sha, str):
-                    raise QueueError(f"GitHub returned no commit for {ref}")
-                return sha
-        return None
+    def commented(self, number: int, text: str) -> bool:
+        """Return whether a comment on ``number`` contains ``text``."""
+        for page in range(1, 11):
+            path = f"/issues/{number}/comments?per_page=100&page={page}"
+            listed = self._call("GET", path, expect=list)[1]
+            if any(isinstance(c, dict) and text in str(c.get("body") or "") for c in listed):
+                return True
+            if len(listed) < 100:
+                return False
+        raise QueueError(f"#{number} has more comments than the queue reads")
 
     def merge(self, number: int, head: str, title: str, message: str) -> tuple[str | None, str]:
         """Squash-merge ``number`` pinned to ``head``: ``(new main commit, "")``, or ``(None,
@@ -336,6 +355,7 @@ class Git:
         local = f"refs/remotes/{self.remote}"
         specs = [f"+refs/heads/{BASE}:{local}/{BASE}", f"+{REQUEST_PREFIX}*:{REQUEST_PREFIX}*"]
         specs.append(f"+refs/heads/{CANDIDATE_PREFIX}*:{local}/{CANDIDATE_PREFIX}*")
+        specs.append(f"+{PENDING_PREFIX}*:{PENDING_PREFIX}*")
         self.run("fetch", "--prune", "--no-tags", self.remote, *specs)
 
     def rev(self, name: str) -> str | None:
@@ -369,6 +389,24 @@ class Git:
         """Point ``branch`` on the remote at ``commit``."""
         self.run("push", "--force", self.remote, f"{commit}:refs/heads/{branch}")
 
+    def update_refs(self, moves: Mapping[str, tuple[str | None, str | None]]) -> bool:
+        """Apply ``{ref: (new, expected)}`` on the remote in one atomic push, or nothing.
+
+        ``new`` ``None`` deletes the ref; ``expected`` ``None`` means it must not exist. ``False``
+        means a ref no longer held what was expected, so nothing changed. Any other failure,
+        a server without atomic pushes included, raises ``QueueError``.
+        """
+        leases = [f"--force-with-lease={ref}:{old or ''}" for ref, (_, old) in moves.items()]
+        specs = [f"{new or ''}:{ref}" for ref, (new, _) in moves.items()]
+        done = self.run("push", "--atomic", "--porcelain", *leases, self.remote, *specs, ok=(0, 1))
+        if done.returncode == 0:
+            return True
+        listed = self.run("ls-remote", self.remote, *moves).stdout.splitlines()
+        now = {ref: commit for commit, ref in (line.split("\t", 1) for line in listed)}
+        if any(now.get(ref) != old for ref, (_, old) in moves.items()):
+            return False
+        raise QueueError(f"git push of {', '.join(moves)} failed: {done.stdout.strip()}")
+
     def candidates(self) -> dict[int, str]:
         """Return the candidate branches the last fetch saw, as ``{pull request: commit}``."""
         prefix = f"refs/remotes/{self.remote}/{CANDIDATE_PREFIX}"
@@ -384,19 +422,40 @@ class Git:
         return [(ref, commit) for ref, commit in pairs if ref.startswith(prefix)]
 
 
+def _commit(git: Git, ref: str, prefix: str, commit: str, kind: str) -> tuple[int, str, int, str]:
+    """Return ``(number, parent, committer time, message)`` of a one-parent queue commit."""
+    number = ref[len(prefix) :]
+    # `%ct` is seconds since the epoch. The text of `%cI` differs between git versions.
+    shown = git.run("show", "-s", "--format=%P%x00%ct%x00%B", commit).stdout
+    parents, joined, message = shown.split("\x00", 2)
+    if not number.isdigit() or len(parents.split()) != 1:
+        raise QueueError(f"{ref} is not a merge-queue {kind} (one parent, numeric name)")
+    return int(number), parents.strip(), int(joined), message.rstrip("\n")
+
+
+def _request(git: Git, ref: str, commit: str) -> Request:
+    number, head, joined, message = _commit(git, ref, REQUEST_PREFIX, commit, "request")
+    return Request(number, head, message, joined, commit)
+
+
 def read_requests(git: Git) -> list[Request]:
     """Return the recorded requests, the oldest first: the order of the train."""
-    requests: list[Request] = []
-    for ref, commit in git.refs(REQUEST_PREFIX):
-        number = ref[len(REQUEST_PREFIX) :]
-        # `%ct` is seconds since the epoch. The text of `%cI` differs between git versions.
-        shown = git.run("show", "-s", "--format=%P%x00%ct%x00%B", commit).stdout
-        parents, joined, message = shown.split("\x00", 2)
-        if not number.isdigit() or len(parents.split()) != 1:
-            raise QueueError(f"{ref} is not a merge-queue request (one parent, numeric name)")
-        request = Request(int(number), parents.strip(), message.rstrip("\n"), int(joined), commit)
-        requests.append(request)
+    requests = [_request(git, ref, commit) for ref, commit in git.refs(REQUEST_PREFIX)]
     return sorted(requests, key=lambda r: (r.joined, r.pr))
+
+
+def read_pending(git: Git) -> list[Pending]:
+    """Return the taken requests that a run left unfinished, by pull request number."""
+    found: list[Pending] = []
+    for ref, commit in git.refs(PENDING_PREFIX):
+        number, parent, _, message = _commit(git, ref, PENDING_PREFIX, commit, "pending ref")
+        subject, _, comment = message.partition("\n\n")
+        action = subject.removeprefix("merge-queue ").removesuffix(f" #{number}")
+        if action not in (MERGE, REMOVE):
+            raise QueueError(f"{ref} is not a pending merge or removal")
+        request = _request(git, f"{REQUEST_PREFIX}{number}", parent)
+        found.append(Pending(number, action, commit, request, comment))
+    return sorted(found, key=lambda p: p.pr)
 
 
 def join(github: GitHub, number: int, head: str, message: str) -> None:
@@ -429,7 +488,8 @@ def leave(github: GitHub, number: int) -> dict[str, bool]:
     The candidate branch, its status and the label are the reconcile's: the reconcile that
     follows every ``leave`` deletes them. One owner means that a reconcile which read the
     requests before the ``leave`` is followed by one that reads after it, and the last writer of
-    ``mq/pr-N`` is always a reconcile that saw the ``leave``.
+    ``mq/pr-N`` is always a reconcile that saw the ``leave``. A request the reconcile has taken
+    is gone already, so a ``leave`` after the take finds nothing and the merge or removal goes on.
     """
     return {"request": github.delete_ref(f"{REQUEST_PREFIX}{number}")}
 
@@ -574,22 +634,74 @@ def removal_comment(step: Step, failed: Sequence[tuple[str, str, str]] = (), sai
     return f"The merge queue removed this pull request: {why}\n\n" + REJOIN.format(pr=step.pr)
 
 
-def remove(github: GitHub, step: Step, comment: str | None, request: Request) -> bool:
+def _marker(git: Git, request: Request, action: str, comment: str) -> str:
+    """Make the commit of a pending ref: the request commit as parent, the action and comment."""
+    message = f"merge-queue {action} #{request.pr}" + (f"\n\n{comment}" if comment else "")
+    return git.commit_tree(git.tree(request.commit), request.commit, message, request.joined)
+
+
+def take(git: Git, request: Request, action: str, comment: str = "") -> Pending | None:
+    """Swap the request ref for a pending ref in one atomic push, before any other write.
+
+    ``None``, and no write, when the request ref no longer holds ``request``: a leave or a rejoin
+    landed after the pass read it, and the new request is judged on its own.
+    """
+    marker = _marker(git, request, action, comment)
+    moves = {
+        f"{REQUEST_PREFIX}{request.pr}": (None, request.commit),
+        f"{PENDING_PREFIX}{request.pr}": (marker, None),
+    }
+    return Pending(request.pr, action, marker, request, comment) if git.update_refs(moves) else None
+
+
+def _restore(git: Git, pending: Pending) -> None:
+    """Give a taken merge back to the queue: the request again, unless a rejoin replaced it."""
+    ref, mark = f"{REQUEST_PREFIX}{pending.pr}", f"{PENDING_PREFIX}{pending.pr}"
+    if git.update_refs({ref: (pending.request.commit, None), mark: (None, pending.commit)}):
+        return
+    if not git.update_refs({mark: (None, pending.commit)}):
+        raise QueueError(f"{mark} changed while this run held it")
+
+
+def _clear(git: Git, github: GitHub, pending: Pending) -> None:
+    """Delete the candidate, the label and, last, the pending ref of a finished take."""
+    github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{pending.pr}")
+    github.remove_label(pending.pr)
+    if not git.update_refs({f"{PENDING_PREFIX}{pending.pr}": (None, pending.commit)}):
+        raise QueueError(f"{PENDING_PREFIX}{pending.pr} changed while this run held it")
+
+
+def finish(git: Git, github: GitHub, pending: Pending) -> None:
+    """Finish a take. Every step may run again; the comment is written once, found by its tag.
+
+    A removal writes the ``failure`` status and its comment, unless that comment is there
+    already: a run that stopped after the POST, or whose POST reply was lost, wrote it. A merge
+    that did not happen goes back to the queue.
+    """
+    if pending.action == MERGE:
+        pull = github.pull(pending.pr)
+        if not (pull and pull.get("merged") is True):
+            _restore(git, pending)
+            return
+    elif pending.comment:
+        said = "removed from the merge queue; see the comment"
+        github.set_status(pending.request.head, "failure", said)
+        tag = f"<!-- merge-queue removal {pending.commit} -->"
+        if not github.commented(pending.pr, tag):
+            github.comment(pending.pr, f"{pending.comment}\n\n{tag}")
+    _clear(git, github, pending)
+
+
+def remove(git: Git, github: GitHub, step: Step, comment: str | None, request: Request) -> bool:
     """Remove ``step`` from the queue. ``comment`` is ``None`` for a closed pull request.
 
-    ``False``, and no write, when the request ref no longer holds ``request``: a leave or a rejoin
-    landed after the pass read it, and the new request is judged on its own. The request goes
-    before the comment, so that a later run cannot comment a second time.
+    ``False``, and no write, when ``take`` finds the request changed. The pending ref keeps the
+    comment until it is written, so a run that fails to write it leaves the next run to.
     """
-    if github.request_commit(step.pr) != request.commit:
+    pending = take(git, request, REMOVE, comment or "")
+    if pending is None:
         return False
-    if comment is not None:
-        github.set_status(step.head, "failure", "removed from the merge queue; see the comment")
-    github.delete_ref(f"{REQUEST_PREFIX}{step.pr}")
-    if comment is not None:
-        github.comment(step.pr, comment)
-    github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{step.pr}")
-    github.remove_label(step.pr)
+    finish(git, github, pending)
     return True
 
 
@@ -601,6 +713,12 @@ def _pass(
     base = git.rev(f"refs/remotes/{git.remote}/{BASE}")
     if base is None:
         raise QueueError(f"the remote has no {BASE}")
+    unfinished = read_pending(git)
+    for pending in unfinished:  # a run that stopped halfway; nothing else is written before
+        finish(git, github, pending)
+        report["finished"].append({"pr": pending.pr, "action": pending.action})
+    if unfinished:
+        return True
     requests = read_requests(git)
     pulls = {r.pr: github.pull(r.pr) for r in requests}
     steps = plan(git, base, requests, pulls, github.repo)
@@ -609,7 +727,7 @@ def _pass(
     by_pr = {r.pr: r for r in requests}
     for step in removals:
         comment = None if step.reason == "closed" else removal_comment(step)
-        if remove(github, step, comment, by_pr[step.pr]):
+        if remove(git, github, step, comment, by_pr[step.pr]):
             report["removed"].append({"pr": step.pr, "reason": step.reason})
     if removals:
         return True
@@ -634,23 +752,27 @@ def _pass(
         return False
     front, request = train[0], by_pr[train[0].pr]
     if judged[0] == FAILED:
-        if remove(github, front, removal_comment(front, failed=raw[0][1]), request):
+        if remove(git, github, front, removal_comment(front, failed=raw[0][1]), request):
             report["removed"].append({"pr": front.pr, "reason": "failed-checks"})
         return True
-    if github.request_commit(front.pr) != request.commit:
+    taken = take(git, request, MERGE)
+    if taken is None:
         return True  # it left or rejoined after this pass read the requests; build again
     github.set_status(front.head, "success", "its candidate passed every required check")
     if github.main_commit() != base:
+        _restore(git, taken)
         return True  # `main` moved after the verdict: the candidate was not tested on it
     title = f"{(pulls[front.pr] or {}).get('title') or 'merge queue'} (#{front.pr})"
     merged, said = github.merge(front.pr, front.head, title, request.message)
     if merged is None:
-        if remove(github, front, removal_comment(front, said=said), request):
-            report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
+        comment = removal_comment(front, said=said)
+        marker = _marker(git, request, REMOVE, comment)
+        if not git.update_refs({f"{PENDING_PREFIX}{front.pr}": (marker, taken.commit)}):
+            raise QueueError(f"{PENDING_PREFIX}{front.pr} changed while this run held it")
+        finish(git, github, Pending(front.pr, REMOVE, marker, request, comment))
+        report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
         return True
-    github.delete_ref(f"{REQUEST_PREFIX}{front.pr}")
-    github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{front.pr}")
-    github.remove_label(front.pr)
+    _clear(git, github, taken)
     report["merged"].append({"pr": front.pr, "commit": merged})
     landed = github.tree_of(merged)
     if landed != front.tree:
@@ -668,6 +790,7 @@ def run_on(git: Git, github: GitHub, window: int) -> dict[str, Any]:
     """Reconcile in ``on`` mode: judge, merge the front, remove, and build again until stable."""
     contexts = github.required_contexts()  # no contexts, no verdict: this raises first
     report: dict[str, Any] = {"mode": ON, "contexts": contexts, "merged": [], "removed": []}
+    report["finished"] = []
     for _ in range(MAX_PASSES):
         if not _pass(git, github, contexts, window, report):
             break
