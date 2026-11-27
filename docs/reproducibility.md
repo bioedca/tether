@@ -102,14 +102,13 @@ refuses the write.
    error. From a Deep-LASI reconstruction, it holds only where the traces came from: `source`,
    `coordinate_source`, `movie_name` and `exported_by`.
 
-**`/settings/extraction/movies`**, written by `_write_movie_settings` in
-`src/tether/imaging/extract.py`. This child group of the stamp holds one `str` attribute for each
-movie. The attribute is named by the movie's `movie_id`, and its value is that movie's settings
-profile as JSON. The first movie gets one too, so the record is the same for every movie
+**`/settings/extraction/movies`**, written by `src/tether/imaging/extract.py`. This child group
+of the stamp holds one `str` attribute for each movie. The attribute is named by the movie's
+`movie_id`, and its value is that movie's settings profile as JSON. The first movie gets one too, so the record is the same for every movie
 ([ADR-0117](adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
 
-- From the native pipeline, the profile is built by `_settings` in `src/tether/project/extract.py`.
-  It holds the movie's own `app_version`, its detection settings and its registration source.
+- From the native pipeline, `src/tether/project/extract.py` builds the profile. It holds the
+  movie's own `app_version`, its detection settings and its registration source.
 - `read_movie_settings` in `src/tether/imaging/extract.py` returns the record as
   `{movie_id: profile}`.
 - The group is absent in a project written before ADR-0117. That project's one movie has its
