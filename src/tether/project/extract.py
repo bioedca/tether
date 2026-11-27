@@ -1122,6 +1122,13 @@ def _run_pipeline(
     except Exception as exc:  # primitive/IO failure -> clean operator message
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
 
+    if steps_source == "map" and _MAP_FRAME_STEPS not in reg_map.provenance:
+        # A map default reused from the movie's record (a re-extraction with a .tmap,
+        # which holds none) is kept with the map's record, so /calibration and a map
+        # saved from it still carry it (#1435). A movie's own steps never become one.
+        provenance = {**reg_map.provenance, _MAP_FRAME_STEPS: str(steps)}
+        reg_map = replace(reg_map, provenance=provenance)
+
     return _Extracted(
         options=options,
         sha256=_row_sha256(files),

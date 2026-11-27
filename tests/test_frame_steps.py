@@ -552,3 +552,30 @@ def test_saving_a_project_map_keeps_its_default_steps(tmp_path, baseline, monkey
         project, summary.calibration_id, tmp_path / "none.npz", frame_steps=None
     )
     assert none.frame_steps is None
+
+
+def test_a_tmap_reextraction_keeps_the_map_default_in_its_calibration(
+    tmp_path, baseline, monkeypatch
+) -> None:
+    """A recorded map default reused on re-extraction is kept in /calibration (CodeRabbit)."""
+    from tether.imaging.map_asset import save_project_map
+
+    tmap = _stub_tmap(tmp_path, baseline, monkeypatch)
+    movie = _write_be(tmp_path / "stored.tif", _stored_against(_original(), "rotate 90"))
+    project = tmp_path / "tmap.tether"
+    extract_movie(movie, project, tmap=tmap, map_frame_steps=_steps("rotate 90"))
+    with publish_lock(project) as guard:
+        result = reextract_movie(project, movie, tmap=tmap, publish_guard=guard)
+    assert result.extraction.frame_steps_source == "map"
+    calibration_id = result.extraction.calibration_id
+    assert read_calibration(project, calibration_id).provenance["map_frame_steps"] == "rotate 90"
+    saved = save_project_map(project, calibration_id, tmp_path / "saved.npz")
+    assert saved.frame_steps == _steps("rotate 90")
+
+
+def test_movie_steps_do_not_become_a_map_default(tmp_path, baseline, monkeypatch) -> None:
+    tmap = _stub_tmap(tmp_path, baseline, monkeypatch)
+    movie = _write_be(tmp_path / "stored.tif", _stored_against(_original(), "rotate 90"))
+    project = tmp_path / "own.tether"
+    summary = extract_movie(movie, project, tmap=tmap, frame_steps=_steps("rotate 90"))
+    assert "map_frame_steps" not in read_calibration(project, summary.calibration_id).provenance
