@@ -477,8 +477,15 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
 
     monkeypatch.setattr(os, "replace", refuse)
     with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"], overwrite=True)
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+    # Without overwrite the publish is a hard link, or, where there are none, a held name
+    # filled by a replace; when both fail, neither a temporary file nor the name stays.
+    monkeypatch.setattr(os, "link", refuse)
+    with pytest.raises(CommandFailed, match="disk full"):
         _save(tmp_path / "c.json", project, ["all"])
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+    assert not (tmp_path / "c.json").exists()
 
 
 def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -> None:
@@ -493,3 +500,120 @@ def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -
         assert mode == 0o644  # not mkstemp's private 0600
     else:  # Windows: no fchmod, and the file keeps its ordinary read-write default
         assert mode & stat.S_IREAD and mode & stat.S_IWRITE
+
+
+# --- #1470: publish exclusively, and only the file the save wrote ------------------
+
+
+def _record_temporary(monkeypatch) -> list:
+    """Make ``tempfile.mkstemp`` record each name it makes, and return that list."""
+    import tempfile
+
+    names: list = []
+    real = tempfile.mkstemp
+
+    def mkstemp(*args, **kwargs):
+        fd, name = real(*args, **kwargs)
+        names.append(name)
+        return fd, name
+
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    return names
+
+
+def test_a_destination_created_after_the_check_is_never_replaced(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Gap 1: another process creates the destination between the check and the publish."""
+    import os
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):  # runs after the existence check, before the publish
+        out.write_text('{"theirs": true}', encoding="utf-8")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(out, project, ["all"])
+    assert out.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert names and not any(os.path.lexists(n) for n in names)
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_a_temporary_entry_replaced_before_the_publish_is_never_published(
+    modelled, tmp_path, monkeypatch, overwrite
+) -> None:
+    """Gap 2: the temporary entry is swapped for another file after the write."""
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    if overwrite:
+        _save(out, project, ["all"])
+    before = out.read_bytes() if overwrite else None
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    class Swapped:
+        """The written file; on close, its name is given to another file."""
+
+        def __init__(self, f) -> None:
+            self.f = f
+
+        def __enter__(self):
+            return self.f.__enter__()
+
+        def __exit__(self, *exc):
+            result = self.f.__exit__(*exc)
+            other = tmp_path / "other"
+            other.write_text('{"swapped": true}', encoding="utf-8")
+            os.replace(other, names[-1])
+            return result
+
+    monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: Swapped(real_fdopen(fd, *a, **k)))
+    with pytest.raises(CommandFailed, match="was replaced before the save published it"):
+        _save(out, project, ["all"], overwrite=overwrite)
+    if overwrite:
+        assert out.read_bytes() == before
+    else:
+        assert not os.path.lexists(out)
+    # The swapped entry is not the save's, so the save leaves it where it found it.
+    assert (tmp_path / os.path.basename(names[-1])).read_text(encoding="utf-8") == (
+        '{"swapped": true}'
+    )
+
+
+def test_without_hard_links_a_save_still_publishes_exclusively(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """A file system without hard links holds the name exclusively, then fills it."""
+    import os
+
+    project, _keys = modelled
+
+    def no_links(*_args, **_kwargs):
+        raise PermissionError("hard links are not supported")
+
+    monkeypatch.setattr(os, "link", no_links)
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    later = tmp_path / "d.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):
+        later.write_text('{"theirs": true}', encoding="utf-8")
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(later, project, ["all"])
+    assert later.read_text(encoding="utf-8") == '{"theirs": true}'
+    assert not any(os.path.lexists(n) for n in names)

@@ -217,7 +217,8 @@ class SaveCompositionRequest(Request):
     Each item of ``series`` is the JSON text of one series ([`series_text`][]) or a preset:
     ``all`` (every molecule) or ``condition=VALUE``, ``movie=VALUE`` or
     ``source_file=VALUE``, frozen against ``project`` when the command runs. ``states``
-    holds ``NAME=VALUE`` items. An existing ``path`` is replaced only with ``overwrite``.
+    holds ``NAME=VALUE`` items. An existing ``path`` is replaced only with ``overwrite``,
+    including one that appears while the command runs (#1470).
     """
 
     COMMAND: ClassVar[str] = "save-composition"
@@ -277,8 +278,38 @@ def _is_composition_file(path: Path) -> bool:
     return isinstance(data, Mapping) and data.get("format") == COMPOSITION_FORMAT
 
 
-def _write(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` through a sibling temporary file, so no half file stays."""
+class _Exists(Exception):
+    """The destination appeared after the check, so a save without ``overwrite`` stops."""
+
+
+def _publish_new(tmp: Path, path: Path) -> None:
+    """Give the written file the name ``path``, failing if that name already exists."""
+    try:
+        os.link(tmp, path)  # exclusive: a hard link never replaces an entry
+    except FileExistsError:
+        raise _Exists from None
+    except OSError:  # a file system without hard links: hold the name, then fill it
+        try:
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+        except FileExistsError:
+            raise _Exists from None
+        try:
+            os.replace(tmp, path)
+        except BaseException:
+            path.unlink(missing_ok=True)  # the empty placeholder this call created
+            raise
+        return
+    tmp.unlink(missing_ok=True)
+
+
+def _write(path: Path, text: str, *, overwrite: bool) -> None:
+    """Write ``text`` to ``path`` through a sibling temporary file, so no half file stays.
+
+    Without ``overwrite`` the publish itself is exclusive, so a file that appears at
+    ``path`` after the caller's check is never replaced (`_Exists`). Before the publish,
+    the temporary name is checked to still be the file this call wrote, so a swapped
+    entry is never published.
+    """
     # A unique file, created exclusively: never a fixed name that a link could point
     # elsewhere, or that a second save to the same path would share.
     fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
@@ -291,7 +322,23 @@ def _write(path: Path, text: str) -> None:
             if hasattr(os, "fchmod"):
                 os.fchmod(f.fileno(), 0o644)
             f.write(text)
-        os.replace(tmp, path)
+            f.flush()
+            written = os.fstat(f.fileno())
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    try:
+        entry = os.lstat(tmp)
+    except FileNotFoundError:
+        entry = None
+    if entry is None or not os.path.samestat(written, entry):
+        # Not the file this call wrote: publish nothing, and leave that entry alone.
+        raise OSError(f"its temporary file {tmp.name} was replaced before the save published it")
+    try:
+        if overwrite:
+            os.replace(tmp, path)
+        else:
+            _publish_new(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -332,7 +379,9 @@ def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
     except (ValueError, TypeError, OSError) as exc:
         raise RequestRefused(str(exc)) from exc
     try:
-        _write(path, composition.to_text())
+        _write(path, composition.to_text(), overwrite=request.overwrite)
+    except _Exists:
+        raise RequestRefused(f"{request.path} exists; give --force to replace it") from None
     except OSError as exc:
         raise CommandFailed(f"cannot write {request.path}: {exc}") from exc
     return SaveCompositionResult(path=path, composition=composition)
