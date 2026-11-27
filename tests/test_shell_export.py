@@ -431,6 +431,10 @@ def test_a_lock_taken_during_a_subset_publish_leaves_the_project_where_it_is(tmp
         yield guard
 
     monkeypatch.setattr(lock_module, "publish_lock", taken_after_the_first_check)
+    # No real lock is held here, so the lifecycle guard is not modelled: this checks the
+    # ownership checks behind it.
+    monkeypatch.setattr(lock_module, "read_lock", lambda _path: object())
+    monkeypatch.setattr(lock_module, "holding", lambda _path, _held: contextlib.nullcontext())
     with pytest.raises(LockError, match="ownership changed"):
         run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
     # The project file was never moved, so it is where it was at every check, unchanged.
@@ -473,8 +477,74 @@ def test_a_new_owners_pair_is_kept_when_the_lock_is_taken_mid_publish(tmp_path, 
         yield guard
 
     monkeypatch.setattr(lock_module, "publish_lock", taken_and_published)
+    # No real lock is held here, so the lifecycle guard is not modelled: this checks the
+    # ownership checks behind it.
+    monkeypatch.setattr(lock_module, "read_lock", lambda _path: object())
+    monkeypatch.setattr(lock_module, "holding", lambda _path, _held: contextlib.nullcontext())
     with pytest.raises(LockError, match="ownership changed"):
         run_export(project, ExportRequest(ExportKind.SUBSET, other, include_rejected=False))
     # The new owner's pair is left as it published it.
     assert other.read_bytes() == b"successor project"
     assert provenance.read_text(encoding="utf-8") == "successor provenance\n"
+
+
+@pytest.mark.parametrize("failing", [False, True])
+def test_no_takeover_can_land_while_a_subset_publish_moves_files(tmp_path, monkeypatch, failing):
+    import tether.project.lock as lock_module
+    import tether.services.exports as exports_module
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    project = _project(tmp_path / "a")
+    other = _project(tmp_path / "b")
+    provenance = other.with_name(other.name + ".provenance.json")
+    provenance.write_text("{}\n", encoding="utf-8")
+    before = other.read_bytes()
+    # Every acquire, steal, refresh and release takes the path's lifecycle guard. While the
+    # publish places or puts back files, that guard is held, so such a call times out.
+    monkeypatch.setattr(lock_module, "_GUARD_ACQUIRE_TIMEOUT_S", 0.2)
+    blocked: list[str] = []
+
+    def takeover_is_blocked(step: str) -> None:
+        lp = lock_module.lock_path(other)
+        try:
+            with lock_module._lifecycle_guard(lp):  # noqa: SLF001 - the guard a steal takes
+                pass
+        except TimeoutError:
+            blocked.append(step)
+
+    real_place, real_undo = exports_module._place, exports_module._undo  # noqa: SLF001
+
+    def place(*args, **kwargs):
+        takeover_is_blocked("place")
+        return real_place(*args, **kwargs)
+
+    def undo(*args, **kwargs):
+        takeover_is_blocked("undo")
+        return real_undo(*args, **kwargs)
+
+    monkeypatch.setattr(exports_module, "_place", place)
+    monkeypatch.setattr(exports_module, "_undo", undo)
+    request = ExportRequest(ExportKind.SUBSET, other, include_rejected=False)
+    if failing:
+        import contextlib
+
+        @contextlib.contextmanager
+        def failing_replace(_stage, _destination):
+            raise OSError("the project replace failed")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(lock_module, "replacement_identity", failing_replace)
+        with pytest.raises(OSError, match="project replace failed"):
+            run_export(project, request)
+        assert blocked == ["place", "undo"]
+        assert other.read_bytes() == before
+        assert provenance.read_text(encoding="utf-8") == "{}\n"
+    else:
+        assert run_export(project, request).n_molecules == 2
+        assert blocked == ["place"]
+    # After the publish the lock is free again.
+    monkeypatch.setattr(lock_module, "_GUARD_ACQUIRE_TIMEOUT_S", 5.0)
+    held = lock_module.acquire(other)
+    lock_module.release(other, held)

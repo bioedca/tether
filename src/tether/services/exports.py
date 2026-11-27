@@ -230,11 +230,19 @@ def run_export(
             cancel.raise_if_cancelled()
         moves = [(staged, out_path), (staged_provenance, provenance)]
         if request.kind is ExportKind.SUBSET:
-            # The destination is a project: another writer may hold it (ADR-0112).
-            from tether.project.lock import publish_lock
+            # The destination is a project: another writer may hold it (ADR-0112). The
+            # moves run inside the lock's lifecycle guard (`holding`), which every acquire,
+            # steal, refresh and release takes too, so no takeover lands between the
+            # ownership check and a move or a put-back. They are renames only: the slow
+            # write happened above.
+            from tether.project.lock import LockError, holding, publish_lock, read_lock
 
             with publish_lock(out_path) as guard:
-                _publish(moves, staged, guard=guard)
+                current = read_lock(out_path)
+                if current is None:
+                    raise LockError(f"{out_path} lock ownership changed before publish")
+                with holding(out_path, current):
+                    _publish(moves, staged, guard=guard)
         else:
             _publish(moves, staged)
     except BaseException:

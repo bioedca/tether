@@ -579,9 +579,9 @@ the destination, and removes that file when it stops.
 A write can also fail part way, for example on a full disk. The menu then moves the file and
 its provenance file into place together. If either move fails, it puts the previous pair back.
 
-Sometimes a file cannot be put back. Putting it back can fail too, or another writer can take
-the destination project meanwhile. Then the previous file stays beside the destination under
-its temporary name. That name starts with a dot and the destination's name.
+If putting a file back fails too, the previous file stays beside the destination under its
+temporary name. That name starts with a dot and the destination's name. While a subset moves
+into place, it holds the destination project's lock, so no other writer can take it then.
 
 `tether export` and a script call the function directly. If its write fails part way, the
 data file can be left without its provenance file.
