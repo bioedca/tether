@@ -106,7 +106,7 @@ from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 # These imports are intentionally module-level: ``tether.project.extract`` is
@@ -149,7 +149,14 @@ from tether.imaging.map_asset import (
     load_map_asset,
     require_map_reuse,
 )
-from tether.imaging.recipe import ChannelRecipeError, check_frame_fits
+from tether.imaging.recipe import (
+    FRAME_STEPS_SOURCES,
+    ChannelRecipe,
+    ChannelRecipeError,
+    check_frame_fits,
+    frame_view_shape,
+    through_frame_steps,
+)
 from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
@@ -159,7 +166,7 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
-from tether.io.frames import ExtractionMovie, open_extraction_movie
+from tether.io.frames import open_extraction_movie
 from tether.io.generations import Generation
 from tether.io.pair import PAIR_ROLES, MoviePairError, check_pair, pair_sha256
 from tether.io.tdat import read_detection_settings
@@ -333,6 +340,10 @@ class ExtractionSummary:
     #: ``None`` when the split came from ``donor_side`` or an imported ``.tmap``. The
     #: donor-side check's remedy names it rather than ``--donor-side`` (#1157).
     channel_layout: ChannelLayout | None = None
+    #: The frame steps applied to every frame before the split (#1435), and their
+    #: source: ``"map"``, ``"movie"``, or ``None`` when there were none.
+    frame_steps: ChannelRecipe = ChannelRecipe()
+    frame_steps_source: str | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -422,15 +433,43 @@ def _is_pair_geometry(donor: ChannelGeometry, acceptor: ChannelGeometry) -> bool
 
 
 def _split_stacks(
-    reader: ExtractionMovie,
-    acceptor_reader: ExtractionMovie | None,
+    frames: np.ndarray,
+    acceptor_frames: np.ndarray | None,
     donor_geom: ChannelGeometry,
     acceptor_geom: ChannelGeometry,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Cut the two channel stacks: both from one movie, or one from each file of a pair."""
-    if acceptor_reader is None:
-        return split_channels(reader.data, donor_geom, acceptor_geom)
-    return donor_geom.apply(reader.data), acceptor_geom.apply(acceptor_reader.data)
+    if acceptor_frames is None:
+        return split_channels(frames, donor_geom, acceptor_geom)
+    return donor_geom.apply(frames), acceptor_geom.apply(acceptor_frames)
+
+
+#: The ``RegistrationMap.provenance`` key of a map's default frame steps (#1435): the
+#: map file's own, or the one given with a ``.tmap``, so ``/calibration`` keeps it.
+_MAP_FRAME_STEPS = "map_frame_steps"
+
+
+def _resolve_frame_steps(
+    frame_steps: ChannelRecipe | None,
+    reg_map: RegistrationMap | None,
+    source: str = "movie",
+) -> tuple[ChannelRecipe, str | None]:
+    """Return the frame steps an extraction applies and their source (#1435).
+
+    A movie's own steps (``"none"`` included) replace the map's default; with neither,
+    there are no steps and no source, and the frames are read as stored.
+    """
+    if frame_steps is not None:
+        return frame_steps, source
+    default = None if reg_map is None else reg_map.provenance.get(_MAP_FRAME_STEPS)
+    if default is not None:
+        return ChannelRecipe.parse(str(default)), "map"
+    return ChannelRecipe(), None
+
+
+def _frame_steps_record(steps: ChannelRecipe, source: str | None) -> dict[str, Any]:
+    """Return the ``frame_steps`` entry of a movie's settings profile (#1435)."""
+    return {"steps": str(steps), "source": source}
 
 
 def _settings(
@@ -443,8 +482,11 @@ def _settings(
     map_source: str | None,
     tdat_source: str | None,
     donor_side_check: DonorSideCheck,
+    frame_steps: ChannelRecipe | None = None,
+    frame_steps_source: str | None = None,
 ) -> dict:
     """Assemble the JSON-serialisable ``/settings/extraction`` provenance dict."""
+    frame_steps = ChannelRecipe() if frame_steps is None else frame_steps
     settings = {"app_version": __version__, "pipeline": "native"}
     settings.update(asdict(options))
     settings["n_control_points"] = int(n_control_points)
@@ -465,6 +507,8 @@ def _settings(
     # The advisory donor-side check's verdict, its counts and the thresholds it used
     # (#646, ADR-0070). It describes the traces stored here and never changed them.
     settings["donor_side_check"] = donor_side_check.to_dict()
+    # The frame steps applied before the split and where they came from (#1435).
+    settings["frame_steps"] = _frame_steps_record(frame_steps, frame_steps_source)
     return settings
 
 
@@ -537,7 +581,9 @@ def _detect_channels(
     return donor_det, acceptor_det, donor_spots, acceptor_spots
 
 
-def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> RegistrationMap:
+def _imported_registration_map(
+    tmap_path: str | os.PathLike[str], map_frame_steps: ChannelRecipe | None = None
+) -> RegistrationMap:
     """Decode a ``.tmap`` and build the imported [`RegistrationMap`][].
 
     Wraps [`read_tmap`][] + [`registration_map_from_tmap`][] and translates any
@@ -552,13 +598,19 @@ def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> Registratio
     not decode becomes the same clean ``.tmap``-centric error as any bad map.
     """
     try:
-        return registration_map_from_tmap(
+        reg_map = registration_map_from_tmap(
             read_tmap(tmap_path),
             app_version=__version__,
             source_file=Path(tmap_path).name,
         )
     except Exception as exc:  # bad/foreign .tmap, ambiguous channels, bad rotation/flip, ...
         raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
+    if map_frame_steps is None:
+        return reg_map
+    # A .tmap holds no frame steps; the default given with it is kept with the map's
+    # record in /calibration (#1435).
+    provenance = {**reg_map.provenance, _MAP_FRAME_STEPS: str(map_frame_steps)}
+    return replace(reg_map, provenance=provenance)
 
 
 def _map_file_registration_map(map_path: str | os.PathLike[str]) -> RegistrationMap:
@@ -593,6 +645,8 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     provenance["map_file"] = {"name": path.name, "sha256": digest, **asset.record()}
     if asset.quality is not None:  # the file's record, so a saved copy keeps it
         provenance["map_quality"] = asset.quality
+    if asset.frame_steps is not None:  # the map's default frame steps (#1435)
+        provenance[_MAP_FRAME_STEPS] = str(asset.frame_steps)
     return replace(reg_map, provenance=provenance)
 
 
@@ -734,6 +788,9 @@ class _Extracted:
     channel_layout: ChannelLayout | None
     # The files read: the movie, or the donor and acceptor movies of a pair (#909).
     files: tuple[_FileRead, ...] = ()
+    # The frame steps applied before the split and their source (#1435).
+    frame_steps: ChannelRecipe = ChannelRecipe()
+    frame_steps_source: str | None = None
 
     @property
     def is_pair(self) -> bool:
@@ -789,6 +846,7 @@ def _resolve_sources(
     map_path: str | os.PathLike[str] | None = None,
     *,
     pair: bool = False,
+    map_frame_steps: ChannelRecipe | None = None,
 ) -> tuple[ExtractOptions, RegistrationMap | None]:
     """Apply a ``.tdat``'s detection settings and load a ``.tmap`` or map file, before movie IO.
 
@@ -799,8 +857,16 @@ def _resolve_sources(
     refused a ``.tmap`` together with a map file. A ``channel_layout`` beside a
     ``.tmap`` (#908) or a map file (#353) is refused here, before either file is read. A
     movie pair (``pair``, #909) takes neither a channel layout nor a ``donor_side``: each
-    file is one whole channel, and the roles name the donor.
+    file is one whole channel, and the roles name the donor. ``map_frame_steps`` is the
+    default frame steps of a ``.tmap`` (#1435), which holds none of its own; it is refused
+    without a ``.tmap``, since a saved map file stores its own default.
     """
+    if map_frame_steps is not None and tmap is None:
+        raise ExtractionError(
+            "map_frame_steps (--map-frame-steps) is the default frame steps of a .tmap; a "
+            "saved map file stores its own default, and a movie's own steps are "
+            "frame_steps (--frame-steps)"
+        )
     if pair and (options.channel_layout is not None or options.donor_side != "left"):
         raise ExtractionError(
             "channel_layout and donor_side apply to one movie with both channels in each "
@@ -822,7 +888,7 @@ def _resolve_sources(
     if tdat is not None:
         options = _apply_tdat_detection(options, tdat)
     if tmap is not None:
-        return options, _imported_registration_map(tmap)
+        return options, _imported_registration_map(tmap, map_frame_steps)
     if map_path is not None:
         reg_map = _map_file_registration_map(map_path)
         # The saved map was judged against its own gate; record that gate, so the
@@ -840,8 +906,15 @@ def _run_pipeline(
     acceptor_path: Path | None = None,
     map_optics: str | None = None,
     confirm_optics: bool = False,
+    frame_steps: ChannelRecipe | None = None,
+    frame_steps_source: str = "movie",
 ) -> _Extracted:
     """Run stages 1-15 on one movie, or on a movie pair, and return the unpersisted result.
+
+    ``frame_steps`` are the movie's own frame steps (#1435), or ``None`` to use the map's
+    default ([`_resolve_frame_steps`][]). The steps run on every frame before the split;
+    the map's, the layout's or a pair's cut is read in the frame after them, and the
+    geometry stored for the movie folds both into one geometry of the stored frame.
 
     ``identity`` is the files' [`_FileRead`][] records when the caller already hashed
     them ([`add_movie_to_project`][] does, to refuse a duplicate before the work);
@@ -885,6 +958,30 @@ def _run_pipeline(
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
             pixel_size_um = reader.pixel_size_um
 
+            # Frame steps (#1435): every frame is turned, flipped, moved or cropped as a
+            # whole before the split, so every cut below is read in the frame after them.
+            # A view of the stored frames: no pixel is resampled or copied here.
+            steps, steps_source = _resolve_frame_steps(
+                frame_steps, imported_map, frame_steps_source
+            )
+            frames = reader.data
+            acceptor_frames = None if acceptor_reader is None else acceptor_reader.data
+            stored_shape = (height, width)
+            if steps.steps:
+                try:
+                    height, width = frame_view_shape(steps, height, width)
+                except ChannelRecipeError as exc:
+                    raise ExtractionError(f"{movie_path.name}: {exc}") from exc
+                frames = steps.apply(frames)
+                if acceptor_frames is not None:
+                    acceptor_frames = steps.apply(acceptor_frames)
+            after_steps = (
+                f" after the frame steps {steps} (the movie's frames are "
+                f"{stored_shape[0]} x {stored_shape[1]} px; {height} x {width} px after them)"
+                if steps.steps
+                else ""
+            )
+
             layout: ChannelLayout | None = None
             if imported_map is not None:
                 # Imported path: registration comes from the .tmap or the map file.
@@ -916,7 +1013,7 @@ def _run_pipeline(
                 try:
                     check_frame_fits(height, width, donor_geom, acceptor_geom)
                 except ChannelRecipeError as exc:
-                    raise ExtractionError(f"{movie_path.name}: {exc}") from exc
+                    raise ExtractionError(f"{movie_path.name}: {exc}{after_steps}") from exc
                 # A map file is checked against what is known of this movie: its pixel
                 # size and the optics text the user gives; never its date (#916).
                 reg_map = _check_map_reuse(
@@ -927,7 +1024,7 @@ def _run_pipeline(
                     confirm_optics=confirm_optics,
                 )
                 donor_stack, acceptor_stack = _split_stacks(
-                    reader, acceptor_reader, donor_geom, acceptor_geom
+                    frames, acceptor_frames, donor_geom, acceptor_geom
                 )
                 _, _, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
@@ -936,11 +1033,14 @@ def _run_pipeline(
                 # Native path: pair control points from the movie's own detections.
                 if acceptor_reader is None:
                     layout = resolve_channel_layout(options)
-                    donor_geom, acceptor_geom = _layout_geometry(layout, width, height)
+                    try:
+                        donor_geom, acceptor_geom = _layout_geometry(layout, width, height)
+                    except ExtractionError as exc:
+                        raise ExtractionError(f"{exc}{after_steps}") from exc
                 else:  # a movie pair: each file is one whole channel (#909)
                     donor_geom = acceptor_geom = _whole_frame(height, width)
                 donor_stack, acceptor_stack = _split_stacks(
-                    reader, acceptor_reader, donor_geom, acceptor_geom
+                    frames, acceptor_frames, donor_geom, acceptor_geom
                 )
                 donor_det, acceptor_det, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
@@ -1023,14 +1123,16 @@ def _run_pipeline(
         file_size=files[0].size,
         mtime=files[0].mtime,
         n_frames=int(n_frames),
-        height=int(height),
-        width=int(width),
+        height=int(stored_shape[0]),
+        width=int(stored_shape[1]),
         pixel_dtype=pixel_dtype,
         byteorder=byteorder,
         frame_time=frame_time,
         pixel_size_um=pixel_size_um,
-        donor_geometry=donor_geom,
-        acceptor_geometry=acceptor_geom,
+        # The stored geometry is one geometry of the stored frame: the frame steps, then
+        # the cut (#1435), so every later read of the movie's pixels needs no steps.
+        donor_geometry=through_frame_steps(steps, donor_geom, stored_shape),
+        acceptor_geometry=through_frame_steps(steps, acceptor_geom, stored_shape),
         reg_map=reg_map,
         molecules=molecules,
         traces=traces,
@@ -1038,6 +1140,8 @@ def _run_pipeline(
         side_check=_run_donor_side_check(traces),
         channel_layout=layout,
         files=files,
+        frame_steps=steps,
+        frame_steps_source=steps_source,
     )
 
 
@@ -1169,6 +1273,8 @@ def _movie_and_settings(
         map_source=Path(map_path).name if map_path is not None else None,
         tdat_source=Path(tdat).name if tdat is not None else None,
         donor_side_check=extracted.side_check,
+        frame_steps=extracted.frame_steps,
+        frame_steps_source=extracted.frame_steps_source,
     )
     if extracted.is_pair:
         settings["movie_pair"] = {
@@ -1204,6 +1310,8 @@ def _summary(
         rms_gate=float(reg_map.gate_px),
         movie_sha256=extracted.sha256,
         channel_layout=extracted.options.channel_layout,
+        frame_steps=extracted.frame_steps,
+        frame_steps_source=extracted.frame_steps_source,
     )
 
 
@@ -1221,6 +1329,8 @@ def extract_movie(
     acceptor_movie: str | os.PathLike[str] | None = None,
     map_optics: str | None = None,
     confirm_optics: bool = False,
+    frame_steps: ChannelRecipe | None = None,
+    map_frame_steps: ChannelRecipe | None = None,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -1339,7 +1449,12 @@ def extract_movie(
         raise ExtractionError(str(exc)) from exc
 
     options, imported_map = _resolve_sources(
-        options, tmap, tdat, map_path, pair=acceptor_path is not None
+        options,
+        tmap,
+        tdat,
+        map_path,
+        pair=acceptor_path is not None,
+        map_frame_steps=map_frame_steps,
     )
     extracted = _run_pipeline(
         movie_path,
@@ -1348,6 +1463,7 @@ def extract_movie(
         acceptor_path=acceptor_path,
         map_optics=map_optics,
         confirm_optics=confirm_optics,
+        frame_steps=frame_steps,
     )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
@@ -1384,6 +1500,8 @@ def count_molecules_by_rule(
     map_path: str | os.PathLike[str] | None = None,
     map_optics: str | None = None,
     confirm_optics: bool = False,
+    frame_steps: ChannelRecipe | None = None,
+    map_frame_steps: ChannelRecipe | None = None,
 ) -> dict[str, int]:
     """Count the molecules each colocalization rule keeps, before any extraction (#920).
 
@@ -1411,7 +1529,10 @@ def count_molecules_by_rule(
 
     movie_path = Path(movie_path)
     _check_inputs(movie_path, tmap, tdat, map_path)
-    options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
+    options, imported_map = _resolve_sources(
+        options or ExtractOptions(), tmap, tdat, map_path, map_frame_steps=map_frame_steps
+    )
+    steps, _ = _resolve_frame_steps(frame_steps, imported_map)
     try:
         with open_extraction_movie(movie_path) as reader:
             if imported_map is not None:  # the check extraction would run (#1394)
@@ -1422,7 +1543,15 @@ def count_molecules_by_rule(
                     map_optics=map_optics,
                     confirm_optics=confirm_optics,
                 )
-            stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
+            frames = reader.data
+            if steps.steps:  # the same frames extraction splits (#1435)
+                _, height, width = reader.shape
+                try:
+                    frame_view_shape(steps, height, width)
+                except ChannelRecipeError as exc:
+                    raise ExtractionError(f"{movie_path.name}: {exc}") from exc
+                frames = steps.apply(frames)
+            stages = iter_extraction_stages(frames, options=options, registration=imported_map)
             for stage in stages:
                 if stage.outcome == OUTCOME_FAILED:
                     raise ExtractionError(
@@ -1500,6 +1629,8 @@ def add_movie_to_project(
     acceptor_movie: str | os.PathLike[str] | None = None,
     map_optics: str | None = None,
     confirm_optics: bool = False,
+    frame_steps: ChannelRecipe | None = None,
+    map_frame_steps: ChannelRecipe | None = None,
 ) -> ExtractionSummary:
     """Extract ``movie_path`` and append it to the existing project ``project_path``.
 
@@ -1579,7 +1710,12 @@ def add_movie_to_project(
         )
 
     options, imported_map = _resolve_sources(
-        options, tmap, tdat, map_path, pair=acceptor_path is not None
+        options,
+        tmap,
+        tdat,
+        map_path,
+        pair=acceptor_path is not None,
+        map_frame_steps=map_frame_steps,
     )
     try:
         identity = _hash_inputs(movie_path, acceptor_path)
@@ -1595,6 +1731,7 @@ def add_movie_to_project(
         acceptor_path=acceptor_path,
         map_optics=map_optics,
         confirm_optics=confirm_optics,
+        frame_steps=frame_steps,
     )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
@@ -1657,6 +1794,8 @@ def reextract_movie(
     acceptor_movie: str | os.PathLike[str] | None = None,
     map_optics: str | None = None,
     confirm_optics: bool = False,
+    frame_steps: ChannelRecipe | None = None,
+    map_frame_steps: ChannelRecipe | None = None,
 ) -> GenerationSummary:
     """Extract a movie the project already holds again, as a new trace generation.
 
@@ -1730,13 +1869,21 @@ def reextract_movie(
         )
 
     options, imported_map = _resolve_sources(
-        options, tmap, tdat, map_path, pair=acceptor_path is not None
+        options,
+        tmap,
+        tdat,
+        map_path,
+        pair=acceptor_path is not None,
+        map_frame_steps=map_frame_steps,
     )
     try:
         identity = _hash_inputs(movie_path, acceptor_path)
     except Exception as exc:
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
     movie_id = _held_movie_id(project_path, _row_sha256(identity), movie_path)
+    frame_steps, steps_source = _reextract_frame_steps(
+        project_path, movie_id, frame_steps, imported_map
+    )
 
     extracted = _run_pipeline(
         movie_path,
@@ -1746,6 +1893,8 @@ def reextract_movie(
         acceptor_path=acceptor_path,
         map_optics=map_optics,
         confirm_optics=confirm_optics,
+        frame_steps=frame_steps,
+        frame_steps_source=steps_source,
     )
     _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
@@ -1800,6 +1949,35 @@ def reextract_movie(
         project_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
     )
     return GenerationSummary(extraction=summary, generation=record)
+
+
+def _reextract_frame_steps(
+    project_path: Path,
+    movie_id: str,
+    frame_steps: ChannelRecipe | None,
+    reg_map: RegistrationMap | None,
+) -> tuple[ChannelRecipe | None, str]:
+    """Return the frame steps a re-extraction applies when it gives none of its own (#1435).
+
+    Steps given now win. Otherwise the steps the movie was last extracted with are used
+    again: a movie's own steps always, and a map's default unless the map used now has a
+    default of its own. Returns ``(None, "movie")`` to let the map's default decide.
+    """
+    if frame_steps is not None:
+        return frame_steps, "movie"
+    from tether.imaging.extract import read_movie_settings  # noqa: PLC0415
+
+    stored = read_movie_settings(project_path).get(movie_id, {}).get("frame_steps")
+    if not isinstance(stored, dict) or stored.get("source") not in FRAME_STEPS_SOURCES:
+        return None, "movie"
+    if stored["source"] == "map" and _resolve_frame_steps(None, reg_map)[1] is not None:
+        return None, "movie"
+    try:
+        return ChannelRecipe.parse(str(stored.get("steps"))), str(stored["source"])
+    except ChannelRecipeError as exc:
+        raise ExtractionError(
+            f"the frame steps stored for movie {movie_id!r} do not read: {exc}"
+        ) from exc
 
 
 def _held_movie_id(project_path: Path, sha256: str, movie_path: Path) -> str:

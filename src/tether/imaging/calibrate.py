@@ -109,8 +109,9 @@ LOW_CONFIDENCE_TAG = "low-confidence-registration"
 #: because it may hold fields this Tether would silently drop. ADR-0128 records
 #: this rule. Version 2 adds the map asset record (#916, ADR-0146): map id, origin,
 #: source ids, channel layout, quality record, optics text, pixel size, time and
-#: Tether version ([`tether.imaging.map_asset`][]).
-MAP_FORMAT_VERSION = 2
+#: Tether version ([`tether.imaging.map_asset`][]). Version 3 adds the map's default
+#: frame steps (#1435, ADR-NNNN).
+MAP_FORMAT_VERSION = 3
 
 #: The arrays every map file holds, whatever its version (each geometry prefix
 #: adds its own arrays only when that geometry is present).
@@ -146,6 +147,10 @@ _MAP_ASSET_KEYS = (
     "created_utc",
     "app_version",
 )
+
+#: The array format version 3 adds: the map's default frame steps (#1435, ADR-NNNN), the
+#: JSON of their text form or ``null`` for no default.
+_MAP_FRAME_STEPS_KEYS = ("frame_steps_json",)
 
 #: Minimum control points for a degree-2 polynomial fit; below this a 4-DOF
 #: similarity is fitted instead (Stage 9 "similarity fallback if < ~6 points").
@@ -738,6 +743,12 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
             raise MapFileError(f"{path.name} is not a Tether map file: it lacks {missing}")
         if version >= 2:
             missing = [key for key in _MAP_ASSET_KEYS if key not in data.files]
+            if missing:
+                raise MapFileError(
+                    f"{path.name} is a version-{version} map file that lacks {missing}"
+                )
+        if version >= 3:
+            missing = [key for key in _MAP_FRAME_STEPS_KEYS if key not in data.files]
             if missing:
                 raise MapFileError(
                     f"{path.name} is a version-{version} map file that lacks {missing}"

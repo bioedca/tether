@@ -25,9 +25,14 @@ transform in both directions and the channel geometry, PRD Appendix E stage 10) 
 * ``optics`` -- a text the user gives for the optics (objective, filters, camera, binning).
 * ``pixel_size_um`` -- the camera pixel size in micrometres, or ``None`` when not known.
 * ``created_utc`` and ``app_version`` -- when and by which Tether the map was saved.
+* ``frame_steps`` -- the map's default frame steps (#1435): how the frames the map was made
+  on relate to the movies it will be used with, for example ``rotate 90`` for a map made
+  on TIFFs turned in ImageJ, or ``None`` for no default. A movie's own steps replace it.
+  It is the array ``frame_steps_json`` of format version 3 (ADR-NNNN); an older file has
+  no default.
 
 [`save_map_asset`][] and [`load_map_asset`][] write and read the ``.npz`` map file at
-format version 2 ([`MAP_FORMAT_VERSION`][tether.imaging.calibrate.MAP_FORMAT_VERSION]);
+format version 3 ([`MAP_FORMAT_VERSION`][tether.imaging.calibrate.MAP_FORMAT_VERSION]);
 [`save_map`][tether.imaging.calibrate.save_map] writes the same format.
 
 **The reuse check** ([`check_map_reuse`][]) compares what a map says with what is known of
@@ -69,7 +74,7 @@ from tether.imaging.calibrate import (
     registration_map_from_tmap,
 )
 from tether.imaging.layout import ChannelLayout, ChannelLayoutError
-from tether.imaging.recipe import ChannelRecipeError
+from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError
 from tether.imaging.split import ChannelGeometry
 
 __all__ = [
@@ -310,6 +315,7 @@ class MapAsset:
     created_utc: str = ""
     app_version: str = ""
     format_version: int = MAP_FORMAT_VERSION
+    frame_steps: ChannelRecipe | None = None
 
     def __post_init__(self) -> None:
         """Refuse an asset whose record cannot be written."""
@@ -324,6 +330,8 @@ class MapAsset:
             math.isfinite(self.pixel_size_um) and self.pixel_size_um > 0
         ):
             raise ValueError(f"pixel_size_um must be > 0 or None, got {self.pixel_size_um!r}")
+        if self.frame_steps is not None and not isinstance(self.frame_steps, ChannelRecipe):
+            raise TypeError("frame_steps must be a ChannelRecipe or None")
 
     @property
     def geometry(self) -> tuple[ChannelGeometry, ChannelGeometry] | None:
@@ -356,6 +364,7 @@ class MapAsset:
             "has_quality": self.quality is not None,
             "created_utc": self.created_utc,
             "format_version": self.format_version,
+            "frame_steps": None if self.frame_steps is None else str(self.frame_steps),
         }
 
     @classmethod
@@ -369,6 +378,7 @@ class MapAsset:
         pixel_size_um: float | None = None,
         created_utc: str | None = None,
         app_version: str | None = None,
+        frame_steps: ChannelRecipe | None = None,
     ) -> MapAsset:
         """Make an asset of ``reg_map``, taking origin, sources and quality from its provenance.
 
@@ -409,6 +419,7 @@ class MapAsset:
             pixel_size_um=pixel_size_um,
             created_utc=_utc_now() if created_utc is None else created_utc,
             app_version=app_version,
+            frame_steps=frame_steps,
         )
 
 
@@ -417,7 +428,7 @@ def _json(value: Any) -> np.ndarray:
 
 
 def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
-    """Write ``asset`` as a ``.npz`` map file at format version 2 (ADR-0146).
+    """Write ``asset`` as a ``.npz`` map file at format version 3 (ADR-0146, ADR-NNNN).
 
     Every array of a version-1 file is written as before, so every reader of version 1
     finds them; the asset record is added as plain arrays and JSON strings. Nothing is
@@ -430,7 +441,7 @@ def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
 
 
 def _asset_arrays(asset: MapAsset) -> dict[str, np.ndarray]:
-    """Return every array of the version-2 map file that holds ``asset``."""
+    """Return every array of the version-3 map file that holds ``asset``."""
     arrays = _map_arrays(asset.registration_map)
     arrays.update(
         {
@@ -448,6 +459,10 @@ def _asset_arrays(asset: MapAsset) -> dict[str, np.ndarray]:
             "created_utc": np.array(asset.created_utc),
             "app_version": np.array(asset.app_version),
         }
+    )
+    # Format version 3: the map's default frame steps, or null for none (#1435).
+    arrays["frame_steps_json"] = _json(
+        None if asset.frame_steps is None else str(asset.frame_steps)
     )
     return arrays
 
@@ -494,6 +509,10 @@ def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsse
             if quality is not None and not isinstance(quality, dict):
                 raise TypeError("quality_json must hold one JSON object or null")
             pixel = float(data["pixel_size_um"])
+            # load_map has refused a version-3 file that lacks frame_steps_json.
+            steps = json.loads(str(data["frame_steps_json"])) if version >= 3 else None
+            if steps is not None and not isinstance(steps, str):
+                raise TypeError("frame_steps_json must hold one JSON string or null")
             return MapAsset(
                 registration_map=reg_map,
                 map_id=str(data["map_id"]),
@@ -506,6 +525,7 @@ def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsse
                 created_utc=str(data["created_utc"]),
                 app_version=str(data["app_version"]),
                 format_version=version,
+                frame_steps=None if steps is None else ChannelRecipe.parse(steps),
             )
         except (
             ValueError,
@@ -521,9 +541,16 @@ def load_map_asset(path: str | Path, *, content: bytes | None = None) -> MapAsse
 
 
 def map_asset_from_tmap(
-    tmap_path: str | Path, *, optics: str = "", pixel_size_um: float | None = None
+    tmap_path: str | Path,
+    *,
+    optics: str = "",
+    pixel_size_um: float | None = None,
+    frame_steps: ChannelRecipe | None = None,
 ) -> MapAsset:
     """Make an asset from a Deep-LASI ``.tmap``: origin ``tmap``, no quality record.
+
+    A ``.tmap`` holds no frame steps, so its default (#1435) is given here, as
+    ``frame_steps``, and the asset stores it.
 
     The source id is ``sha256:<hex>`` of the ``.tmap`` bytes, and the transform is decoded
     from those same bytes, so a file replaced while it is read cannot give an asset whose
@@ -542,7 +569,9 @@ def map_asset_from_tmap(
         app_version=tether.__version__,
         source_file=tmap_path.name,
     )
-    asset = MapAsset.from_registration_map(reg_map, optics=optics, pixel_size_um=pixel_size_um)
+    asset = MapAsset.from_registration_map(
+        reg_map, optics=optics, pixel_size_um=pixel_size_um, frame_steps=frame_steps
+    )
     return replace(asset, source_ids=(f"sha256:{digest}",), quality=None)
 
 

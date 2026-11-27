@@ -38,7 +38,8 @@ class MapCreateRequest(Request):
     ``projection`` stays ``"max"``. ``optics`` is the user's text for the optics
     (objective, filters, camera, binning) and ``pixel_size_um`` the camera pixel size in
     micrometres (``None`` = not known); both go into the map file, and the reuse check
-    compares them with a later movie's (#916).
+    compares them with a later movie's (#916). ``frame_steps`` is the map's default frame
+    steps in their text form (#1435), such as ``"rotate 90"``, or ``None`` for no default.
     """
 
     COMMAND: ClassVar[str] = "map"
@@ -55,6 +56,7 @@ class MapCreateRequest(Request):
     rms_gate: float = 0.5
     optics: str = ""
     pixel_size_um: float | None = None
+    frame_steps: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,6 +94,7 @@ def run(request: MapCreateRequest) -> MapCreateResult:
     from tether.imaging.calibrate import OverGateRegistrationWarning
     from tether.imaging.layout import LAYOUT_SIDE_BY_SIDE, ChannelLayout
     from tether.imaging.map_asset import MapAsset, save_map_asset
+    from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError
     from tether.project.lock import LockError
 
     output = Path(request.output)
@@ -103,6 +106,12 @@ def run(request: MapCreateRequest) -> MapCreateResult:
         raise CommandFailed("--frames takes a start and a stop; pass both or neither")
     if request.pixel_size_um is not None and not request.pixel_size_um > 0:
         raise CommandFailed(f"--pixel-size must be > 0, got {request.pixel_size_um}")
+    try:
+        frame_steps = (
+            None if request.frame_steps is None else ChannelRecipe.parse(request.frame_steps)
+        )
+    except ChannelRecipeError as exc:
+        raise CommandFailed(f"--frame-steps {request.frame_steps!r}: {exc}") from exc
     frames = None if request.frame_start is None else (request.frame_start, request.frame_stop)
     tmp = output.with_name(f"{output.stem}.{uuid4().hex}.tmp.npz")
     try:
@@ -125,6 +134,7 @@ def run(request: MapCreateRequest) -> MapCreateResult:
             optics=request.optics,
             pixel_size_um=request.pixel_size_um,
             app_version=tether.__version__,
+            frame_steps=frame_steps,
         )
         written = save_map_asset(asset, tmp)
         _publish(written, output, overwrite=request.overwrite)

@@ -38,6 +38,15 @@ point.
 
 [`check_frame_fits`][] is the geometry check of an imported map (#887): it refuses a
 movie whose frames cannot hold the map's channel geometry and names both.
+
+**Frame steps** (#1435, ADR-NNNN). The same operations can run on the *whole* camera frame,
+before the channel split of a map or a layout: a recipe used that way is a movie's *frame
+steps*. ``"rotate 90"`` is ImageJ's "Rotate 90 Degrees Right" (``numpy.rot90(frame, k=3)``).
+The split then reads its cut positions in the frame after the steps.
+[`frame_view_shape`][] gives that frame's size, and [`through_frame_steps`][] folds the steps
+into a channel geometry of that frame, so the result is one geometry of the original frame
+-- the one ``/movies/table`` stores -- that gives the same pixels as the steps followed by
+the split.
 """
 
 from __future__ import annotations
@@ -54,8 +63,15 @@ __all__ = [
     "RECIPE_OPERATIONS",
     "ChannelRecipe",
     "ChannelRecipeError",
+    "FRAME_STEPS_SOURCES",
     "check_frame_fits",
+    "frame_view_shape",
+    "through_frame_steps",
 ]
+
+#: Where the frame steps of an extraction came from (#1435): the map's default, or the
+#: movie's own value (which replaces the map's, ``"none"`` included).
+FRAME_STEPS_SOURCES: tuple[str, ...] = ("map", "movie")
 
 #: The operation names, in the order the docs list them.
 RECIPE_OPERATIONS: tuple[str, ...] = ("rotate", "flip", "translate", "crop")
@@ -393,3 +409,36 @@ def check_frame_fits(
             f"{ChannelRecipe.from_geometry(acceptor)}); {'; '.join(problems)}. Is the movie "
             "rotated against its map?"
         )
+
+
+def frame_view_shape(steps: ChannelRecipe, height: int, width: int) -> tuple[int, int]:
+    """Return the ``(height, width)`` of a frame after its frame steps (#1435).
+
+    Raises
+    ------
+    ChannelRecipeError
+        When the steps cannot be applied to a ``height`` x ``width`` frame, naming the
+        frame size and the steps.
+    """
+    try:
+        return steps.view_shape((height, width))
+    except ChannelRecipeError as exc:
+        raise ChannelRecipeError(
+            f"the frame steps {steps} cannot be applied to the movie's {height} x {width} px "
+            f"frames (height x width): {exc}"
+        ) from exc
+
+
+def through_frame_steps(
+    steps: ChannelRecipe, geometry: ChannelGeometry, frame_shape: Sequence[int]
+) -> ChannelGeometry:
+    """Return one geometry of the original frame: ``steps``, then ``geometry`` (#1435).
+
+    ``geometry`` is a channel geometry of the frame *after* the steps (a map's or a
+    layout's cut); ``frame_shape`` is the original frame's ``(height, width)``. The result
+    gives the same pixels as ``geometry.apply(steps.apply(frame))``, and it is
+    ``geometry`` itself when there are no steps.
+    """
+    if not steps.steps:
+        return geometry
+    return steps.then(ChannelRecipe.from_geometry(geometry)).canonical(frame_shape)

@@ -346,7 +346,7 @@ def test_a_native_fit_records_no_map_file(tmp_path) -> None:
 def test_save_map_writes_the_format_version(fitted) -> None:
     _reg_map, map_file = fitted
     with np.load(map_file, allow_pickle=False) as data:
-        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 2
+        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 3
 
 
 def _rewrite(src: Path, dst: Path, **changes) -> Path:

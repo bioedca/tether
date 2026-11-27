@@ -135,7 +135,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--colocalization {partner-in-both,donor-anchored}]
                [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
                [--map PATH] [--optics TEXT] [--confirm-optics]
-               [--tdat PATH] [--profile PATH]
+               [--tdat PATH] [--profile PATH] [--frame-steps STEPS]
+               [--map-frame-steps STEPS]
                movie
 ```
 
@@ -166,6 +167,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--confirm-optics` | off | With `--map`: use the map although its optics text differs from `--optics`. The project records the confirmation. |
 | `--tdat PATH` | none | Apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`). It sets only the detection mode and the detection threshold (note 5). |
 | `--profile PATH` | none | Read every extraction option from an [extraction profile](#extraction-profiles). An option that the file leaves out keeps its default (note 6). |
+| `--frame-steps STEPS` | the map's default | Turn, flip, move or crop the whole of every frame before the channel split, such as `rotate 90`. `none` is no steps. They replace the default of the map (note 8). |
+| `--map-frame-steps STEPS` | none | With `--tmap`: the default frame steps of the `.tmap`, which holds none of its own (note 8). |
 
 **Notes**
 
@@ -185,6 +188,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 6. You cannot give `--profile` with an option flag, from `--donor-side` to `--rms-gate`.
 7. Tether refuses a map whose own optics text differs, unless you give `--confirm-optics`. See
    [Reuse a map file](#reuse-a-map-file).
+8. See [Frame steps: turn the frame before the split](#frame-steps-turn-the-frame-before-the-split).
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -339,6 +343,55 @@ that a project holds as a separate map file.
 [`map_asset_from_tmap`](api/imaging.md#tether.imaging.map_asset.map_asset_from_tmap) makes a map
 file from a `.tmap`, with the origin `tmap` and no quality record.
 
+### Frame steps: turn the frame before the split
+
+A map gives its cut positions in the frame it was made on. A movie stored in another orientation
+still fits the map, so Tether extracts it, but it reads the wrong part of each frame. For
+example, a map made on TIFFs that were turned 90° right in ImageJ does not fit the `.vsi` movies
+of the same series, because Tether reads a `.vsi` in its stored orientation
+([Movie containers](reference/movie-containers.md)). **Frame steps** fix this
+([ADR-NNNN](adr/NNNN-frame-steps-run-on-the-whole-frame-before-the-split.md)).
+
+The steps run on the whole of every frame, in the order given, **before** the split of the map or
+of the channel layout. The split is then read in the frame after them. Separate the steps with
+commas:
+
+| Step | Meaning |
+|---|---|
+| `rotate 90`, `rotate 180`, `rotate 270` | Turn clockwise. `rotate 90` is ImageJ's *Rotate 90 Degrees Right* (`numpy.rot90(frame, k=3)`). |
+| `flip h`, `flip v`, `flip vh` | Mirror left-right (`h`), top-bottom (`v`) or both. |
+| `translate DOWN RIGHT` | Move by whole pixels. Negative values move up or left. A later `crop` must remove the part the move leaves empty. |
+| `crop Y1 X1 Y2 X2` | Keep the rectangle from row `Y1`, column `X1` to row `Y2`, column `X2`, 1-based and inclusive. |
+| `none` | No steps. |
+
+No step resamples a pixel: each pixel of the result is one pixel of the movie. There is no
+default. With no steps on the map and none on the movie, Tether reads the frames as they are
+stored.
+
+**Where the steps come from.** A map can carry default steps. They say how the frames it was
+made on relate to the movies it will be used with. A map file from
+[`tether map create --frame-steps`](#tether-map-create) stores them. A `.tmap` holds none, so you
+give its default with `--map-frame-steps`. A movie's own `--frame-steps` replace the map's
+default, and `none` is a valid value, for a TIFF that was already turned in ImageJ. `tether batch`
+gives one value to every movie.
+
+```sh
+tether extract series.vsi -o series.tether --tmap series.tmap --map-frame-steps "rotate 90"
+tether extract series_imagej.tif -o imagej.tether --tmap series.tmap --frame-steps none
+```
+
+**What the project records.** The profile of each movie in `/settings/extraction` stores
+`frame_steps`: the steps used, and their source, `map` or `movie` (`null` when there were none).
+The `/movies` row stores one channel geometry per channel, the steps and the cut folded together,
+so the geometry reads each channel from the stored movie. A `.tmap`'s default is also kept in the
+provenance of its `/calibration` group, as `map_frame_steps`. `tether reextract` without
+`--frame-steps` uses the recorded steps again. A map's default gives way to the default of a new
+map, if the new one has its own.
+
+**Refusals.** Tether refuses steps that do not fit the frame, and steps that leave the frame too
+small for the channels of the map or the layout. The message names the size of the movie's frames
+and their size after the steps.
+
 ### Extraction profiles
 
 An *extraction profile* is a JSON file that holds every extraction option. So one file describes
@@ -455,7 +508,7 @@ never overwrites the earlier extraction. It stays readable in the project, with 
 
 ```text
 tether reextract [-h] [--map PATH] [--tmap PATH] [--tdat PATH] [--profile PATH]
-                 [--match-px PX]
+                 [--match-px PX] [--frame-steps STEPS] [--map-frame-steps STEPS]
                  project movie
 ```
 
@@ -468,6 +521,8 @@ tether reextract [-h] [--map PATH] [--tmap PATH] [--tdat PATH] [--profile PATH]
 | `--tdat PATH` | none | Apply the particle-detection mode of a Deep-LASI `.tdat`, as for `tether extract`. |
 | `--profile PATH` | none | Read every extraction option from an [extraction profile](#extraction-profiles). Without one, each option has the default of `tether extract`. |
 | `--match-px PX` | `None` | The "did not move" distance, in pixels. `None` means 0.5 pixels (`GENERATION_MATCH_PX`). |
+| `--frame-steps STEPS` | the recorded steps | The movie's own [frame steps](#frame-steps-turn-the-frame-before-the-split). Without it, Tether uses the steps that the movie was last extracted with. |
+| `--map-frame-steps STEPS` | none | With `--tmap`: the default frame steps of the `.tmap`. |
 
 **What moves to the new generation.** A molecule of the new extraction *did not move* when it is
 within `--match-px` of a molecule of the previous extraction. Each must also be the closest to
@@ -518,7 +573,8 @@ run the same command again, it does only the stages that are not complete.
 
 ```text
 tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
-             [--tmap PATH] [--tdat PATH] [--profile PATH] [--policy {warn,fail}]
+             [--tmap PATH] [--tdat PATH] [--frame-steps STEPS]
+             [--map-frame-steps STEPS] [--profile PATH] [--policy {warn,fail}]
              [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
              [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
              [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
@@ -534,6 +590,8 @@ tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
 | `--into PROJECT.tether` | *(this or `--out-dir`)* | Append every movie to this one project. The first movie creates the project if it is absent (note 2). |
 | `--tmap PATH` | none | A shared imported Deep-LASI `.tmap`, applied to every movie. |
 | `--tdat PATH` | none | A shared Deep-LASI `.tdat` detection configuration, applied to every movie. It sets only the detection mode and the detection threshold (note 3). |
+| `--frame-steps STEPS` | the map's default | One value of [frame steps](#frame-steps-turn-the-frame-before-the-split) for every movie. It replaces the default of the map, and `none` is no steps. |
+| `--map-frame-steps STEPS` | none | With `--tmap`: the default frame steps of the `.tmap`. |
 | `--profile PATH` | none | Extract every movie with the options of an [extraction profile](#extraction-profiles). You cannot give it with `--colocalization` (note 4). |
 | `--policy {warn,fail}` | `warn` | The over-gate registration policy. `warn` keeps an over-gate movie with a flag, and `fail` records its extract stage as failed (note 5). |
 | `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | The colocalization rule of the extraction of each movie. See [`tether extract`](#choose-the-colocalization-rule). |
@@ -921,6 +979,7 @@ same command.
 tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
                   [--projection {max,mean}] [--donor-side {left,right}]
                   [--rms-gate RMS_GATE] [--optics TEXT] [--pixel-size UM]
+                  [--frame-steps STEPS]
                   source
 ```
 
@@ -935,6 +994,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 | `--rms-gate RMS_GATE` | `0.5` | The gate on the RMS residual of the registration, in pixels. |
 | `--optics TEXT` | none | A text for the optics, such as the objective, the filters, the camera and the binning. The map keeps it, and [the reuse check](#reuse-a-map-file) compares it with the `--optics` of a later movie. |
 | `--pixel-size UM` | not known | The camera pixel size in micrometres. The map keeps it, and Tether refuses a later movie with another pixel size. |
+| `--frame-steps STEPS` | none | The default [frame steps](#frame-steps-turn-the-frame-before-the-split) of the map: how the frames it is made on relate to the movies it will be used with, such as `rotate 90`. A movie's own `--frame-steps` replace them. |
 
 ```console
 $ tether map create beads.tif -o beads.npz
@@ -964,7 +1024,7 @@ network shares. There, Tether copies the map instead, under the writer lock of t
 only its own file. Whenever Tether takes the writer lock, it leaves a `<file>.lock.guard` file
 beside the map, as it does beside a project.
 
-The map file has a `format_version`, now `2`. Tether reads a map file of its own version or
+The map file has a `format_version`, now `3`. Tether reads a map file of its own version or
 older, and refuses one that a newer version wrote.
 
 Version 2 makes the map a separate asset
@@ -974,6 +1034,10 @@ Besides the transform and the channel geometry, it holds the map id and its orig
 layout. Then come the quality record, the optics text, the pixel size, the time of the save and
 the Tether version. A file of version 0 or 1 still reads. Its id is the sha256 of its bytes, and
 it has no layout, optics text, pixel size or time.
+
+Version 3 adds the default [frame steps](#frame-steps-turn-the-frame-before-the-split) of the
+map, or none ([ADR-NNNN](adr/NNNN-frame-steps-run-on-the-whole-frame-before-the-split.md)). A
+file of version 2 or older still reads, with no default.
 
 The file holds only plain arrays and text.
 Tether reads it with pickling switched off, so no stored Python object can run when a map loads.

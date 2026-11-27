@@ -137,7 +137,7 @@ def test_the_map_file_holds_the_asset_record(tmp_path, fitted) -> None:
     )
     path = save_map_asset(asset, tmp_path / "beads.npz")
     with np.load(path, allow_pickle=False) as data:
-        assert int(data["format_version"]) == calibrate.MAP_FORMAT_VERSION == 2
+        assert int(data["format_version"]) == calibrate.MAP_FORMAT_VERSION == 3
     back = load_map_asset(path)
     assert back.map_id == asset.map_id and back.map_id.startswith("map:")
     assert back.origin == MAP_ORIGIN_NATIVE_FIT
@@ -187,7 +187,8 @@ def test_a_version_2_file_without_a_record_array_is_refused(tmp_path, fitted) ->
     _, _, reg_map = fitted
     path = save_map_asset(_asset(reg_map), tmp_path / "m.npz")
     with np.load(path, allow_pickle=False) as data:
-        arrays = {k: data[k] for k in data.files if k != "optics"}
+        arrays = {k: data[k] for k in data.files if k != "optics" and k != "frame_steps_json"}
+    arrays["format_version"] = np.array(2, dtype=np.int64)  # a version-2 file (#1435)
     np.savez(tmp_path / "no-optics.npz", **arrays)
     with pytest.raises(MapFileError, match=r"no-optics.npz is a version-2 map file that lacks"):
         load_map_asset(tmp_path / "no-optics.npz")
@@ -198,7 +199,12 @@ def test_load_map_refuses_a_version_2_file_without_its_record(tmp_path, fitted) 
     _, _, reg_map = fitted
     path = save_map_asset(_asset(reg_map), tmp_path / "m.npz")
     with np.load(path, allow_pickle=False) as data:
-        arrays = {k: data[k] for k in data.files if k not in ("optics", "map_id")}
+        arrays = {
+            k: data[k]
+            for k in data.files
+            if k not in ("optics", "map_id") and k != "frame_steps_json"
+        }
+    arrays["format_version"] = np.array(2, dtype=np.int64)  # a version-2 file (#1435)
     np.savez(tmp_path / "no-record.npz", **arrays)
     with pytest.raises(
         MapFileError,
