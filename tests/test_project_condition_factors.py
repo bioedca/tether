@@ -299,3 +299,24 @@ def test_a_second_conditions_manual_factor_keeps_the_first_ones(tmp_path: Path) 
     # cond-B: its estimated α stays estimated, its γ is the one supplied now.
     assert correction["cond-B"]["alpha_source"] == "estimated"
     assert correction["cond-B"]["gamma"] == 0.9 and correction["cond-B"]["gamma_source"] == "manual"
+
+
+def test_a_later_override_of_one_factor_keeps_the_other_manual_one(tmp_path: Path) -> None:
+    # Codex P1 on #1486: a manual γ, then a manual α alone for the same condition, must
+    # keep recording the γ as manual (and the reverse for α).
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+    compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-A")
+    compute_corrected_fret(path, alpha_override=0.05, condition_id="cond-A")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
+    assert (entry["gamma"], entry["gamma_source"]) == (2.0, "manual")
+
+    compute_corrected_fret(path, gamma_override=1.5, condition_id="cond-A")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"]) == (0.05, "manual")
+    assert (entry["gamma"], entry["gamma_source"]) == (1.5, "manual")
+    table = read_molecules(path)
+    assert np.all(table["alpha"][:12] == 0.05) and np.all(table["gamma"][:12] == 1.5)

@@ -453,7 +453,8 @@ def _condition_corrections(
 
     A condition other than ``target`` whose molecules kept a manual factor from an earlier
     pass keeps that pass's record of it: its factors and sources come from the
-    ``/settings/correction`` this pass replaces, else from the factors its rows carry.
+    ``/settings/correction`` this pass replaces, else from the factors its rows carry. In
+    ``target`` itself, the factor this pass does not supply keeps its earlier manual record.
     """
     previous = {
         str(c["condition_id"]): c
@@ -483,8 +484,16 @@ def _condition_corrections(
             gamma = finite_or_none(median) if median is not None else None
             gamma_source = "estimated" if gamma is not None else None
         corrected, n_manual, apparent = counts[cond]
+        prev = previous.get(cond)
         if n_manual and not manual:
-            alpha, gamma, alpha_source, gamma_source = _kept_manual(table, rows, previous.get(cond))
+            alpha, gamma, alpha_source, gamma_source = _kept_manual(table, rows, prev)
+        elif n_manual and prev is not None:
+            # The factor this pass does not supply keeps the manual record an earlier pass
+            # wrote for it: the molecules still carry that factor.
+            if alpha_override is None and prev.get("alpha_source") == "manual":
+                alpha, alpha_source = finite_or_none(prev.get("alpha")), "manual"  # type: ignore[arg-type]
+            if gamma_override is None and prev.get("gamma_source") == "manual":
+                gamma, gamma_source = finite_or_none(prev.get("gamma")), "manual"  # type: ignore[arg-type]
         out.append(
             ConditionCorrection(
                 condition_id=cond,
