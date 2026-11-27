@@ -39,7 +39,9 @@ model's own fit, stale molecules included. The choice is not saved in a composit
 
 When the plot cannot be drawn the preview shows why — no project, no series, no
 idealization model, a state the model does not have, or the refusal of the population
-function or the renderer — and never a placeholder result.
+function or the renderer — and never a placeholder result. A refusal that comes after the
+stale fits were counted keeps each row's badge (#1485): a series whose molecules are all
+stale still says why the overlay has no fresh window for it.
 
 **Lazy imports.** Qt is imported in [`AnalysisSection.__init__`][] and Matplotlib's Qt
 canvas on the first draw, so importing this module costs neither. Constructing an
