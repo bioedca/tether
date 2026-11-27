@@ -63,6 +63,10 @@ shows its message after the name of the export, for example
 [An export stops with a message](../troubleshooting.md#an-export-stops-with-a-message) lists
 them.
 
+Two windows can export to the same file at once. The second then waits for the first to place
+its file and provenance file. So the pair always comes from one export. An export also leaves a hidden
+`.<file>.publish.guard` file beside the export. Leave it there, as Tether reuses it.
+
 ## Export the molecule table
 
 1. Choose **File → Export → Molecule table (CSV)…**.
