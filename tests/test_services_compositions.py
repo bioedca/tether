@@ -486,6 +486,11 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
         _save(tmp_path / "c.json", project, ["all"])
     assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
     assert not (tmp_path / "c.json").exists()
+    # A write that fails before the publish leaves no temporary file either.
+    monkeypatch.setattr(os, "fstat", refuse)
+    with pytest.raises(CommandFailed, match="disk full"):
+        _save(tmp_path / "c.json", project, ["all"])
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
 
 
 def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -> None:
@@ -617,3 +622,34 @@ def test_without_hard_links_a_save_still_publishes_exclusively(
         _save(later, project, ["all"])
     assert later.read_text(encoding="utf-8") == '{"theirs": true}'
     assert not any(os.path.lexists(n) for n in names)
+
+
+def test_a_temporary_entry_removed_before_the_publish_publishes_nothing(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Gap 2, its other form: the temporary name is gone by the time of the publish."""
+    import os
+
+    from tether.services import CommandFailed
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    names = _record_temporary(monkeypatch)
+    real_fdopen = os.fdopen
+
+    class Removed:
+        def __init__(self, f) -> None:
+            self.f = f
+
+        def __enter__(self):
+            return self.f.__enter__()
+
+        def __exit__(self, *exc):
+            result = self.f.__exit__(*exc)
+            os.unlink(names[-1])
+            return result
+
+    monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: Removed(real_fdopen(fd, *a, **k)))
+    with pytest.raises(CommandFailed, match="was replaced before the save published it"):
+        _save(out, project, ["all"])
+    assert not os.path.lexists(out)
