@@ -220,6 +220,40 @@ each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1
    is a warning with the evidence and the remedy when the halves look swapped, and a note
    otherwise. The check never changes the data. Click **Open the new project** to open it.
 
+### Check the apertures before the run
+
+The **Apertures and background** tab of the same page shows the apertures of the movie and the
+options on the left before you extract. Nothing is written to a project.
+
+1. Click **Review apertures**. The review runs in the background, and the window stays usable.
+2. Look at the frame, the mean of all frames of the movie. Each spot has its signal aperture
+   (a solid circle of `disk_radius`) and its background ring (two dotted circles,
+   `ring_inner` and `ring_outer`), at the donor spot and at the acceptor position the
+   registration maps it to.
+3. Read the marks and the counts above the frame. **Orange** is a spot at an edge: its
+   `window`-pixel crop leaves the donor or the acceptor channel, so the run skips it.
+   **Magenta** is a molecule whose aperture overlaps the aperture of its nearest neighbour:
+   their centres are closer than twice `disk_radius`, the rule of the curation overlap view.
+   **Grey** is a spot with no acceptor partner, which the `partner-in-both` rule skips. These
+   are the rules the run applies; the tab adds none.
+4. Select molecules in the list to see their preview traces, donor and acceptor. A preview
+   trace is the trace the run gives that molecule.
+5. Change an option, for example `disk_radius`, and press Enter. The tab reviews the movie
+   again.
+6. Click **Save report…** to write the report: a JSON file with the options, the counts, every
+   spot and the traces of the selected molecules, and a PNG of the frame with the apertures.
+
+The command line writes the same report with the same functions, from the movie, an extraction
+profile, the registration source and the molecules:
+
+```sh
+tether apertures movie.tif --json apertures.json --png apertures.png \
+    --profile profile.json --molecule 0 --molecule 3
+```
+
+`--disk-radius`, `--ring-inner`, `--ring-outer` and `--window` change one option of the
+profile. The command refuses to replace an existing report without `--overwrite`.
+
 ## Add another movie to a project
 
 A project can hold several movies of one experiment

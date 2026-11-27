@@ -20,6 +20,10 @@ Deep-LASI ``.tmap``), sets the extraction options, and then:
   result of the advisory donor-side check (#646, ADR-0070): a warning with the evidence and
   the remedy when the halves look swapped, and a note otherwise. The check never changes the
   data and never blocks. Publishing into the open project is #352.
+* The **Apertures and background** tab
+  ([`ApertureSection`][tether.gui.apertures.ApertureSection], #922) draws the signal aperture
+  and the background ring of every spot, marks the spots at an edge and the overlapping ones,
+  and shows the preview traces of the molecules the user selects, before the run.
 
 The options form has one row for each field of
 [`ExtractionFields`][tether.services.profile.ExtractionFields], the fields of an extraction
@@ -280,7 +284,23 @@ class ExtractionSection:
         self._viewer_note.setWordWrap(True)
         self._viewer_host.addWidget(self._viewer_note)
         right_layout.addLayout(self._viewer_host, 1)
-        splitter.addWidget(right)
+        # The Apertures and background tab (#922) reviews the inputs of this page.
+        from tether.gui.apertures import ApertureSection
+
+        self._apertures = ApertureSection(
+            status=self._status, inputs=self.review_inputs, window=self._window
+        )
+        self._tabs = QtWidgets.QTabWidget()
+        self._tabs.setAccessibleName("Prepare tabs")
+        self._tabs.addTab(right, "&Stages")
+        self._tabs.addTab(self._apertures.widget, "&Apertures and background")
+        splitter.addWidget(self._tabs)
+        for widget in (self._movie_field, self._source_field, *self._fields.values()):
+            if hasattr(widget, "findData"):
+                widget.currentIndexChanged.connect(self._apertures.inputs_changed)
+            else:
+                widget.editingFinished.connect(self._apertures.inputs_changed)
+        self._source_combo.currentIndexChanged.connect(self._apertures.inputs_changed)
         self._show_stages(None)
 
     # --- the state a test reads ---------------------------------------------------
@@ -294,6 +314,19 @@ class ExtractionSection:
     def fields(self) -> Mapping[str, Any]:
         """The input widget of each form row, by field name."""
         return dict(self._fields)
+
+    @property
+    def apertures(self) -> Any:
+        """The Apertures and background tab (#922).
+
+        An [`ApertureSection`][tether.gui.apertures.ApertureSection].
+        """
+        return self._apertures
+
+    @property
+    def tabs(self) -> Any:
+        """The ``QTabWidget`` of the page: Stages, and Apertures and background (#922)."""
+        return self._tabs
 
     @property
     def stage_table(self) -> Any:
@@ -390,6 +423,17 @@ class ExtractionSection:
             return None
         self._error_label.setText("")
         return _Inputs(movie, source, source_path if source != "native" else None, profile)
+
+    def review_inputs(self) -> tuple[str, ExtractOptions, dict[str, str | None]] | None:
+        """Return the movie, the options and the registration source of the form, or ``None``.
+
+        The inputs of the Apertures and background tab (#922), checked as a preview checks
+        them: ``None`` after the label under the form says why they are refused.
+        """
+        inputs = self._read_inputs()
+        if inputs is None:
+            return None
+        return inputs.movie, inputs.profile.extract_options(), _source_kwargs(inputs)
 
     # --- preview ------------------------------------------------------------------
 
@@ -580,6 +624,7 @@ class ExtractionSection:
         """
         self._tasks.abandon()
         self._tasks.shutdown()
+        self._apertures.close()
         self._clear_preview()
         if self._panel is not None:
             self._panel.close()

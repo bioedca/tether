@@ -30,8 +30,8 @@ API reference has a page for each package.
 | [`tether.services`](../api/services.md) | One Qt-free command for each action, which the application, the command line and a recipe file all call. | [ADR-0100](../adr/0100-service-commands-are-the-one-way-to-run-an-action.md) |
 | [`tether.gui`](../api/gui.md) | The PySide6 shell: its sections, the trace and plot docks, and the napari movie panel. | [ADR-0116](../adr/0116-the-shell-hosts-its-sections-in-one-stack.md), [ADR-0055](../adr/0055-gui-session-writer-ownership.md) |
 
-Some modules sit at the top of `src/tether/`, outside the packages. `cli.py` and `cli_export.py`
-are the `tether` command line ([Command line](../cli.md)). `extract_choices.py` and
+Some modules sit at the top of `src/tether/`, outside the packages. `cli.py`, `cli_apertures.py`
+and `cli_export.py` are the `tether` command line ([Command line](../cli.md)). `extract_choices.py` and
 `idealize_choices.py` hold the choices that the command line and the application share.
 
 ### Which package can import which
