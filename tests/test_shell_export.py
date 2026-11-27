@@ -315,3 +315,37 @@ def test_no_export_without_a_project(shell):
 
     assert shell.show_export_dialog(ExportKind.TABLE) is None
     assert _latest(shell) == "Export the molecule table: open a project first"
+
+
+def test_a_failed_publish_keeps_the_previous_export_and_its_provenance(tmp_path):
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    project = _project(tmp_path)
+    out = tmp_path / "molecules.csv"
+    out.write_text("previous table\n", encoding="utf-8")
+    # A folder where the provenance file goes: the second move fails after the first.
+    (tmp_path / "molecules.csv.provenance.json").mkdir()
+    before = sorted(p.name for p in tmp_path.iterdir())
+    with pytest.raises(OSError):
+        run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected=True))
+    assert out.read_text(encoding="utf-8") == "previous table\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_an_export_replaces_the_previous_pair_and_leaves_nothing_else(tmp_path):
+    from tether.services.exports import ExportKind, ExportRequest, run_export
+
+    project = _project(tmp_path)
+    folder = tmp_path / "out"
+    folder.mkdir()
+    out = folder / "molecules.csv"
+    out.write_text("previous table\n", encoding="utf-8")
+    out.with_name(out.name + ".provenance.json").write_text("{}\n", encoding="utf-8")
+    result = run_export(project, ExportRequest(ExportKind.TABLE, out, include_rejected=False))
+    assert result.n_molecules == 2
+    assert out.read_text(encoding="utf-8").startswith("molecule_id,")
+    assert _provenance(out)["parameters"]["include_rejected"] is False
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "molecules.csv",
+        "molecules.csv.provenance.json",
+    ]

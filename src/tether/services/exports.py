@@ -194,19 +194,49 @@ def run_export(
     os.close(fd)
     staged = Path(name)
     staged_provenance = staged.with_name(staged.name + ".provenance.json")
+    provenance = out_path.with_name(out_path.name + ".provenance.json")
     try:
         result = _call(request, project, staged)
         if cancel is not None:
             cancel.raise_if_cancelled()
-        provenance = out_path.with_name(out_path.name + ".provenance.json")
-        os.replace(staged, out_path)
-        os.replace(staged_provenance, provenance)
+        _publish([(staged, out_path), (staged_provenance, provenance)], staged)
     except BaseException:
         for leftover in (staged, staged_provenance):
             with contextlib.suppress(FileNotFoundError):
                 leftover.unlink()
         raise
     return ExportResult(path=out_path, provenance_path=provenance, n_molecules=result.n_molecules)
+
+
+def _publish(moves: list[tuple[Path, Path]], staged: Path) -> None:
+    """Move each staged file onto its destination, all of them or none.
+
+    The files already at the destinations are set aside first, under names beside the
+    staged file. When a move fails, the files moved so far are removed and the previous
+    ones are put back, so a failed export leaves the destination pair as it was: never new
+    data with stale provenance, and never a lost previous export.
+    """
+    kept: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
+    try:
+        for i, (_source, target) in enumerate(moves):
+            if target.is_file():
+                aside = staged.with_name(f"{staged.name}.previous-{i}")
+                os.replace(target, aside)
+                kept.append((aside, target))
+        for source, target in moves:
+            os.replace(source, target)
+            placed.append(target)
+    except BaseException:
+        for target in placed:
+            with contextlib.suppress(FileNotFoundError):
+                target.unlink()
+        for aside, target in kept:
+            os.replace(aside, target)
+        raise
+    for aside, _target in kept:
+        with contextlib.suppress(FileNotFoundError):
+            aside.unlink()
 
 
 def export_message(result: ExportResult) -> str:
