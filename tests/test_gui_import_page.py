@@ -171,6 +171,71 @@ def test_a_frame_time_from_you_is_not_verified_until_you_confirm_it(tmp_path) ->
     assert confirmed.state == "from you, confirmed"
 
 
+def test_values_shapes_and_pixel_names_read_as_the_page_shows_them(tmp_path) -> None:
+    assert mi._value_text(None) == ""
+    assert mi._value_text(("Cy3", "Cy5")) == "Cy3, Cy5"
+    assert mi._value_text(0.05) == "0.05"
+    assert mi._value_text(7) == "7"
+    assert mi._pixel_name("<u2") == "uint16"
+    assert mi._pixel_name(object()).startswith("<object")
+    assert mi.describe_movie(_write_movie(tmp_path / "a.tif")).frame_shape == (_H, _W)
+
+
+def test_a_reader_that_refuses_a_file_or_its_frames_is_a_refusal(tmp_path, monkeypatch) -> None:
+    from tether.io import adapters
+
+    movie = _write_movie(tmp_path / "a.tif")
+
+    def refuse(_path):
+        raise ValueError("the reader refuses it")
+
+    monkeypatch.setattr(adapters, "open_movie_source", refuse)
+    with pytest.raises(RequestRefused, match="refuses it"):
+        mi.describe_movie(movie)
+    monkeypatch.undo()
+
+    class Broken:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read_frames(self, _start, _stop):
+            raise OSError("a short read")
+
+    monkeypatch.setattr(mi, "_open", lambda _path: (None, Broken()))
+    with pytest.raises(RequestRefused, match="short read"):
+        mi.read_first_frame(movie)
+
+
+def test_rectangles_swap_and_steps_that_leave_the_frame_are_refused() -> None:
+    rects = mi.LayoutChoice(
+        kind="rectangles", donor=None, donor_rect=(1, 1, 8, 8), acceptor_rect=(1, 9, 8, 16)
+    )
+    swapped = rects.swapped()
+    assert (swapped.donor_rect, swapped.acceptor_rect) == (rects.acceptor_rect, rects.donor_rect)
+    assert rects.profile_texts()["channel_layout_donor_rect"] == "1, 1, 8, 8"
+    with pytest.raises(RequestRefused, match="frame steps"):
+        mi.frame_view(np.zeros((_H, _W)), mi.LayoutChoice(), "crop 1 1 999 999")
+
+
+def test_unwritable_and_unreadable_files_are_failed_commands(tmp_path, monkeypatch) -> None:
+    request = mi.extract_request("m.tif", "m.tether", mi.LayoutChoice())
+    with pytest.raises(CommandFailed, match="r.json"):
+        mi.save_recipe(tmp_path / "no-such-folder" / "r.json", [request])
+    with pytest.raises(CommandFailed, match="gone.tether"):
+        mi.read_project_sources(tmp_path / "gone.tether")
+    with pytest.raises(CommandFailed, match="gone.tether"):
+        mi.read_frame_times(tmp_path / "gone.tether")
+
+    class Unreadable(type(tmp_path)):
+        def is_file(self):
+            raise PermissionError("no access")
+
+    assert mi._missing(Unreadable(tmp_path / "x.tif")) == "file unreadable"
+
+
 # --- the page ---------------------------------------------------------------------------
 
 
