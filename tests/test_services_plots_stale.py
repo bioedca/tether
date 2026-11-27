@@ -200,6 +200,28 @@ def test_every_model_plot_passes_include_stale_to_its_population_function(
     assert calls == [(selection, False), (selection, True)]
 
 
+def test_a_one_shot_selection_reaches_the_population_function_whole(stale_store) -> None:
+    # The stale count reads the selection first; a generator of keys must not reach the
+    # population function exhausted (#1481 review).
+    project, keys = stale_store
+    listed = compose_plot(
+        project.path,
+        "population_transition_density",
+        [PlotSeries("s", keys[:3], True)],
+        model_name=MODEL,
+    )
+    once = compose_plot(
+        project.path,
+        "population_transition_density",
+        [PlotSeries("s", (k for k in keys[:3]), True)],
+        model_name=MODEL,
+    )
+    assert once.drawn, once.missing
+    assert once.results[0][1].n_molecules == listed.results[0][1].n_molecules == 3
+    np.testing.assert_array_equal(once.results[0][1].counts, listed.results[0][1].counts)
+    assert [e.stale for e in once.staleness] == [1]
+
+
 def test_the_sync_heatmap_leaves_a_stale_single_molecule_out(stale_store) -> None:
     # parameters.md: the heatmap's only guard compares a state path against the width of the
     # whole /traces array, so a re-extraction of one molecule is not caught. The builder

@@ -40,7 +40,7 @@ imports the core and Matplotlib only when it runs.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -525,6 +525,24 @@ def _staleness(
     return tuple(counts)
 
 
+def _once(project: str | PathLike[str], entry: PlotSeries) -> PlotSeries:
+    """Return ``entry`` with a one-shot iterable of keys read into a list (#1481 review).
+
+    The stale count reads a series' selection before its population function does, so a
+    generator of keys would reach the function exhausted. A list of the same keys, in the
+    same order, is passed instead; ``None`` and a
+    [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection], which can be asked
+    again, are passed on as they are.
+    """
+    from tether.analysis.selection import MoleculeSelection  # noqa: PLC0415
+
+    if entry.selection is None or isinstance(entry.selection, MoleculeSelection | list):
+        return entry
+    from tether.analysis.selection import resolve_selection  # noqa: PLC0415
+
+    return replace(entry, selection=resolve_selection(entry.selection, project))
+
+
 def _overlay_warnings(staleness: Sequence[SeriesStaleness]) -> tuple[str, ...]:
     """Return the warnings of a model-Gaussian overlay drawn over a cohort with stale members."""
     warnings: list[str] = []
@@ -573,6 +591,7 @@ def compose_plot(
         return PlotOutcome(
             plot_id, missing=f"{spec.title}: add a selection to the layer list to draw it."
         )
+    series = [_once(project, entry) for entry in series]
     options: dict[str, Any] = spec.state_defaults()
     options.update({k: int(v) for k, v in (states or {}).items() if k in spec.states})
     staleness: tuple[SeriesStaleness, ...] = ()
