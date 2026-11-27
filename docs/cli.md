@@ -1800,16 +1800,14 @@ projects and exits `1`.
 
 ## `tether apertures`
 
-Write the aperture and background report of one movie before the run: the report that the
-**Apertures and background** tab of the Prepare page saves
+Write the aperture and background report of one movie before the run. It is the report that
+the **Apertures and background** tab of the Prepare page saves
 ([Check the apertures before the run](how-to/extract-traces.md#check-the-apertures-before-the-run)).
-The command previews the movie as the extraction would run it and writes nothing to a project.
-It calls the same two functions as the page, so for the same movie, options, registration and
-molecules the two write the same files.
+The command previews the movie as the extraction would run it. It writes nothing to a project.
+It calls the same two functions as the page. So for the same inputs the two write the same files.
 
 ```sh
-tether apertures movie.tif --json apertures.json --png apertures.png \
-    --profile profile.json --molecule 0 --molecule 3
+tether apertures movie.tif --json apertures.json --png apertures.png --profile profile.json --molecule 0
 ```
 
 | Option | Meaning |
@@ -1822,12 +1820,16 @@ tether apertures movie.tif --json apertures.json --png apertures.png \
 | `--molecule N` | A molecule whose preview traces the report carries. Repeat it for more. |
 | `--overwrite` | Replace an existing report. Without it the command refuses. |
 
-A spot is marked `at-edge` when its crop leaves the donor or the acceptor channel, so the run
-skips it, `overlap` when its aperture overlaps the aperture of its nearest molecule, and
-`no-partner` when the `partner-in-both` rule skips it for want of an acceptor spot. The command
-prints the counts. It exits `0` when it wrote the report, `1` when the review failed (for
-example, the preview stopped before the traces), and `2` when it refused the options or an
-existing output.
+Each spot of the report has a mark:
+
+- `at-edge`: its crop leaves the donor or the acceptor channel, so the run skips it.
+- `overlap`: its aperture overlaps the aperture of its nearest molecule.
+- `no-partner`: the `partner-in-both` rule skips it, because no acceptor spot is near it.
+- `ok`: none of these.
+
+The command prints the counts. It exits `0` when it wrote the report. It exits `1` when the
+review failed, for example when the preview stopped before the traces. It exits `2` when it
+refused the options or an existing output.
 
 ## Sync-conflict copies beside a project
 

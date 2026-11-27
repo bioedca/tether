@@ -222,33 +222,33 @@ each stage first. Open it with **View → Section → Prepare**, or press Ctrl+1
 
 ### Check the apertures before the run
 
-The **Apertures and background** tab of the same page shows the apertures of the movie and the
-options on the left before you extract. Nothing is written to a project.
+The **Apertures and background** tab of the same page reviews the apertures before you
+extract. It uses the movie and the options on the left. Nothing is written to a project.
 
 1. Click **Review apertures**. The review runs in the background, and the window stays usable.
-2. Look at the frame, the mean of all frames of the movie. Each spot has its signal aperture
-   (a solid circle of `disk_radius`) and its background ring (two dotted circles,
-   `ring_inner` and `ring_outer`), at the donor spot and at the acceptor position the
-   registration maps it to.
-3. Read the marks and the counts above the frame. **Orange** is a spot at an edge: its
-   `window`-pixel crop leaves the donor or the acceptor channel, so the run skips it.
-   **Magenta** is a molecule whose aperture overlaps the aperture of its nearest neighbour:
-   their centres are closer than twice `disk_radius`, the rule of the curation overlap view.
-   **Grey** is a spot with no acceptor partner, which the `partner-in-both` rule skips. These
-   are the rules the run applies; the tab adds none.
+2. Look at the frame. It is the mean of all frames of the movie. Each spot has a solid circle,
+   its signal aperture of `disk_radius`. Two dotted circles show its background ring, from
+   `ring_inner` to `ring_outer`. Each spot is drawn twice: at the donor spot, and where the
+   registration maps it in the acceptor half.
+3. Read the marks and the counts above the frame. The rules are the ones the run applies.
+   - **Orange** is a spot at an edge. Its `window`-pixel crop leaves a channel, so the run
+     skips it.
+   - **Magenta** is a molecule whose aperture overlaps the aperture of its nearest neighbour.
+     The curation overlap view uses the same rule: the centres are closer than twice
+     `disk_radius`.
+   - **Grey** is a spot with no acceptor partner. The `partner-in-both` rule skips it.
 4. Select molecules in the list to see their preview traces, donor and acceptor. A preview
    trace is the trace the run gives that molecule.
 5. Change an option, for example `disk_radius`, and press Enter. The tab reviews the movie
    again.
-6. Click **Save report…** to write the report: a JSON file with the options, the counts, every
-   spot and the traces of the selected molecules, and a PNG of the frame with the apertures.
+6. Click **Save report…** to write the report. The JSON file has the options, the counts, every
+   spot and the traces of the selected molecules. The PNG shows the frame with the apertures.
 
-The command line writes the same report with the same functions, from the movie, an extraction
-profile, the registration source and the molecules:
+The command line writes the same report with the same functions. Give it the movie, an
+extraction profile, the registration source and the molecules:
 
 ```sh
-tether apertures movie.tif --json apertures.json --png apertures.png \
-    --profile profile.json --molecule 0 --molecule 3
+tether apertures movie.tif --json apertures.json --png apertures.png --profile profile.json --molecule 0
 ```
 
 `--disk-radius`, `--ring-inner`, `--ring-outer` and `--window` change one option of the
