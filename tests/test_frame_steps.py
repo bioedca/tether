@@ -376,8 +376,9 @@ def test_the_map_default_applies_and_a_movie_override_replaces_it(
     assert _profile(own)["frame_steps"] == {"steps": "flip h", "source": "movie"}
 
 
-def test_no_steps_anywhere_records_none_and_changes_nothing(baseline) -> None:
-    assert _profile(baseline["native"])["frame_steps"] == {"steps": "none", "source": None}
+def test_no_steps_anywhere_records_nothing_and_changes_nothing(baseline) -> None:
+    assert "frame_steps" not in _profile(baseline["native"])
+    assert "frame_steps" not in _profile(baseline["with_map"])
     row = _movie_row(baseline["native"])
     assert row["donor_crop"].tolist() == [1, 1, 40, 40]
     assert row["acceptor_crop"].tolist() == [1, 41, 40, 80]

@@ -467,7 +467,7 @@ def _resolve_frame_steps(
     return ChannelRecipe(), None
 
 
-def _frame_steps_record(steps: ChannelRecipe, source: str | None) -> dict[str, Any]:
+def _frame_steps_record(steps: ChannelRecipe, source: str) -> dict[str, Any]:
     """Return the ``frame_steps`` entry of a movie's settings profile (#1435)."""
     return {"steps": str(steps), "source": source}
 
@@ -507,8 +507,10 @@ def _settings(
     # The advisory donor-side check's verdict, its counts and the thresholds it used
     # (#646, ADR-0070). It describes the traces stored here and never changed them.
     settings["donor_side_check"] = donor_side_check.to_dict()
-    # The frame steps applied before the split and where they came from (#1435).
-    settings["frame_steps"] = _frame_steps_record(frame_steps, frame_steps_source)
+    # The frame steps applied before the split and where they came from (#1435); a run
+    # with none from anywhere records nothing, so its profile is as before.
+    if frame_steps_source is not None:
+        settings["frame_steps"] = _frame_steps_record(frame_steps, frame_steps_source)
     return settings
 
 

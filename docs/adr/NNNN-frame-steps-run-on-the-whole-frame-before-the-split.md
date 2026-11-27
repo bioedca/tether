@@ -94,9 +94,10 @@ one movie or map was acquired, not how to extract.
 ### What a project records
 
 - The profile of each movie (`/settings/extraction/movies@<movie_id>`) stores
-  `frame_steps: {"steps": "<text>", "source": "map" | "movie" | null}`. With no steps it is
-  `{"steps": "none", "source": null}`. This is a key of a JSON attribute; the HDF5 layout does not
-  change.
+  `frame_steps: {"steps": "<text>", "source": "map" | "movie"}` whenever steps came from either
+  source (`"none"` from a movie included). A run with no steps from anywhere writes no key, so its
+  profile is byte for byte the one of today. This is a key of a JSON attribute; the HDF5 layout
+  does not change.
 - The `/calibration` provenance of a map file run keeps the file's record, which now names its
   `frame_steps`, and of every map with a default, `map_frame_steps`, so a `.tmap`'s default is kept
   with its record in the project.

@@ -346,9 +346,9 @@ file from a `.tmap`, with the origin `tmap` and no quality record.
 ### Frame steps: turn the frame before the split
 
 A map gives its cut positions in the frame it was made on. A movie stored in another orientation
-still fits the map, so Tether extracts it, but it reads the wrong part of each frame. For
-example, a map made on TIFFs that were turned 90° right in ImageJ does not fit the `.vsi` movies
-of the same series, because Tether reads a `.vsi` in its stored orientation
+still fits the map, so Tether extracts it, but it reads the wrong part of each frame. Say that a
+map was made on TIFFs that ImageJ turned 90° right. It does not fit the `.vsi` movies of the same
+series, because Tether reads a `.vsi` in its stored orientation
 ([Movie containers](reference/movie-containers.md)). **Frame steps** fix this
 ([ADR-NNNN](adr/NNNN-frame-steps-run-on-the-whole-frame-before-the-split.md)).
 
@@ -371,25 +371,27 @@ stored.
 **Where the steps come from.** A map can carry default steps. They say how the frames it was
 made on relate to the movies it will be used with. A map file from
 [`tether map create --frame-steps`](#tether-map-create) stores them. A `.tmap` holds none, so you
-give its default with `--map-frame-steps`. A movie's own `--frame-steps` replace the map's
-default, and `none` is a valid value, for a TIFF that was already turned in ImageJ. `tether batch`
-gives one value to every movie.
+give its default with `--map-frame-steps`.
+
+A movie's own `--frame-steps` replace the map's default. `none` is a valid value, for a TIFF that
+was already turned in ImageJ. `tether batch` gives one value to every movie.
 
 ```sh
 tether extract series.vsi -o series.tether --tmap series.tmap --map-frame-steps "rotate 90"
 tether extract series_imagej.tif -o imagej.tether --tmap series.tmap --frame-steps none
 ```
 
-**What the project records.** The profile of each movie in `/settings/extraction` stores
-`frame_steps`: the steps used, and their source, `map` or `movie` (`null` when there were none).
-The `/movies` row stores one channel geometry per channel, the steps and the cut folded together,
-so the geometry reads each channel from the stored movie. A `.tmap`'s default is also kept in the
-provenance of its `/calibration` group, as `map_frame_steps`. `tether reextract` without
-`--frame-steps` uses the recorded steps again. A map's default gives way to the default of a new
-map, if the new one has its own.
+**What the project records.** When steps were applied, the profile of the movie in
+`/settings/extraction` stores `frame_steps`: the steps, and their source, `map` or `movie`. With
+no steps, the profile is as before. The `/movies` row stores one geometry per channel, the steps
+and the cut folded together, so it reads each channel from the stored movie.
 
-**Refusals.** Tether refuses steps that do not fit the frame, and steps that leave the frame too
-small for the channels of the map or the layout. The message names the size of the movie's frames
+A map's default is also kept in the provenance of its `/calibration` group, as
+`map_frame_steps`. `tether reextract` without `--frame-steps` uses the recorded steps again. A
+map's default gives way to the default of a new map, if the new one has its own.
+
+**Refusals.** Tether refuses steps that do not fit the frame. It also refuses
+steps that leave the frame too small for the channels of the map or the layout. The message names the size of the movie's frames
 and their size after the steps.
 
 ### Extraction profiles
@@ -1923,7 +1925,8 @@ A break between two parts of JSON does not change it:
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
 "channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
 "confirm_optics":false,"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
-"disk_radius":3.0,"donor_side":"left","map_optics":null,"map_path":null,
+"disk_radius":3.0,"donor_side":"left","frame_steps":null,"map_frame_steps":null,
+"map_optics":null,"map_path":null,
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
