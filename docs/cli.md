@@ -350,7 +350,7 @@ still fits the map, so Tether extracts it, but it reads the wrong part of each f
 map was made on TIFFs that ImageJ turned 90° right. It does not fit the `.vsi` movies of the same
 series, because Tether reads a `.vsi` in its stored orientation
 ([Movie containers](reference/movie-containers.md)). **Frame steps** fix this
-([ADR-NNNN](adr/NNNN-frame-steps-run-on-the-whole-frame-before-the-split.md)).
+([ADR-0157](adr/0157-frame-steps-run-on-the-whole-frame-before-the-split.md)).
 
 The steps run on the whole of every frame, in the order given, **before** the split of the map or
 of the channel layout. The split is then read in the frame after them. Separate the steps with
@@ -1038,7 +1038,7 @@ the Tether version. A file of version 0 or 1 still reads. Its id is the sha256 o
 it has no layout, optics text, pixel size or time.
 
 Version 3 adds the default [frame steps](#frame-steps-turn-the-frame-before-the-split) of the
-map, or none ([ADR-NNNN](adr/NNNN-frame-steps-run-on-the-whole-frame-before-the-split.md)). A
+map, or none ([ADR-0157](adr/0157-frame-steps-run-on-the-whole-frame-before-the-split.md)). A
 file of version 2 or older still reads, with no default.
 
 The file holds only plain arrays and text.

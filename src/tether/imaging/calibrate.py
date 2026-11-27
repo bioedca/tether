@@ -110,7 +110,7 @@ LOW_CONFIDENCE_TAG = "low-confidence-registration"
 #: this rule. Version 2 adds the map asset record (#916, ADR-0146): map id, origin,
 #: source ids, channel layout, quality record, optics text, pixel size, time and
 #: Tether version ([`tether.imaging.map_asset`][]). Version 3 adds the map's default
-#: frame steps (#1435, ADR-NNNN).
+#: frame steps (#1435, ADR-0157).
 MAP_FORMAT_VERSION = 3
 
 #: The arrays every map file holds, whatever its version (each geometry prefix
@@ -148,7 +148,7 @@ _MAP_ASSET_KEYS = (
     "app_version",
 )
 
-#: The array format version 3 adds: the map's default frame steps (#1435, ADR-NNNN), the
+#: The array format version 3 adds: the map's default frame steps (#1435, ADR-0157), the
 #: JSON of their text form or ``null`` for no default.
 _MAP_FRAME_STEPS_KEYS = ("frame_steps_json",)
 

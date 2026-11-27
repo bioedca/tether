@@ -28,7 +28,7 @@ transform in both directions and the channel geometry, PRD Appendix E stage 10) 
 * ``frame_steps`` -- the map's default frame steps (#1435): how the frames the map was made
   on relate to the movies it will be used with, for example ``rotate 90`` for a map made
   on TIFFs turned in ImageJ, or ``None`` for no default. A movie's own steps replace it.
-  It is the array ``frame_steps_json`` of format version 3 (ADR-NNNN); an older file has
+  It is the array ``frame_steps_json`` of format version 3 (ADR-0157); an older file has
   no default.
 
 [`save_map_asset`][] and [`load_map_asset`][] write and read the ``.npz`` map file at
@@ -428,7 +428,7 @@ def _json(value: Any) -> np.ndarray:
 
 
 def save_map_asset(asset: MapAsset, path: str | Path) -> Path:
-    """Write ``asset`` as a ``.npz`` map file at format version 3 (ADR-0146, ADR-NNNN).
+    """Write ``asset`` as a ``.npz`` map file at format version 3 (ADR-0146, ADR-0157).
 
     Every array of a version-1 file is written as before, so every reader of version 1
     finds them; the asset record is added as plain arrays and JSON strings. Nothing is

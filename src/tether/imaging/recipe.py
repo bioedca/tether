@@ -39,7 +39,7 @@ point.
 [`check_frame_fits`][] is the geometry check of an imported map (#887): it refuses a
 movie whose frames cannot hold the map's channel geometry and names both.
 
-**Frame steps** (#1435, ADR-NNNN). The same operations can run on the *whole* camera frame,
+**Frame steps** (#1435, ADR-0157). The same operations can run on the *whole* camera frame,
 before the channel split of a map or a layout: a recipe used that way is a movie's *frame
 steps*. ``"rotate 90"`` is ImageJ's "Rotate 90 Degrees Right" (``numpy.rot90(frame, k=3)``).
 The split then reads its cut positions in the frame after the steps.
