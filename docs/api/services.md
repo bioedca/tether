@@ -33,6 +33,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.maps
 
+::: tether.services.movie_import
+
 ::: tether.services.movie_locations
 
 ::: tether.services.movies

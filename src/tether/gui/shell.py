@@ -1670,6 +1670,14 @@ class TetherShell:
                     order=1,
                     central=lambda _host: self._build_extraction_page(),
                     writes_project=True,
+                    docks=(
+                        DockSpec(
+                            id="import",
+                            title="Import",
+                            area=DockArea.LEFT,
+                            factory=lambda _host: self._build_import_page(),
+                        ),
+                    ),
                     menus=(
                         MenuSpec(
                             id="import",
@@ -1752,6 +1760,25 @@ class TetherShell:
             status=self._status, open_project=self.load_project, window=self._window
         )
         return self._extraction.widget
+
+    def _build_import_page(self) -> Any:
+        """Prepare's Import dock (#913): add movies, pair them, set the layout, repair."""
+        from tether.gui.import_page import ImportPage
+
+        def use_movie(path: Path, layout_texts: dict[str, str]) -> None:
+            self._extraction.set_movie(path)
+            for name, text in layout_texts.items():
+                self._extraction.set_field(name, text)
+
+        self._import_page = ImportPage(
+            status=self._status, window=self._window, use_movie=use_movie
+        )
+        return self._import_page.widget
+
+    @property
+    def import_page(self) -> Any:
+        """Prepare's Import dock: an [`ImportPage`][tether.gui.import_page.ImportPage] (#913)."""
+        return self._import_page
 
     @property
     def extraction(self) -> Any:
@@ -3575,6 +3602,7 @@ class TetherShell:
         self._remember_position()
         self._project_path = Path(proj_path)
         self._analysis_section.set_project(self._project_path)
+        self._import_page.set_project(self._project_path, self._curation_project)
         self.refresh_readiness()
         # A project made from imported traces starts in Curate and correct (#897).
         entry = entry_section(self._readiness)
@@ -3878,6 +3906,7 @@ class TetherShell:
             self._reject_active_conditions_dialog()
             self._curation_project = None
             self._set_read_only_reason(f"session lock lost: {exc}")
+            self._import_page.set_project(self._project_path, None)
             self._idealizer = None
             self._conditions = None
             if self._idealize_future is None:
@@ -4084,6 +4113,7 @@ class TetherShell:
         self._close_correction_summary()
         self._project_path = None
         self._analysis_section.set_project(None)
+        self._import_page.set_project(None, None)
         self._readiness = None
         self._sync_guided()
         self._act_close_project.setEnabled(False)
@@ -6238,6 +6268,7 @@ class TetherShell:
         self._channel_map.close()
         # The same for a running preview or extraction of the Prepare page (#350).
         self._extraction.close()
+        self._import_page.close()
         self._busy_indicator.stop()
         self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)

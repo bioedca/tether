@@ -100,6 +100,7 @@ nav:
           - "Tutorial: your first analysis": tutorial.md
           - Installers &amp; offline bundle: packaging.md
       - How-to guides:
+          - Import movies and set their channels: how-to/import-movies.md
           - Extract traces from a dual-view movie: how-to/extract-traces.md
           - Curate traces: how-to/curate-traces.md
           - Correct for leakage and gamma: how-to/apply-corrections.md
