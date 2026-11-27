@@ -590,3 +590,32 @@ def test_a_movie_scoped_pass_keeps_the_other_conditions_records(tmp_path: Path) 
     assert _text(read_molecules(path)["correction_method"][:12]) == [METHOD_MANUAL] * 12
     entry = _conditions(path, "correction")["cond-A"]
     assert (entry["alpha"], entry["gamma"], entry["alpha_source"]) == (0.05, 2.0, "manual")
+
+
+def test_a_movie_scoped_pass_keeps_the_record_of_the_conditions_other_movies(
+    tmp_path: Path,
+) -> None:
+    # Codex (closing review) on #1486: cond-A spans two movies. A pass scoped to one of
+    # them must not rewrite cond-A's record from that movie alone.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["movie_id"][6:12] = "mov-2"
+        table["movie_id"][12:] = "mov-3"
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, gamma_override=2.0, condition_id="cond-A")
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["gamma"][6:12] = np.nan  # mov-2 now has no usable γ
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, movie_id="mov-2")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["n_molecules"], entry["n_manual"], entry["n_apparent"]) == (12, 6, 6)
+    assert (entry["gamma"], entry["gamma_source"]) == (2.0, "manual")
+
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    methods = _text(read_molecules(path)["correction_method"])
+    assert methods[:6] == [METHOD_MANUAL] * 6
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["gamma"], entry["gamma_source"], entry["n_manual"]) == (2.0, "manual", 6)

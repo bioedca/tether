@@ -325,11 +325,14 @@ def compute_corrected_fret(
         groups = group_by_condition(ids, examined)
         target = _override_condition(groups, condition_id) if has_override else None
         counts = {cond: [0, 0, 0] for cond in groups}  # corrected, manual, apparent
+        # A condition's record covers all its molecules: a pass scoped to one movie adds the
+        # rows of the condition's other movies, which it leaves as they were (#624).
+        recorded = _recorded_rows(table, groups, in_scope, frame_range, ids)
         # The manual factors an earlier pass recorded that each condition's molecules still
         # carry: a later γ or leakage pass replaces them, and then the record lapses (#624).
         previous = _previous_conditions(f)
         held = {
-            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in groups.items()
+            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in recorded.items()
         }
 
         for i in examined:
@@ -392,16 +395,23 @@ def compute_corrected_fret(
         # The override is recorded as applied only where it changed at least one molecule
         # of its condition (``apparent_e_only`` or a missing other factor changes none).
         applied_target = target if target is not None and counts[target][1] > 0 else None
+        for cond, rows in recorded.items():
+            for r in rows[len(groups[cond]) :]:
+                counts[cond][_COUNT_SLOT[_text(table["correction_method"][r])]] += 1
+        # The record keeps a manual factor that the molecules stamped manual carry after this
+        # pass; a molecule this pass moved to apparent E no longer counts against it.
+        held = {
+            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in recorded.items()
+        }
         per_condition = _condition_corrections(
             f,
             table,
             held,
-            groups,
+            recorded,
             counts,
-            target=target,
+            applied=applied_target,
             alpha_override=alpha_override,
             gamma_override=gamma_override,
-            apparent_e_only=apparent_e_only,
         )
         if write_guard is not None:
             write_guard()
@@ -459,17 +469,17 @@ def _condition_corrections(
     groups: dict[str, list[int]],
     counts: dict[str, list[int]],
     *,
-    target: str | None,
+    applied: str | None,
     alpha_override: float | None,
     gamma_override: float | None,
-    apparent_e_only: bool,
 ) -> list[ConditionCorrection]:
     """Return each condition's applied factors and counts, for the provenance (#624).
 
     ``held`` holds, for each condition, the manual factors the replaced
     ``/settings/correction`` recorded that its molecules still carry. A factor this pass does
     not supply keeps such a record, in ``target`` as in every other condition; a record whose
-    factor a later γ or leakage pass replaced has lapsed and is not restored.
+    factor a later γ or leakage pass replaced has lapsed and is not restored. ``applied`` is
+    the condition whose molecules took this pass's override, if any did.
     """
     gamma_grp = f[_SETTINGS].get("gamma")  # type: ignore[index]
     stamped = read_conditions(gamma_grp)
@@ -485,7 +495,7 @@ def _condition_corrections(
         corrected, n_manual, apparent = counts[cond]
         # An override is recorded only where it was applied: a molecule missing the other
         # factor stays on apparent E and keeps its factors as they were.
-        manual = target == cond and not apparent_e_only and n_manual > 0
+        manual = cond == applied
         values = np.unique(np.asarray(table["alpha"][rows], dtype=np.float64))
         alpha = finite_or_none(values[0]) if values.size == 1 else None
         alpha_source = "manual" if manual and alpha_override is not None else None
@@ -522,6 +532,38 @@ def _condition_corrections(
             )
         )
     return out
+
+
+#: Which per-condition count a stamped ``correction_method`` adds to: corrected, manual, apparent.
+_COUNT_SLOT = {
+    METHOD_CORRECTED: 0,
+    METHOD_MANUAL: 1,
+    METHOD_APPARENT_UNAVAILABLE: 2,
+    METHOD_APPARENT_TOGGLE: 2,
+}
+
+
+def _recorded_rows(
+    table: np.ndarray,
+    groups: dict[str, list[int]],
+    in_scope: np.ndarray,
+    frame_range: np.ndarray,
+    ids: list[str],
+) -> dict[str, list[int]]:
+    """Return each examined condition's rows, then its stamped rows this pass leaves out.
+
+    The rows left out are those of the condition's other movies under a ``movie_id``-scoped
+    pass that an earlier pass stamped. An unscoped pass leaves none out.
+    """
+    recorded = {cond: list(rows) for cond, rows in groups.items()}
+    for r in range(table.shape[0]):
+        if in_scope[r] or ids[r] not in recorded:
+            continue
+        if int(frame_range[r][1]) <= int(frame_range[r][0]):
+            continue
+        if _text(table["correction_method"][r]) in _COUNT_SLOT:
+            recorded[ids[r]].append(r)
+    return recorded
 
 
 def _previous_conditions(f: object) -> dict[str, dict[str, object]]:
