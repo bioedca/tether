@@ -220,10 +220,15 @@ def _describe(path: Path, adapter: Any, source: Any) -> MovieDescription:
 
 
 def _first_frame(path: Path, source: Any) -> np.ndarray:
+    """Return a copy of the first frame, so nothing still maps the file once it is closed.
+
+    A TIFF reader can return a view of its memory map, which would keep the file mapped
+    (and, on Windows, unwritable) for as long as the page shows the frame.
+    """
     import numpy as np  # noqa: PLC0415
 
     try:
-        return np.asarray(source.read_frames(0, 1)[0])
+        return np.array(source.read_frames(0, 1)[0], copy=True)
     except _reader_errors() as exc:
         raise RequestRefused(f"{path.name}: {exc}") from exc
 

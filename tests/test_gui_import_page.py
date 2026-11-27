@@ -500,6 +500,10 @@ def test_the_description_and_the_frame_come_from_one_open(tmp_path, monkeypatch)
     movie, frame = mi.inspect_movie(_write_movie(tmp_path / "a.tif"))
     assert len(opened) == 1
     assert movie.frame_shape == frame.shape == (_H, _W)
+    # A copy, not a view of the reader's memory map: the file is free once the read ends
+    # (Windows refuses to write a file that is still mapped).
+    assert frame.flags.owndata
+    assert mi.read_first_frame(movie.path).flags.owndata
 
 
 @needs_qt
