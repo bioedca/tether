@@ -391,27 +391,68 @@ def _set_held(
         "app_version": cs._app_version(),
     }
     summary = _compute_gamma(project.path, write_guard=guard, decision=decision, **params)
-    _send_follow_up(project, actor, note, applied=summary.applied)
+    _send_follow_up(project, actor, note, applied=_every_condition_applied(summary))
     return summary
 
 
+def _every_condition_applied(summary: GammaSummary) -> bool:
+    """Return whether the pass applied a γ to every condition it covers (#624, ADR-0158).
+
+    The project has one correction state, so a γ is valid for approval only when no
+    condition's γ is withheld. With one condition this is ``summary.applied``.
+    """
+    return summary.applied and all(c.applied for c in summary.conditions)
+
+
 def _predict_withheld(path: Path, molecule_key: str, *, include: bool, minimum: int) -> bool:
-    """Return whether the γ pass after this decision is withheld, from the stored table."""
+    """Return whether the γ pass after this decision withholds a γ, from the stored table.
+
+    The pass withholds each condition's γ on its own (#624, ADR-0158), so the qualifying
+    rows are counted for each condition, and a condition whose leakage was withheld counts
+    as withheld. With one condition this is the count over the whole table.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project._condition_scope import read_conditions  # noqa: PLC0415
+
     table = read_gamma_contributors(path)
+    with h5py.File(path, "r") as f:
+        molecules = f["molecules"][TABLE][:]
+        stamped = read_conditions(f[_SETTINGS].get("gamma")) or []
+    if any(c.get("leakage_withheld") for c in stamped):
+        return True
+    condition_of = {
+        _text(k): _text(c)
+        for k, c in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
+    }
+    keys = [_text(k) for k in table["molecule_key"]]
     # A molecule key can repeat; a decision applies to every row of it, as in the γ pass.
-    same = np.array([_text(k) == molecule_key for k in table["molecule_key"]], dtype=bool)
+    same = np.array([k == molecule_key for k in keys], dtype=bool)
     included = table["included"].copy()
     included[same] = include
     qualifying = np.isfinite(table["gamma"]) & included
-    return int(qualifying.sum()) < minimum
+    if not keys:
+        return minimum > 0
+    counts: dict[str, int] = {}
+    for key, ok in zip(keys, qualifying, strict=True):
+        cond = condition_of.get(key, "")
+        counts[cond] = counts.get(cond, 0) + int(ok)
+    return any(n < minimum for n in counts.values())
 
 
 def _stored_withheld(path: Path) -> bool:
-    """Return whether the stored γ pass withheld the factor."""
+    """Return whether the stored γ pass withheld the factor of any condition (#624)."""
     import h5py  # noqa: PLC0415
 
+    from tether.project._condition_scope import read_conditions  # noqa: PLC0415
+
     with h5py.File(path, "r") as f:
-        return bool(f[f"{_SETTINGS}/gamma"].attrs["withheld"])
+        grp = f[f"{_SETTINGS}/gamma"]
+        stamped = read_conditions(grp)
+        if stamped:
+            return any(c.get("withheld") for c in stamped)
+        return bool(grp.attrs["withheld"])
 
 
 def _send_follow_up(project: Project, actor: Actor, note: str, *, applied: bool) -> None:

@@ -116,16 +116,12 @@ def _tether_commands() -> list[tuple[str, list[str]]]:
     return found
 
 
+#: The ``tether`` commands the how-to pages show.
+_SHOWN_COMMANDS = {"extract", "batch", "idealize", "export", "info", "run", "approve", "apertures"}
+
+
 def test_the_pages_show_tether_commands() -> None:
-    assert {argv[1] for _, argv in _tether_commands() if argv[0] == "tether"} == {
-        "extract",
-        "batch",
-        "idealize",
-        "export",
-        "info",
-        "run",
-        "approve",
-    }
+    assert {argv[1] for _, argv in _tether_commands() if argv[0] == "tether"} == _SHOWN_COMMANDS
 
 
 def _command_parser(argv: list[str]) -> tuple[argparse.ArgumentParser, int]:
@@ -148,7 +144,7 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch", "idealize", "export", "info", "run", "approve"}, argv
+    assert argv[1] in _SHOWN_COMMANDS, argv
     parser = build_parser()
     command, first = _command_parser(argv)
     assert command is not parser, (name, argv)

@@ -13,6 +13,8 @@ It needs no write access to `bioedca/tether`.
       show_root_heading: false
       members: false
 
+::: tether.services.apertures
+
 ::: tether.services.approve
 
 ::: tether.services.base

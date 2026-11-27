@@ -127,6 +127,8 @@ class _Runner:
         # A file, not a pipe: the JVM can write any amount there without a reader.
         self._stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed in close()
         self._lock = threading.Lock()
+        # Set once the watchdog has stopped the runner: every later request raises it (#1460).
+        self._stopped: str | None = None
         # -I: the runner sees neither the user's site packages nor PYTHON* variables, and
         # never the current folder, so nothing of the base environment leaks into it.
         try:
@@ -154,9 +156,12 @@ class _Runner:
         """Send ``payload`` and return the reply and the bytes that follow it.
 
         A runner that gives no whole reply within ``_REPLY_DEADLINE`` seconds is killed, and
-        the request raises [`BioformatsRunnerError`][] (#1416).
+        the request raises [`BioformatsRunnerError`][] (#1416). A runner the watchdog stopped
+        stays stopped: every later request raises [`BioformatsRunnerError`][] saying so (#1460).
         """
         with self._lock:
+            if self._stopped is not None:
+                raise BioformatsRunnerError(self._stopped)
             proc = self._proc
             # A watchdog rather than a timed read: a pipe cannot be read with a timeout on
             # every platform (``select`` does not take pipes on Windows). Killing the runner
@@ -182,7 +187,18 @@ class _Runner:
                     ) from exc
                 raise
             finally:
+                # ``cancel`` does not stop a callback that has already begun, so a reply that
+                # completes as the deadline fires could release the lock while ``expire`` is
+                # still killing the runner. Joining first means the kill, if any, is over
+                # before the next request can start, and that request is told why (#1460).
                 watchdog.cancel()
+                watchdog.join()
+                if expired.is_set():
+                    self._stopped = (
+                        f"the Bio-Formats runner was stopped when its reply to "
+                        f"{payload.get('op')!r} reached the {_REPLY_DEADLINE:g} s deadline; "
+                        "open the source again to start a new runner."
+                    )
 
     def _exchange(self, proc: subprocess.Popen, payload: dict) -> tuple[dict, bytes]:
         # A runner that fails at start (no jar, no JVM) writes its refusal and exits

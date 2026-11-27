@@ -20,6 +20,10 @@ Deep-LASI ``.tmap``), sets the extraction options, and then:
   result of the advisory donor-side check (#646, ADR-0070): a warning with the evidence and
   the remedy when the halves look swapped, and a note otherwise. The check never changes the
   data and never blocks. Publishing into the open project is #352.
+* The **Apertures and background** view
+  ([`ApertureSection`][tether.gui.apertures.ApertureSection], #922) draws the signal aperture
+  and the background ring of every spot, marks the spots at an edge and the overlapping ones,
+  and shows the preview traces of the molecules the user selects, before the run.
 
 The options form has one row for each field of
 [`ExtractionFields`][tether.services.profile.ExtractionFields], the fields of an extraction
@@ -280,7 +284,46 @@ class ExtractionSection:
         self._viewer_note.setWordWrap(True)
         self._viewer_host.addWidget(self._viewer_note)
         right_layout.addLayout(self._viewer_host, 1)
-        splitter.addWidget(right)
+        # The Apertures and background view (#922) reviews the inputs of this page.
+        from tether.gui.apertures import ApertureSection
+
+        self._apertures = ApertureSection(
+            status=self._status, inputs=self.review_inputs, window=self._window
+        )
+        # Two views on the right, chosen by two exclusive buttons over a stack. A tab
+        # widget would add tab-bar scroll buttons that are disabled with no requirement.
+        views = QtWidgets.QWidget()
+        views_layout = QtWidgets.QVBoxLayout(views)
+        views_layout.setContentsMargins(0, 0, 0, 0)
+        switcher = QtWidgets.QHBoxLayout()
+        self._views = QtWidgets.QStackedWidget()
+        self._views.setAccessibleName("Prepare views")
+        self._view_buttons = QtWidgets.QButtonGroup(views)
+        self._view_buttons.setExclusive(True)
+        for index, (text, view) in enumerate(
+            (("&Stages", right), ("&Apertures and background", self._apertures.widget))
+        ):
+            button = QtWidgets.QPushButton(text)
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            self._view_buttons.addButton(button, index)
+            switcher.addWidget(button)
+            self._views.addWidget(view)
+        switcher.addStretch(1)
+        self._view_buttons.idClicked.connect(self._views.setCurrentIndex)
+        views_layout.addLayout(switcher)
+        views_layout.addWidget(self._views, 1)
+        splitter.addWidget(views)
+        # The movie and the map file change by typing or by their file pickers, which set
+        # the text: textChanged sees both (the review waits for typing to settle).
+        for widget in (self._movie_field, self._source_field):
+            widget.textChanged.connect(self._apertures.inputs_changed)
+        for widget in self._fields.values():
+            if hasattr(widget, "findData"):
+                widget.currentIndexChanged.connect(self._apertures.inputs_changed)
+            else:
+                widget.editingFinished.connect(self._apertures.inputs_changed)
+        self._source_combo.currentIndexChanged.connect(self._apertures.inputs_changed)
         self._show_stages(None)
 
     # --- the state a test reads ---------------------------------------------------
@@ -294,6 +337,29 @@ class ExtractionSection:
     def fields(self) -> Mapping[str, Any]:
         """The input widget of each form row, by field name."""
         return dict(self._fields)
+
+    @property
+    def apertures(self) -> Any:
+        """The Apertures and background view (#922).
+
+        An [`ApertureSection`][tether.gui.apertures.ApertureSection].
+        """
+        return self._apertures
+
+    @property
+    def view_names(self) -> list[str]:
+        """The names of the views on the right of the page, in order (#922)."""
+        return [button.text() for button in self._view_buttons.buttons()]
+
+    @property
+    def views(self) -> Any:
+        """The ``QStackedWidget`` of the views: Stages, and Apertures and background."""
+        return self._views
+
+    def show_view(self, index: int) -> None:
+        """Show view ``index`` of [`view_names`][], as its button does."""
+        self._view_buttons.button(index).setChecked(True)
+        self._views.setCurrentIndex(index)
 
     @property
     def stage_table(self) -> Any:
@@ -390,6 +456,17 @@ class ExtractionSection:
             return None
         self._error_label.setText("")
         return _Inputs(movie, source, source_path if source != "native" else None, profile)
+
+    def review_inputs(self) -> tuple[str, ExtractOptions, dict[str, str | None]] | None:
+        """Return the movie, the options and the registration source of the form, or ``None``.
+
+        The inputs of the Apertures and background view (#922), checked as a preview checks
+        them: ``None`` after the label under the form says why they are refused.
+        """
+        inputs = self._read_inputs()
+        if inputs is None:
+            return None
+        return inputs.movie, inputs.profile.extract_options(), _source_kwargs(inputs)
 
     # --- preview ------------------------------------------------------------------
 
@@ -580,6 +657,7 @@ class ExtractionSection:
         """
         self._tasks.abandon()
         self._tasks.shutdown()
+        self._apertures.close()
         self._clear_preview()
         if self._panel is not None:
             self._panel.close()

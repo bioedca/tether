@@ -24,7 +24,9 @@ computed downstream:
   provenance flag, not a statistical interval.)
 * ``/settings/correction`` — an additive provenance group (like ``/settings/gamma``):
   the effective toggle/overrides, the per-method counts, the ``total_failure`` flag,
-  and the app version (NFR-REPRO). Recomputable — overwritten on each pass.
+  and the app version (NFR-REPRO), with the factors, the molecule count and the
+  ``total_failure`` flag of each condition in its ``conditions`` attribute (#624).
+  Recomputable — overwritten on each pass.
 
 **The total-correction-failure path (PRD §7.2).** The min-qualifying-traces gate is
 applied *before* the population median by the earlier α/γ passes, so a withheld factor
@@ -40,6 +42,11 @@ frame with both channels at zero is NaN in both. The GUI
 banner + recovery actions that surface this state are a follow-up GUI PR; this is the
 headless decision + provenance they read.
 
+**Per condition (#624).** The §7.2 total-correction-failure rule is evaluated for each
+condition as well as for the pass: a condition none of whose molecules carries a
+correction is recorded with ``total_failure`` in ``conditions``, while ``total_failure`` of
+the summary and of the group still means that no molecule of the pass carries one.
+
 **Apparent-E toggle.** ``apparent_e_only=True`` stamps every analysable molecule
 [`METHOD_APPARENT_TOGGLE`][] regardless of factor availability, so a project can be
 kept on apparent E deliberately; re-running without the toggle restores the corrected
@@ -47,11 +54,17 @@ methods (the toggle round-trips through ``/settings/correction``).
 
 **Manual override.** ``alpha_override`` / ``gamma_override`` supply a manual
 per-condition factor (a §7.2 recovery action, or an override of a successfully
-estimated factor). Since leakage α is a single global factor (PRD §5.1/§7.2) and a
-manual γ replaces the per-condition value, an override is applied to **every** examined
-molecule: it is written into ``/molecules.alpha`` / ``/molecules.gamma`` (so those
-fields remain the single source of the *effective applied* factor the staleness hash
-keys on) and the molecule is stamped [`METHOD_MANUAL`][]. The finer per-molecule
+estimated factor). The factors are scoped per condition (#624, ADR-0158), so an override
+applies to **the condition the caller names** with ``condition_id``: it is written into
+``/molecules.alpha`` / ``/molecules.gamma`` of every examined molecule of that condition
+(so those fields remain the single source of the *effective applied* factor the
+staleness hash keys on) and the molecule is stamped [`METHOD_MANUAL`][]; the other
+conditions keep their estimated factors. Where the pass examines one condition only,
+``condition_id`` may be left out and the override applies to it, as before #624; with
+several conditions an override that names none is refused. A condition whose molecules
+carry a manual factor from an earlier pass keeps it, stamped [`METHOD_MANUAL`][] with its
+recorded factors and sources, when a later pass supplies one for another condition; a pass
+with no override at all stamps them [`METHOD_CORRECTED`][] as before #624. The finer per-molecule
 fallback scope of a γ override (re-stale fallback molecules only; PRD §5.1) is deferred
 to the staleness-flagging PR, which persists own-vs-fallback γ. ``apparent_e_only``
 takes precedence over an override (an explicit request to view apparent E wins).
@@ -73,6 +86,13 @@ from pathlib import Path
 import numpy as np
 
 from tether.io.schema import TABLE
+from tether.project._condition_scope import (
+    condition_ids,
+    finite_or_none,
+    group_by_condition,
+    read_conditions,
+    write_conditions,
+)
 from tether.project._guarded_publish import guarded_project_write
 
 __all__ = [
@@ -80,6 +100,7 @@ __all__ = [
     "METHOD_APPARENT_UNAVAILABLE",
     "METHOD_CORRECTED",
     "METHOD_MANUAL",
+    "ConditionCorrection",
     "CorrectionSummary",
     "compute_corrected_fret",
 ]
@@ -110,6 +131,48 @@ _CONFIDENCE_APPARENT = 0.0
 
 
 @dataclass(frozen=True)
+class ConditionCorrection:
+    """How the molecules of one condition were corrected in a pass (#624).
+
+    Attributes
+    ----------
+    condition_id
+        The ``/molecules.condition_id`` the molecules share (``""`` when unassigned).
+    alpha
+        The leakage α applied to the condition's examined molecules — its estimated
+        factor or the manual one — or ``None`` when they carry no single finite α.
+    gamma
+        The condition's γ: the manual factor, else the median (the fallback) its γ pass
+        stamped in ``/settings/gamma``, or ``None`` when there is none. Its molecules
+        that qualified keep their own γ in ``/molecules.gamma``.
+    alpha_source, gamma_source
+        ``"manual"`` for an override, ``"estimated"`` for a stored factor, ``None`` when
+        the factor is missing.
+    alpha_manual, gamma_manual
+        The manual values of the factor that the condition's molecules carry, when they carry
+        more than one: two movies of one condition can take different overrides. The factor
+        itself is then ``None``. Empty otherwise.
+    n_molecules, n_corrected, n_manual, n_apparent
+        As in [`CorrectionSummary`][], for this condition's molecules only.
+    total_failure
+        ``True`` when no molecule of the condition carries a correction (PRD §7.2).
+    """
+
+    condition_id: str
+    alpha: float | None
+    gamma: float | None
+    alpha_source: str | None
+    gamma_source: str | None
+    n_molecules: int
+    n_corrected: int
+    n_manual: int
+    n_apparent: int
+    total_failure: bool
+    alpha_manual: tuple[float, ...] = ()
+    gamma_manual: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
 class CorrectionSummary:
     """Outcome of a [`compute_corrected_fret`][] pass.
 
@@ -136,6 +199,11 @@ class CorrectionSummary:
         Whether the apparent-E toggle was in force for this pass.
     source
         Provenance tag stamped into ``/settings/correction``.
+    conditions
+        One [`ConditionCorrection`][] for each examined condition, in the order the
+        condition first appears in ``/molecules`` (#624).
+    override_condition_id
+        The condition a manual override was applied to, or ``None`` without an override.
     """
 
     n_molecules: int
@@ -145,6 +213,8 @@ class CorrectionSummary:
     total_failure: bool
     apparent_e_only: bool
     source: str
+    conditions: tuple[ConditionCorrection, ...] = ()
+    override_condition_id: str | None = None
 
 
 def _app_version() -> str:
@@ -165,6 +235,7 @@ def compute_corrected_fret(
     gamma_override: float | None = None,
     write_guard: Callable[[], None] | None = None,
     movie_id: str | None = None,
+    condition_id: str | None = None,
 ) -> CorrectionSummary:
     """Resolve + stamp each molecule's correction method and store the provenance.
 
@@ -188,8 +259,14 @@ def compute_corrected_fret(
     alpha_override, gamma_override
         Manual per-condition factors. When given (and ``apparent_e_only`` is off), the
         value is written into the applied ``/molecules.alpha`` / ``/molecules.gamma``
-        for every examined molecule and the molecule is stamped [`METHOD_MANUAL`][].
+        for every examined molecule of the condition ``condition_id`` names and the
+        molecule is stamped [`METHOD_MANUAL`][].
         ``gamma_override`` must be ``> 0`` (a non-physical γ is rejected).
+    condition_id
+        The condition a manual override applies to (#624). Needed with an override when
+        the pass examines more than one condition; with one it may be left out. It
+        does not narrow the pass: every other condition is stamped from its own
+        estimated factors. Ignored without an override.
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete
         ``/molecules`` update and ``/settings/correction`` stamp are written to a
@@ -211,7 +288,8 @@ def compute_corrected_fret(
     ------
     ValueError
         If ``gamma_override`` is not strictly positive, or ``alpha_override`` /
-        ``gamma_override`` is not finite.
+        ``gamma_override`` is not finite; or if an override names no condition while the
+        pass examines several, or names a condition with no examined molecule.
     """
     import h5py  # noqa: PLC0415
 
@@ -238,46 +316,86 @@ def compute_corrected_fret(
         alpha_col = table["alpha"]
         gamma_col = table["gamma"]
 
-        # Loop-invariant: whether a manual factor was supplied at all (depends only
-        # on the arguments, not the molecule).
+        # Whether a manual factor was supplied at all (depends only on the arguments).
         has_override = alpha_override is not None or gamma_override is not None
 
         in_scope = _rows_of_movie(table, movie_id)
-        for i in range(table.shape[0]):
-            if not in_scope[i]:
-                continue  # another movie's molecule: outside this pass (#347)
-            start, end = int(frame_range[i][0]), int(frame_range[i][1])
-            if end <= start:
-                continue  # no valid native frames → not analysable; leave row untouched
+        examined = [
+            i
+            for i in range(table.shape[0])
+            # Another movie's molecule is outside this pass (#347); a row with no valid
+            # native frames is not analysable. Both are left untouched.
+            if in_scope[i] and int(frame_range[i][1]) > int(frame_range[i][0])
+        ]
+        ids = condition_ids(table)
+        groups = group_by_condition(ids, examined)
+        target = _override_condition(groups, condition_id) if has_override else None
+        counts = {cond: [0, 0, 0] for cond in groups}  # corrected, manual, apparent
+        # A condition's record covers all its molecules: a pass scoped to one movie adds the
+        # rows of the condition's other movies, which it leaves as they were (#624).
+        recorded = _recorded_rows(table, groups, in_scope, frame_range, ids)
+        # The manual factors an earlier pass recorded that each condition's molecules still
+        # carry: a later γ or leakage pass replaces them, and then the record lapses (#624).
+        previous = _previous_conditions(f)
+        held = {
+            cond: _held_manual(table, rows, previous.get(cond)) for cond, rows in recorded.items()
+        }
+        # The molecules that carried an earlier manual factor into this pass.
+        was_manual = {
+            r
+            for rows in recorded.values()
+            for r in rows
+            if _text(table["correction_method"][r]) == METHOD_MANUAL
+        }
+
+        for i in examined:
             n_molecules += 1
+            # A manual factor applies to its condition only (#624).
+            applies = has_override and ids[i] == target
+            # A manual factor supplied earlier for another condition stays manual under a
+            # pass that supplies one for this condition: a pass names one condition (#624).
+            keeps_manual = (
+                has_override
+                and not applies
+                and _text(table["correction_method"][i]) == METHOD_MANUAL
+                and _carries_held(table, i, held[ids[i]])
+            )
 
             # Effective applied factors: a manual override replaces the stored factor
             # (and is persisted below so /molecules stays the source of the applied
             # factor); otherwise the estimated /molecules value is used.
-            eff_alpha = alpha_override if alpha_override is not None else float(alpha_col[i])
-            eff_gamma = gamma_override if gamma_override is not None else float(gamma_col[i])
+            eff_alpha = (
+                alpha_override if applies and alpha_override is not None else float(alpha_col[i])
+            )
+            eff_gamma = (
+                gamma_override if applies and gamma_override is not None else float(gamma_col[i])
+            )
             factors_ok = np.isfinite(eff_alpha) and np.isfinite(eff_gamma) and eff_gamma > 0.0
 
             if apparent_e_only:
                 # Explicit request to view apparent E wins over any available factor.
                 method, confidence = METHOD_APPARENT_TOGGLE, _CONFIDENCE_APPARENT
                 n_apparent += 1
+                counts[ids[i]][2] += 1
             elif not factors_ok:
                 # Total correction failure: a required factor was withheld (NaN
                 # sentinel) or is non-physical → apparent E, never a NaN factor.
                 method, confidence = METHOD_APPARENT_UNAVAILABLE, _CONFIDENCE_APPARENT
                 n_apparent += 1
-            elif has_override:
+                counts[ids[i]][2] += 1
+            elif applies or keeps_manual:
                 method, confidence = METHOD_MANUAL, _CONFIDENCE_CORRECTED
                 # Persist the manual factor as the effective applied factor.
-                if alpha_override is not None:
+                if applies and alpha_override is not None:
                     table["alpha"][i] = alpha_override
-                if gamma_override is not None:
+                if applies and gamma_override is not None:
                     table["gamma"][i] = gamma_override
                 n_manual += 1
+                counts[ids[i]][1] += 1
             else:
                 method, confidence = METHOD_CORRECTED, _CONFIDENCE_CORRECTED
                 n_corrected += 1
+                counts[ids[i]][0] += 1
 
             table["correction_method"][i] = method
             table["correction_confidence"][i] = confidence
@@ -287,6 +405,29 @@ def compute_corrected_fret(
         f[_MOLECULES][TABLE][:] = table
 
         total_failure = (n_corrected + n_manual) == 0
+        # The override is recorded as applied only where it changed at least one molecule
+        # of its condition (``apparent_e_only`` or a missing other factor changes none).
+        applied_target = target if target is not None and counts[target][1] > 0 else None
+        for cond, rows in recorded.items():
+            for r in rows[len(groups[cond]) :]:
+                counts[cond][_COUNT_SLOT[_text(table["correction_method"][r])]] += 1
+        # The record keeps a manual factor that the molecules which brought it into this pass
+        # still carry. A molecule this pass moved to apparent E no longer counts against it, and
+        # nor does one this pass first made manual, which carries a factor of its own.
+        held = {
+            cond: _held_manual(table, [r for r in rows if r in was_manual], previous.get(cond))
+            for cond, rows in recorded.items()
+        }
+        per_condition = _condition_corrections(
+            f,
+            table,
+            held,
+            recorded,
+            counts,
+            applied=applied_target,
+            alpha_override=alpha_override,
+            gamma_override=gamma_override,
+        )
         if write_guard is not None:
             write_guard()
         _stamp_correction_settings(
@@ -299,6 +440,11 @@ def compute_corrected_fret(
             n_manual=n_manual,
             n_apparent=n_apparent,
             total_failure=total_failure,
+            conditions=per_condition,
+            # A pass scoped to one movie leaves the other conditions' records as they were.
+            carried={c: e for c, e in previous.items() if c not in groups},
+            order=list(dict.fromkeys(ids)),
+            override_condition_id=applied_target,
         )
 
     return CorrectionSummary(
@@ -309,7 +455,186 @@ def compute_corrected_fret(
         total_failure=total_failure,
         apparent_e_only=apparent_e_only,
         source=CORRECTION_SOURCE,
+        conditions=tuple(per_condition),
+        override_condition_id=applied_target,
     )
+
+
+def _override_condition(groups: dict[str, list[int]], condition_id: str | None) -> str | None:
+    """Return the condition a manual override applies to, or refuse an ambiguous one (#624)."""
+    if condition_id is None:
+        if len(groups) > 1:
+            raise ValueError(
+                "a manual alpha or gamma applies to one condition, and this pass examines "
+                f"{len(groups)}: name it with condition_id= (one of {sorted(groups)})"
+            )
+        return next(iter(groups), None)
+    if condition_id not in groups:
+        raise ValueError(
+            f"condition_id {condition_id!r} has no molecule in this pass "
+            f"(conditions: {sorted(groups)})"
+        )
+    return condition_id
+
+
+def _condition_corrections(
+    f: object,
+    table: np.ndarray,
+    held: dict[str, dict[str, tuple[float, ...]]],
+    groups: dict[str, list[int]],
+    counts: dict[str, list[int]],
+    *,
+    applied: str | None,
+    alpha_override: float | None,
+    gamma_override: float | None,
+) -> list[ConditionCorrection]:
+    """Return each condition's applied factors and counts, for the provenance (#624).
+
+    ``held`` holds, for each condition, the manual factors the replaced
+    ``/settings/correction`` recorded that its molecules still carry. A factor this pass does
+    not supply keeps such a record, in ``target`` as in every other condition; a record whose
+    factor a later γ or leakage pass replaced has lapsed and is not restored. ``applied`` is
+    the condition whose molecules took this pass's override, if any did.
+    """
+    gamma_grp = f[_SETTINGS].get("gamma")  # type: ignore[index]
+    stamped = read_conditions(gamma_grp)
+    if stamped is not None:
+        medians = {str(c["condition_id"]): c.get("gamma") for c in stamped}
+    elif gamma_grp is not None and len(groups) == 1:
+        # A γ pass from before #624 stamped one median, of the project's one condition.
+        medians = {cond: finite_or_none(gamma_grp.attrs.get("gamma")) for cond in groups}
+    else:
+        medians = {}
+    out: list[ConditionCorrection] = []
+    for cond, rows in groups.items():
+        corrected, n_manual, apparent = counts[cond]
+        # An override is recorded only where it was applied: a molecule missing the other
+        # factor stays on apparent E and keeps its factors as they were.
+        manual = cond == applied
+        values = np.unique(np.asarray(table["alpha"][rows], dtype=np.float64))
+        alpha = finite_or_none(values[0]) if values.size == 1 else None
+        alpha_source = "manual" if manual and alpha_override is not None else None
+        if alpha_source == "manual":
+            # The molecules that took the override carry it, also when others of the
+            # condition could not take it and keep their own α.
+            alpha = float(alpha_override)  # type: ignore[arg-type]
+        if alpha_source is None and alpha is not None:
+            alpha_source = "estimated"
+        if manual and gamma_override is not None:
+            gamma, gamma_source = float(gamma_override), "manual"
+        else:
+            median = medians.get(cond)
+            gamma = finite_or_none(median) if median is not None else None
+            gamma_source = "estimated" if gamma is not None else None
+        manual_values: dict[str, tuple[float, ...]] = {"alpha": (), "gamma": ()}
+        if n_manual:
+            supplied = {"alpha": alpha_override, "gamma": gamma_override}
+            for name, kept in held[cond].items():
+                values = set(kept)
+                if manual and supplied[name] is not None:
+                    values.add(float(supplied[name]))  # type: ignore[arg-type]
+                manual_values[name] = tuple(sorted(values))
+            if manual_values["alpha"]:
+                alpha, alpha_source = _one_or_none(manual_values["alpha"]), "manual"
+            if manual_values["gamma"]:
+                gamma, gamma_source = _one_or_none(manual_values["gamma"]), "manual"
+        out.append(
+            ConditionCorrection(
+                condition_id=cond,
+                alpha=alpha,
+                gamma=gamma,
+                alpha_source=alpha_source,
+                gamma_source=gamma_source,
+                n_molecules=len(rows),
+                n_corrected=corrected,
+                n_manual=n_manual,
+                n_apparent=apparent,
+                total_failure=(corrected + n_manual) == 0,
+                alpha_manual=manual_values["alpha"] if len(manual_values["alpha"]) > 1 else (),
+                gamma_manual=manual_values["gamma"] if len(manual_values["gamma"]) > 1 else (),
+            )
+        )
+    return out
+
+
+def _one_or_none(values: tuple[float, ...]) -> float | None:
+    """Return the one manual value, or ``None`` when a condition carries several."""
+    return values[0] if len(values) == 1 else None
+
+
+#: Which per-condition count a stamped ``correction_method`` adds to: corrected, manual, apparent.
+_COUNT_SLOT = {
+    METHOD_CORRECTED: 0,
+    METHOD_MANUAL: 1,
+    METHOD_APPARENT_UNAVAILABLE: 2,
+    METHOD_APPARENT_TOGGLE: 2,
+}
+
+
+def _recorded_rows(
+    table: np.ndarray,
+    groups: dict[str, list[int]],
+    in_scope: np.ndarray,
+    frame_range: np.ndarray,
+    ids: list[str],
+) -> dict[str, list[int]]:
+    """Return each examined condition's rows, then its stamped rows this pass leaves out.
+
+    The rows left out are those of the condition's other movies under a ``movie_id``-scoped
+    pass that an earlier pass stamped. An unscoped pass leaves none out.
+    """
+    recorded = {cond: list(rows) for cond, rows in groups.items()}
+    for r in range(table.shape[0]):
+        if in_scope[r] or ids[r] not in recorded:
+            continue
+        if int(frame_range[r][1]) <= int(frame_range[r][0]):
+            continue
+        if _text(table["correction_method"][r]) in _COUNT_SLOT:
+            recorded[ids[r]].append(r)
+    return recorded
+
+
+def _previous_conditions(f: object) -> dict[str, dict[str, object]]:
+    """Return the per-condition record of the ``/settings/correction`` this pass replaces."""
+    group = f[_SETTINGS].get(_CORRECTION_SETTINGS)  # type: ignore[index]
+    return {str(c["condition_id"]): c for c in read_conditions(group) or []}
+
+
+def _held_manual(
+    table: np.ndarray, rows: list[int], previous: dict[str, object] | None
+) -> dict[str, tuple[float, ...]]:
+    """Return the manual values ``previous`` recorded that the condition's manual rows carry.
+
+    The rows are those of the condition stamped [`METHOD_MANUAL`][]. A recorded value holds
+    while at least one of them carries it: an override reaches only the molecules that have
+    both factors, a later override of the other factor can make the rest manual with a factor
+    of their own, and two movies of one condition can take different overrides. A γ or
+    leakage pass rewrites the factor of every molecule of the condition, and then the value
+    lapses.
+    """
+    held: dict[str, tuple[float, ...]] = {}
+    if previous is None:
+        return held
+    manual_rows = [r for r in rows if _text(table["correction_method"][r]) == METHOD_MANUAL]
+    for name in ("alpha", "gamma"):
+        if previous.get(f"{name}_source") != "manual":
+            continue
+        listed = previous.get(f"{name}_manual") or [previous.get(name)]
+        recorded = [float(v) for v in listed if v is not None]  # type: ignore[union-attr]
+        carried = np.asarray(table[name][manual_rows], dtype=np.float64)
+        values = tuple(v for v in recorded if np.any(carried == v))
+        if values:
+            held[name] = values
+    return held
+
+
+def _carries_held(table: np.ndarray, row: int, held: dict[str, tuple[float, ...]]) -> bool:
+    """Return whether ``row`` still carries one of its condition's held manual values."""
+    return any(float(table[name][row]) in values for name, values in held.items())
+
+
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
 def _rows_of_movie(table: np.ndarray, movie_id: str | None) -> np.ndarray:
@@ -334,6 +659,10 @@ def _stamp_correction_settings(
     n_manual: int,
     n_apparent: int,
     total_failure: bool,
+    conditions: list[ConditionCorrection] | None = None,
+    override_condition_id: str | None = None,
+    carried: dict[str, dict[str, object]] | None = None,
+    order: list[str] | None = None,
 ) -> None:
     """Write the ``/settings/correction`` provenance group (additive; recomputable).
 
@@ -360,4 +689,34 @@ def _stamp_correction_settings(
     grp.attrs["n_manual"] = int(n_manual)
     grp.attrs["n_apparent"] = int(n_apparent)
     grp.attrs["total_failure"] = bool(total_failure)
+    # Additive (#624): the condition an override applied to (absent when none), and each
+    # condition's factors and counts, in a form #926 extends with a source and a version.
+    if override_condition_id is not None:
+        grp.attrs["override_condition_id"] = override_condition_id
+    entries: dict[str, dict[str, object]] = {}
+    for c in conditions or []:
+        entry: dict[str, object] = {
+            "condition_id": c.condition_id,
+            "alpha": c.alpha,
+            "alpha_source": c.alpha_source,
+            "gamma": c.gamma,
+            "gamma_source": c.gamma_source,
+            "n_molecules": c.n_molecules,
+            "n_corrected": c.n_corrected,
+            "n_manual": c.n_manual,
+            "n_apparent": c.n_apparent,
+            "total_failure": c.total_failure,
+        }
+        # Only when the condition's molecules carry several manual values of a factor.
+        if c.alpha_manual:
+            entry["alpha_manual"] = list(c.alpha_manual)
+        if c.gamma_manual:
+            entry["gamma_manual"] = list(c.gamma_manual)
+        entries[c.condition_id] = entry
+    for cond, entry in (carried or {}).items():
+        entries.setdefault(cond, entry)
+    # In the order the conditions first appear in /molecules; a record of a condition no
+    # molecule holds any more is dropped.
+    ordered = [entries[c] for c in (order or list(entries)) if c in entries]
+    write_conditions(grp, ordered)
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()
