@@ -41,6 +41,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
+from tether.cli_apertures import add_apertures_parser, run_apertures
 from tether.cli_export import add_export_parser, run_export
 from tether.extract_choices import (
     COLOCALIZATION_POLICIES,
@@ -136,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
     add_export_parser(subparsers)
+    add_apertures_parser(subparsers)
     _add_status_parser(subparsers)
     return parser
 
@@ -1830,6 +1832,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_metadata(args)
     if command == "export":
         return run_export(args)
+    if command == "apertures":
+        return run_apertures(args)
     if command == "status":
         return _run_status(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover

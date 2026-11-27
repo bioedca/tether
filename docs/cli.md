@@ -1798,6 +1798,37 @@ A blank prefix fails the export of that project. So does a prefix that contains 
 stored in the project. Tether then writes no file for that project, still exports the other
 projects and exits `1`.
 
+## `tether apertures`
+
+Write the aperture and background report of one movie before the run: the report that the
+**Apertures and background** tab of the Prepare page saves
+([Check the apertures before the run](how-to/extract-traces.md#check-the-apertures-before-the-run)).
+The command previews the movie as the extraction would run it and writes nothing to a project.
+It calls the same two functions as the page, so for the same movie, options, registration and
+molecules the two write the same files.
+
+```sh
+tether apertures movie.tif --json apertures.json --png apertures.png \
+    --profile profile.json --molecule 0 --molecule 3
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--json FILE` | The JSON report to write (required): the options, the aperture geometry, the counts, every spot with its mark, and the preview traces of each `--molecule`. |
+| `--png FILE` | A PNG of the mean frame with the aperture and the background ring of every spot, coloured by mark. |
+| `--profile FILE` | An [extraction profile](#extraction-profiles) with the options. Without one, the default options. |
+| `--map FILE`, `--tmap FILE` | The registration: a channel map file or a Deep-LASI `.tmap`. Without one, a native fit. |
+| `--window`, `--disk-radius`, `--ring-inner`, `--ring-outer` | Change one aperture option of the profile. |
+| `--molecule N` | A molecule whose preview traces the report carries. Repeat it for more. |
+| `--overwrite` | Replace an existing report. Without it the command refuses. |
+
+A spot is marked `at-edge` when its crop leaves the donor or the acceptor channel, so the run
+skips it, `overlap` when its aperture overlaps the aperture of its nearest molecule, and
+`no-partner` when the `partner-in-both` rule skips it for want of an acceptor spot. The command
+prints the counts. It exits `0` when it wrote the report, `1` when the review failed (for
+example, the preview stopped before the traces), and `2` when it refused the options or an
+existing output.
+
 ## Sync-conflict copies beside a project
 
 OneDrive and SharePoint can leave a second copy of a file when two computers save it at the same

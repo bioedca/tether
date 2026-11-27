@@ -183,3 +183,11 @@ def test_the_command_line_reads_a_profile_and_refuses_bad_options(tmp_path, movi
     assert _cli([str(movie), "--json", str(tmp_path / "bad.json"), "--window", "20"]) == 2
     assert not (tmp_path / "bad.json").exists()
     assert _cli([str(movie), "--json", str(tmp_path / "m.json"), "--molecule", "99"]) == 1
+
+
+def test_tether_apertures_is_a_subcommand(tmp_path, movie) -> None:
+    from tether.cli import main
+
+    out = tmp_path / "main.json"
+    assert main(["apertures", str(movie), "--json", str(out), "--disk-radius", "5"]) == 0
+    assert json.loads(out.read_text())["counts"]["at_edge"] == 1
