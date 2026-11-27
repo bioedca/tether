@@ -133,11 +133,15 @@ before this record has no `conditions` attribute and reads as one pooled conditi
   `tether.project.correction_states` reads as the proposal of GAMMA_REVIEW is `NaN`, and the
   stored correction state is still one state for the project. A correction state for each
   condition is the "#925 for each condition" of the plan change on #624, not this record.
-- Follow-up: `tether batch` prints `α=`/`γ=` from the project-wide summary and runs the γ pass only
-  when that summary has one α (`src/tether/project/batch.py`), so a batch project holding several
-  conditions skips γ; it writes one project for each movie today, so no batch output is affected
-  yet. The γ contributor decision of #927 predicts a withheld γ from the whole table rather than
-  from the decided molecule's condition (`src/tether/project/gamma_contributors.py`).
+- Good: the batch correct stage (`run_correct_stage` in `src/tether/project/batch.py`) runs γ
+  whenever any condition has α, and its detail names each condition's α, γ and ADR-0134 warning;
+  the one-condition detail is unchanged.
+- Bad / trade-off: the project has one correction state, so a γ is valid for approval only when no
+  condition's γ is withheld. A γ contributor decision of #927 predicts withholding for each
+  condition (`src/tether/project/gamma_contributors.py`), and GAMMA_REVIEW moves to
+  CALIBRATION_BLOCKED when any condition's γ, or its α, is withheld. A condition with too few
+  bleach events therefore blocks the approval of the others until it gets a manual factor or new
+  evidence; a state for each condition is the follow-up named above.
 - Gates: `tests/test_project_condition_factors.py`; `tests/test_project_leakage.py`,
   `tests/test_project_gamma.py` and `tests/test_project_correct.py` unchanged.
 

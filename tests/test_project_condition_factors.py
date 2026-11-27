@@ -445,3 +445,89 @@ def test_the_batch_detail_keeps_each_conditions_clean_step_warning(monkeypatch) 
     assert "a: α=0.100 γ=1.200 (γ from few clean steps: 3 of 12" in detail
     assert "b: α=0.200 γ=0.800" in detail
     assert detail.count("few clean steps") == 1
+
+
+def test_a_contributor_decision_predicts_withholding_per_condition(tmp_path: Path) -> None:
+    # CodeRabbit (Major) on #1486: excluding cond-A contributors below the minimum must
+    # block the calibration even though the pooled count over both conditions stays above it.
+    from tether.project import correction_states as cs  # noqa: PLC0415
+    from tether.project.core import Project  # noqa: PLC0415
+    from tether.project.gamma_contributors import set_gamma_contributor  # noqa: PLC0415
+
+    path = tmp_path / "ab.tether"
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 11)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    assert all(c.applied for c in compute_gamma(path).conditions)
+    keys = _text(read_molecules(path)["molecule_key"])
+    actor = cs.Actor.person("tester")
+    proj = Project.open(path)
+    proj.acquire_lock()
+    try:
+        assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
+        # cond-A: 11 → 10 qualifying, still applied; then 9, withheld (pooled: 21).
+        set_gamma_contributor(proj, keys[0], include=False, actor=actor, reason="bad")
+        assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
+        summary = set_gamma_contributor(proj, keys[1], include=False, actor=actor, reason="bad")
+        assert summary is not None and summary.applied  # cond-B still has its γ
+        by_cond = {c.condition_id: c for c in summary.conditions}
+        assert not by_cond["cond-A"].applied and by_cond["cond-B"].applied
+        assert cs.read_correction_state(path).state is cs.CorrectionState.CALIBRATION_BLOCKED
+
+        set_gamma_contributor(proj, keys[1], include=True, actor=actor)
+        assert cs.read_correction_state(path).state is cs.CorrectionState.GAMMA_REVIEW
+    finally:
+        proj.release_lock()
+
+
+def _two_condition_project(path: Path) -> None:
+    _store(path, [("cond-A", _traces(*_COND_A[1:], 12)), ("cond-B", _traces(*_COND_B[1:], 12))])
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+
+
+def test_an_override_under_apparent_e_only_names_no_condition(tmp_path: Path) -> None:
+    # CodeRabbit (Minor) on #1486: an override that changed no molecule applied to none.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    summary = compute_corrected_fret(
+        path, apparent_e_only=True, gamma_override=2.0, condition_id="cond-A"
+    )
+    assert summary.n_manual == 0 and summary.override_condition_id is None
+    with h5py.File(path, "r") as f:
+        assert "override_condition_id" not in f["settings/correction"].attrs
+
+
+def test_a_zero_manual_alpha_stays_manual_under_another_conditions_override(
+    tmp_path: Path,
+) -> None:
+    # CodeRabbit (Minor) on #1486: α = 0 is a valid manual factor, not a missing one.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    compute_corrected_fret(path, alpha_override=0.0, condition_id="cond-A")
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    methods = _text(read_molecules(path)["correction_method"])
+    assert methods == [METHOD_MANUAL] * 24
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.0, "manual", 12)
+
+
+def test_an_override_that_reached_part_of_a_condition_keeps_its_record(tmp_path: Path) -> None:
+    # CodeRabbit (Minor) on #1486: one cond-A molecule has no γ, so a manual α reaches the
+    # other 11; the record must name it and survive an override for cond-B.
+    path = tmp_path / "ab.tether"
+    _two_condition_project(path)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["gamma"][0] = np.nan
+        f["molecules"][TABLE][:] = table
+    compute_corrected_fret(path, alpha_override=0.05, condition_id="cond-A")
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.05, "manual", 11)
+
+    compute_corrected_fret(path, gamma_override=0.9, condition_id="cond-B")
+    table = read_molecules(path)
+    methods = _text(table["correction_method"])
+    assert methods[0] == METHOD_APPARENT_UNAVAILABLE
+    assert methods[1:12] == [METHOD_MANUAL] * 11
+    entry = _conditions(path, "correction")["cond-A"]
+    assert (entry["alpha"], entry["alpha_source"], entry["n_manual"]) == (0.05, "manual", 11)

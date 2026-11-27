@@ -341,7 +341,7 @@ def compute_corrected_fret(
             keeps_manual = (
                 has_override
                 and not applies
-                and any(held[ids[i]].values())
+                and bool(held[ids[i]])
                 and _text(table["correction_method"][i]) == METHOD_MANUAL
             )
 
@@ -389,6 +389,9 @@ def compute_corrected_fret(
         f[_MOLECULES][TABLE][:] = table
 
         total_failure = (n_corrected + n_manual) == 0
+        # The override is recorded as applied only where it changed at least one molecule
+        # of its condition (``apparent_e_only`` or a missing other factor changes none).
+        applied_target = target if target is not None and counts[target][1] > 0 else None
         per_condition = _condition_corrections(
             f,
             table,
@@ -413,7 +416,7 @@ def compute_corrected_fret(
             n_apparent=n_apparent,
             total_failure=total_failure,
             conditions=per_condition,
-            override_condition_id=target,
+            override_condition_id=applied_target,
         )
 
     return CorrectionSummary(
@@ -425,7 +428,7 @@ def compute_corrected_fret(
         apparent_e_only=apparent_e_only,
         source=CORRECTION_SOURCE,
         conditions=tuple(per_condition),
-        override_condition_id=target,
+        override_condition_id=applied_target,
     )
 
 
@@ -483,6 +486,10 @@ def _condition_corrections(
         values = np.unique(np.asarray(table["alpha"][rows], dtype=np.float64))
         alpha = finite_or_none(values[0]) if values.size == 1 else None
         alpha_source = "manual" if manual and alpha_override is not None else None
+        if alpha_source == "manual":
+            # The molecules that took the override carry it, also when others of the
+            # condition could not take it and keep their own α.
+            alpha = float(alpha_override)  # type: ignore[arg-type]
         if alpha_source is None and alpha is not None:
             alpha_source = "estimated"
         if manual and gamma_override is not None:
@@ -523,15 +530,20 @@ def _previous_conditions(f: object) -> dict[str, dict[str, object]]:
 def _held_manual(
     table: np.ndarray, rows: list[int], previous: dict[str, object] | None
 ) -> dict[str, float]:
-    """Return the factors ``previous`` recorded as manual that every row still carries."""
+    """Return the factors ``previous`` recorded as manual that its manual rows still carry.
+
+    The rows are those of the condition stamped [`METHOD_MANUAL`][]: an override reaches
+    only the molecules that have both factors, so the others keep their own.
+    """
     held: dict[str, float] = {}
     if previous is None:
         return held
+    manual_rows = [r for r in rows if _text(table["correction_method"][r]) == METHOD_MANUAL]
     for name in ("alpha", "gamma"):
         value = previous.get(name)
         if previous.get(f"{name}_source") != "manual" or value is None:
             continue
-        carried = np.asarray(table[name][rows], dtype=np.float64)
+        carried = np.asarray(table[name][manual_rows], dtype=np.float64)
         if carried.size and np.all(carried == float(value)):  # type: ignore[arg-type]
             held[name] = float(value)  # type: ignore[arg-type]
     return held
