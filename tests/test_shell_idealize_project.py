@@ -444,3 +444,38 @@ def test_a_failed_probe_writes_nothing_and_gives_the_remedy(
     assert shell.status_message == (
         f"Idealize project failed: the sidecar is not available: it did not start. {SIDECAR_REMEDY}"
     )
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_fixed_state_count_from_the_dialog_is_the_count_stored(
+    shell, qtbot, tmp_path, sidecar
+) -> None:
+    """*Fixed* and the spinbox reach the fitter and the store; the spinbox is off otherwise."""
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.project.idealize import read_idealization
+
+    project, keys = _store(tmp_path)
+    assert shell.load_project(project.path) is not None
+    dialog = shell.show_idealize_dialog()
+    radios = {b.text(): b for b in dialog.dialog.findChildren(QtWidgets.QRadioButton)}
+    (spinbox,) = dialog.dialog.findChildren(QtWidgets.QSpinBox)
+    (stale_only,) = dialog.dialog.findChildren(QtWidgets.QCheckBox)
+    assert radios["Automatic (largest ELBO)"].isChecked()
+    assert not spinbox.isEnabled()  # Automatic: the count is not the user's
+    qtbot.mouseClick(radios["Fixed"], QtCore.Qt.MouseButton.LeftButton)
+    assert spinbox.isEnabled()
+    stale_only.setChecked(True)
+    assert not spinbox.isEnabled()  # refit stale only: the stored model's own count
+    stale_only.setChecked(False)
+    assert spinbox.isEnabled()
+    spinbox.setValue(3)
+    assert dialog.choice() == _fit(nstates=3)
+    assert dialog.ok_button.isEnabled()
+    dialog.ok_button.click()
+    qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
+    assert sidecar.calls == [(3, "vbconhmm", [keys[0]])]  # one fit, at nstates=3
+    stored = read_idealization(project, "vbconhmm")
+    assert stored.nstates == 3
+    assert stored.nstates_selected_by == "fixed"

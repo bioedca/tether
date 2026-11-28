@@ -111,6 +111,13 @@ semicolons = 1
 long_paragraphs = 0
 retired = 0
 
+[pages."docs/how-to/import-movies.md"]
+kind = "procedure"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
 long_share = 0.0

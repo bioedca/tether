@@ -53,6 +53,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.identity
 
+::: tether.gui.import_page
+
 ::: tether.gui.indicators
 
 ::: tether.gui.keymap_editor

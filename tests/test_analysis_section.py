@@ -623,6 +623,22 @@ def test_the_overlay_over_stale_fits_shows_a_warning(section, stale_modelled) ->
     assert warning is not None and warning.isVisibleTo(section.widget)
 
 
+def test_a_refused_overlay_keeps_each_rows_badge(section, stale_modelled) -> None:
+    # #1485: the overlay refuses for "stale", whose molecules are all stale, and the
+    # rows still say what each series left out.
+    path, keys = stale_modelled
+    section.set_project(path)
+    section.set_plot("population_model_gaussian_overlay")
+    section.add_series(_saved(path, "fresh", [keys[0], keys[2]]))
+    section.add_series(_saved(path, "stale", [keys[1], keys[3]]))
+    assert not section.outcome.drawn and section.canvas is None
+    assert "cannot be drawn for 'stale'" in section.empty_text
+    assert _row_texts(section) == [
+        "fresh",
+        "stale — 2 stale excluded (inputs changed since the fit)",
+    ]
+
+
 def test_saving_says_the_opt_out_is_not_kept(section, stale_modelled, tmp_path) -> None:
     path, keys = stale_modelled
     section.set_project(path)
