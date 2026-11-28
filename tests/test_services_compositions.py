@@ -868,3 +868,40 @@ def test_only_an_empty_regular_file_counts_as_empty(tmp_path) -> None:
     assert not _is_empty_file(tmp_path)  # a directory is not a file to replace
     (tmp_path / "full.json").write_bytes(b"{")
     assert not _is_empty_file(tmp_path / "full.json")
+
+
+@pytest.mark.parametrize("route", ["overwrite", "rename", "reservation"])
+def test_a_route_that_moved_the_temporary_name_never_removes_it_afterwards(
+    modelled, tmp_path, monkeypatch, route
+) -> None:
+    """CodeRabbit on PR #1527: a name reused after the move belongs to another writer."""
+    import os
+
+    from tether.services import compositions
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    if route == "overwrite":
+        _save(out, project, ["all"])
+    names = _record_temporary(monkeypatch)
+    _no_hard_links(monkeypatch)
+    real_rename, real_replace = os.rename, os.replace
+
+    def then_reused(real):
+        def move(src, dst, *args, **kwargs):
+            real(src, dst, *args, **kwargs)
+            if os.fspath(src) in names:  # another writer takes the freed name at once
+                with open(src, "w", encoding="utf-8") as f:
+                    f.write('{"theirs": true}')
+
+        return move
+
+    if route == "rename":
+        monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", True)
+        monkeypatch.setattr(os, "rename", then_reused(real_rename))
+    else:
+        monkeypatch.setattr(os, "replace", then_reused(real_replace))
+    _save(out, project, ["all"], overwrite=route == "overwrite")
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+    with open(names[-1], encoding="utf-8") as f:
+        assert f.read() == '{"theirs": true}'

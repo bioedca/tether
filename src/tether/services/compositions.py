@@ -314,11 +314,13 @@ def _discard(tmp: Path) -> None:
         return
 
 
-def _publish_new(tmp: Path, path: Path) -> None:
+def _publish_new(tmp: Path, path: Path) -> bool:
     """Give the written file the name ``path``, failing if that name already exists.
 
-    Returns once ``path`` holds the composition; removing ``tmp`` is the caller's
-    separate step, so a failure there is not a failed publish (#1523).
+    Returns once ``path`` holds the composition, and says whether ``tmp`` is still a
+    name of it: only a hard link leaves one. Removing it is the caller's separate
+    step, so a failure there is not a failed publish (#1523); a route that moved the
+    name leaves nothing to remove, and a name another writer reuses is never touched.
     """
     try:
         os.link(tmp, path)  # exclusive: a hard link never replaces an entry
@@ -330,8 +332,10 @@ def _publish_new(tmp: Path, path: Path) -> None:
                 os.rename(tmp, path)  # atomic, and never replaces an entry
             except FileExistsError:
                 raise _Exists from None
-            return
+            return False
         _create_new(tmp, path)
+        return False
+    return True
 
 
 def _create_new(tmp: Path, path: Path) -> None:
@@ -371,7 +375,8 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
     writes ``path`` in place, so not even a killed save leaves a half file there; on a
     POSIX file system without hard links it may leave an empty file (`_create_new`).
     Once ``path`` holds the composition the save succeeds, whatever happens when the
-    temporary name is then removed (`_discard`).
+    temporary name is then removed (`_discard`); only a hard link leaves that name, and
+    a route that moved it removes nothing afterwards.
 
     Known limit: the publish resolves the temporary name again after its check, so an
     entry swapped in that window is still published. Closing it needs a publish bound
@@ -405,12 +410,14 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
     try:
         if overwrite:
             os.replace(tmp, path)
+            linked = False  # the replace moved the name
         else:
-            _publish_new(tmp, path)
+            linked = _publish_new(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    _discard(tmp)
+    if linked:
+        _discard(tmp)
 
 
 def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
