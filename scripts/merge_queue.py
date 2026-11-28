@@ -72,6 +72,13 @@ CONTEXT = LABEL = "merge-queue"  # the commit status context and the label
 MAX_PASSES = 20  # a pass that merges or removes builds the train again; each pass changes one
 
 _SHA = re.compile(r"[0-9a-f]{40}")
+#: A closing line of a squash message: only closing keywords and ``#N`` references, at the start of
+#: a line, as ``Closes #12`` or ``Fixes #12, closes #13``. A keyword inside a sentence is not one.
+_KEYWORD = r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
+_CLOSING_LINE = re.compile(
+    rf"[ \t]*{_KEYWORD}:?[ \t]+#\d+(?:[ \t]*,?[ \t]*(?:(?:and|{_KEYWORD}:?)[ \t]+)?#\d+)*[ \t]*\.?",
+    re.IGNORECASE,
+)
 _NAME, _EMAIL = "tether-merge-queue", "tether-merge-queue@users.noreply.github.com"
 
 #: ``(method, url, json body or None) -> (status, body bytes)``
@@ -635,6 +642,41 @@ def removal_comment(step: Step, failed: Sequence[tuple[str, str, str]] = (), sai
     return f"The merge queue removed this pull request: {why}\n\n" + REJOIN.format(pr=step.pr)
 
 
+def closing_issues(message: str) -> list[int]:
+    """Return the issues that the closing lines of a squash message name, in order, once each.
+
+    GitHub records these references when the queue's App merges, but it does not close the
+    issues (#1529). Only a whole closing line counts, so a sentence that says what this change does
+    *not* close names nothing.
+    """
+    found: list[int] = []
+    for line in message.splitlines():
+        if _CLOSING_LINE.fullmatch(line):
+            found += [n for n in map(int, re.findall(r"#(\d+)", line)) if n not in found]
+    return found
+
+
+CLOSE_BY_HAND = (
+    "The merge queue merged this pull request. Its squash message names these issues with a "
+    "closing keyword, and GitHub does not close them when the queue's App makes the merge "
+    "(#1529). Close each one by hand, with the reason *completed*:\n\n{issues}"
+)
+
+
+def _close_by_hand(github: GitHub, pending: Pending) -> list[int]:
+    """Comment once on a merged pull request with the issues a person must close; return them.
+
+    The tag names the pending commit, so a run that finishes this merge again writes no second
+    comment, and a run that stopped before the comment writes it.
+    """
+    issues = closing_issues(pending.request.message)
+    tag = f"<!-- merge-queue close-by-hand {pending.commit} -->"
+    if issues and not github.commented(pending.pr, tag):
+        listed = "\n".join(f"- #{n}" for n in issues)
+        github.comment(pending.pr, CLOSE_BY_HAND.format(issues=listed) + f"\n\n{tag}")
+    return issues
+
+
 def _marker(git: Git, request: Request, action: str, comment: str) -> str:
     """Make the commit of a pending ref: the request commit as parent, the action and comment."""
     message = f"merge-queue {action} #{request.pr}" + (f"\n\n{comment}" if comment else "")
@@ -677,13 +719,14 @@ def finish(git: Git, github: GitHub, pending: Pending) -> None:
 
     A removal writes the ``failure`` status and its comment, unless that comment is there
     already: a run that stopped after the POST, or whose POST reply was lost, wrote it. A merge
-    that did not happen goes back to the queue.
+    that did not happen goes back to the queue; one that did gets its close-by-hand comment.
     """
     if pending.action == MERGE:
         pull = github.pull(pending.pr)
         if not (pull and pull.get("merged") is True):
             _restore(git, pending)
             return
+        _close_by_hand(github, pending)
     elif pending.comment:
         said = "removed from the merge queue; see the comment"
         github.set_status(pending.request.head, "failure", said)
@@ -773,8 +816,9 @@ def _pass(
         finish(git, github, Pending(front.pr, REMOVE, marker, request, comment))
         report["removed"].append({"pr": front.pr, "reason": "merge-refused"})
         return True
+    close = _close_by_hand(github, taken)
     _clear(git, github, taken)
-    report["merged"].append({"pr": front.pr, "commit": merged})
+    report["merged"].append({"pr": front.pr, "commit": merged, "close_by_hand": close})
     landed = github.tree_of(merged)
     if landed != front.tree:
         said = (
@@ -820,6 +864,9 @@ def _summary(report: Mapping[str, Any]) -> str:
         if key in report:
             done = ", ".join(f"#{item['pr']}" for item in report[key]) or "none"
             lines.append(f"\n{key.capitalize()}: {done}")
+    owed = [n for item in report.get("merged", []) for n in item.get("close_by_hand", [])]
+    if owed:
+        lines.append("\nIssues to close by hand: " + ", ".join(f"#{n}" for n in owed))
     return "\n".join(lines) + "\n"
 
 

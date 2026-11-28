@@ -1119,3 +1119,59 @@ def test_the_comment_lookup_reads_every_page(world: World, count: int, tagged: i
     assert world.github.commented(1, "<!-- tag -->") is (tagged is not None)
     pages = [p for m, p in world.calls if m == "GET" and "/comments?" in p]
     assert len(pages) == count // 100 + 1
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Body.\n\nCloses #1485", [1485]),
+        ("Body.\n\nfixes #3, closes #4 and #5.\nResolved: #3", [3, 4, 5]),
+        ("This does not close #7; #8 stays open.\nRefs #9", []),  # a sentence names nothing
+        ("Closes #10 because it is done", []),  # a closing line holds only references
+        ("Fixes other/repo#11", []),  # another repository's issue is not the queue's to name
+    ],
+    ids=["trailer", "several", "negated", "sentence", "other-repo"],
+)
+def test_the_closing_lines_of_a_squash_message_name_the_issues(message: str, expected) -> None:
+    assert mq.closing_issues(message) == expected
+
+
+def test_a_merge_comments_once_with_the_issues_its_message_closes(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head = world.pull(1, {"a.txt": "a\n"})
+    message = "It says why.\n\nThis does not close #7.\n\nCloses #1485"
+    mq.join(world.github, 1, head, message)
+    world.join(2, {"b.txt": "b\n"})  # its message names no issue: it gets no comment
+    run_on(world)
+    world.pass_candidates()
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    assert main_exit(world, "build", "--mode", "on") == 0
+
+    assert [number for number, _, _ in world.merged] == [1, 2]
+    ((number, body),) = world.comments
+    assert number == 1 and "- #1485" in body and "#7" not in body and "*completed*" in body
+    assert "Issues to close by hand: #1485" in summary.read_text(encoding="utf-8")
+    assert not [p for m, p in world.calls if p.startswith("/issues/1485")], "no Issues permission"
+
+
+def test_a_merge_that_a_later_run_finishes_writes_the_comment_once(world: World) -> None:
+    head = world.pull(1, {"a.txt": "a\n"})
+    mq.join(world.github, 1, head, "Body.\n\nFixes #42")
+    run_on(world)
+    world.pass_candidates()
+    world.comment_failures = ["lost"]  # the comment lands, but its reply fails
+
+    with pytest.raises(mq.QueueError, match="HTTP 502"):
+        run_on(world)
+    assert world.merged and world.origin_ref("refs/merge-queue/pending/pr-1"), "still owed"
+
+    report = run_on(world)
+    run_on(world)
+
+    assert report["finished"] == [{"pr": 1, "action": "merge"}]
+    ((number, body),) = world.comments
+    assert number == 1 and "- #42" in body
+    assert not _git(world.origin, "for-each-ref", "refs/merge-queue", "refs/heads/mq")
