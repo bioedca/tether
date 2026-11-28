@@ -48,6 +48,16 @@ files (#909): one ``/movies`` row whose ``uri`` names the donor file, and two so
 would show only the donor movie and draw the acceptor spots on donor-camera pixels. Until
 the panel can show each channel from its own file, such a row is listed as not available,
 with a reason that names the pair (#1405), and [`open_project_movie`][] refuses it.
+
+**A movie linked again.** ``/movies`` is frozen, so a movie whose file moved and was linked
+again ([`tether.project.sources.relink_source`][], #912) keeps its old ``uri``; the new path
+is in the movie's source record. When the file the ``uri`` names cannot be shown, and the
+movie's stored record names another file, that file is used instead (#1515), unless it is
+missing too. It is checked against the same fast signature, the size and modification time
+``/movies`` recorded (PRD §5.4): the registry records no modification time of its own. A
+file moved with its time kept is shown; a copy, which has a new time, is flagged
+``"file changed since extraction"``, and **Locate movie…**
+([`tether.services.movie_locations`][]) can then remember it after its checksum is read.
 """
 
 from __future__ import annotations
@@ -357,6 +367,29 @@ def _pair_partners(project_path: Path) -> dict[str, str]:
     return partners
 
 
+def _relinked_paths(project_path: Path) -> dict[str, Path]:
+    """Return ``{movie_id: path}`` of each movie's stored source record (#1515).
+
+    Only a record the registry holds (``stored``) is returned, not one made from the
+    ``/movies`` row. A movie with more than one movie record (a movie pair, #909) is left
+    out. Reads the source registry only, never a movie file.
+    """
+    from tether.project.sources import read_sources
+
+    found: dict[str, Path] = {}
+    seen: set[str] = set()
+    for record in read_sources(project_path):
+        if record.role != "movie" or not record.movie_id or not record.relative_path:
+            continue
+        if record.movie_id in seen:
+            found.pop(record.movie_id, None)
+            continue
+        seen.add(record.movie_id)
+        if record.stored:
+            found[record.movie_id] = record.resolve(project_path)
+    return found
+
+
 def _pair_refusal(acceptor_name: str) -> str:
     """Return the ``unavailable`` reason of a movie pair, naming the acceptor file (#1405)."""
     pair = f"movie pair with {acceptor_name}" if acceptor_name else "movie pair"
@@ -370,7 +403,9 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
     ``/movies`` table (an analysis-only import) gives no movies. A ``/molecules`` row whose
     ``movie_id`` names no ``/movies`` row (a subset export) belongs to no movie. A movie
     pair (donor and acceptor in two files, #909) is listed as not available, with a reason
-    that names the pair, and is never offered as one dual-channel movie (#1405).
+    that names the pair, and is never offered as one dual-channel movie (#1405). A movie
+    whose file is not where its ``uri`` says is looked for where its source record was
+    linked again (#1515).
 
     Raises ``OSError`` when the project cannot be read.
     """
@@ -394,6 +429,7 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
         )
 
     partners = _pair_partners(project_path)
+    relinked = _relinked_paths(project_path)
 
     if molecules is not None and len(molecules):
         mol_movie = np.array([_to_str(m) for m in molecules["movie_id"]])
@@ -410,6 +446,15 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
         uri = _to_str(row["uri"])
         file_size, mtime = int(row["file_size"]), float(row["mtime"])
         resolved = _resolve(uri, project_path.parent, file_size, mtime)
+        reason = _unavailable(resolved, file_size, mtime)
+        if reason is not None and movie_id in relinked:
+            # A movie linked again (#1515): its stored record names where the file is now.
+            new_path = relinked[movie_id]
+            new_reason = _unavailable(new_path, file_size, mtime)
+            # The new place is taken unless its file is gone too; a file there that cannot
+            # be shown (changed, not on this disk) is listed with its own reason.
+            if new_path != resolved and new_reason != "file missing":
+                resolved, reason = new_path, new_reason
         mine = mol_movie == movie_id
         donor = donor_all[mine]
         acceptor = acceptor_all[mine]
@@ -427,11 +472,7 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 movie_id=movie_id,
                 name=_movie_name(uri) if uri else movie_id,
                 path=resolved,
-                unavailable=(
-                    _pair_refusal(partners[movie_id])
-                    if movie_id in partners
-                    else _unavailable(resolved, file_size, mtime)
-                ),
+                unavailable=(_pair_refusal(partners[movie_id]) if movie_id in partners else reason),
                 donor_xy=donor_xy,
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,
