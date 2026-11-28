@@ -733,6 +733,13 @@ records each movie and its output as an `input` event with status `mapped`.
 > that had only `day1/movie_010.tif`. The output of the day 1 movie then becomes
 > `day1__movie_010`, and the run does not resume the old `movie_010.tether`.
 
+The names are compared only within one run. A later run can give a different movie the name of
+an earlier output, as `x.sif` after `x.tif` into the same `-d` folder. Tether then compares the
+checksum of the movie with the movie that the existing `.tether` records. If they differ, the
+extraction of that movie fails and names both movies, and Tether does not change the existing
+project. The same movie, also when you moved it to another folder, still resumes from its
+checkpoint.
+
 ### Every movie into one project (`--into`)
 
 `--into PROJECT.tether` writes the movies of one experiment into one project. So the conditions,

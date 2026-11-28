@@ -610,6 +610,31 @@ def _is_extracted(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}")
 
 
+def _checkpoint_movie_mismatch(path: Path, movie: Path) -> str | None:
+    """Name the movie an extraction checkpoint records when it is not ``movie`` (#1538).
+
+    The stem-derived output of two movies of one stem (``x.tif`` then ``x.sif``) is the
+    same path, so the provenance group alone cannot tell whose extraction it is. The
+    identity the project already records is the content checksum in ``/movies/table``:
+    a checkpoint counts only when a row carries the selected movie's checksum. Returns
+    ``None`` when it does, or when no row records a checksum (nothing to compare, the
+    pre-#1538 acceptance), else the recorded ``uri`` of the other movie(s). A read
+    failure raises, so the caller never reads it as a hit.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.batch_inputs import _find_movie_in_project  # noqa: PLC0415
+
+    with h5py.File(path, "r") as f:
+        movies = f.get("movies")
+        rows = movies[TABLE][:] if movies is not None and TABLE in movies else []
+    recorded = [_as_text(row["uri"]) or "?" for row in rows if _as_text(row["sha256"])]
+    if not recorded or _find_movie_in_project(path, movie) is not None:
+        return None
+    return ", ".join(recorded)
+
+
 def _active_movie_profile_attribute(f: Any, movie_id: str | None = None) -> object:
     """Read a movie's saved profile from an open file, defaulting to its sole movie."""
     records = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS].get(_MOVIE_SETTINGS)
@@ -1569,6 +1594,27 @@ def _do_extract(
                 error="rejected extraction checkpoint changed before destination lock; retry",
             ).ok
         if not rejected_checkpoint:
+            try:
+                other_movie = _checkpoint_movie_mismatch(job.output_path, job.movie_path)
+            except Exception as exc:
+                # An identity that cannot be read is never a checkpoint hit, and a
+                # project that may be another movie's is not this job's to stamp.
+                rec.canonical_write_safe = False
+                return rec.record(
+                    STAGE_EXTRACT,
+                    STATUS_FAILED,
+                    error=f"cannot confirm which movie {job.output_path.name} was "
+                    f"extracted from: {exc}",
+                ).ok
+            if other_movie is not None:
+                rec.canonical_write_safe = False  # leave the other movie's project as is
+                return rec.record(
+                    STAGE_EXTRACT,
+                    STATUS_FAILED,
+                    error=f"{job.output_path} was extracted from {other_movie}, not from "
+                    f"{job.movie_path}; refusing to continue on another movie's data "
+                    "(choose another destination, or move the existing project)",
+                ).ok
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
         try:
             if _checkpoint_has_review_or_generation_history(job.output_path):
