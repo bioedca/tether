@@ -789,10 +789,14 @@ def _copied_attr(key: str, value: object, aliases: _CuratorAliases | None) -> ob
 
 
 def _source_user_names(
-    src: object, label_rows: np.ndarray, reject_rows: np.ndarray | None
+    src: object,
+    label_rows: np.ndarray,
+    reject_rows: np.ndarray | None,
+    window_rows: np.ndarray | None = None,
 ) -> list[str]:
     """Every user name the copy would carry, in the order the copy writes them:
-    the exported label and reject-log rows first, then the verbatim metadata groups."""
+    the exported label and reject-log rows first, then the verbatim metadata groups,
+    then the exported calibration-window rows."""
     names = _row_names(label_rows)
     if reject_rows is not None:
         names += _row_names(reject_rows)
@@ -801,6 +805,8 @@ def _source_user_names(
             continue
         for ds in _iter_name_datasets(src[grp]):  # type: ignore[index]
             names += _row_names(ds[()])
+    if window_rows is not None:
+        names += _row_names(window_rows)
     return names
 
 
@@ -892,6 +898,48 @@ def _copy_reject_log(dst: object, kept: np.ndarray | None, aliases: _CuratorAlia
     dst["labels"].create_dataset(  # type: ignore[index]
         REJECT_LOG, data=kept, dtype=kept.dtype, maxshape=(None,)
     )
+    return int(kept.shape[0])
+
+
+def _kept_calibration_windows(src: object, selected_ids: set[str]) -> np.ndarray | None:
+    """Read the ``/calibration_windows`` rows of the exported molecules, in store order.
+
+    Rows join on ``molecule_id``, the identity
+    [`resolved_calibration_windows`][tether.project.calibration_windows.resolved_calibration_windows]
+    reads them by. Returns ``None`` when the source has no table (a store stamped before
+    schema version 4, #928).
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.calibration_windows import _GROUP  # noqa: PLC0415, PLC2701
+
+    group = src.get(_GROUP)  # type: ignore[attr-defined]
+    if group is None or TABLE not in group:
+        return None
+    rows = group[TABLE][()]
+    mask = np.array([_to_str(mid) in selected_ids for mid in rows["molecule_id"]], dtype=bool)
+    return rows[mask]
+
+
+def _copy_calibration_windows(
+    dst: object, kept: np.ndarray | None, aliases: _CuratorAliases | None
+) -> int:
+    """Append the exported molecules' calibration-window rows to the subset (#1471).
+
+    The rows keep their order, so the latest row of each ``molecule_id`` still holds and
+    each exported molecule reads the same window and source in the subset as in the
+    source, the window the copied γ evidence was computed from (ADR-0156). With
+    ``aliases`` the ``actor`` of a person-set row is replaced. Returns the rows copied.
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+    from tether.project.calibration_windows import _GROUP  # noqa: PLC0415, PLC2701
+
+    if kept is None or kept.shape[0] == 0:
+        return 0
+    if aliases is not None:
+        kept = aliases.apply(kept)
+    table = dst[_GROUP][TABLE]  # type: ignore[index]
+    table.resize((kept.shape[0],))
+    table[:] = kept
     return int(kept.shape[0])
 
 
@@ -1071,7 +1119,8 @@ def export_subset_tether(
     their ``/molecules`` rows (coordinates + identity + all scalar fields), the two
     ``/patches`` channel stacks, the corrected ``/traces`` layers, every
     ``/idealization`` model (filtered to the exported molecules), the ``/labels``
-    provenance rows and their ``/labels/reject_log`` reasons, and the
+    provenance rows and their ``/labels/reject_log`` reasons, their
+    ``/calibration_windows`` rows (#1471), and the
     ``/conditions``/``/settings``/``/calibration``/``/models`` metadata verbatim. The
     source **raw** traces are embedded only when ``include_raw=True``.
 
@@ -1105,9 +1154,9 @@ def export_subset_tether(
     provenance is stamped into the subset's root attributes.
 
     Copy for sharing (#620). With ``curator_alias`` set, the copy replaces user names
-    in the labels, reject log, condition audit, lock takeover, job owner and correction
-    transition records. It replaces the actor of a person-authored transition and preserves the
-    policy text of a policy-authored transition. Each distinct user name becomes
+    in the labels, reject log, condition audit, lock takeover, job owner, correction
+    transition and calibration-window records. It replaces the actor of a person-authored
+    row and preserves the policy text of a policy-authored row. Each distinct user name becomes
     ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first met, so one
     person keeps one alias and multi-curator analysis still works. A full path in
     ``PATH_ATTRS`` can include the user name. Only its file name is kept, such as for
@@ -1190,11 +1239,13 @@ def export_subset_tether(
         _preflight_source(src, int(molecules.shape[0]), include_raw)
         kept_indices, kept_labels = _subset_label_rows(src["labels"][TABLE][()], selected_keys)
         kept_reject_log = _kept_reject_log(src, selected_keys)
+        kept_windows = _kept_calibration_windows(src, selected_ids)
         aliases = (
             None
             if curator_alias is None
             else _CuratorAliases(
-                str(curator_alias), _source_user_names(src, kept_labels, kept_reject_log)
+                str(curator_alias),
+                _source_user_names(src, kept_labels, kept_reject_log, kept_windows),
             )
         )
         # Stage into a temp sibling, then atomically replace, so a mid-copy HDF5/IO
@@ -1219,6 +1270,7 @@ def export_subset_tether(
                 n_reject_log = _copy_reject_log(dst, kept_reject_log, aliases)
                 _copy_label_reviews(src, dst, selected_ids, kept_indices)
                 _copy_verbatim_groups(src, dst, aliases)
+                _copy_calibration_windows(dst, kept_windows, aliases)
                 _copy_sources(src, dst, aliases, path, out_path)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
