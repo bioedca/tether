@@ -5,9 +5,11 @@
 No redistributable ``.vsi`` movie is known, so this check runs on the maintainer's
 workstation (ADR-0071; maintainer decision D2 of #907). The mapping file names each movie
 under a ``vsi-NN`` id with two roles: ``vsi``, the ``.vsi`` file (its ``_<name>_`` folder of
-``.ets`` frames beside it), and ``tiff_export``, the TIFF that the vendor software exported
-from the same acquisition. The run needs ``$TETHER_BIOFORMATS_PYTHON`` as well
-(``docs/install.md``, "The Bio-Formats stack"); the runner passes its own environment on.
+``.ets`` frames beside it), and ``tiff_export``, a TIFF made from the ``.vsi`` in ImageJ (the
+Bio-Formats importer, then a turn in an ImageJ batch step; cellSens itself exports no TIFF,
+maintainer statement of 2026-11-25). The role keeps its name. The run needs
+``$TETHER_BIOFORMATS_PYTHON`` as well (``docs/install.md``, "The Bio-Formats stack"); the runner
+passes its own environment on.
 
 For each movie the check opens the ``.vsi`` through the adapter registry and holds it to the
 conformance rules of #901 (geometry, frame-range reads that do not load the movie, values that

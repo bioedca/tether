@@ -268,7 +268,7 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
 ## Golden numbers of the laboratory acquisitions
 
 The weekly run also checks the data acquisitions for self-drift (#703): `lab-01` to `lab-10`,
-`lab-12` and `lab-13`.
+`lab-12` and `lab-13`, and the `.vsi` movies `vsi-01` and `vsi-02`.
 For each one it runs the movie from end to end with the default settings and the map file of
 its series: `tether batch --no-idealize --tmap`, then the two-state HMM of the self-drift suite
 (ADR-0080). Then it compares the summary numbers with `tests/golden/workstation/<id>.json`,
@@ -310,6 +310,39 @@ map and is not turned. A check on the workstation (2026-11-15) turned each movie
 turns. It correlated each mean image with the mean images of `lab-11` and `lab-13`. Only one
 turn agrees for each id. It is one quarter turn for `lab-10` and `lab-12`, and no turn for
 `lab-09`.
+
+### The cellSens `.vsi` movies
+
+The cellSens `.vsi` movies `vsi-01` and `vsi-02` also have golden files (#1433). Each `vsi-NN`
+id needs three roles in the mapping file:
+
+| Role | File |
+|---|---|
+| `vsi` | the `.vsi` file, with its `_<name>_` folder of `.ets` frame files beside it |
+| `tiff_export` | the TIFF made from the `.vsi` in ImageJ (cellSens exports no TIFF; the role keeps its name) |
+| `tmap` | the Deep-LASI map file of the acquisition series |
+
+Each `vsi-NN` id also needs a recorded turn: `VSI_MAP_TURNS` in `tests/_lab_golden.py`. The
+reason is the map. Tether reads a `.vsi` as its `.ets` files store it, and that is correct.
+But a map fits the orientation of the movies it was made from.
+
+The map of `vsi-01` and `vsi-02` is the map of `lab-03` to `lab-05`. The maintainer made it
+from TIFFs that ImageJ turned 90° clockwise. So each `.vsi` is turned 90° clockwise
+(`numpy.rot90(frame, k=3)`) before it is registered with that map. Without the turn, the
+molecule count looks normal, but the median acceptor is negative. Tether gives no warning,
+because an imported map stores no registration error.
+
+Another series can have a map in another orientation, so the turn is recorded for each id and
+is never guessed. A new `vsi-NN` id gets no golden file until its turn is recorded.
+
+A second check runs for each `vsi-NN` id. It extracts the turned `.vsi` and the ImageJ TIFF as
+it is, both with the same map. It passes when both give the same molecules, the same number of
+frames and the same raw traces.
+
+A `.vsi` needs the Bio-Formats stack (ADR-0147). Without `$TETHER_BIOFORMATS_PYTHON`, both checks
+of a `vsi-NN` id skip and give the reason, and the runner's skip report shows it. The update
+script then skips these ids too, and says so. If you name one of them with `--only`, the script
+fails and writes nothing.
 
 The numbers in a golden file are what Tether computed when the file was written. They are not
 reference values.

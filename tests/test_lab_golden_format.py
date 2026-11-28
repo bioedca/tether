@@ -38,10 +38,10 @@ def _good_quantities() -> dict:
 
 def test_there_is_one_golden_file_for_each_data_acquisition() -> None:
     files = sorted(p.name for p in _lab_golden.LAB_GOLDEN_DIR.iterdir())
-    assert files == [f"{nid}.json" for nid in _lab_golden.LAB_ACQUISITIONS]
+    assert files == sorted(f"{nid}.json" for nid in _lab_golden.GOLDEN_IDS)
 
 
-@pytest.mark.parametrize("neutral_id", _lab_golden.LAB_ACQUISITIONS)
+@pytest.mark.parametrize("neutral_id", _lab_golden.GOLDEN_IDS)
 def test_each_golden_file_has_the_format_and_only_neutral_ids(neutral_id: str) -> None:
     path = _lab_golden.golden_path(neutral_id)
     raw = path.read_bytes()
@@ -155,11 +155,37 @@ def test_the_vendor_route_acquisitions_are_turned_back_to_their_map() -> None:
     assert _lab_golden.map_turns("lab-11") == 0
 
 
+def test_each_vsi_movie_has_a_recorded_turn_to_its_map() -> None:
+    """#1433: the map of the series of ``vsi-01``/``vsi-02`` fits TIFFs turned 90° right."""
+    assert _lab_golden.VSI_MAP_TURNS == {"vsi-01": 3, "vsi-02": 3}
+    assert _lab_golden.VSI_ACQUISITIONS == ("vsi-01", "vsi-02")
+    assert not set(_lab_golden.VSI_ACQUISITIONS) & set(_lab_golden.LAB_ACQUISITIONS)
+    expected = (*_lab_golden.LAB_ACQUISITIONS, *_lab_golden.VSI_ACQUISITIONS)
+    assert expected == _lab_golden.GOLDEN_IDS
+    frame = np.arange(12).reshape(3, 4)
+    clockwise = np.array([[8, 4, 0], [9, 5, 1], [10, 6, 2], [11, 7, 3]])
+    for nid in _lab_golden.VSI_ACQUISITIONS:
+        assert _lab_golden.NEUTRAL_ID.fullmatch(nid)
+        assert _lab_golden.map_turns(nid) == 3, nid
+        assert np.array_equal(np.rot90(frame, k=_lab_golden.map_turns(nid)), clockwise), nid
+
+
 def test_the_movie_role_falls_back_to_the_default_role() -> None:
     assert _lab_golden.movie_role(["movie", "tmap"]) == "movie"
     assert _lab_golden.movie_role(["file", "tmap"]) == "file"
     assert _lab_golden.movie_role(["file", "movie", "tmap"]) == "movie"
     assert _lab_golden.movie_role(["tmap"]) == "movie"  # then the lookup names the missing role
+    assert _lab_golden.movie_role(["vsi", "tiff_export", "tmap"]) == "vsi"
+
+
+def test_a_vsi_skips_with_a_reason_without_the_bioformats_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TETHER_BIOFORMATS_PYTHON", raising=False)
+    reason = _lab_golden.vsi_skip_reason()
+    assert reason is not None and "TETHER_BIOFORMATS_PYTHON" in reason
+    monkeypatch.setenv("TETHER_BIOFORMATS_PYTHON", "bioformats-python")
+    assert _lab_golden.vsi_skip_reason() is None
 
 
 # --- the pipeline, on the synthetic movie of #701 -----------------------------------------
@@ -227,6 +253,75 @@ def test_a_movie_turned_against_its_map_is_turned_back_before_extraction(
     assert turned == quantities
     assert vendor.is_file()  # the input stays; only the turned copy is deleted
     assert not list((tmp_path / "run" / "turned").iterdir())
+
+
+class _FakeVsi:
+    """A movie the adapters would open, standing in for a ``.vsi`` read by Bio-Formats."""
+
+    def __init__(self, frames: np.ndarray) -> None:
+        self.frames = frames
+        self.n_frames = frames.shape[0]
+        self.pixel_type = frames.dtype.str
+        self.reads: list[tuple[int, int]] = []
+
+    def __enter__(self) -> _FakeVsi:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def read_frames(self, start: int, stop: int) -> np.ndarray:
+        self.reads.append((start, stop))
+        return self.frames[start:stop]
+
+
+def test_a_vsi_is_turned_through_the_adapters_to_its_map(
+    synthetic, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1433: a ``.vsi`` stored a quarter turn against its map gives the numbers of the map's
+    orientation once :func:`map_turns` turns it, read a block at a time through the adapters."""
+    import tifffile  # noqa: PLC0415
+
+    import tether.io.adapters as adapters  # noqa: PLC0415
+
+    quantities, project = synthetic
+    movie = project.parents[2] / _golden_movie_name()
+    nid = _lab_golden.VSI_ACQUISITIONS[0]
+    # The .vsi holds the frames turned back by its recorded turn: turning them gives the movie.
+    stored = np.rot90(tifffile.imread(movie), k=-_lab_golden.map_turns(nid), axes=(1, 2))
+    fake = _FakeVsi(np.ascontiguousarray(stored, dtype="<u2"))
+    opened: list[Path] = []
+
+    def open_fake(path: Path) -> _FakeVsi:
+        opened.append(Path(path))
+        return fake
+
+    monkeypatch.setattr(adapters, "open_movie_source", open_fake)
+    monkeypatch.setattr(_lab_golden, "_CHUNK", 16)  # the synthetic movie is 60 frames
+    vsi = tmp_path / f"{Path(_golden_movie_name()).stem}.vsi"
+    (tmp_path / "turned").mkdir()
+    out = _lab_golden.rotate_movie(vsi, tmp_path / "turned", _lab_golden.map_turns(nid))
+    assert out.name == f"{vsi.stem}.tif"
+    assert np.array_equal(tifffile.imread(out), tifffile.imread(movie))
+    assert len(fake.reads) > 1  # read in blocks, never whole
+    assert opened == [vsi]
+
+    turned = _lab_golden.lab_quantities(
+        vsi, None, tmp_path / "run", turns=_lab_golden.map_turns(nid)
+    )
+    assert turned == quantities
+    assert not list((tmp_path / "run" / "turned").iterdir())
+
+
+def test_a_vsi_of_a_wider_pixel_type_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tether.io.adapters as adapters  # noqa: PLC0415
+
+    fake = _FakeVsi(np.zeros((2, 3, 4), dtype="<u4"))
+    monkeypatch.setattr(adapters, "open_movie_source", lambda path: fake)
+    with pytest.raises(ValueError, match="16-bit"):
+        _lab_golden.rotate_movie(tmp_path / "x.vsi", tmp_path / "x.tif", 3)
 
 
 def _golden_movie_name() -> str:
@@ -320,9 +415,15 @@ def _update_module():
 def _data_dir(root: Path) -> Path:
     data = root / "data"
     mapping = {}
-    for nid in _lab_golden.LAB_ACQUISITIONS:
+    for nid in _lab_golden.GOLDEN_IDS:
         movie = "file" if nid == "lab-03" else "movie"
         names = {movie: f"SECRET-series/{nid}-ZETA.tif", "tmap": "SECRET-series/OMEGA.tmap"}
+        if nid in _lab_golden.VSI_ACQUISITIONS:
+            names = {
+                "vsi": f"SECRET-series/{nid}-ZETA.vsi",
+                "tiff_export": f"SECRET-series/{nid}-ZETA.tif",
+                "tmap": "SECRET-series/OMEGA.tmap",
+            }
         for rel in names.values():
             (data / rel).parent.mkdir(parents=True, exist_ok=True)
             (data / rel).write_bytes(b"synthetic")
@@ -339,12 +440,16 @@ def test_the_update_script_writes_after_every_id_ran_and_prints_no_name(
     golden_dir = tmp_path / "golden"
     seen: list[str] = []
     turns: dict[str, int] = {}
+    monkeypatch.setenv("TETHER_BIOFORMATS_PYTHON", "bioformats-python")
 
     def fake(movie: Path, tmap: Path, workdir: Path, **kw) -> dict:
         assert movie.is_file() and tmap.suffix == ".tmap"
         seen.append(movie.name)
-        turns[movie.name.removesuffix("-ZETA.tif")] = kw["turns"]
-        if len(seen) == len(_lab_golden.LAB_ACQUISITIONS) and fail[0]:
+        nid = movie.name.split("-ZETA")[0]
+        # A .vsi id reads the .vsi itself, never the TIFF made from it.
+        assert movie.suffix == (".vsi" if nid in _lab_golden.VSI_ACQUISITIONS else ".tif")
+        turns[nid] = kw["turns"]
+        if len(seen) == len(_lab_golden.GOLDEN_IDS) and fail[0]:
             raise RuntimeError(f"cannot read {movie}")
         return _good_quantities()
 
@@ -356,8 +461,9 @@ def test_the_update_script_writes_after_every_id_ran_and_prints_no_name(
 
     fail[0] = False
     assert update.main(args) == 0
-    assert sorted(p.stem for p in golden_dir.iterdir()) == list(_lab_golden.LAB_ACQUISITIONS)
-    assert turns == {nid: _lab_golden.map_turns(nid) for nid in _lab_golden.LAB_ACQUISITIONS}
+    assert sorted(p.stem for p in golden_dir.iterdir()) == list(_lab_golden.GOLDEN_IDS)
+    assert turns == {nid: _lab_golden.map_turns(nid) for nid in _lab_golden.GOLDEN_IDS}
+    assert {turns[nid] for nid in _lab_golden.VSI_ACQUISITIONS} == {3}
     assert update.main([*args, "--check"]) == 0
     q = _good_quantities()
     q["molecules.count"] = 4
@@ -367,3 +473,22 @@ def test_the_update_script_writes_after_every_id_ran_and_prints_no_name(
     text = out.out + out.err
     assert "| `lab-02.json` | `molecules.count` | 3 | 4 |" in text
     assert "SECRET" not in text and "ZETA" not in text and "OMEGA" not in text
+
+
+def test_the_update_script_skips_the_vsi_ids_without_the_bioformats_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    update = _update_module()
+    data = _data_dir(tmp_path)
+    golden_dir = tmp_path / "golden"
+    monkeypatch.delenv("TETHER_BIOFORMATS_PYTHON", raising=False)
+    monkeypatch.setattr(update._lab_golden, "lab_quantities", lambda *a, **k: _good_quantities())
+    args = ["--data", str(data), "--golden-dir", str(golden_dir)]
+    assert update.main(args) == 0
+    assert sorted(p.stem for p in golden_dir.iterdir()) == list(_lab_golden.LAB_ACQUISITIONS)
+    out = capsys.readouterr().out
+    for nid in _lab_golden.VSI_ACQUISITIONS:
+        assert f"{nid}: skipped: the Bio-Formats stack is not installed" in out
+    # An id the user names is never skipped quietly.
+    assert update.main([*args, "--only", _lab_golden.VSI_ACQUISITIONS[0]]) == 2
+    assert "nothing was written" in capsys.readouterr().err

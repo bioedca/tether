@@ -8,8 +8,10 @@ Usage, on the workstation, in the locked environment, from a clone of the commit
     python scripts/workstation/update_lab_golden.py --data <data folder> --check
     python scripts/workstation/update_lab_golden.py --data <data folder> --only lab-03
 
-Each data acquisition of ``tests/_lab_golden.py`` (``LAB_ACQUISITIONS``) runs from its movie
-through the default pipeline with the map file of its series, in a temporary folder. The script
+Each id of ``tests/_lab_golden.py`` that has a golden file (``GOLDEN_IDS``) runs from its movie
+through the default pipeline with the map file of its series, in a temporary folder. A cellSens
+``.vsi`` movie (``VSI_ACQUISITIONS``) needs the Bio-Formats stack: without it, a full run skips
+those ids and says so, and ``--only`` with one of them fails. The script
 then writes ``tests/golden/workstation/<id>.json`` with summary numbers only and prints the
 same Markdown old/new table as ``scripts/update_golden.py``; a pull request that changes one of
 these files pastes that table with a ``Cause:`` line (the ``golden-table`` workflow checks it).
@@ -57,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--only",
         action="append",
-        choices=_lab_golden.LAB_ACQUISITIONS,
+        choices=_lab_golden.GOLDEN_IDS,
         help="run only this neutral id (repeatable)",
     )
     parser.add_argument(
@@ -67,7 +69,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="directory of the laboratory golden files (default: tests/golden/workstation)",
     )
     args = parser.parse_args(argv)
-    ids = args.only or list(_lab_golden.LAB_ACQUISITIONS)
+    ids = args.only or list(_lab_golden.GOLDEN_IDS)
+    vsi_reason = _lab_golden.vsi_skip_reason()
+    if vsi_reason is not None:
+        vsi_ids = [nid for nid in ids if nid in _lab_golden.VSI_ACQUISITIONS]
+        if vsi_ids and args.only:
+            # An id the user named is never skipped quietly.
+            print(f"{', '.join(vsi_ids)}: {vsi_reason}; nothing was written", file=sys.stderr)
+            return 2
+        for nid in vsi_ids:
+            print(f"{nid}: skipped: {vsi_reason}", flush=True)
+        ids = [nid for nid in ids if nid not in vsi_ids]
     data = _runner().PrivateData(args.data, "scripts/workstation/update_lab_golden.py")
 
     changes: dict[str, list[_golden.Difference]] = {}
