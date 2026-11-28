@@ -1281,6 +1281,17 @@ are append-only, and every field of both is a UTF-8 string:
 | `timestamp` | `str:utf-8` | scalar | — | — | `stale_marks` only: an ISO-8601 UTC time. |
 | `app_version` | `str:utf-8` | scalar | — | — | `stale_marks` only: the writing Tether version. |
 
+**What extraction records.** Each extraction that writes a trace generation (`tether extract`,
+`tether reextract`, and a movie added to a project) records two rows for it, once. The `node` is
+`trace_generation` and the `instance` is the generation's `generation_id`. The two inputs are:
+
+- `source_movie`, instance the `movie_id`, identity the registered `/movies.sha256`.
+- `map`, instance the `movie_id`, identity the `calibration_id` that its `/movies` row names.
+
+`tether status` compares these with `/movies` as it is now. A movie's active generation whose
+recorded checksum or map differs is stale, with no mark stored. A store written before Tether
+recorded them has no rows, and reads as before.
+
 ### Correction states
 
 `/settings/correction_transitions` holds one row for each transition of the correction states

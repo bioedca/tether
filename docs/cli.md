@@ -1432,6 +1432,11 @@ Each stage has one of these states:
 - `running`: a job of the stage is running now.
 - `not available in this version`: the feature of the stage is not in this version yet.
 
+A trace generation is stale when its movie checksum or its map has changed since the extraction.
+The extraction records both, once for each generation ([what extraction records](reference/tether-format.md#jobs-recorded-inputs-and-stale-marks)).
+Only the active generation of each movie is compared. A project written before Tether recorded
+them compares nothing.
+
 The corrections stage also names the correction state of the project
 ([the correction states](reference/tether-format.md#correction-states),
 [ADR-0131](adr/0131-the-correction-states-are-a-transition-log-in-the-project.md)). It is one of

@@ -167,7 +167,7 @@ from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_don
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
 from tether.io.frames import open_extraction_movie
-from tether.io.generations import Generation
+from tether.io.generations import Generation, active_generation
 from tether.io.pair import PAIR_ROLES, MoviePairError, check_pair, pair_sha256
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
@@ -177,7 +177,7 @@ from tether.project._guarded_publish import (
 )
 from tether.project.core import Project
 from tether.project.correction_states import mark_traces_replaced_in
-from tether.project.jobs import mark_stale_in
+from tether.project.jobs import mark_stale_in, record_inputs_in
 from tether.project.lock import PublishGuardRequiredError
 from tether.project.sources import project_movie_uri
 
@@ -1219,6 +1219,13 @@ def _persist(
         registration_map=extracted.reg_map,
         settings=settings,
     )
+    _record_generation_inputs(
+        project_path,
+        active_generation(project_path, movie_id).generation_id,
+        movie_id,
+        sha256=extracted.sha256,
+        calibration_id=calibration_id,
+    )
     _write_metadata_origins(
         project_path,
         movie_id,
@@ -1239,6 +1246,31 @@ def _persist(
             },
         )
     return movie_id, calibration_id, molecule_ids
+
+
+def _record_generation_inputs(
+    project_path: Path,
+    generation_id: str,
+    movie_id: str,
+    *,
+    sha256: str,
+    calibration_id: str,
+) -> None:
+    """Record the inputs of a new trace generation, once (ADR-0103, #1503).
+
+    The generation is the ``trace_generation`` instance ``generation_id``. Its direct
+    upstream instances are the movie's source (``source_movie``, instance ``movie_id``,
+    identity the registered ``/movies.sha256``) and the movie's map (``map``, instance
+    ``movie_id``, identity the ``calibration_id`` its ``/movies`` row names): the existing
+    stamps of ADR-0103, decision 4. [`tether.project.readiness`][] compares them with the
+    store as it is now, so a changed checksum or map shows the generation as stale.
+    """
+    record_inputs_in(
+        project_path,
+        _GENERATION_NODE,
+        generation_id,
+        {("source_movie", movie_id): sha256, ("map", movie_id): calibration_id},
+    )
 
 
 def _movie_and_settings(
@@ -1988,6 +2020,13 @@ def reextract_movie(
                 registration_map=extracted.reg_map,
                 settings=settings,
                 match_px=match_px,
+            )
+            _record_generation_inputs(
+                stage,
+                record.generation_id,
+                movie_id,
+                sha256=extracted.sha256,
+                calibration_id=calibration_id,
             )
             mark_stale_in(
                 stage,
