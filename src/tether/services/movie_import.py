@@ -479,10 +479,11 @@ class ProjectSource:
 
 def _missing(path: Path) -> str | None:
     # ``Path.is_file`` answers False for some access errors, which would read as a missing
-    # file; only a path that is not there is missing (#1528).
+    # file; only a path that is not there, or that no file can have (a ValueError), is
+    # missing (#1528).
     try:
         mode = path.stat().st_mode
-    except (FileNotFoundError, NotADirectoryError):
+    except (FileNotFoundError, NotADirectoryError, ValueError):
         return "file missing"
     except OSError:
         return "file unreadable"

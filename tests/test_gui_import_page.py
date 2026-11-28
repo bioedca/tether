@@ -253,6 +253,10 @@ def test_only_a_path_that_is_not_there_reads_as_missing(tmp_path, monkeypatch, e
     assert mi._missing(tmp_path / "x.tif") == said
 
 
+def test_a_path_no_file_can_have_reads_as_missing_and_raises_nothing(tmp_path) -> None:
+    assert mi._missing(tmp_path / "bad\x00name.tif") == "file missing"
+
+
 # --- the page ---------------------------------------------------------------------------
 
 
