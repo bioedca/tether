@@ -157,7 +157,7 @@ def run(request: MapCreateRequest, *, approvals: Any = None) -> MapCreateResult:
     from tether.imaging.layout import LAYOUT_SIDE_BY_SIDE, ChannelLayout
     from tether.imaging.map_asset import MapAsset, load_map_asset, save_map_asset
     from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError
-    from tether.project.lock import LockError
+    from tether.project.lock import LockError, publish_lock
 
     output = Path(request.output)
     report, png = report_paths(output)
@@ -172,6 +172,13 @@ def run(request: MapCreateRequest, *, approvals: Any = None) -> MapCreateResult:
             asset = load_map_asset(output)
         except MapFileError as exc:
             raise CommandFailed(f"output exists: {output}: {exc}") from exc
+        # Only a map this very request made, with its own report, is the stopped run's.
+        differs = _differs(asset, request, output, report)
+        if differs:
+            raise CommandFailed(
+                f"output exists: {output} (use --overwrite); it is not the map of this "
+                f"request: {differs}"
+            )
         accepted = _accept(request, asset, report, gate=gate, actor=actor)
         return _result(asset, output, report, png, accepted)
     for path in (report, png):
@@ -216,14 +223,22 @@ def run(request: MapCreateRequest, *, approvals: Any = None) -> MapCreateResult:
         )
         written = save_map_asset(asset, tmp)
         _write_report(asset, written, output.name, result.image, tmp_report, tmp_png)
-        _publish(written, output, overwrite=request.overwrite)
-        try:
-            _publish(tmp_report, report, overwrite=request.overwrite)
-            _publish(tmp_png, png, overwrite=request.overwrite)
-        except FileExistsError as exc:
-            raise CommandFailed(
-                f"the map is written to {output}, but its report exists: {exc.filename}"
-            ) from exc
+        if request.overwrite:
+            # One writer lock over the map and its report, so two replacing sessions
+            # cannot leave one session's map beside the other's report.
+            with publish_lock(output) as guard:
+                for source, target in ((written, output), (tmp_report, report), (tmp_png, png)):
+                    guard()  # refuses if the lock was taken over since it was acquired
+                    os.replace(source, target)
+        else:
+            _publish(written, output, overwrite=False)
+            try:
+                _publish(tmp_report, report, overwrite=False)
+                _publish(tmp_png, png, overwrite=False)
+            except FileExistsError as exc:
+                raise CommandFailed(
+                    f"the map is written to {output}, but its report exists: {exc.filename}"
+                ) from exc
     except FileExistsError as exc:  # another session made the file while this one fitted
         raise CommandFailed(f"output exists: {output} (use --overwrite)") from exc
     except (BeadMapError, LockError, OSError, ValueError) as exc:
@@ -272,6 +287,11 @@ def _accept(
     if not project or (gate is None and not request.accept):
         return ""
     subject = asset.map_id
+    if _report_map_sha256(report) != _sha256(Path(request.output)):
+        raise CommandFailed(
+            f"the report {report} does not name the map now at {request.output}; "
+            "another session replaced one of them, so the acceptance is not recorded"
+        )
     if gate is not None:
         policy = gate.decide(MAP_ACCEPT, subject, project=project, report=str(report))
         if policy is None:
@@ -292,6 +312,55 @@ def _accept(
             )
     _record(project, subject, report, gate=gate, actor=actor)
     return "policy" if gate is not None else "person"
+
+
+def _report_map_sha256(report: Path) -> str | None:
+    """Return the ``map_sha256`` a map report names, or ``None`` when it cannot be read."""
+    try:
+        value = json.loads(report.read_text(encoding="utf-8")).get("map_sha256")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _differs(asset: MapAsset, request: MapCreateRequest, output: Path, report: Path) -> str:
+    """Name what makes the map at ``output`` not the one ``request`` makes, or ``""``.
+
+    The map must come from the same bead file (its sha256), with the same frames,
+    projection, donor side, RMS gate, optics, pixel size and frame steps, and its
+    report must name that very map file.
+    """
+    from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError  # noqa: PLC0415
+
+    try:
+        source_id = f"sha256:{_sha256(Path(request.source))}"
+    except OSError as exc:
+        return f"the bead file cannot be read: {exc}"
+    try:
+        steps = None if request.frame_steps is None else ChannelRecipe.parse(request.frame_steps)
+    except ChannelRecipeError:
+        return "the frame steps differ"
+    prov = asset.registration_map.provenance.get("bead_source")
+    bead = prov if isinstance(prov, dict) else {}
+    if bead.get("kind") == "video":
+        start = 0 if request.frame_start is None else request.frame_start
+        stop = bead.get("n_frames") if request.frame_stop is None else request.frame_stop
+        frames_differ = (bead.get("frame_start"), bead.get("frame_stop")) != (start, stop)
+        frames_differ = frames_differ or bead.get("projection") != request.projection
+    else:
+        frames_differ = request.frame_start is not None or request.projection != "max"
+    layout = asset.channel_layout
+    checks = (
+        (source_id not in asset.source_ids, "the bead file differs"),
+        (frames_differ, "the frames or the projection differ"),
+        (layout is None or layout.donor != request.donor_side, "the donor side differs"),
+        (float(asset.registration_map.gate_px) != request.rms_gate, "the RMS gate differs"),
+        (asset.optics != request.optics, "the optics differ"),
+        (asset.pixel_size_um != request.pixel_size_um, "the pixel size differs"),
+        (str(asset.frame_steps) != str(steps), "the frame steps differ"),
+        (_report_map_sha256(report) != _sha256(output), "its report does not name it"),
+    )
+    return "; ".join(reason for failed, reason in checks if failed)
 
 
 def _record(

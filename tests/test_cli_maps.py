@@ -11,6 +11,7 @@ exit code; ``map show`` prints the record as text or JSON.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -348,7 +349,8 @@ def test_a_resumed_run_without_its_report_cannot_record(tmp_path) -> None:
     (tmp_path / "recipe.done").touch()
     resumed = _run(tmp_path, {**_GATE, "otherwise": "stop"})
     assert [s.state for s in resumed.steps] == ["failed"]
-    assert "cannot record the acceptance" in resumed.steps[0].message
+    assert "its report does not name it" in resumed.steps[0].message
+    assert read_approvals(tmp_path / "exp.tether") == []
 
 
 @pytest.mark.parametrize(("no_residual", "accepted"), [("approve", "policy"), ("stop", None)])
@@ -364,7 +366,8 @@ def test_no_residual_decides_a_map_without_a_residual(tmp_path, no_residual, acc
     gate = SimpleNamespace(
         decide=lambda *a, **k: policy, record=lambda *a, **k: recorded.append(k["subject"])
     )
-    request = maps.MapCreateRequest(source="b.tif", output="b.npz", project=str(project))
+    output = str(tmp_path / "beads.npz")
+    request = maps.MapCreateRequest(source="b.tif", output=output, project=str(project))
     report = tmp_path / "beads.json"
     if accepted is None:
         with pytest.raises(rc.ApprovalStop, match="no measured RMS residual"):
@@ -379,3 +382,138 @@ def test_a_map_over_its_gate_is_written_with_a_warning(tmp_path, capsys) -> None
     _create(tmp_path, "--rms-gate", "1e-30")
     assert "flagged low-confidence" in capsys.readouterr().err
     assert json.loads((tmp_path / "beads.json").read_text(encoding="utf-8"))["low_confidence"]
+
+
+# --- Codex P1 findings on #1533 -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("optics", "100x", "the optics differ"),
+        ("pixel_size_um", 0.2, "the pixel size differs"),
+        ("donor_side", "right", "the donor side differs"),
+        ("rms_gate", 0.25, "the RMS gate differs"),
+        ("frame_steps", "rotate 180", "the frame steps differ"),
+    ],
+)
+def test_a_recipe_never_takes_over_a_map_another_request_made(
+    tmp_path, field, value, reason
+) -> None:
+    """An existing output is the stopped run's only when this request made it (Codex P1)."""
+    _run(tmp_path, None)  # stops: the map of the default request is at beads.npz
+    fields = {"source": "beads.tif", "output": "beads.npz", "project": "exp.tether", field: value}
+    step = {
+        "command": "map",
+        "version": 1,
+        "fields": fields,
+        "policy": {**_GATE, "otherwise": "flag"},
+    }
+    path = tmp_path / "other.json"
+    path.write_text(json.dumps({"format": "tether-recipe", "version": 1, "steps": [step]}))
+    run = rc.run_recipe(rc.read_recipe(path))
+    assert [s.state for s in run.steps] == ["failed"]
+    assert "not the map of this request" in run.steps[0].message
+    assert reason in run.steps[0].message
+    assert read_approvals(tmp_path / "exp.tether") == []
+
+
+def test_another_bead_file_is_not_the_stopped_runs_map(tmp_path) -> None:
+    _run(tmp_path, None)
+    tifffile.imwrite(tmp_path / "beads.tif", np.ascontiguousarray(_frame(2.0), dtype=">u2"))
+    (tmp_path / "recipe.done").touch()
+    resumed = _run(tmp_path, {**_GATE, "otherwise": "flag"})
+    assert [s.state for s in resumed.steps] == ["failed"]
+    assert "the bead file differs" in resumed.steps[0].message
+
+
+def test_an_acceptance_needs_a_report_that_names_the_map(tmp_path, capsys, monkeypatch) -> None:
+    """A map replaced after its report was written is never accepted on that report (Codex P1)."""
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    # Another session replaced the map after this one wrote its report.
+    monkeypatch.setattr(maps, "_report_map_sha256", lambda report: "0" * 64)
+    beads = _beads(tmp_path / "beads.tif")
+    argv = ["map", "create", str(beads), "-o", str(tmp_path / "m.npz"), "--accept", str(project)]
+    assert main(argv) == 1
+    assert "does not name the map now at" in capsys.readouterr().err
+    assert read_approvals(project) == []
+
+
+def test_overwrite_publishes_the_map_and_its_report_under_one_lock(tmp_path, monkeypatch) -> None:
+    """Two replacing sessions cannot interleave the map and the report (Codex P1)."""
+    from tether.project import lock
+
+    _create(tmp_path)
+    events: list[str] = []
+    real_lock, real_replace = lock.publish_lock, maps.os.replace
+
+    @contextlib.contextmanager
+    def watched(path, **kwargs):
+        with real_lock(path, **kwargs) as guard:
+            events.append(f"lock {Path(path).name}")
+            yield guard
+        events.append(f"unlock {Path(path).name}")
+
+    def replace(src, dst):
+        if Path(dst).name.startswith("beads."):  # the lock's own files are not the bundle
+            events.append(f"replace {Path(dst).name}")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(lock, "publish_lock", watched)
+    monkeypatch.setattr(maps.os, "replace", replace)
+    beads = str(tmp_path / "beads.tif")
+    assert main(["map", "create", beads, "-o", str(tmp_path / "beads.npz"), "--overwrite"]) == 0
+    assert events == [
+        "lock beads.npz",
+        "replace beads.npz",
+        "replace beads.json",
+        "replace beads.png",
+        "unlock beads.npz",
+    ]
+
+
+def _video(path: Path) -> Path:
+    stack = np.broadcast_to(_frame(1.0), (3, *_SHAPE))
+    tifffile.imwrite(path, np.ascontiguousarray(stack, dtype=">u2"), photometric="minisblack")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({}, ""),
+        ({"frame_start": 0, "frame_stop": 2}, "the frames or the projection differ"),
+        ({"projection": "mean"}, "the frames or the projection differ"),
+        ({"frame_steps": "spin 7"}, "the frame steps differ"),
+        ({"source": "gone.tif"}, "the bead file cannot be read"),
+    ],
+)
+def test_a_video_map_is_the_stopped_runs_only_for_the_same_frames(tmp_path, change, reason) -> None:
+    Project.create(tmp_path / "exp.tether")
+    _video(tmp_path / "beads.tif")
+    request = maps.MapCreateRequest(
+        source=str(tmp_path / "beads.tif"), output=str(tmp_path / "v.npz")
+    )
+    maps.run(request)
+    asset = load_map_asset(tmp_path / "v.npz")
+    again = dataclasses.replace(
+        request, **{**change, "source": str(tmp_path / change.get("source", "beads.tif"))}
+    )
+    differs = maps._differs(asset, again, tmp_path / "v.npz", tmp_path / "v.json")
+    assert (reason in differs) if reason else differs == ""
+
+
+def test_a_store_that_refuses_the_row_fails_the_command(tmp_path, capsys, monkeypatch) -> None:
+    from tether.project import approvals
+
+    def refuse(*args, **kwargs):
+        raise ValueError("the store refused the row")
+
+    monkeypatch.setattr(approvals, "record_approval", refuse)
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    beads = _beads(tmp_path / "beads.tif")
+    argv = ["map", "create", str(beads), "-o", str(tmp_path / "m.npz"), "--accept", str(project)]
+    assert main(argv) == 1
+    assert "the store refused the row" in capsys.readouterr().err

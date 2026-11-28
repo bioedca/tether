@@ -995,7 +995,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | A bead TIFF: one image, or a video of frames. |
 | `-o`, `--output OUTPUT` | required | The `.npz` map file to write. The name must end in `.npz`. |
-| `--overwrite` | off | Replace an existing map file, only with a complete one, and its report. Tether refuses while another `tether map create` holds the writer lock of the map file. |
+| `--overwrite` | off | Replace an existing map file, only with a complete one, and its report, under one writer lock. Tether refuses while another `tether map create` holds the writer lock of the map file. |
 | `--frames START STOP` | every frame | For a video: the 0-based, half-open range of frames to project. |
 | `--projection {max,mean}` | `max` | For a video: how Tether reduces the frames to one image. |
 | `--donor-side {left,right}` | `left` | Which half of the frame is the donor channel. |
@@ -1033,8 +1033,12 @@ In a recipe, the `map` step accepts the map only with a `map.accept` policy, and
 step names its `project`. The rule `rms-gate` accepts a map with an RMS residual at or below
 `gate_px`. Above it, `otherwise` decides: `flag` accepts it, `fail` fails the step and `stop`
 stops the run with [exit code `4`](#exit-code-4-a-person-must-approve-a-step). A step with no
-policy stops after it wrote the map and its report. When a person accepts the map, `tether run
-RECIPE --resume` goes on with the map that is already there: it does not fit it again. `flag`
+policy stops after it wrote the map and its report.
+
+When a person accepts the map, `tether run
+RECIPE --resume` goes on with the map that is already there: it does not fit it again. Tether
+takes that map only when the same request made it. The bead file, the frames, the settings and
+the report must all match it, or the step fails as `output exists`. `flag`
 accepts the map, but only the map's own `--rms-gate` decides whether its molecules are tagged
 `low-confidence-registration`.
 
