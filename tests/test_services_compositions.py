@@ -1017,3 +1017,115 @@ def test_a_forced_save_still_replaces_an_abandoned_reservation(modelled, tmp_pat
     assert out.read_bytes() == b""
     _save(out, project, ["all"], overwrite=True)
     assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_without_advisory_locks_a_save_publishes_as_before(
+    modelled, tmp_path, monkeypatch, overwrite
+) -> None:
+    """Windows has no ``fcntl``: nothing is locked, and both routes still publish."""
+    from tether.services import compositions
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    out.write_bytes(b"")  # an empty file: the one case a lock would guard
+    if not overwrite:
+        out.unlink()
+    monkeypatch.setattr(compositions, "fcntl", None)
+    _no_hard_links(monkeypatch)
+    _save(out, project, ["all"], overwrite=overwrite)
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+
+
+@_posix_locks
+def test_a_file_system_that_refuses_locks_still_saves(modelled, tmp_path, monkeypatch) -> None:
+    """ENOLCK is no lock to honour, so the save goes on as it did before #1543."""
+    import errno
+
+    from tether.services import compositions
+
+    project, _keys = modelled
+
+    class NoLocks:
+        LOCK_EX, LOCK_NB = compositions.fcntl.LOCK_EX, compositions.fcntl.LOCK_NB
+
+        @staticmethod
+        def flock(_fd, _op):
+            raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(compositions, "fcntl", NoLocks)
+    _no_hard_links(monkeypatch)
+    out = tmp_path / "c.json"
+    _save(out, project, ["all"])
+    out.write_bytes(b"")
+    _save(out, project, ["all"], overwrite=True)
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
+
+
+@_posix_locks
+def test_a_reservation_locked_by_another_save_fails_the_running_save(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """A forced save holding the reservation's lock makes the running save stop, not wait."""
+    import fcntl
+    import os
+
+    from tether.services import CommandFailed, compositions
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    _no_hard_links(monkeypatch)
+    real_lock = compositions._lock
+    held: list = []
+
+    def another_save_holds_it(fd):
+        other = os.open(out, os.O_RDONLY)
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held.append(other)
+        return real_lock(fd)
+
+    monkeypatch.setattr(compositions, "_lock", another_save_holds_it)
+    try:
+        with pytest.raises(CommandFailed, match="is being replaced by another save"):
+            _save(out, project, ["all"])
+    finally:
+        for fd in held:
+            os.close(fd)
+    assert out.read_bytes() == b""  # left to the save that holds it
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+def test_a_temporary_name_in_use_is_never_reused(tmp_path, monkeypatch) -> None:
+    """``_temporary`` draws another name on a collision, and gives up after many."""
+    import secrets
+
+    from tether.services import compositions
+
+    dest = tmp_path / "c.json"
+    taken = tmp_path / ".c.json.taken.tmp"
+    taken.write_text("theirs", encoding="utf-8")
+    draws = iter(["taken", "fresh"])
+    monkeypatch.setattr(secrets, "token_hex", lambda _n: next(draws))
+    fd, tmp = compositions._temporary(dest)
+    __import__("os").close(fd)
+    assert tmp.name == ".c.json.fresh.tmp"
+    assert taken.read_text(encoding="utf-8") == "theirs"
+    monkeypatch.setattr(secrets, "token_hex", lambda _n: "taken")
+    with pytest.raises(FileExistsError, match="no unused temporary name"):
+        compositions._temporary(dest)
+
+
+@_posix_locks
+def test_a_forced_save_over_a_link_replaces_the_link_and_not_its_target(modelled, tmp_path) -> None:
+    """The guard never opens through a link; the replace swaps the entry, as before."""
+    import os
+
+    project, _keys = modelled
+    target = tmp_path / "target.json"
+    _save(target, project, ["all"])
+    before = target.read_bytes()
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    _save(link, project, ["all"], overwrite=True)
+    assert not os.path.islink(link)
+    assert target.read_bytes() == before

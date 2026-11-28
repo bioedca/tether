@@ -41,7 +41,7 @@ from tether.services.plots import ALL_MOLECULES, PlotSeries, plot_spec
 
 try:
     import fcntl
-except ImportError:  # Windows: no advisory locks, and no reservation route to guard
+except ImportError:  # pragma: no cover - Windows: no advisory locks, no reservation route
     fcntl = None  # type: ignore[assignment]
 
 __all__ = [
