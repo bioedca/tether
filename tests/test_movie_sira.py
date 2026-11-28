@@ -115,19 +115,6 @@ def test_the_registry_chooses_sira_by_its_header(tmp_path: Path) -> None:
         select_adapter(named)
 
 
-def test_extraction_does_not_read_sira_yet(tmp_path: Path) -> None:
-    from tether.io.frames import open_extraction_movie
-    from tether.io.movie import EXTRACTED_CONTAINERS
-
-    assert "SIRA" not in EXTRACTED_CONTAINERS
-    path = write_sira(tmp_path / "m.sira", _frames())
-    with (
-        pytest.raises(UnsupportedContainerError, match="extraction does not read SIRA yet"),
-        open_extraction_movie(path),
-    ):
-        pass
-
-
 # --- refusals ------------------------------------------------------------------------------
 
 

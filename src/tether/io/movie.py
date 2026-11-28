@@ -416,9 +416,16 @@ TIFF_ADAPTER = MovieAdapter(
 )
 """The built-in adapter for uncompressed multi-page TIFF, the first in the registry."""
 
-EXTRACTED_CONTAINERS: tuple[str, ...] = (TIFF_ADAPTER.name, "ND2", "CZI", "cellSens VSI", "SIF")
+EXTRACTED_CONTAINERS: tuple[str, ...] = (
+    TIFF_ADAPTER.name,
+    "ND2",
+    "CZI",
+    "cellSens VSI",
+    "SIF",
+    "SIRA",
+)
 """The names of the adapters whose movies extraction reads (#1388, ADR-0149; #1390; #1398;
-#1497).
+#1497; #1498).
 
 [`tether.io.frames.open_extraction_movie`][] refuses a movie of any other adapter, and a
 folder or a pattern given to ``tether batch`` contributes only the files of these
