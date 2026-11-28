@@ -408,6 +408,147 @@ def test_a_record_made_again_after_an_edit_is_undone_is_not_stale(tmp_path: Path
     assert r.stage("traces").state is rd.StageState.READY
 
 
+# --- extraction records the inputs of each trace generation (#1503) --------------------------
+
+
+def _extracted(tmp_path: Path) -> tuple[Path, Path]:
+    """A project made by ``tether extract`` from the small movie of ``_generation_store``."""
+    import _generation_store as gs  # noqa: PLC0415 - needs tifffile, gated with the store
+
+    movie = gs.movie_file(tmp_path)
+    project = tmp_path / "experiment.tether"
+    args = ["extract", str(movie), "-o", str(project), "--detection-mode", "intensity"]
+    assert main([*args, "--detection-threshold", str(gs.HIGH), "--window", "21"]) == 0
+    return project, movie
+
+
+def _movie_row(project: Path) -> tuple[str, str, str]:
+    with h5py.File(project, "r") as f:
+        row = f["movies"]["table"][0]
+    return tuple(
+        v.decode() if isinstance(v, bytes) else str(v)
+        for v in (row["movie_id"], row["sha256"], row["calibration_id"])
+    )  # type: ignore[return-value]
+
+
+def _set_movie_field(project: Path, field: str, value: str) -> None:
+    with h5py.File(project, "r+") as f:
+        movies = f["movies"]["table"]
+        row = movies[0]
+        row[field] = value
+        movies[0] = row
+
+
+def _inputs_by_generation(project: Path) -> dict[str, dict[tuple[str, str], str]]:
+    out: dict[str, dict[tuple[str, str], str]] = {}
+    for r in jobs.read_recorded_inputs(project):
+        assert r.node == "trace_generation"
+        out.setdefault(r.instance, {})[(r.upstream_node, r.upstream_instance)] = r.identity
+    return out
+
+
+def test_tether_extract_records_the_inputs_of_the_new_generation_once(tmp_path: Path) -> None:
+    from tether.io.generations import active_generation  # noqa: PLC0415
+
+    project, movie = _extracted(tmp_path)
+    movie_id, sha256, calibration_id = _movie_row(project)
+    generation = active_generation(project, movie_id).generation_id
+    assert sha256 == _sha256(movie)
+    assert _inputs_by_generation(project) == {
+        generation: {("source_movie", movie_id): sha256, ("map", movie_id): calibration_id}
+    }
+    r = rd.read_project_readiness(project)
+    assert r.stale == ()
+    assert r.stage("traces").state is rd.StageState.READY
+
+
+def test_a_new_generation_records_its_own_inputs_and_the_old_one_is_not_stale(
+    tmp_path: Path,
+) -> None:
+    import _generation_store as gs  # noqa: PLC0415
+    from tether.io.generations import read_generations  # noqa: PLC0415
+
+    project, movie = _extracted(tmp_path)
+    gs.reextract(project, movie, gs.LOW)
+    movie_id, sha256, calibration_id = _movie_row(project)
+    old, new = read_generations(project, movie_id)
+    recorded = _inputs_by_generation(project)
+    assert set(recorded) == {old.generation_id, new.generation_id}
+    assert recorded[new.generation_id] == {
+        ("source_movie", movie_id): sha256,
+        ("map", movie_id): calibration_id,
+    }
+    # The old generation recorded the map it was made with; it has been made again.
+    assert recorded[old.generation_id][("map", movie_id)] != calibration_id
+    assert rd.read_project_readiness(project).stale == ()
+
+
+def test_an_appended_movie_records_the_inputs_of_its_generation(tmp_path: Path) -> None:
+    import _generation_store as gs  # noqa: PLC0415
+    from tether.project.extract import add_movie_to_project  # noqa: PLC0415
+
+    project, _ = _extracted(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    second = gs.movie_file(other)
+    second.write_bytes(second.read_bytes() + b"\0" * 16)  # other bytes, same frames
+    with lock.publish_lock(project) as guard:
+        summary = add_movie_to_project(
+            project, second, options=gs.options(gs.HIGH), publish_guard=guard
+        )
+    by_movie = {
+        upstream: identity
+        for inputs in _inputs_by_generation(project).values()
+        for (node, upstream), identity in inputs.items()
+        if node == "source_movie"
+    }
+    assert by_movie[summary.movie_id] == summary.movie_sha256
+    assert len(by_movie) == 2
+    assert rd.read_project_readiness(project).stale == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "upstream", "event"),
+    [
+        (
+            "sha256",
+            "Source movie",
+            "Source change: the bytes no longer match the registered SHA-256",
+        ),
+        ("calibration_id", "Map", "Map edit"),
+    ],
+)
+def test_a_changed_movie_checksum_or_map_makes_the_generation_stale(
+    tmp_path: Path, capsys, field: str, upstream: str, event: str
+) -> None:
+    from tether.io.generations import active_generation  # noqa: PLC0415
+
+    project, _ = _extracted(tmp_path)
+    movie_id = _movie_row(project)[0]
+    generation = active_generation(project, movie_id).generation_id
+    _set_movie_field(project, field, "0" * 64 if field == "sha256" else "cal-edited")
+    r = rd.read_project_readiness(project)
+    reason = f"{event} ({upstream} {movie_id} changed since the generation was made)"
+    assert r.stale == (rd.StaleItem("traces", f"Trace generation {generation}", reason),)
+    assert r.stage("traces").state is rd.StageState.STALE
+    assert jobs.read_stale_marks(project) == []  # the comparison, not a mark
+    capsys.readouterr()
+    assert main(["status", str(project)]) == 0
+    assert f"    Trace generation {generation}: {reason}\n" in capsys.readouterr().out
+    assert main(["status", "--require", "traces", str(project)]) == 3
+
+
+def test_a_store_without_recorded_inputs_reads_as_before(tmp_path: Path) -> None:
+    """A store written before #1503 has no recorded inputs, so nothing is compared."""
+    project, _ = _extracted(tmp_path)
+    with h5py.File(project, "r+") as f:
+        del f["settings"]["recorded_inputs"]
+    _set_movie_field(project, "calibration_id", "cal-edited")
+    r = rd.read_project_readiness(project)
+    assert r.stale == ()
+    assert r.stage("traces").state is rd.StageState.READY
+
+
 def test_a_running_job_is_waited_for_and_never_started_again(tmp_path: Path) -> None:
     path = tmp_path / "new.tether"
     project = Project.create(path)

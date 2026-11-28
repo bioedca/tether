@@ -9,7 +9,8 @@ window and a script cannot disagree on what the next step is.
 
 The read is the one of ``tether info`` (#655): the project is opened read-only and no lock
 is taken. It reads [`tether.project.summary.read_project_summary`][] with the stale check,
-the stored jobs and stale marks of ADR-0126 ([`tether.project.jobs`][]) and the correction
+the stored jobs and stale marks of ADR-0126 ([`tether.project.jobs`][]), the recorded inputs
+of each active trace generation compared with ``/movies`` now (ADR-0103, #1503), the correction
 state of G03 ([`tether.project.correction_states`][]), and the carried, new and lost
 molecules of each movie extracted again
 ([`tether.project.generation_reconcile.reconciliation_counts`][], #923). A stage whose
@@ -474,6 +475,43 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
     return [m for m in marks if not replacements(m.node, m.instance)]
 
 
+def _compared(path: Path, recorded: list[Any]) -> list[tuple[Any, str]]:
+    """Compare the recorded inputs of each active trace generation with the store now.
+
+    ADR-0103, decision 2: the comparison of recorded and current identities is the
+    authority, and a mark only a cache. Extraction records, for each new generation, the
+    registered checksum of its movie (``source_movie``) and the map its ``/movies`` row
+    names (``map``, the ``calibration_id``), both under the movie's id (#1503). A
+    generation whose recorded identity differs from the one in ``/movies`` now is stale.
+    Only the active generation of each movie is compared: an earlier one has been made
+    again already. A generation with no recorded inputs (a store written before #1503)
+    is not compared. Returns ``(recorded input, current identity)`` for each that differs,
+    the current identity ``""`` when the movie is no longer in ``/movies``.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.generations import generations_in  # noqa: PLC0415
+
+    rows = [r for r in recorded if r.node == "trace_generation"]
+    if not rows:
+        return []
+    with h5py.File(path, "r") as f:
+        table = f["movies"]["table"][()]
+        active = {g.generation_id for g in generations_in(f) if g.active and g.generation_id}
+    current = {
+        "source_movie": {_text(m["movie_id"]): _text(m["sha256"]) for m in table},
+        "map": {_text(m["movie_id"]): _text(m["calibration_id"]) for m in table},
+    }
+    changed = []
+    for r in rows:
+        if r.instance not in active or r.upstream_node not in current:
+            continue
+        now = current[r.upstream_node].get(r.upstream_instance, "")
+        if now != r.identity:
+            changed.append((r, now))
+    return changed
+
+
 def _same_scope(wanted: list[tuple[str, set[str]]], given: list[tuple[str, str]]) -> bool:
     """Pair each given input with one wanted input it may stand for, using each once."""
     if len(wanted) != len(given):
@@ -543,7 +581,9 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         )
         stored_jobs = jobs.read_jobs(store)
         job_records = tuple(_job_status(j) for j in stored_jobs)
-        marks = _outstanding(jobs.read_stale_marks(store), jobs.read_recorded_inputs(store))
+        recorded = jobs.read_recorded_inputs(store)
+        marks = _outstanding(jobs.read_stale_marks(store), recorded)
+        changed = _compared(store, recorded)
         reconciliation = reconciliation_counts(store)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise ProjectReadinessError(f"{store}: could not be read ({exc})") from exc
@@ -557,6 +597,22 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
                 f"{_node_name(graph, mark.node)} {mark.instance}",
                 f"{events.get(mark.edge, mark.event)} "
                 f"({_node_name(graph, mark.edited_node)} {mark.edited_instance} changed)",
+            )
+        )
+    marked = {(m.node, m.instance) for m in marks}
+    for r, _ in changed:
+        if (r.node, r.instance) in marked:  # the mark already names this record
+            continue
+        marked.add((r.node, r.instance))
+        edge = next(
+            e for e in graph.EDGES if e.upstream == r.upstream_node and e.downstream == r.node
+        )
+        stale.append(
+            StaleItem(
+                _NODE_STAGE.get(r.node, r.node),
+                f"{_node_name(graph, r.node)} {r.instance}",
+                f"{edge.event} ({_node_name(graph, r.upstream_node)} {r.upstream_instance} "
+                "changed since the generation was made)",
             )
         )
     for model in summary.idealizations:

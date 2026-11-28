@@ -67,6 +67,7 @@ __all__ = [
     "read_stale_marks",
     "reconcile_jobs",
     "record_inputs",
+    "record_inputs_in",
     "retry_job",
     "run_job",
     "set_stale_marks",
@@ -693,10 +694,26 @@ def record_inputs(
     ``node_key``. A record's inputs are recorded once: a changed record is a new instance.
     """
     project._assert_writable()
+    record_inputs_in(project.path, node_key, instance, inputs)
+
+
+def record_inputs_in(
+    path: str | Path,
+    node_key: str,
+    instance: str,
+    inputs: Mapping[tuple[str, str], str],
+    *,
+    write_guard: Callable[[], None] | None = None,
+) -> None:
+    """Apply [`record_inputs`][] to a staged copy under the caller's writer lock.
+
+    The form a writer uses inside a staged write, as [`mark_stale_in`][] is for
+    [`set_stale_marks`][]: extraction records the inputs of each new trace generation
+    here, in the copy it then publishes (#1503). ``write_guard`` is called once, just
+    before the rows are stored.
+    """
     _input_key(node_key, instance)
-    if any(
-        r.node == node_key and r.instance == instance for r in read_recorded_inputs(project.path)
-    ):
+    if any(r.node == node_key and r.instance == instance for r in read_recorded_inputs(path)):
         raise ValueError(f"the inputs of {node_key}:{instance} are already recorded")
     upstream = {e.upstream for e in graph.EDGES if e.downstream == node_key}
     rows = []
@@ -713,7 +730,9 @@ def record_inputs(
                 "identity": str(identity),
             }
         )
-    _append(project.path, _INPUTS, _INPUT_FIELDS, rows)
+    if rows and write_guard is not None:
+        write_guard()
+    _append(path, _INPUTS, _INPUT_FIELDS, rows)
 
 
 def read_stale_marks(path: str | Path) -> list[StaleMark]:
