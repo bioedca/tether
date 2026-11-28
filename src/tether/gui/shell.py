@@ -1603,6 +1603,9 @@ class TetherShell:
         if section_id == "analyze":
             # A fit made in another section may have added a model: read the choices again.
             self._analysis_section.refresh()
+        elif section_id == CURATE_SECTION:
+            # A movie linked again in Prepare's Import dock is shown from its new place (#1515).
+            self.refresh_movies()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea
@@ -2665,13 +2668,7 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"{feature}: the project's movies cannot be read again: {exc}")
             return
-        row = self._molecule_list.currentRow()
-        self._reset_movie_panel()
-        note = self._wire_movies(movies)
-        self._wire_roundtrip()
-        if 0 <= row < len(self._traces):
-            self._focus_movie(row)
-            self._retarget_frame_link(row, lead="trace")
+        note = self._rewire_movies(movies)
         if isinstance(result, LocateResult):
             parts = [f"{len(found)} movie(s) found"] + list(result.problems)
         else:
@@ -2679,6 +2676,48 @@ class TetherShell:
         if note:
             parts.append(note)
         self._status(f"{feature}: " + "; ".join(parts))
+
+    def _rewire_movies(self, movies: Any) -> str | None:
+        """Show ``movies`` in the switcher and the panel again, keeping the selected molecule."""
+        row = self._molecule_list.currentRow()
+        self._reset_movie_panel()
+        note = self._wire_movies(movies)
+        self._wire_roundtrip()
+        if 0 <= row < len(self._traces):
+            self._focus_movie(row)
+            self._retarget_frame_link(row, lead="trace")
+        return note
+
+    def refresh_movies(self) -> bool:
+        """Read the open project's movies again when one cannot be shown (#1515).
+
+        A movie whose file moved can be linked again in Prepare's Import dock
+        ([`relink_source`][tether.project.sources.relink_source]), which writes the new path
+        to the source registry; this shows it from there without opening the project again.
+        It runs when Curate is shown. Nothing is read when every movie is shown or a locate
+        is running, and the panel is built again only when a movie's place or reason
+        changed. Reads the project only, never a movie file. Returns whether it changed.
+        """
+        from tether.services.movies import read_project_movies
+
+        project_path = self._project_path
+        if project_path is None or self._movie_tasks.busy or not self.unavailable_movies():
+            return False
+        try:
+            movies = self._with_movie_locations(project_path, read_project_movies(project_path))
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"The project's movies cannot be read again: {exc}")
+            return False
+
+        def state(rows: Any) -> list[tuple[Any, ...]]:
+            return [(m.movie_id, m.path, m.unavailable) for m in rows]
+
+        if state(movies.movies) == state(self._project_movies):
+            return False
+        note = self._rewire_movies(movies)
+        shown = sum(movie.available for movie in movies.movies)
+        self._status(f"Movies read again: {shown} can be shown" + (f"; {note}" if note else ""))
+        return True
 
     def _pick_unavailable_movie(self, feature: str, movies: list[Any]) -> Any | None:
         """Ask which of ``movies`` to act on; the one movie when there is only one."""

@@ -446,3 +446,91 @@ def test_a_one_file_movie_beside_the_registry_is_not_a_pair(tmp_path) -> None:
     (movie,) = read_project_movies(project).movies
 
     assert movie.available, movie.unavailable
+
+
+# --- a movie source linked again (#1515) ---------------------------------------------
+
+
+def _tiff(path: Path, seed: int) -> Path:
+    tifffile = pytest.importorskip("tifffile")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = np.random.default_rng(seed).integers(0, 4000, size=(4, 16, 16), dtype=np.uint16)
+    tifffile.imwrite(path, data, photometric="minisblack")
+    return path
+
+
+def _movies_rows(path: Path) -> list[tuple[str, ...]]:
+    with h5py.File(path, "r") as handle:
+        table = handle["movies"]["table"][()]
+    return [tuple(str(row[name]) for name in table.dtype.names) for row in table]
+
+
+def _relinked(tmp_path: Path, *, copy: bool) -> tuple[Path, Path, list[tuple[str, ...]]]:
+    """A project whose one movie moved, then was linked again to its new place.
+
+    Returns the project, the new file and the ``/movies`` rows before the relink.
+    ``copy`` copies the file (a new modification time) instead of renaming it.
+    """
+    import shutil
+
+    from _movie_locate_store import project_with_movies
+    from tether.project.core import Project
+    from tether.project.sources import relink_source
+
+    movie = _tiff(tmp_path / "raw" / "moved.tif", 1515)
+    path = project_with_movies(tmp_path, [movie])
+    moved = tmp_path / "elsewhere" / "moved.tif"
+    moved.parent.mkdir()
+    if copy:
+        shutil.copyfile(movie, moved)
+        movie.unlink()
+    else:
+        movie.rename(moved)
+    before = _movies_rows(path)
+    (missing,) = read_project_movies(path).movies
+    assert missing.unavailable == "file missing"
+    project = Project.open(path)
+    with project.write_lock():
+        relink_source(project, "movie:mov-1", moved)
+    return path, moved, before
+
+
+def test_a_movie_linked_again_is_shown_from_its_new_place(tmp_path) -> None:
+    path, moved, before = _relinked(tmp_path, copy=False)
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.available, movie.unavailable
+    assert movie.path == moved
+    with open_project_movie(movie) as source:
+        assert source.shape == (4, 16, 16)
+    # /movies stays frozen: the new place is the source registry's, not a rewritten uri.
+    assert _movies_rows(path) == before
+
+
+@pytest.mark.parametrize("change", ["copied", "written"])
+def test_a_movie_linked_again_whose_signature_differs_is_flagged(tmp_path, change) -> None:
+    # PRD §5.4: the new place is checked against the signature /movies recorded, size and
+    # modification time. A copy has a new time; it is flagged at its new place, never
+    # trusted, and stays a movie that Locate movie can find (#638).
+    from tether.services.movie_locations import locatable
+
+    path, moved, _before = _relinked(tmp_path, copy=change == "copied")
+    if change == "written":
+        with moved.open("ab") as handle:
+            handle.write(b"\0")
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.unavailable == "file changed since extraction"
+    assert movie.path == moved
+    assert locatable(movie)
+
+
+def test_a_movie_linked_again_that_moved_once_more_keeps_its_reason(tmp_path) -> None:
+    path, moved, _before = _relinked(tmp_path, copy=False)
+    moved.unlink()
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.unavailable == "file missing"

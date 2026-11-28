@@ -382,3 +382,47 @@ def test_a_local_copy_replaces_a_vsi_whose_frames_are_not_on_this_disk(
     shell.close()
     again = _open(section_shell, path, preferences_file=prefs)
     assert again.unavailable_movies() == []
+
+
+def test_a_movie_linked_again_is_shown_when_curate_shows(section_shell, tmp_path) -> None:
+    # #1515: the Import dock links a moved movie again; the switcher shows it from there,
+    # without the project being opened again, and the next open finds it too.
+    from tether.gui.shell import CURATE_SECTION, PREPARE_SECTION
+    from tether.project.core import Project
+    from tether.project.sources import relink_source
+
+    path, (movie,) = _project(tmp_path)
+    moved = tmp_path / "elsewhere" / "movie_1.tif"
+    moved.parent.mkdir()
+    movie.rename(moved)  # a move keeps the modification time the project recorded
+    shell = _open(section_shell, path)
+    assert _labels(shell) == ["movie_1.tif (file missing)"]
+    shell.set_section(PREPARE_SECTION)
+
+    project = Project.open(path)
+    with project.write_lock():
+        relink_source(project, "movie:mov-1", moved)
+    shell.set_section(CURATE_SECTION)
+
+    assert _labels(shell) == ["movie_1.tif"]
+    assert shell.unavailable_movies() == []
+    assert shell._project_movies[0].path == moved
+    assert not shell.refresh_movies()  # every movie is shown: nothing is read again
+
+    shell.close()
+    again = _open(section_shell, path)
+    assert again.unavailable_movies() == []
+    assert again._project_movies[0].path == moved
+
+
+def test_reading_the_movies_again_changes_nothing_when_nothing_moved(
+    section_shell, tmp_path
+) -> None:
+    path, (movie,) = _project(tmp_path)
+    movie.unlink()
+    shell = _open(section_shell, path)
+    panel_rows = dict(shell._movie_rows)
+
+    assert not shell.refresh_movies()
+    assert _labels(shell) == ["movie_1.tif (file missing)"]
+    assert shell._movie_rows == panel_rows
