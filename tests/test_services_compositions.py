@@ -499,35 +499,63 @@ def test_a_failed_write_leaves_no_temporary_file(modelled, tmp_path, monkeypatch
 
 
 def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -> None:
-    import os
     import stat
 
     project, _keys = modelled
     out = tmp_path / "c.json"
     _save(out, project, ["all"])
     mode = stat.S_IMODE(out.stat().st_mode)
-    if hasattr(os, "fchmod"):
-        assert mode == 0o644  # not mkstemp's private 0600
-    else:  # Windows: no fchmod, and the file keeps its ordinary read-write default
-        assert mode & stat.S_IREAD and mode & stat.S_IWRITE
+    # Readable and writable by its owner on every platform; the POSIX mode bits are the
+    # umask test's (#1543), and Windows keeps only a read-only bit.
+    assert mode & stat.S_IREAD and mode & stat.S_IWRITE
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="Windows has no POSIX file mode")
+@pytest.mark.parametrize("umask", [0o077, 0o022, 0o002])
+@pytest.mark.parametrize("route", ["link", "rename", "reservation", "overwrite"])
+def test_a_saved_composition_has_the_mode_the_umask_gives_on_every_route(
+    modelled, tmp_path, monkeypatch, route, umask
+) -> None:
+    """#1543 concern 2: 0666 masked by the process umask, never a fixed 0644."""
+    import os
+    import stat
+
+    from tether.services import compositions
+
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    if route == "overwrite":
+        _save(out, project, ["all"])
+        os.chmod(out, 0o644)  # the mode of the file it replaces does not carry over
+    elif route != "link":
+        _no_hard_links(monkeypatch)
+        monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", route == "rename")
+    old = os.umask(umask)
+    try:
+        _save(out, project, ["all"], overwrite=route == "overwrite")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.lstat(out).st_mode) == 0o666 & ~umask
 
 
 # --- #1470: publish exclusively, and only the file the save wrote ------------------
 
 
 def _record_temporary(monkeypatch) -> list:
-    """Make ``tempfile.mkstemp`` record each name it makes, and return that list."""
-    import tempfile
+    """Make the save record each temporary name it makes, and return that list."""
+    import os
+
+    from tether.services import compositions
 
     names: list = []
-    real = tempfile.mkstemp
+    real = compositions._temporary
 
-    def mkstemp(*args, **kwargs):
-        fd, name = real(*args, **kwargs)
-        names.append(name)
-        return fd, name
+    def temporary(*args, **kwargs):
+        fd, tmp = real(*args, **kwargs)
+        names.append(os.fspath(tmp))
+        return fd, tmp
 
-    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(compositions, "_temporary", temporary)
     return names
 
 
@@ -905,3 +933,87 @@ def test_a_route_that_moved_the_temporary_name_never_removes_it_afterwards(
     assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"
     with open(names[-1], encoding="utf-8") as f:
         assert f.read() == '{"theirs": true}'
+
+
+# --- #1543: a forced save never replaces a reservation a running save holds ---------
+
+
+_posix_locks = pytest.mark.skipif(
+    __import__("os").name == "nt", reason="the reservation route and its lock are POSIX only"
+)
+
+
+@_posix_locks
+def test_without_hard_links_a_forced_save_never_replaces_a_live_reservation(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Concern 1: a forced save lands between the reservation check and its replace."""
+    import os
+
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    late, early = _two(project, keys)
+    _no_hard_links(monkeypatch)
+    real_replace = os.replace
+    forced: list = []
+
+    def forced_save_lands_first(src, dst, *args, **kwargs):
+        if not forced and os.fspath(dst) == os.fspath(out):
+            assert out.read_bytes() == b""  # the running save's live reservation
+            forced.append("ran")
+            try:
+                _save(out, project, [early], overwrite=True)
+            except RequestRefused as exc:
+                forced.append(exc)
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", forced_save_lands_first)
+    saved = _save(out, project, [late])
+    # The forced save is told, rather than reporting a success the running save undoes.
+    assert len(forced) == 2 and "is being written by another save" in str(forced[1])
+    assert saved.path == out
+    assert [s["label"] for s in json.loads(out.read_text(encoding="utf-8"))["series"]] == ["late"]
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+@_posix_locks
+def test_without_hard_links_a_forced_save_that_locks_first_fails_the_running_save(
+    modelled, tmp_path, monkeypatch
+) -> None:
+    """Concern 1, the other order: the forced save takes the reservation before its lock."""
+    import os
+
+    from tether.services import CommandFailed, compositions
+
+    project, keys = modelled
+    out = tmp_path / "c.json"
+    late, early = _two(project, keys)
+    _no_hard_links(monkeypatch)
+    real_lock = compositions._lock
+    forced: list = []
+
+    def forced_save_locks_first(fd):
+        if not forced:  # the running save, between its exclusive create and its lock
+            forced.append("ran")
+            forced.append(_save(out, project, [early], overwrite=True))
+        return real_lock(fd)
+
+    monkeypatch.setattr(compositions, "_lock", forced_save_locks_first)
+    with pytest.raises(CommandFailed, match="was replaced while the save reserved it"):
+        _save(out, project, [late])
+    # The forced save succeeded, and its composition is the one that stays.
+    assert len(forced) == 2 and forced[1].path == out
+    assert [s["label"] for s in json.loads(out.read_text(encoding="utf-8"))["series"]] == ["early"]
+    assert [p for p in os.listdir(tmp_path) if p.endswith(".tmp")] == []
+
+
+def test_a_forced_save_still_replaces_an_abandoned_reservation(modelled, tmp_path) -> None:
+    """An empty file nobody holds, such as one a killed save left, is still replaced."""
+    project, _keys = modelled
+    out = tmp_path / "c.json"
+    out.write_bytes(b"")
+    with pytest.raises(RequestRefused, match="exists; give --force to replace it"):
+        _save(out, project, ["all"])
+    assert out.read_bytes() == b""
+    _save(out, project, ["all"], overwrite=True)
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "tether-plot-composition"

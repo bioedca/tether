@@ -1196,11 +1196,18 @@ tether save-composition [-h] --project PROJECT --plot PLOT --series SPEC [--mode
 | `--series SPEC` | required | A series. Give it once for each series, in drawing order (note 1). |
 | `--model MODEL` | none | The idealization model that a model-derived plot reads. |
 | `--state NAME=K` | none | A state option of the plot: `state`, `init_state` or `final_state`. Give it once for each option. |
-| `--force` | off | Replace a file that exists. |
+| `--force` | off | Replace a file that exists (note 2). |
 
 1. A `SPEC` is `all`, for every molecule of the project, or a preset: `condition=VALUE`,
    `movie=VALUE` or `source_file=VALUE`. Tether freezes the molecules of a preset when the command
    runs. A later change of the project does not change which molecules the file names.
+2. `--force` replaces a plot composition or an empty file, such as one that a killed save left.
+   It never replaces an empty file that another save is still writing: that save holds a lock on
+   it, and the forced save is refused. On Windows, and on a file system with no file locks,
+   there is no such lock to check.
+
+The saved file has the mode of any new file under your umask, such as 0644 under umask 022 and
+0600 under umask 077.
 
 **Exit codes:**
 
@@ -1209,7 +1216,8 @@ tether save-composition [-h] --project PROJECT --plot PLOT --series SPEC [--mode
 - `2`: Tether refused before any write. The file exists and `--force` is not given, or the
   project cannot be found. Or the plot, a preset value or a state option is unknown to the plot.
   Or two series have one name. Tether never replaces the project, or a file that is neither a
-  plot composition nor empty, also with `--force`.
+  plot composition nor empty, also with `--force`. Or, with `--force`, the file is empty and
+  another save is still writing it.
 
 ### Example — save a dwell-time plot of every molecule
 
