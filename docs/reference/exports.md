@@ -494,6 +494,7 @@ must agree and both patch channels must be present.
 | `/labels` | Rows whose `molecule_key` is in the selection. |
 | `/labels/reject_log` | Rows whose `molecule_key` is in the selection, so each reject keeps its reason. Absent when the source has no log or no selected molecule has a row. |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim. |
+| `/calibration_windows` | Rows whose `molecule_id` is in the selection, in the order of the project file. So the latest row of each molecule still holds. Each molecule reads the same calibration window and source (`set`) as in the project, the windows the copied γ evidence was computed from. A project stamped before schema version 4 has no rows to copy. |
 
 **Notes**
 
@@ -539,7 +540,7 @@ operating system.
 | `/settings/condition_audit` (a condition re-key or merge) | `labeler` |
 | `/settings/lock_takeovers` (a lock that was recovered or taken over) | `holder_user` and `ousted_user` |
 | `/settings/jobs` | The `user` key of its `owner` object: the name of the last writer. |
-| `/settings/correction_transitions`, `/settings/gamma_contributors` and `/settings/gamma_contributor_decisions` | `actor`, when `by` is `person`. The `actor` of a `policy` row contains policy text and keeps its value. |
+| `/settings/correction_transitions`, `/settings/gamma_contributors`, `/settings/gamma_contributor_decisions` and `/calibration_windows/table` | `actor`, when `by` is `person`. The `actor` of a `policy` row contains policy text and keeps its value. |
 
 `tether.project.export.USER_NAME_FIELDS` lists the plain fields.
 `tether.project.export.JSON_USER_KEYS` lists the JSON fields that hold a name under one key. Only
@@ -554,7 +555,7 @@ that key changes, so the record keeps its shape.
 
 1. The numbers follow the order in which the copy first writes each name. That is the selected
    `/labels/table` and `/labels/reject_log` rows in the order of the project file, followed by the
-   `/settings` logs.
+   `/settings` logs. The selected `/calibration_windows/table` rows come last.
     - One person keeps one alias in every table, so a multi-curator analysis still works on the
       copy.
     - An alias that contains a name in the source is skipped. So a copy whose names are already

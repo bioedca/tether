@@ -54,6 +54,9 @@ Select **Unpair** to split a pair into two movies again.
 5. Look at the frame view. The donor and the acceptor trace colors outline the two channels.
 6. Select **Apply**.
 
+For a movie pair, each file is one channel, so the page hides **Layout**, **Donor** and the
+rectangles. Skip steps 1 to 3. The frame steps and **Apply** stay.
+
 Each change shows on the frame view at once, and the note says *Preview, not applied yet*.
 Tether keeps the layout for the movie only after **Apply**. The frame steps run before the
 channel split, so the layout reads its positions in the turned frame. A layout that does not
@@ -67,7 +70,9 @@ Separate the frame steps with commas. Tether knows four steps:
 - `translate 2 -1` moves the frame 2 rows down and 1 column left.
 - `crop 1 1 256 256` keeps rows 1 to 256 and columns 1 to 256.
 
-No step resamples a pixel.
+No step resamples a pixel. A move leaves some pixels with no source, so Tether refuses a
+`translate` that no later `crop` cuts away. For a 512 x 512 frame, type
+`translate 2 -1, crop 3 1 512 511`. A rotate or a flip needs no crop.
 
 ## 4. Use the movies
 

@@ -1208,8 +1208,8 @@ tether save-composition [-h] --project PROJECT --plot PLOT --series SPEC [--mode
 - `1`: the write failed.
 - `2`: Tether refused before any write. The file exists and `--force` is not given, or the
   project cannot be found. Or the plot, a preset value or a state option is unknown to the plot.
-  Or two series have one name. Tether never replaces the project or a file that is not a plot
-  composition, also with `--force`.
+  Or two series have one name. Tether never replaces the project, or a file that is neither a
+  plot composition nor empty, also with `--force`.
 
 ### Example — save a dwell-time plot of every molecule
 

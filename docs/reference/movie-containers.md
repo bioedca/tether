@@ -29,15 +29,17 @@ Each metadata value has an origin: `file` (read from the movie), `user` (you gav
 | SIRA (MASH-FRET) | `.sira` | Tether ([ADR-0152](../adr/0152-tether-reads-sira-with-its-own-reader-and-only-the-current-layout.md)) |
 | AVI, uncompressed 8-bit gray | `.avi` | Tether ([ADR-0154](../adr/0154-tether-reads-avi-with-its-own-reader-and-only-uncompressed-8-bit-gray.md)) |
 
-Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI, ND2 and
-cellSens VSI ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
-A CZI movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). A CZI
-that the reader refuses (for example, two channels) fails with the reader's own message. A `.vsi`
-movie needs the optional Bio-Formats stack. Without it, extraction fails with the message that
-says how to install it.
+Extraction (the application, `tether extract` and `tether batch`) reads TIFF, CZI, ND2,
+cellSens VSI and SIF ([ADR-0149](../adr/0149-extraction-reads-every-registered-reader-through-read-frames.md)).
+A CZI movie and the TIFF of the same frames extract to the same traces, bit for bit (#1390). So do
+a SIF movie and its TIFF (#1497).
 
-A SIF, SIRA or AVI movie opens through its reader, but extraction refuses it. The message is "this
-SIF movie opens, but extraction does not read SIF yet", or the same for SIRA or AVI. SIF, SIRA and
+A CZI or SIF file that the reader refuses fails with the reader's own message. An example is a CZI
+of two channels. A `.vsi` movie needs the optional Bio-Formats stack. Without it, extraction fails
+with the message that says how to install it.
+
+A SIRA or AVI movie opens through its reader, but extraction refuses it. The message is "this
+SIRA movie opens, but extraction does not read SIRA yet", or the same for AVI. SIRA and
 AVI each need a change of their own. Until then, export the movie to uncompressed TIFF.
 
 ## TIFF

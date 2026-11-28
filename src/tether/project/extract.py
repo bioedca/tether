@@ -1422,6 +1422,21 @@ def extract_movie(
     confirm_optics:
         With ``map_path``: use the map although its optics text differs from
         ``map_optics``. The confirmation is recorded with the map.
+    frame_steps:
+        The movie's own whole-frame steps
+        ([`ChannelRecipe`][tether.imaging.recipe.ChannelRecipe]; #1435), run on every
+        frame before the two channels are split. When given, they replace the map's
+        default. ``None`` (default) uses the map's default (``map_frame_steps`` for a
+        ``.tmap``, or the default a map file was saved with); an empty
+        ``ChannelRecipe()`` (``"none"``) applies no steps even when the map has a
+        default. When the steps have a source (the movie's own, ``"none"`` included, or
+        the map's default), the steps and that source are recorded under
+        ``frame_steps`` in the movie's settings profile; with neither, no steps run and
+        nothing is recorded there.
+    map_frame_steps:
+        The default frame steps of the ``.tmap`` given as ``tmap``, which holds none of
+        its own (#1435); ``frame_steps`` replaces it. It is refused without ``tmap``: a
+        map file stores its own default, and a movie's own steps are ``frame_steps``.
 
     Returns
     -------
@@ -1520,9 +1535,22 @@ def count_molecules_by_rule(
     Runs the stages of [`extract_movie`][] up to colocalization -- through the stage
     preview ([`tether.project.preview.iter_extraction_stages`][]), whose molecules are
     those of a real run -- and stops there: no trace is integrated and nothing is
-    written. ``options``, ``tmap``, ``tdat``, ``map_path``, ``map_optics`` and
-    ``confirm_optics`` mean what they mean for [`extract_movie`][], so a count with a map
-    file uses that map (#353) and runs the same reuse check first (#916, #1394).
+    written. ``options``, ``tmap``, ``tdat``, ``map_path``, ``map_optics``,
+    ``confirm_optics``, ``frame_steps`` and ``map_frame_steps`` mean what they mean for
+    [`extract_movie`][], so a count with a map file uses that map (#353) and runs the
+    same reuse check first (#916, #1394), and a count runs on the frames as the frame
+    steps leave them (#1435).
+
+    Parameters
+    ----------
+    frame_steps:
+        The movie's own whole-frame steps, run before the channel split; they replace
+        the map's default. ``None`` uses the map's default, and an empty
+        ``ChannelRecipe()`` (``"none"``) applies no steps even when the map has one. As
+        for [`extract_movie`][].
+    map_frame_steps:
+        The default frame steps of a ``.tmap``, which holds none of its own; refused
+        without ``tmap``. As for [`extract_movie`][].
 
     Returns
     -------
@@ -1684,6 +1712,14 @@ def add_movie_to_project(
     refuse_over_gate:
         As for [`extract_movie`][]: a movie whose registration is over the gate is
         not appended, and the project is left as it was (#1151).
+    frame_steps:
+        The movie's own whole-frame steps, run before the channel split; they replace
+        the map's default. ``None`` uses the map's default, and an empty
+        ``ChannelRecipe()`` (``"none"``) applies no steps even when the map has one. As
+        for [`extract_movie`][] (#1435).
+    map_frame_steps:
+        The default frame steps of a ``.tmap``, which holds none of its own; refused
+        without ``tmap``. As for [`extract_movie`][].
 
     Returns
     -------
@@ -1850,6 +1886,20 @@ def reextract_movie(
     acceptor_movie:
         The acceptor movie when the project holds ``movie_path`` as the donor of a movie
         pair (#909); the pair is found by its checksum, as one movie is.
+    frame_steps:
+        The movie's own whole-frame steps, run before the channel split, as for
+        [`extract_movie`][] (#1435); given steps replace both the map's default and the
+        steps stored for the movie, and an empty ``ChannelRecipe()`` (``"none"``) applies
+        none, and that ``"none"`` is recorded, so a later re-extraction reuses it. With
+        ``None`` (default), the steps the movie was last extracted with are used again:
+        a movie's own steps always, and a map's default only when the map used now has
+        no default of its own (otherwise that map's default applies). A movie last
+        extracted with no steps from any source has no ``frame_steps`` record, so there
+        is nothing to reuse: the map used now gives its default if it has one, and
+        otherwise no steps run.
+    map_frame_steps:
+        The default frame steps of a ``.tmap``, which holds none of its own; refused
+        without ``tmap``. As for [`extract_movie`][].
 
     Returns
     -------
