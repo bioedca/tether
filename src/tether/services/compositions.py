@@ -27,16 +27,22 @@ core loads only when a command runs.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
 import os
+import secrets
 import stat
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
 from tether.services.base import CommandFailed, Request, RequestRefused
 from tether.services.plots import ALL_MOLECULES, PlotSeries, plot_spec
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows: no advisory locks, no reservation route
+    fcntl = None  # type: ignore[assignment]
 
 __all__ = [
     "COMPOSITION_FORMAT",
@@ -295,6 +301,49 @@ class _Exists(Exception):
     """The destination appeared after the check, so a save without ``overwrite`` stops."""
 
 
+class _Busy(Exception):
+    """The destination is an empty reservation that a running save still holds (#1543)."""
+
+
+def _lock(fd: int) -> bool:
+    """Take an exclusive advisory lock on ``fd`` without waiting; say whether no save holds it.
+
+    The lock is what tells a live reservation from an abandoned one: the save that made
+    it holds the lock until its replace is done, and the kernel releases it when that
+    process ends, however it ends. Where there are no such locks (Windows, or a file
+    system that refuses them) no lock is taken and the answer is ``True``, as before #1543.
+    """
+    if fcntl is None:
+        return True
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:  # another descriptor holds it
+        return False
+    except OSError:  # no lock support on this file system
+        return True
+    return True
+
+
+def _temporary(path: Path) -> tuple[int, Path]:
+    """Create a unique temporary file beside ``path``, exclusively, and return it open.
+
+    Like `tempfile.mkstemp`, but with the mode an ordinary new file gets: it asks for
+    0666 and the kernel applies the process umask (and any default ACL), where
+    ``mkstemp`` asks for 0600. Every route publishes this inode, so this is the mode
+    of the saved composition (#1543).
+    """
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+    for name in ("O_NOFOLLOW", "O_BINARY", "O_NOINHERIT"):
+        flags |= getattr(os, name, 0)
+    for _ in range(100):
+        tmp = path.parent / f".{path.name}.{secrets.token_hex(6)}.tmp"
+        try:
+            return os.open(tmp, flags, 0o666), tmp
+        except FileExistsError:
+            continue
+    raise FileExistsError(errno.EEXIST, "no unused temporary name", os.fspath(path.parent))
+
+
 # Windows ``os.rename`` never replaces an existing name (it raises FileExistsError);
 # on POSIX it does, so there a file system without hard links reserves the name first.
 _RENAME_REFUSES_EXISTING = os.name == "nt"
@@ -347,6 +396,15 @@ def _create_new(tmp: Path, path: Path) -> None:
     any point leaves either the whole composition or an empty file at ``path``, never
     a half file; ``--force`` replaces an empty file (`_is_empty_file`).
 
+    The reservation is locked (`_lock`) from just after its create until the replace
+    is done, and a forced save replaces an empty file only once it holds that lock
+    itself (`_replace_unless_reserved`), so a forced save never replaces a reservation
+    a running save still holds (#1543). If a forced save takes the lock first, in the
+    moment between the create and the lock, this save finds its reservation gone and
+    fails instead: either way one of the two saves reports the conflict. Where there
+    are no advisory locks the guard is absent, and a forced save landing between the
+    check and the replace below is lost to this save's replace.
+
     A save that fails after the reservation leaves it in place rather than remove it:
     no removal by name can rule out a file swapped in after its check, and losing
     another writer's file is worse than an empty one (#1523). A swap between the
@@ -357,12 +415,43 @@ def _create_new(tmp: Path, path: Path) -> None:
     except FileExistsError:
         raise _Exists from None
     try:
+        if not _lock(fd):  # a forced save has it, and is replacing it now
+            raise OSError(f"{path.name} is being replaced by another save")
         reserved = os.fstat(fd)
+        if fcntl is None:  # no lock to hold, and Windows never replaces a file held open
+            os.close(fd)
+            fd = -1
+        if not os.path.samestat(reserved, os.lstat(path)):
+            raise OSError(f"{path.name} was replaced while the save reserved it")
+        os.replace(tmp, path)  # atomic, and the entry it replaces is this reservation
+    finally:
+        if fd >= 0:
+            os.close(fd)  # releases the lock, after the replace
+
+
+def _replace_unless_reserved(tmp: Path, path: Path) -> None:
+    """Replace ``path`` with ``tmp``, unless it is a reservation a running save holds.
+
+    An empty regular file at ``path`` is replaced only while this call holds its lock
+    (`_lock`); a lock another save holds is `_Busy`, and ``path`` is left as it is.
+    Anything else is replaced as before. Windows has no such locks, and keeps no
+    descriptor open on ``path`` (that would make the replace fail there).
+    """
+    if fcntl is None:
+        os.replace(tmp, path)
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:  # no entry, a link, or an entry this process cannot open: none to guard
+        os.replace(tmp, path)
+        return
+    try:
+        held = os.fstat(fd)
+        if stat.S_ISREG(held.st_mode) and held.st_size == 0 and not _lock(fd):
+            raise _Busy
+        os.replace(tmp, path)
     finally:
         os.close(fd)
-    if not os.path.samestat(reserved, os.lstat(path)):
-        raise OSError(f"{path.name} was replaced while the save reserved it")
-    os.replace(tmp, path)  # atomic, and the entry it replaces is this reservation
 
 
 def _write(path: Path, text: str, *, overwrite: bool) -> None:
@@ -382,18 +471,16 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
     entry swapped in that window is still published. Closing it needs a publish bound
     to the descriptor (``linkat`` with ``AT_EMPTY_PATH`` on Linux), which is
     platform-specific and which the standard library does not expose (#1523).
+
+    The saved file has the mode an ordinary new file gets under the caller's umask
+    (`_temporary`). With ``overwrite``, an empty file a running save still reserves is
+    never replaced (`_Busy`, `_replace_unless_reserved`).
     """
     # A unique file, created exclusively: never a fixed name that a link could point
     # elsewhere, or that a second save to the same path would share.
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    tmp = Path(name)
+    fd, tmp = _temporary(path)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            # mkstemp makes the file private (0600); a composition holds no data, so give it
-            # the mode an ordinary new file has. Through the descriptor, never the name, so a
-            # swapped entry cannot redirect it (Windows has no fchmod and keeps its default).
-            if hasattr(os, "fchmod"):
-                os.fchmod(f.fileno(), 0o644)
             f.write(text)
             f.flush()
             written = os.fstat(f.fileno())
@@ -409,7 +496,7 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
         raise OSError(f"its temporary file {tmp.name} was replaced before the save published it")
     try:
         if overwrite:
-            os.replace(tmp, path)
+            _replace_unless_reserved(tmp, path)
             linked = False  # the replace moved the name
         else:
             linked = _publish_new(tmp, path)
@@ -421,7 +508,13 @@ def _write(path: Path, text: str, *, overwrite: bool) -> None:
 
 
 def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
-    """Freeze the series, check the record and write the file; refuse before any write."""
+    """Freeze the series, check the record and write the file; refuse before any write.
+
+    The file gets the mode an ordinary new file gets under the process umask. With
+    ``overwrite``, an empty file is replaced like a composition (it may be what a killed
+    save left), but not while a running save still reserves it: that save is writing
+    the name now, so this one is refused and the destination left to it (#1543).
+    """
     path = Path(request.path)
     if not Path(request.project).exists():
         raise RequestRefused(f"the project {request.project} cannot be found")
@@ -458,6 +551,10 @@ def run_save(request: SaveCompositionRequest) -> SaveCompositionResult:
         _write(path, composition.to_text(), overwrite=request.overwrite)
     except _Exists:
         raise RequestRefused(f"{request.path} exists; give --force to replace it") from None
+    except _Busy:
+        raise RequestRefused(
+            f"{request.path} is being written by another save; try again when it is done"
+        ) from None
     except OSError as exc:
         raise CommandFailed(f"cannot write {request.path}: {exc}") from exc
     return SaveCompositionResult(path=path, composition=composition)
