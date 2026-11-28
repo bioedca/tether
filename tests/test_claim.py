@@ -4926,9 +4926,15 @@ def test_doctor_calls_a_pull_request_merged_only_when_it_merged(
     assert mentions == {"30": "open", "31": "closed", "32": "merged"}
 
 
+#: No merge-queue request ref exists unless a test says so. Added LAST, because `Fake` answers from
+#: the first matching prefix: a test's own `git/ref/merge-queue/pr-N` route must be seen before it.
+NOT_QUEUED: Routes = {("GET", "/repos/bioedca/tether/git/ref/merge-queue/"): (404, None)}
+
+
 def _doctor(monkeypatch: pytest.MonkeyPatch, over: Routes | None = None) -> dict[str, Any]:
     routes = dict(DOCTOR_ROUTES)
     routes.update(over or {})
+    routes.update(NOT_QUEUED)
     _install(monkeypatch, Fake(routes))
     return routes
 
@@ -5324,8 +5330,9 @@ def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
                 [pr, {**pr, "number": 51}, {**pr, "number": 52}],
             ),
             ("GET", "/repos/bioedca/tether/pulls/50"): (200, pr),
-            # armed already, so not stranded
-            ("GET", "/repos/bioedca/tether/pulls/51"): (200, {**pr, "auto_merge": {"x": 1}}),
+            # queued already, so not stranded
+            ("GET", "/repos/bioedca/tether/pulls/51"): (200, {**pr, "number": 51}),
+            ("GET", "/repos/bioedca/tether/git/ref/merge-queue/pr-51"): (200, {"ref": "x"}),
             # pushed a minute ago: mid-flight, not stranded
             ("GET", "/repos/bioedca/tether/pulls/52"): (200, {**pr, "updated_at": fresh}),
         },
@@ -5333,6 +5340,176 @@ def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
     claim._cmd_doctor(_args(owner="bioedca"))
     unarmed = json.loads(capsys.readouterr().out)["unarmed"]
     assert [u["pr"] for u in unarmed] == [50]
+
+
+#: `main-baseline`'s rules once the maintainer adds the queue's status (ADR-0159): two check
+#: contexts stand in for the eleven, and `merge-queue` is bound to the queue's App.
+QUEUE_RULES: Routes = {
+    ("GET", "/repos/bioedca/tether/rules/branches/main"): (
+        200,
+        [
+            {"type": "pull_request", "parameters": {}},
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [
+                        {"context": "lint"},
+                        {"context": "sidecar / parity"},
+                        {"context": "merge-queue", "integration_id": 1},
+                    ]
+                },
+            },
+        ],
+    ),
+}
+
+
+def _checks(head: str, conclusions: dict[str, str]) -> Routes:
+    runs = [
+        {"id": i, "name": name, "conclusion": conclusion}
+        for i, (name, conclusion) in enumerate(conclusions.items(), start=1)
+    ]
+    return {
+        ("GET", f"/repos/bioedca/tether/commits/{head}/check-runs"): (
+            200,
+            {"total_count": len(runs), "check_runs": runs},
+        ),
+        ("GET", f"/repos/bioedca/tether/commits/{head}/status"): (200, {"statuses": []}),
+    }
+
+
+def test_doctor_reports_a_finished_pr_the_queue_status_blocks_and_nothing_queued(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#1269: once `merge-queue` is required, a finished pull request reads `blocked`, not `clean`.
+
+    Mode C keyed on `clean` alone, so after the ruleset change it would report nothing and say
+    nothing. A blocked pull request whose every required check but `merge-queue` passed is
+    finished; with no request in the queue nothing will merge it. One whose checks have not all
+    passed is not finished, and one that is queued is not stranded. The reported entry says that
+    REST did not read its threads, rather than implying they are resolved.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 90,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "blocked",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    failing, queued = "1" * 40, "2" * 40
+    _doctor(
+        monkeypatch,
+        {
+            **QUEUE_RULES,
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 91}, {**pr, "number": 92}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/90"): (200, pr),
+            # a required check failed: not finished
+            ("GET", "/repos/bioedca/tether/pulls/91"): (
+                200,
+                {**pr, "number": 91, "head": {"sha": failing}},
+            ),
+            # finished and queued (a merge in flight): something will act on it
+            ("GET", "/repos/bioedca/tether/pulls/92"): (
+                200,
+                {**pr, "number": 92, "head": {"sha": queued}},
+            ),
+            ("GET", "/repos/bioedca/tether/git/ref/merge-queue/pending/pr-92"): (200, {"ref": "x"}),
+            **_checks(HEAD, {"lint": "success", "sidecar / parity": "skipped"}),
+            **_checks(failing, {"lint": "success", "sidecar / parity": "failure"}),
+            **_checks(queued, {"lint": "success", "sidecar / parity": "success"}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert unarmed == [
+        {
+            "pr": 90,
+            "idle_minutes": unarmed[0]["idle_minutes"],
+            "head": HEAD[:8],
+            "threads": "not_read",
+        }
+    ], unarmed
+
+
+def test_doctor_does_not_call_a_pr_still_missing_a_required_check_finished(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A required check with no result yet, or superseded by a failed re-run, has not passed."""
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 93,
+        "draft": False,
+        "state": "open",
+        "mergeable_state": "blocked",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    rerun = "3" * 40
+    runs = [
+        {"id": 1, "name": "lint", "conclusion": "success"},
+        {"id": 2, "name": "sidecar / parity", "conclusion": "success"},
+        {"id": 3, "name": "sidecar / parity", "conclusion": "failure"},
+    ]
+    _doctor(
+        monkeypatch,
+        {
+            **QUEUE_RULES,
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, [pr, {**pr, "number": 94}]),
+            ("GET", "/repos/bioedca/tether/pulls/93"): (200, pr),
+            ("GET", "/repos/bioedca/tether/pulls/94"): (
+                200,
+                {**pr, "number": 94, "head": {"sha": rerun}},
+            ),
+            **_checks(HEAD, {"lint": "success"}),
+            ("GET", f"/repos/bioedca/tether/commits/{rerun}/check-runs"): (
+                200,
+                {"total_count": 3, "check_runs": runs},
+            ),
+            ("GET", f"/repos/bioedca/tether/commits/{rerun}/status"): (200, {"statuses": []}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    assert json.loads(capsys.readouterr().out)["unarmed"] == []
+
+
+def test_doctor_reports_an_unreadable_queue_or_rule_rather_than_dropping_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A queue ref or a rule set that could not be read is not a pull request that is queued."""
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 95,
+        "draft": False,
+        "state": "open",
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, [pr, {**pr, "number": 96}]),
+            ("GET", "/repos/bioedca/tether/pulls/95"): (200, pr),
+            ("GET", "/repos/bioedca/tether/git/ref/merge-queue/pr-95"): (502, None),
+            ("GET", "/repos/bioedca/tether/pulls/96"): (
+                200,
+                {**pr, "number": 96, "mergeable_state": "blocked"},
+            ),
+            ("GET", "/repos/bioedca/tether/rules/branches/main"): (403, None),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert {u["pr"]: u.get("unreadable") for u in unarmed} == {
+        95: "queue request (502)",
+        96: "the rules of main",
+    }
 
 
 def test_doctor_reports_a_pull_request_it_could_not_read_rather_than_dropping_it(
@@ -5451,6 +5628,7 @@ def test_doctor_writes_nothing_when_every_remedy_is_on_offer(
             ),
         }
     )
+    routes.update(NOT_QUEUED)
     fake = _install(monkeypatch, Fake(routes))
     claim._cmd_doctor(_args(owner="bioedca"))
     report = json.loads(capsys.readouterr().out)

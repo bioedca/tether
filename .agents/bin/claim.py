@@ -2336,7 +2336,7 @@ def _cmd_reserve_adr(args: argparse.Namespace) -> None:
 #: can name dozens; anything past this is counted in `not_looked_up` rather than dropped silently.
 MENTION_CAP = 20
 
-#: How long a finished pull request may sit unarmed before `doctor` mentions it. A worker that has
+#: How long a finished pull request may sit unqueued before `doctor` mentions it. A worker that has
 #: just pushed is mid-flight, not stranded, and flagging it would teach a reader to ignore the list.
 UNARMED_GRACE_MINUTES = 45
 
@@ -2492,49 +2492,129 @@ def _doctor_blocked() -> list[dict[str, Any]]:
     return out
 
 
+#: The commit status the merge queue's App sets on a queued pull request's head (ADR-0159). Once
+#: `main-baseline` requires it, no unqueued pull request reads `clean`, so `doctor` looks past it.
+MERGE_QUEUE_CONTEXT = "merge-queue"
+
+#: Check-run conclusions GitHub counts as satisfying a required check.
+_PASSING_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
+
+
+def _queued(number: int) -> bool | int:
+    """Whether the merge queue holds a request for ``number``: True, False, or the failing status.
+
+    A request is the ref ``refs/merge-queue/pr-N``; a merge or removal a queue run has taken but not
+    finished is ``refs/merge-queue/pending/pr-N``. Either means something will act on the pull
+    request, so neither is stranded. ``GET /git/ref/...`` is an exact match, so ``pr-1`` never
+    answers for ``pr-12``.
+    """
+    for ref in (f"merge-queue/pr-{number}", f"merge-queue/pending/pr-{number}"):
+        status, _ = _request("GET", f"/repos/{REPO}/git/ref/{ref}")
+        if status == 200:
+            return True
+        if status != 404:
+            return status
+    return False
+
+
+def _required_contexts() -> list[str] | None:
+    """The contexts the rules of ``main`` require, without ``merge-queue``; None if unread."""
+    status, rules = _request("GET", f"/repos/{REPO}/rules/branches/main?per_page=100")
+    if status != 200 or not isinstance(rules, list):
+        return None
+    contexts: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("type") != "required_status_checks":
+            continue
+        for item in (rule.get("parameters") or {}).get("required_status_checks") or []:
+            context = item.get("context") if isinstance(item, dict) else None
+            if isinstance(context, str) and context != MERGE_QUEUE_CONTEXT:
+                contexts.append(context)
+    return contexts
+
+
+def _waits_only_on_the_queue(head: str, required: list[str]) -> bool | str:
+    """Whether every required context but ``merge-queue`` passed at ``head``, or what was unread.
+
+    Read from the head's check runs and its commit statuses. A context with no result, or whose
+    latest result has not passed, is not passed: a pull request still waiting on CI is not finished.
+    """
+    status, runs = _request("GET", f"/repos/{REPO}/commits/{head}/check-runs?per_page=100")
+    if status != 200 or not isinstance(runs, dict):
+        return f"check runs ({status})"
+    listed = runs.get("check_runs") or []
+    if runs.get("total_count", 0) > len(listed):
+        return "check runs (more than one page)"
+    status, combined = _request("GET", f"/repos/{REPO}/commits/{head}/status?per_page=100")
+    if status != 200 or not isinstance(combined, dict):
+        return f"commit statuses ({status})"
+    latest: dict[str, dict[str, Any]] = {}
+    for run in listed:
+        name = run.get("name") if isinstance(run, dict) else None
+        if isinstance(name, str) and run.get("id", 0) >= latest.get(name, {}).get("id", 0):
+            latest[name] = run
+    states = {
+        s["context"]: s.get("state")
+        for s in combined.get("statuses") or []
+        if isinstance(s, dict) and isinstance(s.get("context"), str)
+    }
+    for context in required:
+        run = latest.get(context)
+        if run is not None:
+            if run.get("conclusion") not in _PASSING_CONCLUSIONS:
+                return False
+        elif states.get(context) != "success":
+            return False
+    return True
+
+
 def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
     """Open pull requests that are finished and that nothing will ever merge.
 
-    Mode C of #326. Every gate the merge asks for is satisfied - not a draft, mergeable, every check
-    passing, no auto-merge armed - and the contract's last step, arming it, did not happen. All four
-    fields are on the REST pull-request object, so this needs no GraphQL and no new transport.
+    Mode C of #326, rewritten for the merge queue (#1269, ADR-0159). A pull request reaches `main`
+    only through the queue, so the contract's last step is a *join*, and a finished pull request
+    with **no request in the queue** is the stranded one. Queued means the ref
+    ``refs/merge-queue/pr-N`` (or its ``pending/`` twin, a merge in flight) exists; ``auto_merge``
+    no longer says anything, since the queue merges and a direct merge is refused.
 
-    **A pull request whose detail call fails is reported, not dropped.** Silently skipping it makes
-    an unreadable pull request indistinguishable from an armed one, which is the same defect as
-    omitting an unreadable blocker in :func:`_doctor_blocked`: the report reads as *nothing is
-    wrong here* when the truth is *nobody looked*. The remedy differs too - a transport failure is
-    retried, a genuinely unarmed pull request is armed - so the two must not print alike.
+    *Finished* is not a draft, open, idle past :data:`UNARMED_GRACE_MINUTES`, and one of:
+
+    - ``mergeable_state == "clean"``: every gate GitHub knows of passed. That is the whole test
+      while the ruleset does not yet require ``merge-queue``, and it **proves the review
+      conversations are resolved**, because `main-baseline` sets
+      ``required_review_thread_resolution: true`` (verified live on #432: four unresolved threads,
+      ``mergeable=MERGEABLE``, ``mergeStateStatus=BLOCKED``).
+    - ``mergeable_state == "blocked"`` and every required check but ``merge-queue`` passed at the
+      head. Once the ruleset requires that status, no unqueued pull request is ``clean``, so
+      without this branch the section would report nothing and say nothing. REST cannot tell an
+      unresolved thread from the missing status here, and the doctor makes no GraphQL call (a POST),
+      so these entries carry ``"threads": "not_read"`` rather than claim a resolution nobody read.
+
+    **A pull request whose detail call fails is reported, not dropped**, and so is one whose queue
+    refs, rules or checks could not be read. Silently skipping it makes an unreadable pull request
+    indistinguishable from a queued one: the report reads as *nothing is wrong here* when the truth
+    is *nobody looked*. The remedies differ too, so the two must not print alike.
 
     **`draft` and `state` are re-read from the detail response**, not trusted from the list page.
-    The list is a snapshot that can be minutes old on a busy repository, so a pull request that has
-    since been closed or returned to draft would otherwise be reported as stranded.
-
-    **`mergeable_state == "clean"` is what proves the review conversations are resolved**, and that
-    is a property of this repository's ruleset rather than of GitHub. `main-baseline` sets
-    ``required_review_thread_resolution: true``, so an unresolved thread makes the state ``blocked``
-    even while ``mergeable`` still reads ``MERGEABLE`` - the two answer different questions, and
-    only the second is about conflicts. Verified live on #432: four unresolved threads,
-    ``mergeable=MERGEABLE``, ``mergeStateStatus=BLOCKED``. If that ruleset setting is ever turned
-    off this check stops carrying that meaning, which is why the dependency is written down here.
+    The list is a snapshot that can be minutes old on a busy repository.
     """
     out = []
     try:
         summaries = _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests")
     except ClaimError as exc:
         return [{"collection": "open pull requests", "unreadable": str(exc)}]
+    rules: list[list[str] | None] = []  # the rules of main, read once and only on first need
     for summary in summaries:
         # No filtering from the summary at all - the detail response decides everything. Skipping
-        # here on the list's `draft` left the staleness only half closed: a pull request marked
-        # ready since the list was built was dropped before anything read its current state, so the
-        # very pull request most likely to be finished-and-stranded was the one never diagnosed.
-        # The cost is one detail call per open pull request, which is what a correct answer costs.
+        # here on the list's `draft` dropped a pull request marked ready since the list was built.
         status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
         if status != 200 or not isinstance(pr, dict):
             out.append({"pr": summary["number"], "unreadable": status})
             continue
         if pr.get("draft") or pr.get("state") != "open":
             continue
-        if pr.get("auto_merge") or pr.get("mergeable_state") != "clean":
+        state = pr.get("mergeable_state")
+        if state not in {"clean", "blocked"}:
             continue
         # `calendar.timegm`, not `time.mktime`: GitHub stamps UTC and `mktime` reads a struct as
         # LOCAL time, which shifts every age by the machine's offset and can make a stale pull
@@ -2543,7 +2623,29 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
         idle = (now - updated) / 60
         if idle < UNARMED_GRACE_MINUTES:
             continue
-        out.append({"pr": pr["number"], "idle_minutes": int(idle), "head": pr["head"]["sha"][:8]})
+        entry: dict[str, Any] = {"pr": pr["number"], "idle_minutes": int(idle)}
+        entry["head"] = pr["head"]["sha"][:8]
+        queued = _queued(pr["number"])
+        if queued is True:
+            continue
+        if queued is not False:
+            out.append({**entry, "unreadable": f"queue request ({queued})"})
+            continue
+        if state == "blocked":
+            if not rules:
+                rules.append(_required_contexts())
+            required = rules[0]
+            if required is None:
+                out.append({**entry, "unreadable": "the rules of main"})
+                continue
+            waiting = _waits_only_on_the_queue(pr["head"]["sha"], required)
+            if waiting is False:
+                continue
+            if waiting is not True:
+                out.append({**entry, "unreadable": waiting})
+                continue
+            entry["threads"] = "not_read"
+        out.append(entry)
     return out
 
 
@@ -2555,9 +2657,10 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     over-blocked issue costs nothing visible, so nothing ever prompts a re-check.
 
     Filed as a scheduled workflow; built as a subcommand instead. Every remedy is maintainer
-    authority - posting an approval marker, promoting a label, arming someone else's merge - so
-    nothing acts while nobody is looking, and a report published thirty minutes ago into a
-    workflow summary is strictly worse, at the moment someone looks, than one that answers now.
+    authority - posting an approval marker, promoting a label, joining someone else's pull request
+    to the queue - so nothing acts while nobody is looking, and a report published thirty minutes
+    ago into a workflow summary is strictly worse, at the moment someone looks, than one that
+    answers now.
     It also adds no file, no workflow and no schedule to a layer being shrunk (ADR-0064).
 
     *Report, never act* is a property of this subcommand rather than of the module: `claim`,

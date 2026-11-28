@@ -106,16 +106,21 @@ You do not have to sit and watch it. A review takes as long as it takes, and a s
 that polls is spending tokens to wait — so **write the state into the PR body before you go**:
 which step it is on, what was asked, what is outstanding. A later session reads that and continues.
 
-Merge under explicit per-PR authority, then arm and exit:
+Merge under explicit per-PR authority by joining the merge queue, then exit:
 
 ```sh
-gh pr merge N --auto --squash --match-head-commit <SHA>
+gh workflow run merge-queue.yml --ref main -f action=join -f pr=N -f sha=<SHA> -f message="<squash message>"
 ```
 
 `<SHA>` is the 40-hex head the clean review read, and you supply it from that review. Re-reading it
-from the pull request while arming compares the head against itself and binds nothing. There is no
-merge queue on this repository — it needs an organization-owned repo — so that flag is what
-replaces it.
+from the pull request while joining compares the head against itself and binds nothing. The queue
+refuses a join at any other head, tests the pull request on top of the ones ahead of it, and merges
+it; once `main` requires the queue's `merge-queue` status, GitHub refuses a direct merge (ADR-0159).
+
+If the queue removes your pull request for a conflict or a failed check, it is still yours: merge
+`main`, fix it, meet `AGENTS.md` §Review on the new head and join again under the go-ahead you
+already have. Ask the maintainer only when the fix lies outside your item. A candidate that failed
+for a cause outside the pull request (a runner fault, a flaky test) joins again at the same head.
 
 ## Maintainer-side commands
 

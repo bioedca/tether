@@ -12,8 +12,8 @@ the repository. Users do not need this page. The decision is
 The tree that lands on `main` passes every required check first, and one bad pull request delays
 only the ones behind it. In `observe` mode the queue tests candidates and prints a plan, and writes
 no status, comment, label or merge. In `on` mode it also judges the candidates, merges the front of
-the train and removes a pull request that cannot merge. **Until #1269, a pull request takes the queue only
-when the maintainer says so**, and the direct merge still works. The queue tolerates a `main` that
+the train and removes a pull request that cannot merge. **Every pull request reaches `main` through the
+queue** (ADR-0159), and once the ruleset requires the status `merge-queue`, a direct merge is refused. The queue tolerates a `main` that
 moves without it, and builds the train again from the new `main`.
 
 ## Join and leave
@@ -153,6 +153,25 @@ The comment gives the command.
 | removed | `failure`, and one comment | removed |
 
 The label goes when the pull request leaves, by any route.
+
+## A pull request that is not queued
+
+The maintainer adds the status `merge-queue` to the required checks of `main`
+([ADR-0159](../adr/0159-every-merge-to-main-goes-through-the-merge-queue.md)). After that, this is
+what you see on a pull request that has not joined the queue:
+
+- The checks list shows `merge-queue` as **Expected — Waiting for status to be reported**. That is
+  normal. Only the queue's App sets this status, and only on a pull request that joined.
+- The merge box says that merging is blocked, even when the other checks are green. The **Squash
+  and merge** button and `gh pr merge` are refused, for the maintainer too.
+- A `merge-queue` status that someone else posts does not unblock it. The rule accepts the status
+  only from the queue's App.
+- Auto-merge does not help. It waits for the same status.
+
+To merge, join the queue with the join command in [Join and leave](#join-and-leave). Join only
+under the go-ahead for that pull request. The status then turns `pending`, with the place of the
+pull request in the train. A pull request that the queue removed shows the status `failure`. It
+also gets one comment that gives the reason.
 
 ## When it runs, and the mode
 

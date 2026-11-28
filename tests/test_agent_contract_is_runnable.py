@@ -102,13 +102,20 @@ _PY_DEFINED = re.compile(r"`<py>`[^`]{0,80}\binterpreter\b", re.DOTALL)
 #
 # BOTH halves are required, and the width alone is not enough. A page saying only "supply a 40-hex
 # SHA" satisfies a reader who then supplies the head re-read from the pull request while arming —
-# which is 40 hex characters, and is the exact value that makes `--match-head-commit` compare the
+# which is 40 hex characters, and is the exact value that makes the queue's join compare the
 # head against itself. The width is checkable; the SOURCE is what makes it a binding. So the window
 # must also reach the review the value comes from.
 _SHA_DEFINED = re.compile(r"`<SHA>`[^`]{0,80}40-hex[^`]{0,60}\breview\b", re.DOTALL)
 
-#: The flag `<SHA>` is supplied to. It stands in for the merge queue this repository cannot have.
-_MERGE_BINDING_FLAG = "--match-head-commit"
+#: The merge-queue join `<SHA>` is supplied to (ADR-0159), the one way to `main`. The queue
+#: refuses a join at any other head: the binding `--match-head-commit` gave a direct merge.
+_MERGE_BINDING_FLAG = "-f sha=<SHA>"
+_JOIN = re.compile(
+    r"\bgh workflow run merge-queue\.yml --ref main -f action=join -f pr=\S+ -f sha=<SHA>"
+)
+
+#: The direct merge the join replaced. A page carrying it would route a worker around the queue.
+_DIRECT_MERGE_FLAG = "--match-head-commit"
 
 #: `gh` spellings that do not work on every `gh` a lane resolves, mapped to what to use instead.
 #:
@@ -803,7 +810,7 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
     """#400: a page that carries the merge-binding flag must say what `<SHA>` to supply.
 
     `<SHA>` is a placeholder nothing substitutes, so a page that omits the rule hands a worker a
-    literal — on the one flag that stands in for the merge queue this repository cannot have. The
+    literal — on the one argument that binds the merge queue's join to the reviewed head. The
     failure is not that the merge breaks loudly: it is that a worker guesses, and the obvious guess
     is to re-read the head from the pull request while arming, which compares the head against
     itself, binds nothing, and still reads as protection.
@@ -847,6 +854,31 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
         "reaches the merge command as a literal and the binding guard is a guess: "
         f"{undefined}. State that it is the 40-hex head the clean review read."
     )
+
+
+def test_every_page_that_merges_joins_the_queue_and_none_merges_directly() -> None:
+    """#1269: the queue's join is the one way to `main`, on every page that tells anyone to merge.
+
+    The contract used to arm a direct merge with `gh pr merge --auto --squash --match-head-commit`.
+    Once `main-baseline` requires the queue's `merge-queue` status GitHub refuses that merge, so a
+    page still carrying it sends a worker into a refusal - or, before the rule lands, around the
+    queue that tests the tree landing on `main`. So every page that merges must carry the whole
+    join, with `sha=<SHA>`, and no page may carry the direct-merge flag in a command.
+    """
+    joining = [
+        path.relative_to(_REPO).as_posix()
+        for path in GUARDED_FILES
+        if any(_JOIN.search(command) for _number, command in _commands(path))
+    ]
+    for page in ("AGENTS.md", ".agents/skills/tether-worker/SKILL.md", "CONTRIBUTING.md"):
+        assert page in joining, f"{page} no longer tells its reader to join the merge queue"
+    direct = [
+        _at(path, number, command)
+        for path in GUARDED_FILES
+        for number, command in _commands(path)
+        if _DIRECT_MERGE_FLAG in command or command.startswith("gh pr merge")
+    ]
+    assert not direct, f"these commands merge around the queue (ADR-0159): {direct}"
 
 
 # --- AGENTS.md has to fit in the window the tools that read it actually load ---
