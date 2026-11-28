@@ -31,6 +31,7 @@ commands: none has a command-line subcommand. The command-line route of the same
 from __future__ import annotations
 
 import dataclasses
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -477,10 +478,16 @@ class ProjectSource:
 
 
 def _missing(path: Path) -> str | None:
+    # ``Path.is_file`` answers False for some access errors, which would read as a missing
+    # file; only a path that is not there, or that no file can have (a ValueError), is
+    # missing (#1528).
     try:
-        return None if path.is_file() else "file missing"
+        mode = path.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+        return "file missing"
     except OSError:
         return "file unreadable"
+    return None if stat.S_ISREG(mode) else "file missing"
 
 
 def read_project_sources(project_path: str | PathLike[str]) -> tuple[ProjectSource, ...]:
