@@ -37,7 +37,14 @@ from tether.services.compositions import (
 )
 from tether.services.extract import ExtractRequest, ExtractResult
 from tether.services.idealize import IdealizeRequest, IdealizeResult, SidecarUnavailable
-from tether.services.maps import MapCreateRequest, MapCreateResult
+from tether.services.maps import (
+    MapCheckRequest,
+    MapCheckResult,
+    MapCreateRequest,
+    MapCreateResult,
+    MapShowRequest,
+    MapShowResult,
+)
 from tether.services.profile import (
     ExtractionFields,
     ExtractionProfile,
@@ -68,8 +75,12 @@ __all__ = [
     "IdealizeResult",
     "ExtractionFields",
     "ExtractionProfile",
+    "MapCheckRequest",
+    "MapCheckResult",
     "MapCreateRequest",
     "MapCreateResult",
+    "MapShowRequest",
+    "MapShowResult",
     "OpenCompositionRequest",
     "OpenCompositionResult",
     "ReextractRequest",
