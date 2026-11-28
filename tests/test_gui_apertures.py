@@ -193,3 +193,48 @@ def test_each_pixel_centre_is_at_its_integer_coordinate(page) -> None:
     image = page.apertures._image_item
     centre = image.mapToParent(QtCore.QPointF(0.5, 0.5))
     assert (centre.x(), centre.y()) == (0.0, 0.0)
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_corrected_input_reviews_again_after_a_refused_one(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_movie(tmp_path / "movie.tif"))
+    tab = page.apertures
+    tab.review()
+    _wait(qtbot, tab)
+    assert tab.last_review is not None
+    field = page.fields["disk_radius"]
+    field.setText("7")  # larger than ring_inner (6): the form refuses it
+    field.editingFinished.emit()
+    _wait(qtbot, tab)
+    assert tab.last_review is None
+    assert "Not reviewed" in tab.counts_label.text()
+    field.setText("5")
+    field.editingFinished.emit()
+    assert tab.busy  # the ask still stands: the corrected input reviews again
+    _wait(qtbot, tab)
+    assert tab.last_review is not None and tab.last_review.disk_radius == 5.0
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_failed_save_names_the_file_and_the_files_written(page, qtbot, tmp_path) -> None:
+    page.set_movie(_write_movie(tmp_path / "movie.tif"))
+    tab = page.apertures
+    tab.review()
+    _wait(qtbot, tab)
+    blocked = tmp_path / "page.png"
+    blocked.mkdir()  # a folder where the PNG goes: the PNG cannot be written
+    written = tab.save_report(tmp_path / "page.json", blocked)
+    assert written == [tmp_path / "page.json"]
+    assert (tmp_path / "page.json").is_file()
+    message = page.messages[-1]
+    assert message.startswith("Aperture report not saved: could not write page.png (")
+    assert message.endswith("already written: page.json")
+    # A JSON that cannot be written stops the save before the PNG.
+    blocked_json = tmp_path / "other.json"
+    blocked_json.mkdir()
+    assert tab.save_report(blocked_json, tmp_path / "other.png") == []
+    assert "could not write other.json" in page.messages[-1]
+    assert page.messages[-1].endswith("already written: none")
+    assert not (tmp_path / "other.png").exists()
