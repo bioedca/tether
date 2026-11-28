@@ -41,7 +41,8 @@ max_skipped = 77
 [jobs."test (windows-latest)"]
 min_collected = 4011
 # main's 53, plus two source-registry tests that replace an open file (#1356).
-max_skipped = 55
+# 60: plus the five composition-save lock tests of #1543, which are POSIX only.
+max_skipped = 60
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -63,6 +64,15 @@ min_collected = 12
 max_skipped = 11
 
 # --- Expected skips on the three required legs ---------------------------------------------
+
+[[skip]]
+test = "tests/test_services_compositions.py::*"
+reason = "the reservation route and its lock are POSIX only"
+jobs = ["test (windows-latest)"]
+why = """A composition save reserves its name and locks the reservation only on POSIX without \
+hard links (#1543): Windows publishes by a rename that never replaces an entry, and has no \
+fcntl advisory lock to take. test_without_advisory_locks_a_save_publishes_as_before covers \
+the no-lock route on every leg."""
 
 [[skip]]
 test = "tests/test_source_registry.py::test_a_file_replaced_during_*_is_not_stored"

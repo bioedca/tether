@@ -510,7 +510,6 @@ def test_a_saved_composition_is_readable_like_any_new_file(modelled, tmp_path) -
     assert mode & stat.S_IREAD and mode & stat.S_IWRITE
 
 
-@pytest.mark.skipif(__import__("os").name == "nt", reason="Windows has no POSIX file mode")
 @pytest.mark.parametrize("umask", [0o077, 0o022, 0o002])
 @pytest.mark.parametrize("route", ["link", "rename", "reservation", "overwrite"])
 def test_a_saved_composition_has_the_mode_the_umask_gives_on_every_route(
@@ -530,12 +529,17 @@ def test_a_saved_composition_has_the_mode_the_umask_gives_on_every_route(
     elif route != "link":
         _no_hard_links(monkeypatch)
         monkeypatch.setattr(compositions, "_RENAME_REFUSES_EXISTING", route == "rename")
+    ordinary = tmp_path / "ordinary.txt"
     old = os.umask(umask)
     try:
         _save(out, project, ["all"], overwrite=route == "overwrite")
+        ordinary.write_text("", encoding="utf-8")  # an ordinary new file, for comparison
     finally:
         os.umask(old)
-    assert stat.S_IMODE(os.lstat(out).st_mode) == 0o666 & ~umask
+    mode = stat.S_IMODE(os.lstat(out).st_mode)
+    assert mode == stat.S_IMODE(os.lstat(ordinary).st_mode)
+    if os.name != "nt":  # Windows keeps only a read-only bit, which the comparison covers
+        assert mode == 0o666 & ~umask
 
 
 # --- #1470: publish exclusively, and only the file the save wrote ------------------

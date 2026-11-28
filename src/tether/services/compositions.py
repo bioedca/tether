@@ -418,11 +418,15 @@ def _create_new(tmp: Path, path: Path) -> None:
         if not _lock(fd):  # a forced save has it, and is replacing it now
             raise OSError(f"{path.name} is being replaced by another save")
         reserved = os.fstat(fd)
+        if fcntl is None:  # no lock to hold, and Windows never replaces a file held open
+            os.close(fd)
+            fd = -1
         if not os.path.samestat(reserved, os.lstat(path)):
             raise OSError(f"{path.name} was replaced while the save reserved it")
         os.replace(tmp, path)  # atomic, and the entry it replaces is this reservation
     finally:
-        os.close(fd)  # releases the lock, after the replace
+        if fd >= 0:
+            os.close(fd)  # releases the lock, after the replace
 
 
 def _replace_unless_reserved(tmp: Path, path: Path) -> None:
