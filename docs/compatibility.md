@@ -29,12 +29,11 @@ If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*
 *three-color* or *confocal point detectors* describes your setup, Tether does not fit. See
 [What Tether does not do](#what-tether-does-not-do).
 
-If your movies are in a vendor container (`.sif`, `.sira`, `.avi`), export them to uncompressed TIFF
-first, and Tether reads them. Tether reads a ZEISS `.czi` movie of one channel and a cellSens
-`.vsi` movie. It extracts each as it extracts a TIFF (see
-[Movie containers](reference/movie-containers.md)). Tether opens an Andor `.sif` movie of raw
-counts, a MASH-FRET `.sira` movie and an uncompressed 8-bit gray `.avi` movie. Extraction does
-not read SIF, SIRA or AVI yet.
+If your movies are in a vendor container (`.sira`, `.avi`), export them to uncompressed TIFF
+first, and Tether reads them. Tether reads a ZEISS `.czi` movie of one channel, a cellSens
+`.vsi` movie and an Andor `.sif` movie of raw counts. It extracts each as it extracts a TIFF (see
+[Movie containers](reference/movie-containers.md)). Tether opens a MASH-FRET `.sira` movie and an
+uncompressed 8-bit gray `.avi` movie. Extraction does not read SIRA or AVI yet.
 Tether reads a current ND2 movie with its own reader, and it extracts the movie as it extracts a
 TIFF (see [ND2 movies](#nd2-movies)).
 
@@ -42,7 +41,7 @@ TIFF (see [ND2 movies](#nd2-movies)).
 
 | Requirement | Detail |
 |---|---|
-| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel, a current `.nd2` movie and a cellSens `.vsi` movie extract too; an Andor `.sif`, MASH-FRET `.sira` or uncompressed 8-bit gray `.avi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
+| Container | multi-page TIFF. A ZEISS `.czi` movie of one channel, a current `.nd2` movie, a cellSens `.vsi` movie and an Andor `.sif` movie of raw counts extract too; a MASH-FRET `.sira` or uncompressed 8-bit gray `.avi` movie opens but is not extracted yet ([Movie containers](reference/movie-containers.md)); the rows below are for TIFF |
 | Compression | **none**. The movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
