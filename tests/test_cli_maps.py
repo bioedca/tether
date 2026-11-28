@@ -274,3 +274,108 @@ def test_map_show_exits_2_for_a_file_that_is_not_a_map(tmp_path, capsys) -> None
     bad.write_bytes(b"not a map")
     assert main(["map", "show", str(bad)]) == 2
     assert "tether map show:" in capsys.readouterr().err
+
+
+# --- refusals and failures ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"accept": True}, "needs the project"),
+        ({"project": "PROJECT"}, "only with 'accept'"),
+        ({"project": "PROJECT", "accept": True, "by": " "}, "name of the person"),
+    ],
+)
+def test_an_acceptance_that_cannot_be_recorded_is_refused(tmp_path, fields, message) -> None:
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    fields = {k: str(project) if v == "PROJECT" else v for k, v in fields.items()}
+    request = maps.MapCreateRequest(source="b.tif", output=str(tmp_path / "b.npz"), **fields)
+    with pytest.raises(maps.RequestRefused, match=message):
+        maps.run(request)
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--pixel-size", "0"], "--pixel-size must be > 0"),
+        (["--frame-steps", "spin 7"], "--frame-steps 'spin 7'"),
+    ],
+)
+def test_bad_values_fail_before_any_file_is_written(tmp_path, capsys, extra, message) -> None:
+    beads = _beads(tmp_path / "beads.tif")
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "m.npz"), *extra]) == 1
+    assert message in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
+def test_a_report_made_meanwhile_is_kept_and_named(tmp_path, capsys, monkeypatch) -> None:
+    beads = _beads(tmp_path / "beads.tif")
+    real = maps._write_report
+
+    def another_session_writes_the_report(*args, **kwargs):
+        real(*args, **kwargs)
+        (tmp_path / "m.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(maps, "_write_report", another_session_writes_the_report)
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "m.npz")]) == 1
+    assert "the map is written to" in capsys.readouterr().err
+    assert (tmp_path / "m.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_a_project_that_cannot_record_fails_the_command(tmp_path, capsys) -> None:
+    project = tmp_path / "exp.tether"
+    project.write_bytes(b"not a project")
+    beads = _beads(tmp_path / "beads.tif")
+    argv = ["map", "create", str(beads), "-o", str(tmp_path / "m.npz"), "--accept", str(project)]
+    assert main(argv) == 1
+    assert "cannot record the acceptance" in capsys.readouterr().err
+
+
+def test_a_resumed_run_with_an_unreadable_map_fails(tmp_path) -> None:
+    _run(tmp_path, None)
+    (tmp_path / "beads.npz").write_bytes(b"damaged")
+    (tmp_path / "recipe.done").touch()
+    resumed = _run(tmp_path, None)
+    assert [s.state for s in resumed.steps] == ["failed"]
+    assert "output exists" in resumed.steps[0].message
+
+
+def test_a_resumed_run_without_its_report_cannot_record(tmp_path) -> None:
+    _run(tmp_path, None)
+    (tmp_path / "beads.json").unlink()
+    (tmp_path / "recipe.done").touch()
+    resumed = _run(tmp_path, {**_GATE, "otherwise": "stop"})
+    assert [s.state for s in resumed.steps] == ["failed"]
+    assert "cannot record the acceptance" in resumed.steps[0].message
+
+
+@pytest.mark.parametrize(("no_residual", "accepted"), [("approve", "policy"), ("stop", None)])
+def test_no_residual_decides_a_map_without_a_residual(tmp_path, no_residual, accepted) -> None:
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    _create(tmp_path)
+    asset = load_map_asset(tmp_path / "beads.npz")
+    reg_map = SimpleNamespace(rms_residual=float("nan"))
+    nan_asset = SimpleNamespace(map_id=asset.map_id, registration_map=reg_map)
+    policy = rc.check_policy({**_GATE, "no_residual": no_residual, "otherwise": "stop"})
+    recorded = []
+    gate = SimpleNamespace(
+        decide=lambda *a, **k: policy, record=lambda *a, **k: recorded.append(k["subject"])
+    )
+    request = maps.MapCreateRequest(source="b.tif", output="b.npz", project=str(project))
+    report = tmp_path / "beads.json"
+    if accepted is None:
+        with pytest.raises(rc.ApprovalStop, match="no measured RMS residual"):
+            maps._accept(request, nan_asset, report, gate=gate, actor="")
+        assert recorded == []
+    else:
+        assert maps._accept(request, nan_asset, report, gate=gate, actor="") == accepted
+        assert recorded == [asset.map_id]
+
+
+def test_a_map_over_its_gate_is_written_with_a_warning(tmp_path, capsys) -> None:
+    _create(tmp_path, "--rms-gate", "1e-30")
+    assert "flagged low-confidence" in capsys.readouterr().err
+    assert json.loads((tmp_path / "beads.json").read_text(encoding="utf-8"))["low_confidence"]
