@@ -2015,7 +2015,7 @@ rather than silently applied. A scheduled CI reaper reclaims dead claims unatten
 the ADR-0052 run was a lease that only a sleeping human could renew.
 
 Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, opens the review lane on a draft,
-and hands off. Auto-merge — bound to the reviewed head with `--match-head-commit` — is armed at the **end** of that
+and hands off. The join to the merge queue — bound to the reviewed head, §12.3 — is made at the **end** of that
 lane, never on the draft, since the mandatory review gate — CodeRabbit, or the Codex close
 when its cap is spent (ADR-0065) — is not a required check and nothing else would hold the merge. Completing the lane
 is **not** what authorises the arming: clearing the gate and having authority to merge are separate, the second is

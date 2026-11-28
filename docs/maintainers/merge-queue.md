@@ -12,8 +12,8 @@ the repository. Users do not need this page. The decision is
 The tree that lands on `main` passes every required check first, and one bad pull request delays
 only the ones behind it. In `observe` mode the queue tests candidates and prints a plan, and writes
 no status, comment, label or merge. In `on` mode it also judges the candidates, merges the front of
-the train and removes a pull request that cannot merge. **Until #1269, a pull request takes the queue only
-when the maintainer says so**, and the direct merge still works. The queue tolerates a `main` that
+the train and removes a pull request that cannot merge. **Every pull request reaches `main` through the
+queue** (ADR-0159), and once the ruleset requires the status `merge-queue`, a direct merge is refused. The queue tolerates a `main` that
 moves without it, and builds the train again from the new `main`.
 
 ## Join and leave
