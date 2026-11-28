@@ -16,7 +16,9 @@ The command line has these subcommands:
 | [`tether extract`](#tether-extract) | Makes a `.tether` project from one movie. |
 | [`tether reextract`](#tether-reextract) | Extracts a movie of a project again, as a new trace generation. |
 | [`tether batch`](#tether-batch) | Makes projects from many movies, and corrects and idealizes them. |
-| [`tether map create`](#tether-map-create) | Writes a channel map file for later extractions. |
+| [`tether map create`](#tether-map-create) | Writes a channel map file for later extractions, and its report. |
+| [`tether map check`](#tether-map-check) | Checks whether a map file may register a movie. |
+| [`tether map show`](#tether-map-show) | Prints the record of a map file. |
 | [`tether run`](#tether-run) | Runs the steps of a recipe file. |
 | [`tether approve`](#tether-approve) | Records that a person approved a step. |
 | [`tether save-composition`](#tether-save-composition) | Saves a plot composition of the plot builder to a file. |
@@ -977,11 +979,15 @@ It saves the map as one `.npz` file with three records:
 The **Calibration → Make channel map…** menu of the Prepare section in the application runs the
 same command.
 
+It also writes the map's report beside the map: `NAME.json` and `NAME.png` for `NAME.npz`. The
+report is the evidence of an acceptance of the map (`--accept`, and the
+[`map.accept` step](#tether-approve) of a recipe).
+
 ```text
 tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
                   [--projection {max,mean}] [--donor-side {left,right}]
                   [--rms-gate RMS_GATE] [--optics TEXT] [--pixel-size UM]
-                  [--frame-steps STEPS]
+                  [--frame-steps STEPS] [--accept PROJECT] [--by NAME]
                   source
 ```
 
@@ -989,7 +995,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | A bead TIFF: one image, or a video of frames. |
 | `-o`, `--output OUTPUT` | required | The `.npz` map file to write. The name must end in `.npz`. |
-| `--overwrite` | off | Replace an existing map file, only with a complete one. Tether refuses while another `tether map create` holds the writer lock of the map file. |
+| `--overwrite` | off | Replace an existing map file, only with a complete one, and its report. Tether refuses while another `tether map create` holds the writer lock of the map file. |
 | `--frames START STOP` | every frame | For a video: the 0-based, half-open range of frames to project. |
 | `--projection {max,mean}` | `max` | For a video: how Tether reduces the frames to one image. |
 | `--donor-side {left,right}` | `left` | Which half of the frame is the donor channel. |
@@ -997,11 +1003,14 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 | `--optics TEXT` | none | A text for the optics, such as the objective, the filters, the camera and the binning. The map keeps it, and [the reuse check](#reuse-a-map-file) compares it with the `--optics` of a later movie. |
 | `--pixel-size UM` | not known | The camera pixel size in micrometres. The map keeps it, and Tether refuses a later movie with another pixel size. |
 | `--frame-steps STEPS` | none | The default [frame steps](#frame-steps-turn-the-frame-before-the-split) of the map: how the frames it is made on relate to the movies it will be used with, such as `rotate 90`. A movie's own `--frame-steps` replace them. |
+| `--accept PROJECT` | off | Accept the map in this `.tether` project, on the evidence of its report. |
+| `--by NAME` | your login name | With `--accept`: the name of the person who accepts. |
 
 ```console
 $ tether map create beads.tif -o beads.npz
 Map -> beads.npz: RMS 0.214 px over 38 bead pair(s), 71% of the field covered
   map id: map:3f2a9c0d6e1b47a8b5c4d3e2f1a0b9c8
+  report: beads.json and beads.png
 $ tether extract movie.tif -o movie.tether --map beads.npz
 ```
 
@@ -1009,16 +1018,41 @@ A map over `--rms-gate` is still written, and the command exits `0` with a warni
 Tether flags the map low-confidence. It tags every molecule extracted with the map
 `low-confidence-registration`.
 
+The report holds what [`tether map show --json`](#tether-map-show) prints. It adds the name of the
+map file and its sha256. The PNG shows the bead image and a histogram of the residual of each
+bead pair, with the gate.
+
+**Accept the map.** A map that a person checked is *accepted*
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+`--accept PROJECT` records the acceptance in that project. It is a `map.accept` approval, and its
+subject is the map id. It has the same fields as `tether approve`: the person (`--by`, or your
+login name), the time, and the sha256 of the report's JSON and PNG. `tether approve PROJECT
+map.accept --subject MAP_ID --report NAME.json` records the same acceptance later.
+
+In a recipe, the `map` step accepts the map only with a `map.accept` policy, and only when the
+step names its `project`. The rule `rms-gate` accepts a map with an RMS residual at or below
+`gate_px`. Above it, `otherwise` decides: `flag` accepts it, `fail` fails the step and `stop`
+stops the run with [exit code `4`](#exit-code-4-a-person-must-approve-a-step). A step with no
+policy stops after it wrote the map and its report. When a person accepts the map, `tether run
+RECIPE --resume` goes on with the map that is already there: it does not fit it again. `flag`
+accepts the map, but only the map's own `--rms-gate` decides whether its molecules are tagged
+`low-confidence-registration`.
+
 **Exit codes:**
 
-- `0`: Tether wrote the map, also when it is over the gate.
+- `0`: Tether wrote the map and its report, also when the map is over the gate.
 - `1`: one line on stderr gives the reason. These are the reasons:
     - a bead file with too few beads in either half,
     - a bad frame range,
-    - an output that exists, without `--overwrite`,
+    - an output or a report that exists, without `--overwrite`,
     - an output whose writer lock another writer holds,
-    - an output name without `.npz`.
-- `2`: bad command-line arguments.
+    - an output name without `.npz`,
+    - a project that cannot record the acceptance.
+- `2`: bad command-line arguments, or an `--accept` that Tether refuses before it reads the
+  beads. These are the reasons:
+    - a project that is not a file,
+    - `--by` without `--accept`,
+    - an empty name.
 
 Without `--overwrite`, Tether saves the map as a hard link to a finished temporary file. A hard
 link never replaces a file. Some file systems have no hard links, such as a FAT drive or some
@@ -1045,6 +1079,69 @@ The file holds only plain arrays and text.
 Tether reads it with pickling switched off, so no stored Python object can run when a map loads.
 [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
 records this version rule.
+
+## `tether map check`
+
+Check whether a map file may register a movie, before an extraction with it. Tether runs the
+[reuse check](#reuse-a-map-file) that `tether extract --map` runs. It compares the pixel size
+of the movie, which it reads from the movie file, with the map's. It also compares the optics
+text of the movie (`--optics`) with the map's.
+
+A field that the map or the movie does not give is not compared, and the command lists it. The
+movie gives no channel layout of its own, so the layout is never compared. The date of the map is
+never compared.
+
+```text
+tether map check [-h] [--optics TEXT] [--confirm-optics] map movie
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `map` | required | The `.npz` map file. |
+| `movie` | required | The movie that the map would register. |
+| `--optics TEXT` | none | The optics text of the movie, as `tether extract --optics` gives it. |
+| `--confirm-optics` | off | Accept an optics text that differs from the map's, as `tether extract --confirm-optics` does. |
+
+```console
+$ tether map check beads.npz movie.tif --optics "60x TIRF, Cy3/Cy5, EMCCD 1x1"
+  not compared: channel layout, channel geometry
+Map map:3f2a9c0d6e1b47a8b5c4d3e2f1a0b9c8 can register movie.tif
+```
+
+**Exit codes:**
+
+- `0`: the map may register the movie.
+- `1`: the map may not register the movie. One line on stderr names each difference: another
+  pixel size, or another optics text without `--confirm-optics`.
+- `2`: bad command-line arguments, or a map or a movie that Tether cannot read.
+
+## `tether map show`
+
+Print the record of a map file. These are its fields:
+
+- the map id and its origin, and the source ids,
+- the channel layout and geometry,
+- the optics text, the pixel size and the frame steps,
+- the quality record, the RMS residual and its gate, and the low-confidence verdict,
+- the time of the save and the Tether version.
+
+A value that the map does not give prints as `not known`. The text form leaves out the residual
+of each bead pair. `--json` prints the whole record as one JSON object. A residual that is not a number,
+such as that of a `.tmap` with no control points, is `null` there.
+
+```text
+tether map show [-h] [--json] map
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `map` | required | The `.npz` map file. |
+| `--json` | off | Print the record as one JSON object. |
+
+**Exit codes:**
+
+- `0`: Tether printed the record.
+- `2`: bad command-line arguments, or a file that is not a readable map.
 
 ## `tether run`
 
@@ -1939,7 +2036,8 @@ the same text in the Browser when you open the project.
 ## Service commands
 
 `tether extract`, `tether reextract`, `tether batch`, `tether idealize`, `tether map create`,
-`tether approve`, `tether save-composition` and `tether open-composition` are each the
+`tether map check`, `tether map show`, `tether approve`, `tether save-composition` and
+`tether open-composition` are each the
 command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service command
 is the one implementation of an action ([why](#why-the-command-line-runs-service-commands)). The
@@ -1955,7 +2053,9 @@ The table comes from the registry in `tether.services.registry`. A test fails if
 | `tether reextract` | `tether.services.reextract.ReextractRequest` (version 1) | `tether.services.reextract.ReextractResult` | extract a movie of a .tether project again, as a new trace generation |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
 | `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
-| `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
+| `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image, with its report |
+| `tether map check` | `tether.services.maps.MapCheckRequest` (version 1) | `tether.services.maps.MapCheckResult` | check whether a map file may register a movie (the reuse check) |
+| `tether map show` | `tether.services.maps.MapShowRequest` (version 1) | `tether.services.maps.MapShowResult` | print the record of a map file |
 | `tether approve` | `tether.services.approve.ApproveRequest` (version 1) | `tether.services.approve.ApproveResult` | record that a person approved a step that needs a person |
 | `tether save-composition` | `tether.services.compositions.SaveCompositionRequest` (version 1) | `tether.services.compositions.SaveCompositionResult` | save a plot composition of the plot builder to a file (no trace data) |
 | `tether open-composition` | `tether.services.compositions.OpenCompositionRequest` (version 1) | `tether.services.compositions.OpenCompositionResult` | open a saved plot composition and name each series that cannot be found |

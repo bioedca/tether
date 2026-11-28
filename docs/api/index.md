@@ -36,6 +36,8 @@ The command line has its own page, [Command line](../cli.md).
 
 ::: tether.cli_apertures
 
+::: tether.cli_maps
+
 ::: tether.cli_export
 
 ::: tether.extract_choices

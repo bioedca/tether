@@ -560,10 +560,15 @@ def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_
         main(["map", "create", str(_write_beads(tmp_path / "beads.tif")), "-o", str(output)]) == 0
     )
     assert load_map(output).n_control_points == 9
+    # The report (#918) is published as the map is, under a writer lock of its own.
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "beads.tif",
+        "copied.json",
+        _GUARD("copied.json"),
         "copied.npz",
         _GUARD("copied.npz"),
+        "copied.png",
+        _GUARD("copied.png"),
     ]
 
 

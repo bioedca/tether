@@ -89,7 +89,22 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         request_type=maps.MapCreateRequest,
         result_type=maps.MapCreateResult,
         run=maps.run,
-        summary="make a channel map file (.npz) from a bead video or image",
+        summary="make a channel map file (.npz) from a bead video or image, with its report",
+        approval_steps=(maps.MAP_ACCEPT,),
+    ),
+    ServiceCommand(
+        name="map check",
+        request_type=maps.MapCheckRequest,
+        result_type=maps.MapCheckResult,
+        run=maps.run_check,
+        summary="check whether a map file may register a movie (the reuse check)",
+    ),
+    ServiceCommand(
+        name="map show",
+        request_type=maps.MapShowRequest,
+        result_type=maps.MapShowResult,
+        run=maps.run_show,
+        summary="print the record of a map file",
     ),
     ServiceCommand(
         name="approve",

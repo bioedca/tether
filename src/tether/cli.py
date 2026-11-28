@@ -11,8 +11,8 @@ builds the command's request from its options, runs the command, and prints the 
 [`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
 pipeline over many movies — see [`tether.services.batch`][]; ``tether idealize`` fits the
 molecules of one project, or refits its stale models — see [`tether.services.idealize`][];
-``tether map create`` makes a channel map file from a bead video or image for
-``tether extract --map`` — see [`tether.services.maps`][]. Their subcommands are made
+``tether map create``, ``check`` and ``show`` make, check and print a channel map file
+for ``tether extract --map`` — see [`tether.cli_maps`][]. Their subcommands are made
 from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
@@ -43,6 +43,18 @@ from typing import TYPE_CHECKING
 from tether import __version__
 from tether.cli_apertures import add_apertures_parser, run_apertures
 from tether.cli_export import add_export_parser, run_export
+from tether.cli_maps import (
+    MAP_ROUTE,
+    add_map_check_parser,
+    add_map_create_parser,
+    add_map_show_parser,
+    map_check_request,
+    map_create_request,
+    map_show_request,
+    run_map_check,
+    run_map_create,
+    run_map_show,
+)
 from tether.extract_choices import (
     COLOCALIZATION_POLICIES,
     DEFAULT_COLOCALIZATION_POLICY,
@@ -62,8 +74,6 @@ from tether.services import (
     ExtractResult,
     IdealizeRequest,
     IdealizeResult,
-    MapCreateRequest,
-    MapCreateResult,
     OpenCompositionRequest,
     OpenCompositionResult,
     ReextractRequest,
@@ -1062,131 +1072,6 @@ def _run_idealize(args: argparse.Namespace) -> int:
     return 0
 
 
-def _add_map_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
-    """Register the ``map`` subcommand and its one action, ``map create`` (#353)."""
-    map_parser = subparsers.add_parser(
-        "map",
-        help=summary,
-        description=(
-            "Channel map files: the saved donor<->acceptor registration that "
-            "'tether extract --map' applies to a later movie."
-        ),
-    )
-    actions = map_parser.add_subparsers(dest="map_action", metavar="<action>", required=True)
-    create = actions.add_parser(
-        "create",
-        help="make a map file from a bead video or one bead image",
-        description=(
-            "Detect the beads of both halves, pair them and fit the degree-2 map "
-            "(Stages 6-9), then save it as a .npz map file with its source id, its "
-            "projection settings and its quality record. A map over --rms-gate is still "
-            "saved, flagged low-confidence; the command then exits 0 and warns."
-        ),
-    )
-    create.add_argument("source", help="a bead TIFF: one image, or a video of frames")
-    create.add_argument(
-        "-o", "--output", required=True, help="the .npz map file to write (must end in .npz)"
-    )
-    create.add_argument("--overwrite", action="store_true", help="replace an existing map file")
-    create.add_argument(
-        "--frames",
-        nargs=2,
-        type=int,
-        default=None,
-        metavar=("START", "STOP"),
-        help="for a video: the 0-based half-open frame range to project (default: all)",
-    )
-    create.add_argument(
-        "--projection",
-        default="max",
-        choices=("max", "mean"),
-        help="for a video: how the frames are reduced to one image (default: max)",
-    )
-    create.add_argument(
-        "--donor-side",
-        default="left",
-        choices=DONOR_SIDES,
-        help="which half of the frame is the donor channel (default: left)",
-    )
-    create.add_argument(
-        "--rms-gate",
-        type=float,
-        default=0.5,
-        help="registration RMS-residual gate in px (default: 0.5)",
-    )
-    create.add_argument(
-        "--optics",
-        default=None,
-        metavar="TEXT",
-        help=(
-            "a text for the optics (objective, filters, camera, binning), kept in the map; "
-            "'tether extract --map --optics' compares it with a later movie's"
-        ),
-    )
-    create.add_argument(
-        "--pixel-size",
-        dest="pixel_size_um",
-        type=float,
-        default=None,
-        metavar="UM",
-        help=(
-            "the camera pixel size in micrometres, kept in the map; a movie with another "
-            "pixel size is refused (default: not known, not compared)"
-        ),
-    )
-    create.add_argument(
-        "--frame-steps",
-        default=None,
-        metavar="STEPS",
-        help=(
-            "the map's default frame steps, kept in the map: how the frames it is made on "
-            "relate to the movies it will be used with (e.g. 'rotate 90'); a movie's own "
-            "'tether extract --frame-steps' replaces it (default: none)"
-        ),
-    )
-
-
-def _map_request(args: argparse.Namespace) -> MapCreateRequest:
-    """Build the ``map`` request from the parsed options."""
-    start, stop = args.frames if args.frames is not None else (None, None)
-    return MapCreateRequest(
-        source=args.source,
-        output=args.output,
-        overwrite=args.overwrite,
-        frame_start=start,
-        frame_stop=stop,
-        projection=args.projection,
-        donor_side=args.donor_side,
-        rms_gate=args.rms_gate,
-        optics=args.optics or "",
-        pixel_size_um=args.pixel_size_um,
-        frame_steps=args.frame_steps,
-    )
-
-
-def _run_map(args: argparse.Namespace) -> int:
-    """Handle ``tether map create``; a failed map is exit code 1."""
-    request = _map_request(args)
-    try:
-        result: MapCreateResult = run_service(request)
-    except CommandFailed as exc:
-        print(f"tether map create: {exc}", file=sys.stderr)
-        return 1
-    print(
-        f"Map -> {result.path}: RMS {result.rms_residual:.3f} px over {result.n_pairs} "
-        f"bead pair(s), {result.coverage:.0%} of the field covered"
-    )
-    print(f"  map id: {result.map_id}")
-    if result.low_confidence:
-        print(
-            f"  warning: the RMS residual exceeds the {request.rms_gate} px gate; the map is "
-            "flagged low-confidence and its molecules will be tagged "
-            "'low-confidence-registration'.",
-            file=sys.stderr,
-        )
-    return 0
-
-
 def _add_approve_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
     """Register the ``approve`` subcommand (a person approves an approval step, ADR-0102)."""
     from tether.services.recipe import APPROVAL_STEPS  # noqa: PLC0415
@@ -1510,7 +1395,9 @@ _ROUTES: dict[str, _Route] = {
     "reextract": _Route(_add_reextract_parser, _reextract_request, _run_reextract),
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
     "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
-    "map": _Route(_add_map_parser, _map_request, _run_map),
+    "map": _Route(add_map_create_parser, map_create_request, run_map_create),
+    "map check": _Route(add_map_check_parser, map_check_request, run_map_check),
+    "map show": _Route(add_map_show_parser, map_show_request, run_map_show),
     "approve": _Route(_add_approve_parser, _approve_request, _run_approve),
     "save-composition": _Route(
         _add_save_composition_parser, _save_composition_request, _run_save_composition
@@ -1870,7 +1757,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command is None:
         parser.print_help()
         return 0
-    route = _ROUTES.get(command)
+    route = _ROUTES.get(getattr(args, MAP_ROUTE, None) or command)
     if route is not None:
         return route.invoke(args)
     if command == "run":

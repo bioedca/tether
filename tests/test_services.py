@@ -56,6 +56,8 @@ _SAMPLE_ARGV: dict[str, list[str]] = {
     "batch": ["batch", "a.tif", "b.tif", "-d", "out"],
     "idealize": ["idealize", "p.tether"],
     "map": ["map", "create", "beads.tif", "-o", "beads.npz"],
+    "map check": ["map", "check", "beads.npz", "movie.tif"],
+    "map show": ["map", "show", "beads.npz"],
     "approve": ["approve", "p.tether", "gamma.approve", "--subject", "c1", "--report", "r.json"],
     "save-composition": [
         "save-composition",
@@ -75,6 +77,8 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
     "batch": {"movies": ("a.tif", "b.tif"), "out_dir": "out"},
     "idealize": {"project": "p.tether"},
     "map": {"source": "beads.tif", "output": "beads.npz"},
+    "map check": {"map_path": "beads.npz", "movie": "movie.tif"},
+    "map show": {"map_path": "beads.npz"},
     "approve": {
         "project": "p.tether",
         "step": "gamma.approve",
@@ -102,6 +106,8 @@ def test_the_registry_names_each_command_once_with_its_types() -> None:
         "batch",
         "idealize",
         "map",
+        "map check",
+        "map show",
         "approve",
         "save-composition",
         "open-composition",
@@ -146,7 +152,8 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     subparsers = next(
         a for a in cli.build_parser()._actions if isinstance(a, argparse._SubParsersAction)
     )
-    names = [entry.name for entry in services.COMMANDS]
+    # The map commands are actions of one ``map`` subcommand (#918).
+    names = list(dict.fromkeys(entry.name.split()[0] for entry in services.COMMANDS))
     assert list(subparsers.choices)[: len(names)] == names
     # Recipe execution and project inspection use plain subcommands.
     assert list(subparsers.choices)[len(names) :] == [
