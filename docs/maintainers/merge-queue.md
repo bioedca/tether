@@ -98,6 +98,30 @@ merge call fails with an error, the queue cannot tell whether GitHub merged, so 
 The next run asks GitHub whether the pull request merged. If it did not, the run puts the request
 back in its place in the train.
 
+**The linked issue stays open, and a person closes it.** GitHub closes an issue that a closing
+keyword names in a commit message when the commit reaches the default branch. A queue merge does
+not close it (#1529).
+
+The 2026-11-27 trial shows why. Each squash message ended with its closing line. On each issue,
+GitHub recorded a `referenced` event for the merge commit, made by `tether-merge-queue[bot]`. No
+issue had a `closed` event until the coordinator closed it by hand. A direct squash merge by the
+maintainer that day closed its issue three seconds after the merge, as the maintainer. Neither
+kind of pull request body held a closing keyword, so the body is not the difference.
+
+GitHub closes the issue as the actor who merged, and the App has no Issues permission (see
+[App permissions](#app-permissions)). GitHub's documentation does not name that condition, so
+the cause is inferred from these events.
+
+So before it deletes the pending ref of a merge, the queue writes **one** comment on the merged
+pull request. The comment lists each issue that a closing line of the squash message names. It
+asks a person to close each one with the reason *completed*, and the step summary lists them too.
+
+A closing line holds only closing keywords and `#N` references, such as `Closes #12` or
+`Fixes #12, closes #13`. A keyword inside a sentence or a reference to another repository names
+no issue. Like the removal comment, the comment ends with a hidden tag that names the pending
+commit. So a run that finishes the merge later writes it once. The queue does not close the issue
+itself, because that needs the Issues permission (`PATCH /issues/N`), which the App does not have.
+
 After a merge, the queue compares the tree of the new `main` commit with the
 tree of the candidate. When they differ, because `main` moved in the instant before the merge,
 the queue comments on the merged pull request. The run then fails with an error that names both
