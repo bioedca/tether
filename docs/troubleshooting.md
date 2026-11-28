@@ -977,12 +977,13 @@ A file name or a size can match by chance, and a checksum cannot. A movie whose 
 way. A routine open never downloads a cloud file.
 
 **To change the project itself**, link the movie again in **Prepare → Import**: select its
-source and choose **Link again…**. The file is accepted by the same checksum rule, and its new
-place is written to the project's source registry, so every computer where that path is valid
-finds it. The movie list shows the movie from its new place when you come back to
-**Curation**. The file is checked against the size and modification time recorded at
-extraction, as every movie is. A file moved with its time kept is shown; a copy has a new
-time and is listed as `file changed since extraction`, so use **Locate movie…** for it.
+source and choose **Link again…**. The same checksum rule decides. The new place is written to
+the project's source registry, so every computer where that path is valid finds it. The movie
+list shows the movie from its new place when you come back to **Curation**.
+
+The file is checked against the size and modification time recorded at extraction, as every movie is. A file moved
+with its time kept is shown. A copy has a new time and is listed as
+`file changed since extraction`, so use **Locate movie…** for it.
 
 ### The installer is flagged as unsigned
 
