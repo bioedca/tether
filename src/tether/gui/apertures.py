@@ -327,6 +327,7 @@ class ApertureSection:
         names it, its error and any file already written, and the return value lists only the
         files written. Raises ``ValueError`` when no review is on show.
         """
+        import shutil
         import tempfile
 
         if self._review is None or self._frame is None:
@@ -343,15 +344,20 @@ class ApertureSection:
             )
             if png_path is not None:
                 target = Path(png_path)
-                with tempfile.TemporaryDirectory() as scratch:
+                # A scratch folder that cannot be removed is not a failed save: the PNG is
+                # written by then, so its cleanup never raises.
+                scratch = Path(tempfile.mkdtemp())
+                try:
                     aperture_service.write_report(
                         self._review,
                         self._frame,
-                        Path(scratch) / "report.json",
+                        scratch / "report.json",
                         target,
                         molecules=molecules,
                     )
-                written.append(target)
+                    written.append(target)
+                finally:
+                    shutil.rmtree(scratch, ignore_errors=True)
         except Exception as error:  # noqa: BLE001 - a slot: the status bar is the report
             done = ", ".join(p.name for p in written) or "none"
             self._status(

@@ -238,3 +238,28 @@ def test_a_failed_save_names_the_file_and_the_files_written(page, qtbot, tmp_pat
     assert "could not write other.json" in page.messages[-1]
     assert page.messages[-1].endswith("already written: none")
     assert not (tmp_path / "other.png").exists()
+
+
+@pytest.mark.gui
+@needs_qt
+def test_a_scratch_folder_left_behind_does_not_fail_the_save(
+    page, qtbot, tmp_path, monkeypatch
+) -> None:
+    import shutil
+
+    page.set_movie(_write_movie(tmp_path / "movie.tif"))
+    tab = page.apertures
+    tab.review()
+    _wait(qtbot, tab)
+    calls = []
+    real_rmtree = shutil.rmtree
+
+    def rmtree(path, **kw):  # the cleanup of the throwaway JSON's folder ignores its errors
+        calls.append(kw)
+        real_rmtree(path, **kw)
+
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    written = tab.save_report(tmp_path / "page.json", tmp_path / "page.png")
+    assert written == [tmp_path / "page.json", tmp_path / "page.png"]
+    assert calls == [{"ignore_errors": True}]
+    assert page.messages[-1] == "Aperture report written: page.json, page.png"
