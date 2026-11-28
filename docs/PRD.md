@@ -556,9 +556,12 @@ application:
   profile carries them, so the two routes keep the parity of §7.11.
 
 The milestone *M15 - Trace extraction section* carries this requirement, and its description embeds the §9.3 bar as
-its checklist. Until that milestone closes, `tether extract` and `tether batch` (§7.11) are the only routes from a
-new movie to a `.tether`; the application opens, curates and analyzes the result, and imports a Deep-LASI
-acquisition (§7.8), but it does not extract. §9.6 carries the criterion.
+its checklist. The application already makes a new `.tether` from a movie: **Extract…** on the extraction page of
+the Prepare section runs the same `extract` service command as `tether extract` (§7.11, ADR-0100) into a new
+project. It also opens, curates and analyzes the result, and imports a Deep-LASI acquisition (§7.8). The issues of
+M15 still carry the rest: publishing into the open project ([#352](https://github.com/bioedca/tether/issues/352)),
+the background run with cancel ([#354](https://github.com/bioedca/tether/issues/354)) and the recorded evidence run
+of the §9.3 bar. §9.6 carries the criterion.
 
 ### 7.2 FR-CORRECT — Corrections & FRET computation
 
@@ -1522,7 +1525,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Curating into a split file of a locked project, and the owner's merge-back of its labels, from the application. The M5 bar's two-curator split-and-merge test was met on library evidence alone | M5 | [#637](https://github.com/bioedca/tether/issues/637) |
 | Free tags on molecules and conditions, in the application | §7.6 | [#634](https://github.com/bioedca/tether/issues/634) |
 | A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#934](https://github.com/bioedca/tether/issues/934) (the plot it feeds: [#371](https://github.com/bioedca/tether/issues/371)) |
-| A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
+| A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today **Extract…** on the extraction page makes a new `.tether` from a movie with the same command as `tether extract`, but it does not yet publish into the open project ([#352](https://github.com/bioedca/tether/issues/352)) or run in the background with cancel ([#354](https://github.com/bioedca/tether/issues/354)), and no evidence run is recorded | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
 | Per-trace vbFRET parity against a frozen tolerance. tMAVEN's per-trace step now runs headless, but on the pinned build it makes one random start per state count and does not reproduce across seeds (worst state-count agreement 0.0 over 20 fits per small fixture), so no row is frozen; a row needs a fit that reproduces, for example best-of-N restarts per state count (ADR-0110) | M2 | [#949](https://github.com/bioedca/tether/issues/949) |
 | The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores — withheld: no curated multi-video project with accept/reject labels exists yet (ADR-0114). Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#1100](https://github.com/bioedca/tether/issues/1100) |
