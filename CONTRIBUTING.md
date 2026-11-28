@@ -485,7 +485,7 @@ Before you ask for a review or merge, confirm each item:
     closing review covers the final head.
   - The non-material case looks like an exception, but it is not one. A clean review followed by
     a formatting commit keeps its evidence. So the cap is spent with nothing outstanding, and the
-    Codex close names the commit that `--match-head-commit` binds.
+    Codex close names the commit that the merge-queue join binds.
   - That is the ordinary close doing ordinary work, not a special path. It is strictly more work
     than the clean review that it follows.
   - Silence is not the gate, and a green `CodeRabbit` status check is not the gate. A request
@@ -564,14 +564,24 @@ separate `code_scanning` rule, so `.github/workflows/` has no `codeql.yml`.
 
 The maintainer merges, **squash-only**, with a linear history and the branch deleted on merge. An
 agent merges only with explicit merge authority for that one PR. A green lane does not give that
-authority. Arm auto-merge only after the review lane is complete. The lane is not a required
-check, so GitHub can merge as soon as the checks are green. Arm it with this command:
+authority. A PR reaches `main` only through the [merge queue](docs/maintainers/merge-queue.md).
+The queue tests it on top of the PRs ahead of it, then merges it. Join the queue only after the
+review lane is complete:
 
 ```bash
-gh pr merge <PR> --auto --squash --match-head-commit <SHA>
+gh workflow run merge-queue.yml --ref main -f action=join -f pr=<PR> -f sha=<SHA> -f message="<squash message>"
 ```
 
 `<SHA>` is the 40-hex head that the clean review read. Take it from that review, not from the PR.
+The queue refuses a join at any other head. Only the queue's App sets the status `merge-queue`.
+Once the ruleset requires it, GitHub refuses a direct merge for everyone (ADR-0159).
+
+The queue can remove your PR for a conflict or a failed check. Then merge `main` and fix the PR.
+Meet the review lane on the new head and join again. The go-ahead to merge still holds.
+
+Ask the maintainer only when the fix lies outside the scope of the item. A PR can also fail for a cause
+outside it, such as a runner fault or a flaky test. It joins again at the same head.
+
 Releases, tags, signing and each new scientific claim or citation need the maintainer's sign-off.
 
 Source: `docs/PRD.md` §12.2 and §12.6.

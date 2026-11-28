@@ -48,6 +48,12 @@ concurrency:
 # change must instead arrive as a reviewed diff editing this list and the contract
 # test pinning it (tests/test_marker_contract.py). Workflow-level so the verify-time
 # gate and the publish-time recheck consume ONE copy and cannot drift apart.
+#
+# `merge-queue` is required by the ruleset (ADR-0159) and is deliberately NOT in this
+# copy. It is a commit status the queue's App writes on the HEAD OF A PULL REQUEST, never
+# on a commit of `main`, so a tagged commit never carries it and listing it here would
+# block every release on a false "never reported". The queue already tested the tree that
+# landed; the checks below are the ones that report on `main` itself.
 env:
   REQUIRED_CONTEXTS: |
     lint

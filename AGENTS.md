@@ -243,7 +243,7 @@ validity turns on it being the right test — must satisfy both.
   it is a wait. If a completed review came back clean, its evidence still stands under the
   non-material rule above, **and it read the head you are merging**, **that** review is the gate and
   none of this applies — all three, since a clean review whose head a non-material push has moved
-  leaves `--match-head-commit` binding a commit no metered provider named, and that case takes the
+  leaves the join binding a commit no metered provider named, and that case takes the
   ordinary close instead of stranding.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
   the last completed review actually *read* — its `commit_id`, never its `submitted_at` — must
@@ -303,12 +303,16 @@ validity turns on it being the right test — must satisfy both.
   findings are all disposed of and whose threads are all resolved finishes on an unmetered read
   rather than on a maintainer. Nothing counts this for you; the merged history is auditable.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
-- Merge under explicit per-PR authority, with checks green and threads resolved. Then arm and exit —
-  never wait, never poll:
-  `gh pr merge <PR> --auto --squash --match-head-commit <SHA>`, where `<SHA>` is the 40-hex head the
-  clean review read and **you supply it from that review**; re-reading it from the PR while arming
-  compares the head against itself and binds nothing. There is no merge queue on this repository —
-  it needs an organization-owned repo — so that flag is what replaces it.
+- Merge under explicit per-PR authority, with checks green and threads resolved, by joining the
+  merge queue. Then exit — never wait, never poll:
+  `gh workflow run merge-queue.yml --ref main -f action=join -f pr=<PR> -f sha=<SHA> -f message="<squash message>"`,
+  where `<SHA>` is the 40-hex head the clean review read and **you supply it from that review**;
+  re-reading it from the PR compares the head against itself and binds nothing. The queue refuses
+  a join at any other head, and once `main` requires its `merge-queue` status a direct merge is
+  refused (ADR-0159). **A removed PR is its worker's**: merge `main`, fix it, meet §Review on the
+  new head and rejoin under the go-ahead already given, asking the maintainer only when the fix
+  lies outside the item. One that failed for a cause outside the PR (a runner fault, a flaky
+  test) rejoins at the same head.
 
 ## WSL clusters and Slurm
 

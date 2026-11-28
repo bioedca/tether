@@ -3004,9 +3004,10 @@ def test_release_staging_gate_counts_every_installer_kind_and_fails_falsy() -> N
 # report on `main`, the paginated fetch, the job's permissions, and the fetch-and-pipe split
 # that keeps every comparison out of the step.
 
-#: The `main-baseline` ruleset's eleven required contexts, frozen here AND in release.yml's
-#: REQUIRED_CONTEXTS. The failure asymmetry is why both copies are pinned: a wrong or stale
-#: name does not fail at review time — it blocks every future release with a false "never
+#: The `main-baseline` ruleset's eleven required check contexts, frozen here AND in release.yml's
+#: REQUIRED_CONTEXTS. The ruleset's twelfth, the `merge-queue` status, is excluded on purpose
+#: (ADR-0159; see the test below). The failure asymmetry is why both copies are pinned: a wrong
+#: or stale name does not fail at review time — it blocks every future release with a false "never
 #: reported", which only the binding test below can catch early.
 REQUIRED_MAIN_CONTEXTS = frozenset(
     {
@@ -3085,6 +3086,31 @@ def test_release_postmerge_gate_pins_the_exact_ruleset_contexts() -> None:
         "contexts exactly — a missing name silently un-gates that check, an extra or "
         "misspelled one blocks every release with a false 'never reported'. If the ruleset "
         "legitimately changed, update the step and this pin in the same PR."
+    )
+
+
+#: The status the merge queue's App sets on a pull request's head (ADR-0159). The ruleset requires
+#: it, so it is the one required context the frozen copy must NOT carry.
+MERGE_QUEUE_CONTEXT = "merge-queue"
+
+
+def test_release_postmerge_gate_never_requires_the_merge_queue_status() -> None:
+    """`merge-queue` is required on `main` and must stay out of the frozen release copy (#1269).
+
+    The queue writes that status on the head of a pull request, never on a commit of `main`, so a
+    tagged commit never carries it. Copying the ruleset faithfully would add it here, and every
+    release would then block on a false "never reported". The workflow must also say why, so the
+    next reader who syncs this list against the ruleset does not add it back.
+    """
+    assert MERGE_QUEUE_CONTEXT not in _postmerge_declared_contexts(), (
+        "release.yml's REQUIRED_CONTEXTS lists `merge-queue`, a status that only ever lands on a "
+        "pull request's head; every release would block waiting for it on the tagged commit"
+    )
+    assert MERGE_QUEUE_CONTEXT not in REQUIRED_MAIN_CONTEXTS
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    header = text[: text.index("REQUIRED_CONTEXTS: |")]
+    assert "`merge-queue`" in header and "HEAD OF A PULL REQUEST" in header, (
+        "release.yml must say, beside the frozen copy, why `merge-queue` is not in it"
     )
 
 

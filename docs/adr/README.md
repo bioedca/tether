@@ -212,6 +212,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0156](0156-a-trace-s-calibration-window-is-stored-apart-from-its-analysis-window.md) | A trace's calibration window is stored apart from its analysis window | accepted | §5 (data model), §7.2 FR-CORRECT (G03), §7.6 FR-ANNOTATE |
 | [0157](0157-frame-steps-run-on-the-whole-frame-before-the-split.md) | Frame steps run on the whole frame before the split, and a movie's own replace the map's default | accepted | §7.1 (FR-EXTRACT), Appendix E stages 1 and 10, §5 (data model) |
 | [0158](0158-leakage-and-gamma-are-estimated-per-condition-inside-the-project.md) | Leakage and gamma are estimated per condition inside the project | accepted | §7.2 FR-CORRECT, §5.1 (conditions), §11.2 |
+| [0159](0159-every-merge-to-main-goes-through-the-merge-queue.md) | Every merge to main goes through the merge queue | accepted | §12.3 (branch protection and how a merge is bound), §12.4 (pull requests) |
 
 <!-- gen:adr-index end -->
 

@@ -1855,13 +1855,20 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
   and every actionable finding from the required review lane before merge.
 - **Block force-pushes** and **block branch deletion** on `main`.
 
-**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 review lane is
-complete on the exact head SHA and required checks are green on the current base. The binding is enforced by the
-merger, not the server: `main` carries no strict up-to-date rule, and **merge queue is unavailable** because it
-requires an organization-owned repository, so every merge passes an expected-head guard
-(`gh pr merge --squash --match-head-commit <full 40-char SHA>`). Dropping the strict rule is deliberate — with it,
-each merge invalidated every other open PR's checks and serialized merges at roughly one per ten minutes; the
-post-merge `sidecar / parity`, `ci` and `schema-guard` runs on `main` are what catch a semantic conflict instead.
+**How the solo dev merges.** With 0 ruleset approvals, a pull request merges only after the §12.4 review lane is
+complete on the exact head SHA, and only through the repository's own **merge queue**
+([ADR-0135](adr/0135-a-merge-queue-of-our-own-tests-each-pull-request-on-the-ones-ahead-of-it.md),
+[ADR-0159](adr/0159-every-merge-to-main-goes-through-the-merge-queue.md)). GitHub's merge queue needs an
+organization-owned repository, so the queue runs on GitHub Actions. Under explicit per-PR authority the merger
+joins it with the full 40-character head the clean review read and the squash message (the command is in
+`AGENTS.md` §Review).
+The queue refuses a join at any other head, tests each pull request on top of the ones ahead of it, and squash-merges
+with the API's `sha` pinned to that head, so the binding to the reviewed head holds and every commit of `main` has
+passed the required checks before it lands. `main` carries no strict up-to-date rule: the queue's candidate is what
+is tested. The ruleset requires the commit status **`merge-queue`**, accepted only from the queue's GitHub App, so
+GitHub refuses a direct merge for everyone; the maintainer adds that rule after ADR-0159 merges. A pull request the
+queue removes for a conflict or a failed check is fixed by its own worker, re-reviewed on the new head, and rejoins
+under the go-ahead it already had; one that failed for a cause outside it rejoins at the same head.
 **No standing "include administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged
 temporary bypass, not a permanent admin exception.
 
@@ -1873,7 +1880,7 @@ names, commit convention, or CI jobs — only the approval count and the CODEOWN
 ### 12.4 Pull requests
 
 Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one PR ↔ one squash commit); WIP opens
-as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
+as a **draft PR** and cannot merge. A finished PR reaches `main` only through the merge queue (§12.3, ADR-0159). The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
