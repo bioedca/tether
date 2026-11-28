@@ -1891,7 +1891,7 @@ tether apertures [-h] --json FILE [--png FILE] [--profile FILE] [--map FILE | --
 | `--ring-inner PX` | the profile's | The inner radius of the background ring. |
 | `--ring-outer PX` | the profile's | The outer radius of the background ring. |
 | `--molecule N` | none | A molecule whose preview traces the report carries. Give it again for more. |
-| `--overwrite` | off | Replace an existing report. Without it the command refuses. An output that is one of the inputs (the movie, the profile or the map file, also through a link) is refused even with it. |
+| `--overwrite` | off | Replace an existing report. Without it the command refuses. An output that is one of the inputs (the movie, the profile, the `--map` or the `--tmap` file, also through a symlink or a hard link) is refused even with it, and so are `--json` and `--png` naming one file. |
 
 For example:
 
@@ -1908,7 +1908,7 @@ Each spot of the report has a mark:
 
 The command prints the counts. It exits `0` when it wrote the report. It exits `1` when the
 review failed, for example when the preview stopped before the traces. It exits `2` when it
-refused the options or an existing output.
+refused the options, an existing output, or an output that is an input or the other output.
 
 ## Sync-conflict copies beside a project
 

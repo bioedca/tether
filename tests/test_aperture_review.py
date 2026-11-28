@@ -225,6 +225,38 @@ def test_an_output_that_names_the_profile_is_refused(tmp_path, movie) -> None:
     assert profile.read_bytes() == before
 
 
+@pytest.mark.parametrize("flag", ["--map", "--tmap"])
+def test_an_output_that_names_the_registration_file_is_refused(tmp_path, movie, flag) -> None:
+    # The file is refused before it is read, so its content does not matter.
+    registration = tmp_path / ("reg.npz" if flag == "--map" else "reg.tmap")
+    registration.write_bytes(b"registration")
+    for out in ("--json", "--png"):
+        other = "--png" if out == "--json" else "--json"
+        argv = [str(movie), out, str(registration), other, str(tmp_path / "x.out")]
+        assert _cli([*argv, flag, str(registration), "--overwrite"]) == 2
+    assert registration.read_bytes() == b"registration"
+
+
+@pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_json_and_png_naming_one_file_is_refused(tmp_path, movie, alias, overwrite, capsys) -> None:
+    import os
+
+    out = tmp_path / "report.out"
+    out.write_bytes(b"earlier")
+    other = out
+    if alias == "symlink":
+        other = tmp_path / "link.out"
+        other.symlink_to(out)
+    elif alias == "hardlink":
+        other = tmp_path / "hard.out"
+        os.link(out, other)
+    argv = [str(movie), "--json", str(out), "--png", str(other)]
+    assert _cli(argv + (["--overwrite"] if overwrite else [])) == 2
+    assert "are the same file" in capsys.readouterr().err
+    assert out.read_bytes() == b"earlier"
+
+
 def test_the_mean_frame_is_reduced_without_a_float64_copy_of_the_movie(tmp_path) -> None:
     import tracemalloc
 

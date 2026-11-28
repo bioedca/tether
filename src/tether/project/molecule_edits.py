@@ -54,6 +54,13 @@ the category. A window write holds ``tether.project.features.WINDOW_WRITE_GUARD`
 ``compute_features`` also holds while it checks the windows and writes the table, so
 an edit cannot land between that check and the write.
 
+A category write holds the same guard (#1484). Both writers read a whole
+``/molecules`` row, change their own field and write the row back, so without one
+guard a clear landing in a window write's read-modify-write gap would be undone by the
+window write, which puts the old category back while the clear's audit row stays. With
+it, two threads of one process serialize their row writes, and neither writer changes
+the other's field.
+
 The single-writer ``.lock`` is the caller's responsibility, as for every module-level
 ``r+`` writer in this package; the [`Project`][tether.project.core.Project] methods check
 it before they call in.
@@ -220,13 +227,16 @@ def _write_category(
         _read_category_names,
         _refuse_nul_audit_text,
     )
+    from tether.project.features import WINDOW_WRITE_GUARD  # noqa: PLC0415
 
     labeler, timestamp = _resolve_provenance(labeler, timestamp, reason)
     names = [category] if isinstance(category, str) else list(category.values())
     for name in names:
         _refuse_nul_audit_text(category=name)
     path = Path(path)
-    with h5py.File(path, "r+") as f:
+    # The window writers' guard (#1484): each writer rewrites a whole row, so a category
+    # write must not interleave with a window write's read-modify-write of the same row.
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
         table = mol_table[:]
         idx = _matched_rows(table, molecule_key, path)

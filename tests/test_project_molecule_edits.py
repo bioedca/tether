@@ -661,3 +661,105 @@ def test_failed_molecule_audit_assignment_resizes_the_log_back(tmp_path: Path) -
     audit = M.read_molecule_audit(path)
     assert audit.shape == (1,)
     assert _s(audit["event"][0]) == "set_category"
+
+
+# --- #1484: a category edit and a window edit do not undo each other ---------
+
+
+def _race_inside_the_row_write(monkeypatch: pytest.MonkeyPatch, racer: object) -> list[object]:
+    """Run ``racer`` in another thread just before the first ``/molecules`` row write.
+
+    The hook sits on ``h5py.Dataset.__setitem__``, so it fires after the writer has read
+    the row it is about to write back: the read-modify-write gap #1484 names. It waits
+    0.5 s for the racer, which either finishes inside the gap (no serialization) or
+    blocks on the writer's guard, and returns a list holding the started thread.
+    """
+    import threading
+
+    original = h5py.Dataset.__setitem__
+    main = threading.current_thread()
+    started: list[object] = []
+
+    def gap(self: h5py.Dataset, key: object, value: object) -> None:
+        if (
+            not started
+            and threading.current_thread() is main
+            and self.name.endswith(f"molecules/{TABLE}")
+        ):
+            thread = threading.Thread(target=racer)
+            started.append(thread)
+            thread.start()
+            thread.join(timeout=0.5)
+        original(self, key, value)
+
+    monkeypatch.setattr(h5py.Dataset, "__setitem__", gap)
+    return started
+
+
+def test_a_category_clear_inside_a_window_write_survives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clear from another thread, between the window writer's read and write, stays.
+
+    #1484: both writers rewrote a whole ``/molecules`` row, and only the window writer
+    held ``WINDOW_WRITE_GUARD``, so the window write put back the category the clear had
+    just removed, while the clear's audit row stayed.
+    """
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))])
+    C.set_category_list(path, KEY_A.condition_id(), ["static"])
+    M.set_category(path, "k0", "static", timestamp=TS)
+    started = _race_inside_the_row_write(
+        monkeypatch, lambda: M.clear_category(path, "k0", timestamp=TS)
+    )
+
+    M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)
+    started[0].join(timeout=10)
+    assert not started[0].is_alive()
+
+    assert _category(path, "k0") == ""
+    assert _window(path, "k0") == (20, 50)
+    audit = M.read_molecule_audit(path)
+    events = [_s(e) for e in audit["event"]]
+    assert sorted(events) == sorted(["set_category", "set_analysis_window", "clear_category"])
+    cleared = audit[[e == "clear_category" for e in events]][0]
+    assert (_s(cleared["old_category"]), _s(cleared["new_category"])) == ("static", "")
+
+
+def test_a_window_edit_inside_a_category_write_survives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror: a window edit lands inside a category write and is not undone."""
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))])
+    C.set_category_list(path, KEY_A.condition_id(), ["static"])
+    started = _race_inside_the_row_write(
+        monkeypatch, lambda: M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)
+    )
+
+    M.set_category(path, "k0", "static", timestamp=TS)
+    started[0].join(timeout=10)
+    assert not started[0].is_alive()
+
+    assert _category(path, "k0") == "static"
+    assert _window(path, "k0") == (20, 50)
+    assert M.read_molecule_audit(path).shape == (2,)
+
+
+def test_each_writer_changes_only_its_own_field(tmp_path: Path) -> None:
+    """A window edit leaves the category alone and a category edit leaves the window."""
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))])
+    C.set_category_list(path, KEY_A.condition_id(), ["static"])
+    before = {k: _row(path, k) for k in ("k0", "k1")}
+
+    M.set_category(path, "k0", "static", timestamp=TS)
+    assert _window(path, "k0") == (0, N_FRAMES)
+    M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)
+    assert _category(path, "k0") == "static"
+    M.clear_category(path, "k0", timestamp=TS)
+    assert _window(path, "k0") == (20, 50)
+    M.reset_analysis_window(path, "k0", timestamp=TS)
+    assert _category(path, "k0") == ""
+
+    for key in ("k0", "k1"):
+        after = _row(path, key)
+        for field in MOLECULES_DTYPE.names:
+            assert np.array_equal(after[field], before[key][field]), (key, field)
