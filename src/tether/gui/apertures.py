@@ -18,9 +18,11 @@ stays usable. When it finishes the page shows:
   gives them; the preview writes nothing to a project.
 
 A change of an option, the movie or the registration on the extraction page runs the review
-again, once a review has been shown. **Save report…** writes the JSON and the PNG report with
+again, once a review has been asked for, even when the last one was refused or failed; before
+the first, a change starts nothing. **Save report…** writes the JSON and the PNG report with
 [`write_report`][tether.services.apertures.write_report], the function ``tether apertures``
-calls, so the two write the same files.
+calls, so the two write the same files. A save that fails says so in the status bar, naming the
+file that failed and any file already written.
 
 The module imports no Qt at import time; the class imports it when it is built.
 """
@@ -85,6 +87,7 @@ class ApertureSection:
         self._review: ApertureReview | None = None
         self._frame: np.ndarray | None = None
         self._again = False
+        self._asked = False  # a review was asked for; a refused or failed one counts
         self._timer = QtCore.QTimer()
         self._timer.setSingleShot(True)
         self._timer.setInterval(_DEBOUNCE_MS)
@@ -210,6 +213,7 @@ class ApertureSection:
 
     def review(self) -> bool:
         """Start the review of the extraction page's movie; return whether it started."""
+        self._asked = True
         if self._tasks.busy:
             self._again = True
             return False
@@ -227,8 +231,12 @@ class ApertureSection:
         return task is not None
 
     def inputs_changed(self) -> None:
-        """Review again shortly, if a review is on show or runs: an input changed."""
-        if self._review is not None or self._tasks.busy:
+        """Review again shortly, once a review has been asked for: an input changed.
+
+        A refused input clears what is on show, so this follows the ask and not the review on
+        show: correcting the input then reviews again, as any other change does.
+        """
+        if self._asked or self._tasks.busy:
             self._timer.start()
 
     def _review_again(self) -> None:
@@ -315,13 +323,48 @@ class ApertureSection:
     ) -> list[Path]:
         """Write the report of the review on show, with the selected molecules' traces.
 
-        Raises ``ValueError`` when no review is on show.
+        Returns the files written. A file that cannot be written ends the save: the status bar
+        names it, its error and any file already written, and the return value lists only the
+        files written. Raises ``ValueError`` when no review is on show.
         """
+        import shutil
+        import tempfile
+
         if self._review is None or self._frame is None:
             raise ValueError("review the apertures first")
-        written = aperture_service.write_report(
-            self._review, self._frame, json_path, png_path, molecules=self.selected_molecules()
-        )
+        molecules = self.selected_molecules()
+        written: list[Path] = []
+        target = Path(json_path)
+        try:
+            # One file at a time, so a failure knows which files exist. The PNG goes through
+            # write_report too, the function the command line calls, so the two stay the same
+            # files; the JSON it writes beside the PNG is a throwaway copy.
+            written += aperture_service.write_report(
+                self._review, self._frame, target, molecules=molecules
+            )
+            if png_path is not None:
+                target = Path(png_path)
+                # A scratch folder that cannot be removed is not a failed save: the PNG is
+                # written by then, so its cleanup never raises.
+                scratch = Path(tempfile.mkdtemp())
+                try:
+                    aperture_service.write_report(
+                        self._review,
+                        self._frame,
+                        scratch / "report.json",
+                        target,
+                        molecules=molecules,
+                    )
+                    written.append(target)
+                finally:
+                    shutil.rmtree(scratch, ignore_errors=True)
+        except Exception as error:  # noqa: BLE001 - a slot: the status bar is the report
+            done = ", ".join(p.name for p in written) or "none"
+            self._status(
+                f"Aperture report not saved: could not write {target.name} ({error}); "
+                f"already written: {done}"
+            )
+            return written
         self._status("Aperture report written: " + ", ".join(p.name for p in written))
         return written
 
