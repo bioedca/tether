@@ -13,6 +13,7 @@ confirmed, and the page as the Import dock of the shell's Prepare section. No te
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 
@@ -230,10 +231,26 @@ def test_unwritable_and_unreadable_files_are_failed_commands(tmp_path, monkeypat
         mi.read_frame_times(tmp_path / "gone.tether")
 
     class Unreadable(type(tmp_path)):
-        def is_file(self):
+        def stat(self, *, follow_symlinks=True):
             raise PermissionError("no access")
 
     assert mi._missing(Unreadable(tmp_path / "x.tif")) == "file unreadable"
+
+
+@pytest.mark.parametrize(
+    ("error", "said"),
+    [
+        (FileNotFoundError(errno.ENOENT, "gone"), "file missing"),
+        (PermissionError(errno.EACCES, "no access"), "file unreadable"),
+        (OSError(errno.ELOOP, "too many links"), "file unreadable"),
+    ],
+)
+def test_only_a_path_that_is_not_there_reads_as_missing(tmp_path, monkeypatch, error, said) -> None:
+    def refuse(self, *, follow_symlinks=True):
+        raise error
+
+    monkeypatch.setattr(type(tmp_path), "stat", refuse)
+    assert mi._missing(tmp_path / "x.tif") == said
 
 
 # --- the page ---------------------------------------------------------------------------
@@ -582,3 +599,26 @@ def test_no_curation_write_while_a_source_is_linked_again(section_shell, monkeyp
     monkeypatch.setattr(ImportPage, "writing", property(lambda _self: True))
     assert shell._writable_project("Accept") is None
     assert "linked again" in shell.status_message
+
+
+@needs_qt
+def test_text_from_files_and_readers_shows_as_plain_text(page) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    plain = QtCore.Qt.TextFormat.PlainText
+    for label in (page._message, page._project_note, page._view_note):
+        assert label.textFormat() == plain
+    flags = page._message.textInteractionFlags()
+    assert flags & QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+
+
+@needs_qt
+def test_an_add_that_adds_nothing_keeps_the_draft(page, qtbot, tmp_path) -> None:
+    _add(page, qtbot, _write_movie(tmp_path / "a.tif"))
+    page.set_layout(mi.LayoutChoice(kind="top-bottom", donor="bottom"), "rotate 90")
+    junk = tmp_path / "junk.tif"
+    junk.write_bytes(b"not a movie")
+    _add(page, qtbot, junk)
+    assert "Added 0" not in page.message and "junk.tif" in page.message
+    assert page.view.frame.shape == (_W, _H)  # the draft, not the saved layout
+    assert page.entries[0].applied is False

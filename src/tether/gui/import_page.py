@@ -233,6 +233,7 @@ class ImportPage:
 
         self._view_note = QtWidgets.QLabel("Add a movie to see its first frame.")
         self._view_note.setWordWrap(True)
+        self._view_note.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self._view_note.setAccessibleName("Frame view note")
         layout.addWidget(self._view_note)
         self._plot = pg.PlotWidget()
@@ -267,6 +268,7 @@ class ImportPage:
         project_layout = QtWidgets.QVBoxLayout(project_box)
         self._project_note = QtWidgets.QLabel("Open a project to repair its sources.")
         self._project_note.setWordWrap(True)
+        self._project_note.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         project_layout.addWidget(self._project_note)
         self._source_table = _table(("Source", "Role", "State"), "Project sources")
         project_layout.addWidget(self._source_table)
@@ -292,6 +294,8 @@ class ImportPage:
 
         self._message = QtWidgets.QLabel()
         self._message.setWordWrap(True)
+        # File names and reader errors are never read as markup (#1528).
+        self._message.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self._message.setAccessibleName("Import message")
         self._message.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._message)
@@ -391,6 +395,9 @@ class ImportPage:
             self._say(f"Movies not added: {outcome.error}")
             return
         found, refused = outcome.value
+        if not found:  # keep the list and the draft as they are (#1528)
+            self._say(" ".join(f"Not added: {r}" for r in refused) or "No movie added.")
+            return
         current = None
         for description, frame in found:
             self._frames[description.path] = frame
