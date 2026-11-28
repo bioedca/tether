@@ -1429,8 +1429,10 @@ def extract_movie(
         default. ``None`` (default) uses the map's default (``map_frame_steps`` for a
         ``.tmap``, or the default a map file was saved with); an empty
         ``ChannelRecipe()`` (``"none"``) applies no steps even when the map has a
-        default. The steps and their source are recorded under ``frame_steps`` in the
-        movie's settings profile.
+        default. When the steps have a source (the movie's own, ``"none"`` included, or
+        the map's default), the steps and that source are recorded under
+        ``frame_steps`` in the movie's settings profile; with neither, no steps run and
+        nothing is recorded there.
     map_frame_steps:
         The default frame steps of the ``.tmap`` given as ``tmap``, which holds none of
         its own (#1435); ``frame_steps`` replaces it. It is refused without ``tmap``: a
@@ -1888,9 +1890,13 @@ def reextract_movie(
         The movie's own whole-frame steps, run before the channel split, as for
         [`extract_movie`][] (#1435); given steps replace both the map's default and the
         steps stored for the movie, and an empty ``ChannelRecipe()`` (``"none"``) applies
-        none. With ``None`` (default), the steps the movie was last extracted with are
-        used again: a movie's own steps always, and a map's default only when the map
-        used now has no default of its own (otherwise that map's default applies).
+        none, and that ``"none"`` is recorded, so a later re-extraction reuses it. With
+        ``None`` (default), the steps the movie was last extracted with are used again:
+        a movie's own steps always, and a map's default only when the map used now has
+        no default of its own (otherwise that map's default applies). A movie last
+        extracted with no steps from any source has no ``frame_steps`` record, so there
+        is nothing to reuse: the map used now gives its default if it has one, and
+        otherwise no steps run.
     map_frame_steps:
         The default frame steps of a ``.tmap``, which holds none of its own; refused
         without ``tmap``. As for [`extract_movie`][].
